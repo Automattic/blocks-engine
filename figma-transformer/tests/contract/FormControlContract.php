@@ -243,6 +243,17 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
                             )),
                         ),
                     ),
+                    array(
+                        'id'       => 'labeled:comment-field',
+                        'type'     => 'FRAME',
+                        'name'     => 'Input',
+                        'children' => array(
+                            array('id' => 'labeled:comment-label', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Comment', 'fontSize' => 14),
+                            array('id' => 'labeled:comment-input', 'type' => 'FRAME', 'name' => 'Input', 'width' => 420, 'height' => 128, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                                array('id' => 'labeled:comment-empty', 'type' => 'TEXT', 'name' => 'Text', 'characters' => '', 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
                     array('id' => 'labeled:submit', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 140, 'height' => 46, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
                         array('id' => 'labeled:submit-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Post Comment', 'fontSize' => 16),
                     )),
@@ -253,4 +264,5 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $labeledHtml = $fileContent($labeledResult, 'index.html');
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:name-input"') && str_contains($labeledHtml, 'aria-label="Name *"'), 'form-control-nearby-label-names-text-input');
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:email-input"') && str_contains($labeledHtml, 'type="email" name="email"') && str_contains($labeledHtml, 'aria-label="Email *"'), 'form-control-nearby-label-infers-email-input');
+    $assert(str_contains($labeledHtml, '<textarea class="figma-node-labeled-comment-input-input"') && str_contains($labeledHtml, 'aria-label="Comment"'), 'form-control-nearby-label-infers-comment-textarea');
 }

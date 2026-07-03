@@ -1001,7 +1001,7 @@ final class StaticHtmlEmitter
             return 'li';
         }
 
-        if ( $this->isTextareaLike($node) ) {
+        if ( $this->isTextareaLike($node, $parentNode) ) {
             return 'textarea';
         }
 
@@ -1630,7 +1630,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function isTextareaLike(array $node): bool
+    private function isTextareaLike(array $node, ?array $parentNode = null): bool
     {
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
             return false;
@@ -1642,7 +1642,8 @@ final class StaticHtmlEmitter
         }
 
         $placeholder = strtolower(trim($this->subtreePlainText($node)));
-        $haystack = $name . ' ' . $placeholder;
+        $label = strtolower($this->nearbyFormControlLabel($node, $parentNode));
+        $haystack = $name . ' ' . $placeholder . ' ' . $label;
         $hasTextareaIntent = str_contains($haystack, 'textarea')
             || str_contains($haystack, 'text area')
             || str_contains($haystack, 'message')
