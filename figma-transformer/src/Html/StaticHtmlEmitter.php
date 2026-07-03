@@ -153,6 +153,7 @@ final class StaticHtmlEmitter
             fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
             fn (array $node): bool => $this->hasAbsoluteChild($node),
             fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
+            $this->visualGeometryResolver(),
             $this->breakpointDimensionPolicy(),
         );
     }

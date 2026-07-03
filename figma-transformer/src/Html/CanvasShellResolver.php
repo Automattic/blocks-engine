@@ -21,6 +21,7 @@ final class CanvasShellResolver
         private readonly mixed $freeformContainerShouldUseFlow,
         private readonly mixed $hasAbsoluteChild,
         private readonly mixed $hasDecorativeFlexUnderlayChild,
+        private readonly VisualGeometryResolver $visualGeometryResolver,
         private readonly ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
     ) {
     }
@@ -40,6 +41,14 @@ final class CanvasShellResolver
         $canvasChildRole = null !== $parentNode
             ? $this->layoutFrameRoleClassifier->canvasChildRole($box, $layout, $parentNode, $parentUsesFluidCanvasCoordinates, $this->isFreeformContainer($parentNode))
             : LayoutFrameRoleClassifier::ROLE_INTRINSIC;
+        if (
+            null !== $parentNode
+            && $parentUsesFluidCanvasCoordinates
+            && LayoutFrameRoleClassifier::ROLE_INTRINSIC === $canvasChildRole
+            && $this->visualGeometryResolver->isVisualFullWidthCanvasChild($node, $parentNode, $this->isFreeformContainer($parentNode))
+        ) {
+            $canvasChildRole = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD;
+        }
         $fullBleedCanvasChild = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $canvasChildRole;
         $centeredWithinParentFluidCanvas = LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $canvasChildRole;
         $responsiveCenteredFlowWidth = $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode);
@@ -63,6 +72,7 @@ final class CanvasShellResolver
             $responsiveCenteredFlowShell,
             $fluidStretchCanvasChild,
             $responsiveCenteredFlowWidth,
+            $fullBleedCanvasChild && $this->visualGeometryResolver->isHorizontallyReflected($node),
         );
     }
 

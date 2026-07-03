@@ -62,6 +62,42 @@ final class VisualGeometryResolver
     }
 
     /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    public function isVisualFullWidthCanvasChild(array $node, array $parentNode, bool $parentIsFreeform): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $parentIsFreeform ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] <= 0.0 ) {
+            return false;
+        }
+
+        $rect = $this->childVisualRectInParent($node, $parentNode);
+        if ( null === $rect || array() === $rect ) {
+            return false;
+        }
+
+        $parentWidth = (float) $parentBox['width'];
+        return abs((float) $rect['x']) <= 1.0 && abs((float) $rect['width'] - $parentWidth) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    public function isHorizontallyReflected(array $node): bool
+    {
+        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $matrix = $this->cssTransformMatrixValues(is_array($box['transform'] ?? null) ? $box['transform'] : null);
+
+        return null !== $matrix && $matrix[0] < -0.00001;
+    }
+
+    /**
      * @param array{x: float|int, y: float|int, width: float|int, height: float|int} $rect
      * @param array{x: float|int, y: float|int, width: float|int, height: float|int} $clipRect
      * @return array{x: float, y: float, width: float, height: float}|null
@@ -158,5 +194,31 @@ final class VisualGeometryResolver
         $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
 
         return $this->rectIntersection($parentRect, $childRect);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array{x: float, y: float, width: float, height: float}|array{}|null
+     */
+    private function childVisualRectInParent(array $node, array $parentNode): ?array
+    {
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
+            return array();
+        }
+
+        $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null === $left || null === $top ) {
+            return array();
+        }
+
+        $nodeBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $matrix = $this->cssTransformMatrixValues(is_array($nodeBox['transform'] ?? null) ? $nodeBox['transform'] : null) ?? array(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+        $translated = array($matrix[0], $matrix[1], $matrix[2], $matrix[3], $matrix[4] + (float) $left, $matrix[5] + (float) $top);
+
+        return $this->transformedRect((float) $box['width'], (float) $box['height'], $translated);
     }
 }

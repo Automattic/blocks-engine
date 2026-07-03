@@ -19,6 +19,7 @@ final class CanvasShellDecision
         public readonly bool $responsiveCenteredFlowShell,
         public readonly bool $fluidStretchCanvasChild,
         public readonly bool $responsiveCenteredFlowWidth,
+        public readonly bool $fullBleedCanvasChildReflected = false,
     ) {
     }
 }

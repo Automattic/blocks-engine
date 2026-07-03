@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellResolver;
+use Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy;
+use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellDecision;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutFrameRoleClassifier;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\VisualGeometryResolver;
 
 /**
  * @param callable(bool, string): void $assert
@@ -46,6 +49,28 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $backgroundLayout = array('positioning' => 'absolute');
     $assert(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $classifier->canvasChildRole($backgroundBox, $backgroundLayout, $band, true, true), 'layout-frame-role-full-bleed-canvas-child');
 
+    $visualGeometry = new VisualGeometryResolver(new LayoutIntentClassifier());
+    $reflectedFullBleedChild = array(
+        'id'        => 'roles:reflected-bg',
+        'box'       => array('x' => 1440, 'y' => 0, 'width' => 1440, 'height' => 520),
+        'figma_box' => array('transform' => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0)),
+    );
+    $assert($visualGeometry->isVisualFullWidthCanvasChild($reflectedFullBleedChild, $band, true), 'layout-frame-role-reflected-visual-full-bleed-canvas-child');
+    $assert($visualGeometry->isHorizontallyReflected($reflectedFullBleedChild), 'layout-frame-role-reflected-visual-full-bleed-detects-horizontal-reflection');
+    $reflectedBreakoutDecision = (new BreakpointDimensionPolicy())->fullBleedViewportBreakoutDecision(new CanvasShellDecision(
+        LayoutFrameRoleClassifier::ROLE_INTRINSIC,
+        LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD,
+        true,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        true,
+    ));
+    $assert(in_array('margin-left:50vw', $reflectedBreakoutDecision['declarations'], true), 'layout-frame-role-reflected-full-bleed-breakout-anchors-end-edge');
+
     $contentShellBox = array('x' => 112, 'y' => 80, 'width' => 1216, 'height' => 240);
     $contentShellLayout = array('positioning' => 'absolute');
     $assert(LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $classifier->canvasChildRole($contentShellBox, $contentShellLayout, $band, true, true), 'layout-frame-role-centered-shell');
@@ -74,6 +99,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
             return false;
         },
         static fn (array $node): bool => true === (($node['layout']['has_decorative_underlay'] ?? false)),
+        $visualGeometry,
     );
     $freeformBand = $band;
     $freeformBand['layout']['freeform'] = true;
@@ -84,6 +110,12 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert($backgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-full-bleed-child');
     $assert('full_bleed_canvas_child_viewport_breakout' === $resolver->fullBleedViewportBreakoutDecision($backgroundDecision)['reason_code'], 'canvas-shell-decision-breakout-reason-code');
     $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($backgroundDecision), 'canvas-shell-decision-breakout-styles');
+
+    $reflectedBackgroundNode = array('id' => 'roles:reflected-bg', 'type' => 'FRAME', 'box' => $reflectedFullBleedChild['box'], 'figma_box' => $reflectedFullBleedChild['figma_box'], 'layout' => array());
+    $reflectedBackgroundDecision = $resolver->resolve($reflectedBackgroundNode, $freeformBand, $root);
+    $assert($reflectedBackgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-reflected-visual-full-bleed-child');
+    $assert($reflectedBackgroundDecision->fullBleedCanvasChildReflected, 'canvas-shell-decision-reflected-full-bleed-child-reflection-flag');
+    $assert(array('left:50%', 'margin-left:50vw') === $resolver->fullBleedViewportBreakoutStyles($reflectedBackgroundDecision), 'canvas-shell-decision-reflected-breakout-styles');
 
     $flowBand = $band;
     $flowBand['layout']['freeform_uses_flow'] = true;
