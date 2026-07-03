@@ -7,6 +7,43 @@ declare(strict_types=1);
  */
 function blocks_engine_figma_transformer_run_component_clone_emission_contract(callable $assert): void
 {
+    $cloneGeometry = new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ComponentSourceCloneGeometry();
+    $farCloneDecision = $cloneGeometry->decideGeometrySource(
+        array(
+            'figma_component_source_id' => 'component-source:far',
+            'box'                       => array('x' => 640, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'local'),
+        ),
+        array(
+            'box' => array('x' => 180, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'local'),
+        )
+    );
+    $assert(false === $farCloneDecision->useRefreshedGeometry, 'component-clone-source-decision-preserves-near-clone-x');
+    $assert('clone-geometry-preserved' === $farCloneDecision->reason, 'component-clone-source-decision-preserves-near-clone-reason');
+
+    $staleCloneDecision = $cloneGeometry->decideGeometrySource(
+        array(
+            'figma_component_source_id' => 'component-source:stale',
+            'box'                       => array('x' => 1640, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'local'),
+        ),
+        array(
+            'box' => array('x' => 180, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'local'),
+        )
+    );
+    $assert(true === $staleCloneDecision->useRefreshedGeometry, 'component-clone-source-decision-refreshes-far-clone-x');
+    $assert('clone-box-x-far-from-refreshed' === $staleCloneDecision->reason, 'component-clone-source-decision-refreshes-far-clone-reason');
+
+    $absoluteSourceDecision = $cloneGeometry->decideGeometrySource(
+        array(
+            'figma_component_source_id' => 'component-source:absolute',
+            'box'                       => array('x' => 1640, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'local'),
+        ),
+        array(
+            'box' => array('x' => 180, 'y' => 40, 'width' => 120, 'height' => 40, 'coordinate_space' => 'absolute'),
+        )
+    );
+    $assert(false === $absoluteSourceDecision->useRefreshedGeometry, 'component-clone-source-decision-rejects-absolute-source');
+    $assert('refreshed-box-not-parent-local' === $absoluteSourceDecision->reason, 'component-clone-source-decision-rejects-absolute-source-reason');
+
     $result = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Component Clone Emission Fixture',
         'nodes' => array(

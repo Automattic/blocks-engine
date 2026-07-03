@@ -1589,7 +1589,8 @@ final class ScenegraphNormalizer
         }
 
         $box = $node[$boxKey];
-        if ( ! $isRoot && $this->isComponentSourceCloneTransformDescendant($node, $box) ) {
+        $componentCloneDecision = $this->componentSourceClonePageLocalDecision($node, $box, $isRoot);
+        if ( 'restore-source-box' === $componentCloneDecision['action'] ) {
             $sourceBox = $node['_component_source_clone_source_box'];
             foreach ( array('x', 'y') as $dimension ) {
                 if ( isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) ) {
@@ -1601,7 +1602,7 @@ final class ScenegraphNormalizer
             $node[$boxKey] = $box;
             return $node;
         }
-        if ( ! $isRoot && $this->isComponentSourceCloneDescendant($node, $box) ) {
+        if ( 'preserve-parent-local' === $componentCloneDecision['action'] ) {
             $box = GeometryBox::withoutProvenance($box);
             $box['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
             $node[$boxKey] = $box;
@@ -1623,6 +1624,28 @@ final class ScenegraphNormalizer
 
         $node[$boxKey] = $box;
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @return array{action: string, reason: string}
+     */
+    private function componentSourceClonePageLocalDecision(array $node, array $box, bool $isRoot): array
+    {
+        if ( $isRoot ) {
+            return array('action' => 'normal-rebase', 'reason' => 'root-node');
+        }
+
+        if ( $this->isComponentSourceCloneTransformDescendant($node, $box) ) {
+            return array('action' => 'restore-source-box', 'reason' => 'component-clone-transform-source-box');
+        }
+
+        if ( $this->isComponentSourceCloneDescendant($node, $box) ) {
+            return array('action' => 'preserve-parent-local', 'reason' => 'component-clone-parent-local');
+        }
+
+        return array('action' => 'normal-rebase', 'reason' => 'not-component-clone');
     }
 
     /**
