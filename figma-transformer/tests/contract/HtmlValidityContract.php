@@ -34,6 +34,13 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
                                     array('id' => 'validity:news-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'News', 'fontSize' => 16),
                                 ),
                             ),
+                            array(
+                                'id'         => 'validity:packed-nav',
+                                'type'       => 'TEXT',
+                                'name'       => 'Main Nav Links',
+                                'characters' => 'News      About      Contact',
+                                'fontSize'   => 16,
+                            ),
                         ),
                     ),
                     array(
@@ -100,6 +107,16 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
                     array('id' => 'validity:about-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'About Us', 'fontSize' => 48),
                 ),
             ),
+            array(
+                'id'       => 'validity:contact',
+                'type'     => 'FRAME',
+                'name'     => 'Contact',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'validity:contact-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Contact', 'fontSize' => 48),
+                ),
+            ),
         ),
     );
 
@@ -108,12 +125,14 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
             array('frame_id' => 'validity:home', 'name' => 'Home Page', 'path' => 'index.html', 'entrypoint' => true, 'page_type' => 'front_page'),
             array('frame_id' => 'validity:archive', 'name' => 'News', 'path' => 'archive.html', 'page_type' => 'archive'),
             array('frame_id' => 'validity:about', 'name' => 'About Us', 'path' => 'page.html', 'page_type' => 'page'),
+            array('frame_id' => 'validity:contact', 'name' => 'Contact', 'path' => 'contact.html', 'page_type' => 'page'),
         ),
     ));
 
     $html = $fileContent($result, 'index.html');
     $links = $result['source_report']['transform_diagnostics']['links'] ?? array();
     $assert(str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><div class="figma-node-validity-news-item-menu-item"'), 'html-validity-menu-item-container-linked');
+    $assert(str_contains($html, 'class="figma-node-validity-packed-nav-main-nav-links" data-figma-node-id="validity:packed-nav" data-figma-node-name="Main Nav Links"><a class="figma-link" href="archive.html" data-figma-link-type="implicit-route">News</a>') && str_contains($html, '<a class="figma-link" href="page.html" data-figma-link-type="implicit-route">About</a>') && str_contains($html, '<a class="figma-link" href="contact.html" data-figma-link-type="implicit-route">Contact</a>'), 'html-validity-packed-route-text-splits-into-links');
     $assert(! str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><span class="figma-node-validity-news-text-text"'), 'html-validity-linked-menu-item-suppresses-descendant-anchor');
     $assert(1 === preg_match('/<a class="figma-link button" href="archive\.html" data-figma-link-type="implicit-route"><div class="[^"]*figma-node-validity-next-button-button/', $html), 'html-validity-linked-button-renders-structural-div');
     $assert(! str_contains($html, '<a class="figma-link button" href="archive.html" data-figma-link-type="implicit-route"><button'), 'html-validity-linked-button-not-anchor-wrapped-button');

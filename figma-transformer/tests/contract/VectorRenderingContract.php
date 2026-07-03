@@ -1348,6 +1348,14 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
                         'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
                     ),
                     array(
+                        'id'         => 'a11y:rounded-bg',
+                        'type'       => 'ROUNDED_RECTANGLE',
+                        'name'       => 'Rectangle 226',
+                        'width'      => 144,
+                        'height'     => 48,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.5, 'b' => 0.6, 'a' => 1))),
+                    ),
+                    array(
                         'id'       => 'a11y:logo',
                         'type'     => 'GROUP',
                         'name'     => 'Logo',
@@ -1371,5 +1379,6 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $decorativeA11yHtml = $fileContent($decorativeA11yResult, 'index.html');
     $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:decorative-vector"') && str_contains($decorativeA11yHtml, 'aria-hidden="true" focusable="false"') && ! str_contains($decorativeA11yHtml, 'aria-label="Vector 12"'), 'generic-decorative-vector-hidden-from-accessibility-tree');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:rounded-bg"') && str_contains($decorativeA11yHtml, 'aria-hidden="true" focusable="false"') && ! str_contains($decorativeA11yHtml, 'aria-label="Rectangle 226"'), 'generic-rounded-rectangle-background-hidden-from-accessibility-tree');
     $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:logo"') && str_contains($decorativeA11yHtml, 'role="img"') && str_contains($decorativeA11yHtml, 'aria-label="Logo"'), 'brand-vector-remains-accessible-image');
 }
