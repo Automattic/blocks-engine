@@ -754,6 +754,12 @@ final class StaticHtmlEmitter
                         continue;
                     }
                     $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
+                    if ( '' !== $childId && isset($childCompositionMaps['suppressed_child_ids'][$childId]) ) {
+                        $reason = $childCompositionMaps['suppressed_child_ids'][$childId];
+                        $this->suppressedVisualNodeIds[$childId] = $reason;
+                        $this->recordDecisionTrace('layout_suppression', $reason, $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
                     $child = $this->applyChildAssetComposition($child, $childId, $childCompositionMaps);
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         $this->recordDecisionTrace('layout_suppression', 'fully_clipped_decorative_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
@@ -884,19 +890,24 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<int, mixed> $children
-     * @return array{clip_paths: array<string, string>, image_mask_paths: array<string, string>}
+     * @return array{clip_paths: array<string, string>, image_mask_paths: array<string, string>, suppressed_child_ids: array<string, string>}
      */
     private function childAssetCompositionMaps(array $children): array
     {
+        $imageMaskComposition = $this->imageMaskComposition($children);
         return array(
             'clip_paths' => $this->simpleMaskClipPathsByTargetId($children),
-            'image_mask_paths' => $this->imageMaskPathsBySolidOverlayId($children),
+            'image_mask_paths' => $imageMaskComposition['mask_paths'],
+            'suppressed_child_ids' => array_merge(
+                $imageMaskComposition['source_ids'],
+                $this->samePathVectorStateDuplicateSuppressedChildIds($children)
+            ),
         );
     }
 
     /**
      * @param array<string, mixed> $child
-     * @param array{clip_paths: array<string, string>, image_mask_paths: array<string, string>} $compositionMaps
+     * @param array{clip_paths: array<string, string>, image_mask_paths: array<string, string>, suppressed_child_ids: array<string, string>} $compositionMaps
      * @return array<string, mixed>
      */
     private function applyChildAssetComposition(array $child, string $childId, array $compositionMaps): array
@@ -5631,10 +5642,11 @@ final class StaticHtmlEmitter
      * @param array<int, mixed> $children
      * @return array<string, string>
      */
-    private function imageMaskPathsBySolidOverlayId(array $children): array
+    private function imageMaskComposition(array $children): array
     {
         $nodes = array_values(array_filter($children, 'is_array'));
         $maskPaths = array();
+        $sourceIds = array();
         foreach ( $nodes as $node ) {
             if ( $this->isMaskOperatorNode($node) ) {
                 continue;
@@ -5651,14 +5663,125 @@ final class StaticHtmlEmitter
                 }
 
                 $assetPath = $this->nodeAssetPath($candidate);
-                if ( null !== $assetPath && $this->isSameBoxNode($node, $candidate) ) {
+                if ( null !== $assetPath && $this->isSameBoxNode($node, $candidate) && $this->isIconRecolorMaskComposition($node, $candidate, $assetPath) ) {
                     $maskPaths[$nodeId] = $assetPath;
+                    $sourceId = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
+                    if ( '' !== $sourceId ) {
+                        $sourceIds[$sourceId] = 'image_mask_alpha_source_suppressed';
+                    }
                     break;
                 }
             }
         }
 
-        return $maskPaths;
+        return array('mask_paths' => $maskPaths, 'source_ids' => $sourceIds);
+    }
+
+    /**
+     * @param array<string, mixed> $solidOverlay
+     * @param array<string, mixed> $assetSource
+     */
+    private function isIconRecolorMaskComposition(array $solidOverlay, array $assetSource, string $assetPath): bool
+    {
+        $box = is_array($solidOverlay['box'] ?? null) ? $solidOverlay['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null === $width || null === $height || $width > 128.0 || $height > 128.0 ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($solidOverlay['name'] ?? '') . ' ' . (string) ($assetSource['name'] ?? '') . ' ' . basename($assetPath));
+        return 1 === preg_match('/\b(icon|social|facebook|instagram|linkedin|twitter|youtube|tiktok|pinterest|logo|mask)\b/', $name)
+            || 'svg' === strtolower(pathinfo($assetPath, PATHINFO_EXTENSION));
+    }
+
+    /**
+     * @param array<int, mixed> $children
+     * @return array<string, string>
+     */
+    private function samePathVectorStateDuplicateSuppressedChildIds(array $children): array
+    {
+        $groups = array();
+        foreach ( array_values(array_filter($children, 'is_array')) as $child ) {
+            if ( false === ($child['visible'] ?? true) || $this->isMaskOperatorNode($child) ) {
+                continue;
+            }
+
+            $id = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
+            $signature = $this->samePathVectorStateSignature($child);
+            if ( '' === $id || null === $signature ) {
+                continue;
+            }
+
+            $groups[$signature][] = $id;
+        }
+
+        $suppressed = array();
+        foreach ( $groups as $ids ) {
+            if ( count($ids) < 2 ) {
+                continue;
+            }
+
+            foreach ( array_slice($ids, 1) as $id ) {
+                $suppressed[$id] = 'same_path_vector_state_duplicate_suppressed';
+            }
+        }
+
+        return $suppressed;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function samePathVectorStateSignature(array $node): ?string
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! $this->isUnsupportedVectorType($type) || ! $this->hasVisiblePaintCollection($node) ) {
+            return null;
+        }
+
+        $pathSignature = $this->vectorPathSignature($node);
+        if ( null === $pathSignature ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $boxParts = array();
+        foreach ( array('x', 'y', 'width', 'height') as $key ) {
+            $value = isset($box[$key]) && is_numeric($box[$key]) ? (float) $box[$key] : (in_array($key, array('x', 'y'), true) ? 0.0 : null);
+            if ( null === $value ) {
+                return null;
+            }
+            $boxParts[] = $key . ':' . $this->number(round($value, 1));
+        }
+
+        return $type . '|' . implode('|', $boxParts) . '|' . $pathSignature;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function vectorPathSignature(array $node): ?string
+    {
+        $paths = array();
+        foreach ( array('pathData', 'path_data', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                $paths[] = trim((string) $node[$key]);
+            }
+        }
+
+        foreach ( array('fillGeometry', 'strokeGeometry', 'figma_vector_paths') as $key ) {
+            if ( ! is_array($node[$key] ?? null) ) {
+                continue;
+            }
+            foreach ( $node[$key] as $entry ) {
+                if ( is_array($entry) && isset($entry['path']) && is_scalar($entry['path']) && '' !== trim((string) $entry['path']) ) {
+                    $paths[] = trim((string) $entry['path']);
+                }
+            }
+        }
+
+        if ( empty($paths) ) {
+            return null;
+        }
+
+        return hash('sha256', implode('|', array_values(array_unique($paths))));
     }
 
     /**

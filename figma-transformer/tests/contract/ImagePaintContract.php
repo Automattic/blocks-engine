@@ -97,11 +97,81 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageMaskOverlayHtml = $fileContent($imageMaskOverlayResult, 'index.html');
     $imageMaskOverlayCss = $fileContent($imageMaskOverlayResult, 'style.css');
     $imageMaskOverlayDiagnostics = $imageMaskOverlayResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
-    $assert(str_contains($imageMaskOverlayCss, '.figma-node-imagemask-asset-instagram-asset-layer{') && str_contains($imageMaskOverlayCss, 'background-image:url("assets/social-mask.svg")'), 'image-mask-social-asset-layer-emits-background-image');
+    $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:asset"'), 'image-mask-social-alpha-source-not-emitted-as-visible-underlay');
+    $assert(! str_contains($imageMaskOverlayCss, '.figma-node-imagemask-asset-instagram-asset-layer{'), 'image-mask-social-alpha-source-has-no-visible-css-underlay');
     $assert(str_contains($imageMaskOverlayCss, '.figma-node-imagemask-overlay-instagram-overlay{width:24px;height:24px;-webkit-mask-image:url("assets/social-mask.svg");mask-image:url("assets/social-mask.svg")'), 'image-mask-social-overlay-emits-css-mask');
     $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:asset" data-figma-node-name="Instagram asset layer"><svg') && ! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:overlay" data-figma-node-name="Instagram overlay"><svg'), 'image-mask-social-composition-does-not-emit-duplicate-svg-children');
     $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-unsupported-vector="true"'), 'image-mask-social-composition-has-no-placeholder-svg');
     $assert(0 === ($imageMaskOverlayDiagnostics['vectors']['placeholders'] ?? null), 'image-mask-social-composition-not-counted-as-vector-placeholder');
+    $assert(1 === ($imageMaskOverlayDiagnostics['decision_traces']['reason_counts']['image_mask_alpha_source_suppressed'] ?? null), 'image-mask-social-alpha-source-suppression-traced');
+
+    $vectorStateDuplicateResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Colocated Vector State Duplicate Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'state-dup:root',
+                'type'     => 'FRAME',
+                'name'     => 'Carousel Controls',
+                'width'    => 64,
+                'height'   => 64,
+                'children' => array(
+                    array(
+                        'id'       => 'state-dup:right-arrow-2',
+                        'type'     => 'VECTOR',
+                        'name'     => 'right-arrow 2',
+                        'x'        => 20,
+                        'y'        => 20,
+                        'width'    => 24,
+                        'height'   => 24,
+                        'pathData' => 'M4 12H20M14 6L20 12L14 18',
+                        'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 0.0, 'g' => 0.0, 'b' => 0.0, 'a' => 1))),
+                    ),
+                    array(
+                        'id'       => 'state-dup:right-arrow-3',
+                        'type'     => 'VECTOR',
+                        'name'     => 'right-arrow 3',
+                        'x'        => 20,
+                        'y'        => 20,
+                        'width'    => 24,
+                        'height'   => 24,
+                        'pathData' => 'M4 12H20M14 6L20 12L14 18',
+                        'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 0.9, 'g' => 0.1, 'b' => 0.1, 'a' => 1))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $vectorStateDuplicateHtml = $fileContent($vectorStateDuplicateResult, 'index.html');
+    $vectorStateDuplicateCss = $fileContent($vectorStateDuplicateResult, 'style.css');
+    $vectorStateDuplicateDiagnostics = $vectorStateDuplicateResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($vectorStateDuplicateHtml, 'data-figma-node-id="state-dup:right-arrow-2"'), 'same-path-vector-state-default-emitted');
+    $assert(! str_contains($vectorStateDuplicateHtml, 'data-figma-node-id="state-dup:right-arrow-3"'), 'same-path-vector-state-duplicate-not-emitted');
+    $assert(! str_contains($vectorStateDuplicateCss, '.figma-node-state-dup-right-arrow-3-right-arrow-3{'), 'same-path-vector-state-duplicate-has-no-visible-css');
+    $assert(1 === ($vectorStateDuplicateDiagnostics['decision_traces']['reason_counts']['same_path_vector_state_duplicate_suppressed'] ?? null), 'same-path-vector-state-duplicate-suppression-traced');
+
+    $largeImageTintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Large Image Tint Overlay Fixture',
+        'assets' => array(
+            'large-photo' => array('mime_type' => 'image/png', 'content' => 'large photo'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'large-tint:root',
+                'type'     => 'FRAME',
+                'name'     => 'Hero artwork',
+                'width'    => 480,
+                'height'   => 320,
+                'children' => array(
+                    array('id' => 'large-tint:photo', 'type' => 'RECTANGLE', 'name' => 'Hero photo', 'width' => 480, 'height' => 320, 'asset_id' => 'large-photo'),
+                    array('id' => 'large-tint:overlay', 'type' => 'RECTANGLE', 'name' => 'Hero tint overlay', 'width' => 480, 'height' => 320, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.35)))),
+                ),
+            ),
+        ),
+    ));
+    $largeImageTintHtml = $fileContent($largeImageTintResult, 'index.html');
+    $largeImageTintCss = $fileContent($largeImageTintResult, 'style.css');
+    $assert(str_contains($largeImageTintHtml, 'data-figma-node-id="large-tint:photo"'), 'large-image-tint-photo-underlay-still-emitted');
+    $assert(str_contains($largeImageTintCss, '.figma-node-large-tint-photo-hero-photo{') && str_contains($largeImageTintCss, 'background-image:url("assets/large-photo.png")'), 'large-image-tint-photo-underlay-keeps-background');
 
     $unusedAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Unused Asset Fixture',
