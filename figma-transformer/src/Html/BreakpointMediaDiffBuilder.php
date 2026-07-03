@@ -78,7 +78,7 @@ final class BreakpointMediaDiffBuilder
 
             $rules = array_merge(
                 $this->diffRules($baseStyles, $variantStyles),
-                $this->responsiveSafetyRules($baseStyles)
+                $this->responsiveSafetyRules($baseStyles, (float) $viewportWidth)
             );
             if ( empty($rules) ) {
                 $prevViewportWidth = (float) $viewportWidth;
@@ -233,7 +233,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, array<string, mixed>> $baseStyles
      * @return array<int, string>
      */
-    private function responsiveSafetyRules(array $baseStyles): array
+    private function responsiveSafetyRules(array $baseStyles, float $viewportWidth): array
     {
         $rules = array();
         foreach ( $baseStyles as $base ) {
@@ -245,7 +245,7 @@ final class BreakpointMediaDiffBuilder
                 continue;
             }
 
-            $declarations = $this->responsiveSafetyDeclarations($node, $parentNode, $baseMap);
+            $declarations = $this->responsiveSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth);
             if ( empty($declarations) ) {
                 continue;
             }
@@ -276,7 +276,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array<int, string>
      */
-    private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap): array
+    private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth): array
     {
         $name = strtolower(trim((string) ($node['name'] ?? '')));
         $parentName = null === $parentNode ? '' : strtolower(trim((string) ($parentNode['name'] ?? '')));
@@ -327,7 +327,95 @@ final class BreakpointMediaDiffBuilder
             return array('width:100%', 'max-width:100%');
         }
 
+        if ( $viewportWidth <= 480.0 ) {
+            $mobileDeclarations = $this->genericMobileSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth, $isContainer, $width, $positioning, $display);
+            if ( ! empty($mobileDeclarations) ) {
+                return $mobileDeclarations;
+            }
+        }
+
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function genericMobileSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, bool $isContainer, ?float $width, string $positioning, string $display): array
+    {
+        $mobileContentWidth = max(1.0, $viewportWidth - 48.0);
+        if ( ! $isContainer || null === $parentNode || null === $width || $width <= min(340.0, $mobileContentWidth) || empty(($this->nodeList)($node)) ) {
+            return array();
+        }
+
+        $declarations = array();
+        $hasContainerChild = false;
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
+                $hasContainerChild = true;
+                break;
+            }
+        }
+
+        if ( 'absolute' === $positioning ) {
+            if ( $width > $mobileContentWidth ) {
+                $declarations[] = 'width:calc(100% - 48px)';
+                $declarations[] = 'max-width:' . ($this->number)($width) . 'px';
+                $declarations[] = 'left:24px';
+                $declarations[] = 'right:auto';
+                $declarations[] = 'height:auto';
+
+                if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) && $hasContainerChild ) {
+                    $declarations[] = 'flex-direction:column';
+                    $declarations[] = 'align-items:stretch';
+                    $declarations[] = 'flex-wrap:nowrap';
+                }
+
+                foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+                    $property = 'padding-' . $edge;
+                    $padding = $this->cssPixelValue($baseMap[$property] ?? '');
+                    if ( null !== $padding && $padding > 24.0 ) {
+                        $declarations[] = $property . ':24px';
+                    }
+                }
+            }
+
+            return $declarations;
+        }
+
+        $declarations[] = 'width:100%';
+        $declarations[] = 'max-width:100%';
+
+        if ( $hasContainerChild ) {
+            $declarations[] = 'height:auto';
+        }
+
+        if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) && $hasContainerChild ) {
+            $declarations[] = 'flex-direction:column';
+            $declarations[] = 'align-items:stretch';
+            $declarations[] = 'flex-wrap:nowrap';
+        }
+
+        if ( in_array($display, array('grid', 'inline-grid'), true) && $hasContainerChild ) {
+            $declarations[] = 'grid-template-columns:1fr';
+        }
+
+        foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+            $property = 'padding-' . $edge;
+            $padding = $this->cssPixelValue($baseMap[$property] ?? '');
+            if ( null !== $padding && $padding > 24.0 ) {
+                $declarations[] = $property . ':24px';
+            }
+        }
+
+        return $declarations;
     }
 
     /**

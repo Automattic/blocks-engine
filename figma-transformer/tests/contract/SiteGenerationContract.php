@@ -1250,6 +1250,86 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     // The single-variant About page contributes NO media override for its nodes.
     $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
 
+    $responsiveMismatchScenegraph = array(
+        'name'  => 'Responsive Mismatched Mobile Site',
+        'nodes' => array(
+            $responsiveEmitFrame('mismatch:desktop', 'Mismatch Desktop', 1440.0, 1800.0, array(
+                array(
+                    'id'       => 'mismatch:desktop:shell',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content shell',
+                    'box'      => array('width' => 1180.0, 'height' => 420.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'item_spacing' => 24.0, 'padding' => array('top' => 48.0, 'right' => 48.0, 'bottom' => 48.0, 'left' => 48.0)),
+                    'children' => array(
+                        array('id' => 'mismatch:desktop:card-a', 'type' => 'FRAME', 'name' => 'Feature card A', 'box' => array('width' => 360.0, 'height' => 260.0), 'children' => array(
+                            array('id' => 'mismatch:desktop:card-a-copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => 'Desktop card A', 'box' => array('width' => 260.0, 'height' => 24.0), 'fontSize' => 16),
+                        )),
+                        array('id' => 'mismatch:desktop:card-b', 'type' => 'FRAME', 'name' => 'Feature card B', 'box' => array('width' => 360.0, 'height' => 260.0), 'children' => array(
+                            array('id' => 'mismatch:desktop:card-b-copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => 'Desktop card B', 'box' => array('width' => 260.0, 'height' => 24.0), 'fontSize' => 16),
+                        )),
+                    ),
+                ),
+                array(
+                    'id'       => 'mismatch:desktop:absolute-card',
+                    'type'     => 'FRAME',
+                    'name'     => 'Floating promo card',
+                    'box'      => array('x' => 112.0, 'y' => 520.0, 'width' => 980.0, 'height' => 240.0),
+                    'layout'   => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row'),
+                    'children' => array(
+                        array('id' => 'mismatch:desktop:absolute-inner', 'type' => 'FRAME', 'name' => 'Promo inner', 'box' => array('width' => 420.0, 'height' => 120.0)),
+                    ),
+                ),
+            )),
+            $responsiveEmitFrame('mismatch:mobile', 'Mismatch Mobile', 390.0, 2200.0, array(
+                array(
+                    'id'       => 'mismatch:mobile:renamed-stack',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile stack',
+                    'box'      => array('width' => 342.0, 'height' => 720.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'column', 'item_spacing' => 20.0, 'padding' => array('top' => 24.0, 'right' => 24.0, 'bottom' => 24.0, 'left' => 24.0)),
+                    'children' => array(
+                        array('id' => 'mismatch:mobile:renamed-card-one', 'type' => 'FRAME', 'name' => 'Mobile feature one', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                        array('id' => 'mismatch:mobile:renamed-card-two', 'type' => 'FRAME', 'name' => 'Mobile feature two', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                    ),
+                ),
+                array(
+                    'id'       => 'mismatch:mobile:renamed-promo',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile promo',
+                    'box'      => array('x' => 24.0, 'y' => 780.0, 'width' => 342.0, 'height' => 280.0),
+                    'layout'   => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'column'),
+                    'children' => array(
+                        array('id' => 'mismatch:mobile:promo-inner', 'type' => 'FRAME', 'name' => 'Promo inner mobile', 'box' => array('width' => 294.0, 'height' => 180.0)),
+                    ),
+                ),
+            )),
+        ),
+    );
+    $responsiveMismatchResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveMismatchScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'mismatch:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'mismatch:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+                    array('frame_id' => 'mismatch:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false, 'order' => 1),
+                ),
+            ),
+        ),
+    ));
+    $responsiveMismatchCss = '';
+    foreach ( $responsiveMismatchResult['files'] ?? array() as $responsiveMismatchFile ) {
+        if ( is_array($responsiveMismatchFile) && 'style.css' === ($responsiveMismatchFile['path'] ?? null) ) {
+            $responsiveMismatchCss = (string) ($responsiveMismatchFile['content'] ?? '');
+        }
+    }
+    $responsiveMismatchMobileBlock = substr($responsiveMismatchCss, strpos($responsiveMismatchCss, '@media'));
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-shell-content-shell{width:calc(100% - 48px);max-width:1180px;left:24px;right:auto;height:auto;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px}'), 'responsive-emit-mobile-generic-mismatched-row-stacks-and-clamps-padding');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:980px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
+
     $responsiveIdentityScenegraph = array(
         'name'  => 'Responsive Source Identity Site',
         'nodes' => array(
