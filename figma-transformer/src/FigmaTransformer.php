@@ -1092,6 +1092,11 @@ final class FigmaTransformer
             'unresolved'         => 0,
             'unresolved_targets' => array(),
         );
+        $css = array(
+            'schema' => 'blocks-engine/figma-transformer/css-diagnostics/v1',
+            'invalid_numeric_token_count' => 0,
+            'invalid_numeric_tokens' => array(),
+        );
 
         foreach ( $pageReports as $page ) {
             $diagnostics = is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array();
@@ -1121,6 +1126,10 @@ final class FigmaTransformer
             $pageLinks = is_array($diagnostics['links'] ?? null) ? $diagnostics['links'] : array();
             DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'unresolved'));
             DiagnosticAggregation::appendContextSamples($links, 'unresolved_targets', $pageLinks, 'unresolved_targets', $pageContext);
+
+            $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
+            DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
+            DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
@@ -1252,7 +1261,8 @@ final class FigmaTransformer
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
             'links' => $links,
-            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links),
+            'css' => $css,
+            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css),
             'diagnostic_codes' => $diagnosticCodes,
         );
     }
@@ -1265,9 +1275,10 @@ final class FigmaTransformer
      * @param array<string, mixed> $generatedSvgAssets
      * @param array<string, mixed> $layout
      * @param array<string, mixed> $links
+     * @param array<string, mixed> $css
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array()): array
+    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $css = array()): array
     {
         $signals = array();
 
@@ -1326,6 +1337,14 @@ final class FigmaTransformer
                 'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
             );
         }
+        if ( ! empty($css['invalid_numeric_token_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_numeric_token',
+                'count' => (int) $css['invalid_numeric_token_count'],
+                'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
+            );
+        }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
         $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
@@ -1351,7 +1370,7 @@ final class FigmaTransformer
             );
         }
 
-        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
         $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
@@ -1386,6 +1405,7 @@ final class FigmaTransformer
                 'link_sources_found' => (int) ($links['sources_found'] ?? 0),
                 'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
+                'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),

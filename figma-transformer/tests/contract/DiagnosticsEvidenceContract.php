@@ -32,6 +32,32 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(! in_array('decoded_text_not_emitted', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-missing-text-signal');
     $assert(! in_array('clipped_visual_area', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-clipped-area-signal');
 
+    $invalidCssQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(
+            'invalid_numeric_token_count' => 2,
+            'invalid_numeric_tokens' => array(
+                array('token' => 'NaN', 'offset' => 12),
+                array('token' => 'Infinity', 'offset' => 40),
+            ),
+        )
+    );
+    $invalidCssCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), is_array($invalidCssQuality['signals'] ?? null) ? $invalidCssQuality['signals'] : array());
+    $assert(in_array('invalid_css_numeric_token', $invalidCssCodes, true), 'diagnostics-evidence-invalid-css-quality-signal');
+    $assert('needs_review' === ($invalidCssQuality['status'] ?? null), 'diagnostics-evidence-invalid-css-not-clean');
+    $assert('fail' === ($invalidCssQuality['quality_status'] ?? null), 'diagnostics-evidence-invalid-css-quality-fail');
+    $assert(2 === ($invalidCssQuality['summary']['invalid_css_numeric_tokens'] ?? null), 'diagnostics-evidence-invalid-css-summary-count');
+
     $clippedResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Clipped Fixture',
         'nodes' => array(
@@ -234,4 +260,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
     $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
     $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
+    $assert('fail' === ($multiPageDiagnostics['artifact_quality']['quality_status'] ?? null), 'diagnostics-evidence-multi-page-source-loss-quality-fail');
+    $assert(in_array('missing_render_assets', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($multiPageResult), true), 'diagnostics-evidence-multi-page-source-loss-missing-assets-signal');
+    $assert(in_array('vector_placeholders', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($multiPageResult), true), 'diagnostics-evidence-multi-page-source-loss-vector-signal');
 }

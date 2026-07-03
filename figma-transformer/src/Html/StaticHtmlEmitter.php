@@ -3248,6 +3248,7 @@ final class StaticHtmlEmitter
 
         $text = $this->textCoverageDiagnostics($nodes, $html);
         $links = $this->linkDiagnostics();
+        $cssDiagnostics = $this->cssDiagnostics($css);
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
@@ -3263,8 +3264,31 @@ final class StaticHtmlEmitter
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
             'links' => $links,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping),
+            'css' => $cssDiagnostics,
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function cssDiagnostics(string $css): array
+    {
+        $tokens = array();
+        if ( 1 === preg_match_all('/(?<![a-z0-9_-])(?:nan|(?:-)?inf(?:inity)?)(?![a-z0-9_-])/i', $css, $matches, PREG_OFFSET_CAPTURE) ) {
+            foreach ( $matches[0] as $match ) {
+                $tokens[] = array(
+                    'token' => (string) $match[0],
+                    'offset' => (int) $match[1],
+                );
+            }
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/css-diagnostics/v1',
+            'invalid_numeric_token_count' => count($tokens),
+            'invalid_numeric_tokens' => array_slice($tokens, 0, 25),
         );
     }
 

@@ -21,9 +21,10 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $components
      * @param array<string, mixed> $effects
      * @param array<string, mixed> $maskEffectClipping
+     * @param array<string, mixed> $css
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array()): array
     {
         $signals = array();
 
@@ -175,8 +176,16 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($vectors['child_composition']['sample_nodes'] ?? null) ? $vectors['child_composition']['sample_nodes'] : array(), 0, 10),
             );
         }
+        if ( ! empty($css['invalid_numeric_token_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_numeric_token',
+                'count' => (int) $css['invalid_numeric_token_count'],
+                'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
+            );
+        }
 
-        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
         $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
@@ -238,6 +247,7 @@ final class TransformDiagnosticsBuilder
                 'clipped_effect_nodes' => (int) ($maskEffectClipping['clipped_effect_node_count'] ?? 0),
                 'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),
                 'uncomposed_vector_child_nodes' => (int) ($vectors['child_composition']['uncomposed_vector_child_node_count'] ?? 0),
+                'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
             ),
         );
     }
