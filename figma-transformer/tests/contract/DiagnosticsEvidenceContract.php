@@ -454,7 +454,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
                         'width'    => 320,
                         'height'   => 180,
                         'children' => array(
-                            array('id' => 'diag:aggregation-home-image', 'type' => 'RECTANGLE', 'name' => 'Missing Home Asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-home'),
+                            array('id' => 'diag:aggregation-home-image', 'type' => 'RECTANGLE', 'name' => 'Missing Home Asset', 'width' => 80, 'height' => 60, 'layout' => array('positioning' => 'absolute'), 'asset_id' => 'missing-home'),
                             array('id' => 'diag:aggregation-home-vector', 'type' => 'VECTOR', 'name' => 'Unsupported Home Vector', 'width' => 24, 'height' => 24),
                         ),
                     ),
@@ -465,7 +465,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
                         'width'    => 320,
                         'height'   => 180,
                         'children' => array(
-                            array('id' => 'diag:aggregation-about-image', 'type' => 'RECTANGLE', 'name' => 'Missing About Asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-about'),
+                            array('id' => 'diag:aggregation-about-image', 'type' => 'RECTANGLE', 'name' => 'Missing About Asset', 'width' => 80, 'height' => 60, 'layout' => array('positioning' => 'absolute'), 'asset_id' => 'missing-about'),
                             array('id' => 'diag:aggregation-about-vector', 'type' => 'VECTOR', 'name' => 'Unsupported About Vector', 'width' => 24, 'height' => 24),
                         ),
                     ),
@@ -493,6 +493,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
     $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
     $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('decision_traces', 'schema'), 'blocks-engine/figma-transformer/decision-traces/v1', 'diagnostics-evidence-multi-page-decision-traces-schema');
+    $assert(2 <= ($multiPageDiagnostics['decision_traces']['domain_counts']['positioning_context'] ?? 0), 'diagnostics-evidence-multi-page-decision-traces-positioning-aggregated');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('layout', 'positional_parity', 'schema'), 'blocks-engine/figma-transformer/positional-parity/v1', 'diagnostics-evidence-multi-page-positional-parity-schema');
+    $assert(2 <= ($multiPageDiagnostics['layout']['positional_parity']['root_stacking_trace_count'] ?? 0), 'diagnostics-evidence-multi-page-positional-stacking-aggregated');
+    $assert('index.html' === ($multiPageDiagnostics['layout']['positional_parity']['decision_trace_samples'][0]['page_path'] ?? null), 'diagnostics-evidence-multi-page-positional-sample-context');
     $sourceLossCoverage = $multiPageDiagnostics['artifact_quality']['summary']['source_loss_coverage'] ?? array();
     $sourceLossSignal = blocks_engine_figma_transformer_contract_artifact_quality_signal($multiPageResult, 'source_loss_coverage_gap');
     $assert(4 === ($sourceLossCoverage['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');

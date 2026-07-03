@@ -1149,6 +1149,27 @@ final class FigmaTransformer
             'invalid_numeric_token_count' => 0,
             'invalid_numeric_tokens' => array(),
         );
+        $decisionTraces = array(
+            'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
+            'trace_count' => 0,
+            'reason_counts' => array(),
+            'domain_counts' => array(),
+            'samples' => array(),
+        );
+        $positionalParity = array(
+            'schema' => 'blocks-engine/figma-transformer/positional-parity/v1',
+            'full_bleed_viewport_width_count' => 0,
+            'full_bleed_breakout_count' => 0,
+            'mirrored_transform_count' => 0,
+            'reflected_full_bleed_count' => 0,
+            'fixed_over_root_width_underlay_count' => 0,
+            'fixed_over_root_width_underlays' => array(),
+            'chrome_overflow_count' => 0,
+            'chrome_overflow_nodes' => array(),
+            'root_stacking_trace_count' => 0,
+            'root_stacking_reason_counts' => array(),
+            'decision_trace_samples' => array(),
+        );
 
         foreach ( $pageReports as $page ) {
             $diagnostics = is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array();
@@ -1183,9 +1204,11 @@ final class FigmaTransformer
             $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
             DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
             DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
+            $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
+            $this->mergePositionalParityDiagnostics($positionalParity, is_array($pageLayout['positional_parity'] ?? null) ? $pageLayout['positional_parity'] : array(), $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'large_css_offset_nodes', $pageLayout, 'large_css_offset_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'off_canvas_visual_nodes', $pageLayout, 'off_canvas_visual_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'large_absolute_offset_nodes', $pageLayout, 'large_absolute_offset_nodes', $pageContext);
@@ -1284,6 +1307,13 @@ final class FigmaTransformer
             $layout['render_style']['status'] = 'not_run';
             $layout['render_style_mismatch_status'] = 'not_run';
         }
+        ksort($decisionTraces['reason_counts']);
+        ksort($decisionTraces['domain_counts']);
+        ksort($positionalParity['root_stacking_reason_counts']);
+        $positionalParity['fixed_over_root_width_underlays'] = array_slice(array_values($positionalParity['fixed_over_root_width_underlays']), 0, 25);
+        $positionalParity['chrome_overflow_nodes'] = array_slice(array_values($positionalParity['chrome_overflow_nodes']), 0, 25);
+        $positionalParity['decision_trace_samples'] = array_slice(array_values($positionalParity['decision_trace_samples']), 0, 100);
+        $layout['positional_parity'] = $positionalParity;
         ksort($diagnosticCodes);
         $fontResolution = ( new FontResolver() )->resolve($fontUsage, $fontCssSupplied ? 'operator-supplied' : '');
         $fonts = array(
@@ -1315,11 +1345,48 @@ final class FigmaTransformer
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'decision_traces' => $decisionTraces,
             'links' => $links,
             'css' => $css,
             'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css),
             'diagnostic_codes' => $diagnosticCodes,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $target
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $pageContext
+     */
+    private function mergeDecisionTraceDiagnostics(array &$target, array $source, array $pageContext): void
+    {
+        $target['trace_count'] = (int) ($target['trace_count'] ?? 0) + (int) ($source['trace_count'] ?? 0);
+        DiagnosticAggregation::addCounterMap($target['reason_counts'], is_array($source['reason_counts'] ?? null) ? $source['reason_counts'] : array());
+        DiagnosticAggregation::addCounterMap($target['domain_counts'], is_array($source['domain_counts'] ?? null) ? $source['domain_counts'] : array());
+        DiagnosticAggregation::appendContextSamples($target, 'samples', $source, 'samples', $pageContext);
+        $target['samples'] = array_slice($target['samples'], 0, 100);
+    }
+
+    /**
+     * @param array<string, mixed> $target
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $pageContext
+     */
+    private function mergePositionalParityDiagnostics(array &$target, array $source, array $pageContext): void
+    {
+        DiagnosticAggregation::addIntegerCounts($target, $source, array(
+            'full_bleed_viewport_width_count',
+            'full_bleed_breakout_count',
+            'mirrored_transform_count',
+            'reflected_full_bleed_count',
+            'fixed_over_root_width_underlay_count',
+            'chrome_overflow_count',
+            'root_stacking_trace_count',
+        ));
+        DiagnosticAggregation::addCounterMap($target['root_stacking_reason_counts'], is_array($source['root_stacking_reason_counts'] ?? null) ? $source['root_stacking_reason_counts'] : array());
+        DiagnosticAggregation::appendContextSamples($target, 'fixed_over_root_width_underlays', $source, 'fixed_over_root_width_underlays', $pageContext);
+        DiagnosticAggregation::appendContextSamples($target, 'chrome_overflow_nodes', $source, 'chrome_overflow_nodes', $pageContext);
+        DiagnosticAggregation::appendContextSamples($target, 'decision_trace_samples', $source, 'decision_trace_samples', $pageContext);
     }
 
     /**
