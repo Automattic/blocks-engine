@@ -34,6 +34,10 @@ final class CssPositioningResolver
         $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
         $centerInsetVisualChild = null !== $node && null !== $parentNode && $this->isInsetSingleVisualChild($node, $parentNode);
+        if ( null !== $node ) {
+            $left = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'y', $top);
+        }
         if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
             $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
             $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
@@ -139,6 +143,38 @@ final class CssPositioningResolver
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function componentSourceCloneScalarOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
+    {
+        if ( null === $offset || ! isset($node['figma_component_source_id']) || ! is_scalar($node['figma_component_source_id']) || '' === (string) $node['figma_component_source_id'] ) {
+            return $offset;
+        }
+
+        if ( 'page' !== ($box['local_origin'] ?? null) || ! isset($node[$dimension]) || ! is_numeric($node[$dimension]) ) {
+            return $offset;
+        }
+
+        $scalar = (float) $node[$dimension];
+        $sizeKey = 'x' === $dimension ? 'width' : 'height';
+        if ( isset($parentBox[$sizeKey], $box[$sizeKey]) && is_numeric($parentBox[$sizeKey]) && is_numeric($box[$sizeKey]) ) {
+            $parentSize = (float) $parentBox[$sizeKey];
+            $boxSize = (float) $box[$sizeKey];
+            if ( $parentSize > 0.0 && $boxSize > 0.0 ) {
+                $offsetFitsParent = $offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5;
+                $scalarFitsParent = $scalar >= -0.5 && $scalar + $boxSize <= $parentSize + 0.5;
+                if ( $offsetFitsParent || ! $scalarFitsParent ) {
+                    return $offset;
+                }
+            }
+        }
+
+        return abs($offset - $scalar) > 0.5 ? $scalar : $offset;
     }
 
     /**

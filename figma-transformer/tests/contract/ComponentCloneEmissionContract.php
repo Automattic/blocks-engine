@@ -32,6 +32,33 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(true === $staleCloneDecision->useRefreshedGeometry, 'component-clone-source-decision-refreshes-far-clone-x');
     $assert('clone-box-x-far-from-refreshed' === $staleCloneDecision->reason, 'component-clone-source-decision-refreshes-far-clone-reason');
 
+    $stalePageLocalCloneDecision = $cloneGeometry->decideGeometrySource(
+        array(
+            'figma_component_source_id' => 'component-source:page-local-stale',
+            'x'                         => 1180,
+            'y'                         => 72,
+            'box'                       => array('x' => 1774, 'y' => 2387, 'width' => 225, 'height' => 48, 'coordinate_space' => 'local', 'local_origin' => 'page'),
+        ),
+        array(
+            'box' => array('x' => 1180, 'y' => 72, 'width' => 225, 'height' => 48, 'coordinate_space' => 'local'),
+        )
+    );
+    $assert(true === $stalePageLocalCloneDecision->useRefreshedGeometry, 'component-clone-source-decision-refreshes-box-scalar-conflict');
+    $assert('clone-box-x-disagrees-with-scalar' === $stalePageLocalCloneDecision->reason, 'component-clone-source-decision-refreshes-box-scalar-conflict-reason');
+
+    $scalarPositioning = new Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver(
+        new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier(),
+        static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')
+    );
+    $scalarStyles = $scalarPositioning->styles(
+        array('x' => 1774, 'y' => 2387, 'width' => 225, 'height' => 48, 'coordinate_space' => 'local', 'local_origin' => 'page'),
+        array('freeform' => true),
+        array('box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145), 'layout' => array('freeform' => true)),
+        array('figma_component_source_id' => 'component-source:page-local-css', 'x' => 1180, 'y' => 72)
+    );
+    $assert(in_array('left:1180px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-x');
+    $assert(in_array('top:72px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-y');
+
     $absoluteSourceDecision = $cloneGeometry->decideGeometrySource(
         array(
             'figma_component_source_id' => 'component-source:absolute',

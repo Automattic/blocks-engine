@@ -13,6 +13,8 @@ final class ComponentSourceCloneGeometryDecision
     public const REASON_CLONE_NOT_COMPONENT_SOURCE = 'clone-not-component-source';
     public const REASON_CLONE_BOX_X_FAR_FROM_REFRESHED = 'clone-box-x-far-from-refreshed';
     public const REASON_CLONE_BOX_Y_FAR_FROM_REFRESHED = 'clone-box-y-far-from-refreshed';
+    public const REASON_CLONE_BOX_X_DISAGREES_WITH_SCALAR = 'clone-box-x-disagrees-with-scalar';
+    public const REASON_CLONE_BOX_Y_DISAGREES_WITH_SCALAR = 'clone-box-y-disagrees-with-scalar';
     public const REASON_CLONE_X_FAR_FROM_REFRESHED = 'clone-x-far-from-refreshed';
     public const REASON_CLONE_Y_FAR_FROM_REFRESHED = 'clone-y-far-from-refreshed';
     public const REASON_CLONE_GEOMETRY_PRESERVED = 'clone-geometry-preserved';

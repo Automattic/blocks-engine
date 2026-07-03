@@ -195,6 +195,16 @@ final class ComponentSourceCloneGeometry
         }
 
         foreach ( array('x', 'y') as $dimension ) {
+            if ( $this->cloneBoxDisagreesWithMatchingScalar($clone, $cloneBox, $refreshedBox, $dimension) ) {
+                return new ComponentSourceCloneGeometryDecision(
+                    true,
+                    'x' === $dimension ? ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_X_DISAGREES_WITH_SCALAR : ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_Y_DISAGREES_WITH_SCALAR,
+                    $dimension,
+                    $refreshedCoordinateSpace,
+                    true
+                );
+            }
+
             if ( isset($cloneBox[$dimension], $refreshedBox[$dimension]) && is_numeric($cloneBox[$dimension]) && is_numeric($refreshedBox[$dimension]) && abs((float) $cloneBox[$dimension] - (float) $refreshedBox[$dimension]) >= 1000.0 ) {
                 return new ComponentSourceCloneGeometryDecision(
                     true,
@@ -222,6 +232,24 @@ final class ComponentSourceCloneGeometry
             $refreshedCoordinateSpace,
             true
         );
+    }
+
+    /**
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $cloneBox
+     * @param array<string, mixed> $refreshedBox
+     */
+    private function cloneBoxDisagreesWithMatchingScalar(array $clone, array $cloneBox, array $refreshedBox, string $dimension): bool
+    {
+        if ( ! isset($clone[$dimension], $cloneBox[$dimension], $refreshedBox[$dimension]) || ! is_numeric($clone[$dimension]) || ! is_numeric($cloneBox[$dimension]) || ! is_numeric($refreshedBox[$dimension]) ) {
+            return false;
+        }
+
+        $cloneScalar = (float) $clone[$dimension];
+        $cloneBoxCoordinate = (float) $cloneBox[$dimension];
+        $refreshedCoordinate = (float) $refreshedBox[$dimension];
+
+        return abs($cloneBoxCoordinate - $cloneScalar) > 0.5 && abs($cloneScalar - $refreshedCoordinate) <= 0.5;
     }
 
     /**
