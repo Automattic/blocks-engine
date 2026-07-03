@@ -61,6 +61,42 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(array() === ($systemFontResolution['unresolved_families'] ?? null), 'sf-pro-text-system-font-not-missing-css');
     $assert('web_safe' === ($systemFontResolution['coverage'][0]['resolution'] ?? null), 'sf-pro-text-system-font-resolution-reported');
 
+    $avenirFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Avenir',
+            'weights' => array(400, 500, 800),
+            'text_node_count' => 3,
+            'visible_text_area_px' => 2400,
+            'sample_nodes' => array(
+                array('node_id' => 'text:avenir-regular', 'name' => 'Avenir regular', 'weight' => 400),
+                array('node_id' => 'text:avenir-medium', 'name' => 'Avenir medium', 'weight' => 500),
+                array('node_id' => 'text:avenir-heavy', 'name' => 'Avenir heavy', 'weight' => 800),
+            ),
+        ),
+    ));
+    $assert(array() === ($avenirFontResolution['unresolved_families'] ?? null), 'avenir-system-font-not-missing-css');
+    $assert('web_safe' === ($avenirFontResolution['coverage'][0]['resolution'] ?? null), 'avenir-system-font-resolution-reported');
+    $assert(false === ($avenirFontResolution['coverage'][0]['needs_operator_font'] ?? null), 'avenir-system-font-does-not-need-operator-font');
+    $assert('Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif' === ($avenirFontResolution['coverage'][0]['fallback_stack'] ?? null), 'avenir-system-font-stack-reported');
+
+    $avenirCssResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Avenir Font Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:avenir-heavy',
+                'type'       => 'TEXT',
+                'name'       => 'Avenir Heavy',
+                'characters' => 'Avenir heavy text',
+                'fontName'   => array('family' => 'Avenir', 'style' => 'Heavy'),
+                'fontWeight' => 800,
+                'fontSize'   => 18,
+            ),
+        ),
+    ));
+    $avenirCss = $fileContent($avenirCssResult, 'style.css');
+    $assert(str_contains($avenirCss, 'font-family:Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif'), 'avenir-system-font-stack-emitted-css');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $avenirCssResult, 'font_css_missing_for_source_font', 'avenir-system-font-no-missing-css-signal');
+
     $derivedTextLayoutScenegraph = array(
         'name'  => 'Derived Text Layout Fixture',
         'blobs' => array(

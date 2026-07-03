@@ -6,6 +6,7 @@ return array(
     'arial'                  => array('generic' => 'sans-serif', 'stack' => 'Arial, Helvetica, sans-serif'),
     'arial black'            => array('generic' => 'sans-serif', 'stack' => '"Arial Black", "Arial Bold", Gadget, sans-serif'),
     'arial narrow'           => array('generic' => 'sans-serif', 'stack' => '"Arial Narrow", Arial, sans-serif'),
+    'avenir'                 => array('generic' => 'sans-serif', 'stack' => 'Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif'),
     'baskerville'            => array('generic' => 'serif', 'stack' => 'Baskerville, "Baskerville Old Face", "Hoefler Text", Garamond, "Times New Roman", serif'),
     'big caslon'             => array('generic' => 'serif', 'stack' => '"Big Caslon", "Book Antiqua", "Palatino Linotype", Georgia, serif'),
     'book antiqua'           => array('generic' => 'serif', 'stack' => '"Book Antiqua", Palatino, "Palatino Linotype", Georgia, serif'),

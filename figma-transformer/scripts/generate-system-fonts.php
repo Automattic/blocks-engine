@@ -68,6 +68,7 @@ $source = array(
     'Trebuchet MS'          => '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Tahoma, sans-serif',
     'Calibri'               => 'Calibri, "Segoe UI", Candara, Optima, sans-serif',
     'Candara'               => 'Candara, Calibri, "Segoe UI", Optima, sans-serif',
+    'Avenir'                => 'Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif',
     'Optima'                => 'Optima, Candara, "Segoe UI", sans-serif',
     'Gill Sans'             => '"Gill Sans", "Gill Sans MT", Calibri, "Trebuchet MS", sans-serif',
     'Gill Sans MT'          => '"Gill Sans MT", "Gill Sans", Calibri, "Trebuchet MS", sans-serif',
