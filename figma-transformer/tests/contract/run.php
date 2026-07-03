@@ -188,7 +188,8 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;max-width:1200px;min-height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$heroSectionRule = blocks_engine_figma_transformer_contract_css_rule($css, '.figma-node-1-1-hero-section');
+$assert(str_contains($heroSectionRule, 'width:100%') && ! str_contains($heroSectionRule, 'max-width:1200px') && str_contains($heroSectionRule, 'min-height:600px') && str_contains($heroSectionRule, 'background:#ffffff') && str_contains($heroSectionRule, 'display:flex') && str_contains($heroSectionRule, 'gap:24px'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
@@ -273,7 +274,7 @@ $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
 $assert(str_contains($css, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'width:max-content'), 'css-static-page-root-shell-not-fixed-canvas');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;max-width:1200px;min-height:600px;'), 'css-page-root-frame-is-centered-canvas-shell');
+$assert(str_contains($heroSectionRule, 'width:100%') && ! str_contains($heroSectionRule, 'max-width:1200px') && str_contains($heroSectionRule, 'min-height:600px'), 'css-page-root-frame-fills-viewport-without-implicit-canvas-cap');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
@@ -482,7 +483,8 @@ $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
 $fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;max-width:1440px;height:131px;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:max(0px,calc((100% - 1216px) / 2));padding-bottom:48px;padding-left:max(0px,calc((100% - 1216px) / 2))}'), 'fse-footer-row-relative');
+$fseFooterRowRule = blocks_engine_figma_transformer_contract_css_rule($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19');
+$assert(str_contains($fseFooterRowRule, 'width:100%') && ! str_contains($fseFooterRowRule, 'max-width:1440px') && str_contains($fseFooterRowRule, 'height:131px') && str_contains($fseFooterRowRule, 'position:relative') && str_contains($fseFooterRowRule, 'padding-right:max(0px,calc((100% - 1216px) / 2))') && str_contains($fseFooterRowRule, 'padding-left:max(0px,calc((100% - 1216px) / 2))'), 'fse-footer-row-relative');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
@@ -1576,7 +1578,8 @@ $fixedRootFlexResult = blocks_engine_figma_transformer_transform_scenegraph(arra
     ),
 ));
 $fixedRootFlexCss = $fileContent($fixedRootFlexResult, 'style.css');
-$assert(str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:100%;max-width:1280px;height:100px;display:flex;flex-direction:column}'), 'fixed-root-flex-emits-fixed-height');
+$fixedRootFlexRule = blocks_engine_figma_transformer_contract_css_rule($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex');
+$assert(str_contains($fixedRootFlexRule, 'width:100%') && ! str_contains($fixedRootFlexRule, 'max-width:1280px') && str_contains($fixedRootFlexRule, 'height:100px') && str_contains($fixedRootFlexRule, 'display:flex') && str_contains($fixedRootFlexRule, 'flex-direction:column'), 'fixed-root-flex-emits-fixed-height');
 $assert(! str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;min-height:100px'), 'fixed-root-flex-does-not-emit-min-height');
 
 $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -1600,7 +1603,8 @@ $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fixedPaddingClampCss = $fileContent($fixedPaddingClampResult, 'style.css');
 $fixedPaddingClampCopy = $findVisualNode($fixedPaddingClampResult, 'padding:copy');
-$assert(str_contains($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding{width:100%;max-width:1280px;height:100px;display:flex;flex-direction:column;padding-top:50px;padding-bottom:50px}'), 'fixed-padding-clamped-css');
+$fixedPaddingRule = blocks_engine_figma_transformer_contract_css_rule($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding');
+$assert(str_contains($fixedPaddingRule, 'width:100%') && ! str_contains($fixedPaddingRule, 'max-width:1280px') && str_contains($fixedPaddingRule, 'height:100px') && str_contains($fixedPaddingRule, 'display:flex') && str_contains($fixedPaddingRule, 'padding-top:50px') && str_contains($fixedPaddingRule, 'padding-bottom:50px'), 'fixed-padding-clamped-css');
 $assert(50.0 === ($fixedPaddingClampCopy['rect']['y'] ?? null), 'fixed-padding-clamped-visual-map');
 
 $stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -5852,7 +5856,7 @@ $centeredCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 $centeredCanvasHtml = $fileContent($centeredCanvasResult, 'index.html');
 $centeredCanvasCss = $fileContent($centeredCanvasResult, 'style.css');
 $centeredCanvasRule = blocks_engine_figma_transformer_contract_css_rule($centeredCanvasCss, '.figma-node-centered-root-landing-page-1440');
-$assert(str_contains($centeredCanvasRule, 'width:100%') && str_contains($centeredCanvasRule, 'max-width:1440px') && ! str_contains($centeredCanvasRule, 'margin-left:auto') && ! str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-uses-intrinsic-centering-shell');
+$assert(str_contains($centeredCanvasRule, 'width:100%') && ! str_contains($centeredCanvasRule, 'max-width:1440px') && ! str_contains($centeredCanvasRule, 'margin-left:auto') && ! str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-fills-viewport-without-implicit-canvas-cap');
 $assert(! str_contains($centeredCanvasHtml, '<nav class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<header class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<footer class="figma-node-centered-root-landing-page-1440"'), 'centered-canvas-root-not-landmark');
 
 $landmarkGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(

@@ -5348,13 +5348,10 @@ final class StaticHtmlEmitter
                 $styles[] = 'width:100vw';
             } elseif ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
                 // Full-page roots and matching first-level bands should occupy the
-                // available width. Top-level desktop canvases also need their
-                // intrinsic width as the centering shell so absolute children using
-                // calc(50% +/- n) stay anchored to the designed canvas center.
+                // available width. Root frames keep explicit source max-width
+                // constraints, but their intrinsic canvas width is not a viewport
+                // cap; capping it clips full-bleed breakout children on wide screens.
                 $styles[] = 'width:100%';
-                if ( null === $parentNode && isset($box['width']) && is_numeric($box['width']) && ! $this->isFiniteNumeric($layout['max_width'] ?? null) ) {
-                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
-                }
             } elseif ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
                 $styles[] = 'width:auto';
             } elseif ( 'width' === $dimension && $responsiveCenteredFlowShell && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode) && isset($box['width']) && is_numeric($box['width']) ) {
