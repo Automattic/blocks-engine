@@ -775,6 +775,38 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M12 4L26 4 26 10 12 10Z"'), 'boolean-union-parent-path-includes-child-wordmark');
     $assert(! str_contains($booleanUnionWithParentPathHtml, 'd="M0 0L30 0 30 20 0 20Z"'), 'boolean-union-parent-path-skips-collapsed-parent');
 
+    $perCornerRoundedRectResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Per Corner Rounded Rect Fixture',
+        'nodes' => array(
+            array(
+                'id'                  => 'vector:per-corner-rounded-rect',
+                'type'                => 'ROUNDED_RECTANGLE',
+                'name'                => 'Per Corner Card',
+                'width'               => 40,
+                'height'              => 20,
+                'rectangleCornerRadii' => array(8, 4, 0, 10),
+                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
+            ),
+            array(
+                'id'         => 'vector:normalized-per-corner-rounded-rect',
+                'type'       => 'ROUNDED_RECTANGLE',
+                'name'       => 'Normalized Per Corner Card',
+                'width'      => 40,
+                'height'     => 20,
+                'rectangleTopLeftCornerRadius' => 3,
+                'rectangleTopRightCornerRadius' => 6,
+                'rectangleBottomRightCornerRadius' => 9,
+                'rectangleBottomLeftCornerRadius' => 0,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.6, 'g' => 0.4, 'b' => 0.2))),
+            ),
+        ),
+    ));
+    $perCornerRoundedRectHtml = $fileContent($perCornerRoundedRectResult, 'index.html');
+    $assert(str_contains($perCornerRoundedRectHtml, 'data-figma-node-id="vector:per-corner-rounded-rect"') && str_contains($perCornerRoundedRectHtml, 'data-figma-vector="true"'), 'per-corner-rounded-rect-renders-svg');
+    $assert(str_contains($perCornerRoundedRectHtml, '<path d="M 8 0 L 36 0 Q 40 0 40 4 L 40 20 Q 40 20 40 20 L 10 20 Q 0 20 0 10 L 0 8 Q 0 0 8 0 Z" fill="#336699"'), 'per-corner-rounded-rect-preserves-corner-radii-path');
+    $assert(! str_contains($perCornerRoundedRectHtml, '<rect x="0" y="0" width="40" height="20" rx="0"'), 'per-corner-rounded-rect-does-not-collapse-to-min-radius');
+    $assert(str_contains($perCornerRoundedRectHtml, '<path d="M 3 0 L 34 0 Q 40 0 40 6 L 40 11 Q 40 20 31 20 L 0 20 Q 0 20 0 20 L 0 3 Q 0 0 3 0 Z" fill="#996633"'), 'normalized-per-corner-rounded-rect-preserves-box-radii-path');
+
     $booleanUnionTransformOffsetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Boolean Union Transform Offset Fixture',
         'nodes' => array(

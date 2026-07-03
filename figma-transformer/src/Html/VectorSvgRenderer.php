@@ -779,6 +779,11 @@ final class VectorSvgRenderer
             return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
         if ( in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE'), true) ) {
+            $roundedRectPath = $this->primitiveRoundedRectPath($node, $width, $height);
+            if ( null !== $roundedRectPath ) {
+                return array('<path d="' . $this->sanitizeAttribute($roundedRectPath) . '" ' . implode(' ', $paint) . '/>');
+            }
+
             $attributes = array('x="0"', 'y="0"', 'width="' . $this->number($width) . '"', 'height="' . $this->number($height) . '"');
             $radius = $this->cornerRadius($node, $width, $height);
             if ( $radius > 0.0 ) {
@@ -1096,6 +1101,64 @@ final class VectorSvgRenderer
         }
 
         return 3;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function primitiveRoundedRectPath(array $node, float $width, float $height): ?string
+    {
+        $radii = is_array($node['rectangleCornerRadii'] ?? null) ? $node['rectangleCornerRadii'] : null;
+        if ( null === $radii ) {
+            $radii = is_array($node['cornerRadii'] ?? null) ? $node['cornerRadii'] : null;
+        }
+        if ( null === $radii ) {
+            $sourceRadii = array(
+                $node['topLeftRadius'] ?? $node['rectangleTopLeftCornerRadius'] ?? null,
+                $node['topRightRadius'] ?? $node['rectangleTopRightCornerRadius'] ?? null,
+                $node['bottomRightRadius'] ?? $node['rectangleBottomRightCornerRadius'] ?? null,
+                $node['bottomLeftRadius'] ?? $node['rectangleBottomLeftCornerRadius'] ?? null,
+            );
+            if ( array_filter($sourceRadii, 'is_numeric') ) {
+                $uniformRadius = isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ? (float) $node['cornerRadius'] : 0.0;
+                $radii = array_map(
+                    static fn (mixed $value): mixed => is_numeric($value) ? $value : $uniformRadius,
+                    $sourceRadii
+                );
+            }
+        }
+        if ( null === $radii ) {
+            return null;
+        }
+
+        $radii = array_values($radii);
+        if ( count($radii) < 4 ) {
+            return null;
+        }
+
+        $maxRadius = min($width / 2, $height / 2);
+        $topLeft = $this->cornerRadiusValue($radii[0], $maxRadius);
+        $topRight = $this->cornerRadiusValue($radii[1], $maxRadius);
+        $bottomRight = $this->cornerRadiusValue($radii[2], $maxRadius);
+        $bottomLeft = $this->cornerRadiusValue($radii[3], $maxRadius);
+        if ( abs($topLeft - $topRight) < 0.0001 && abs($topLeft - $bottomRight) < 0.0001 && abs($topLeft - $bottomLeft) < 0.0001 ) {
+            return null;
+        }
+
+        return 'M ' . $this->number($topLeft) . ' 0'
+            . ' L ' . $this->number($width - $topRight) . ' 0'
+            . ' Q ' . $this->number($width) . ' 0 ' . $this->number($width) . ' ' . $this->number($topRight)
+            . ' L ' . $this->number($width) . ' ' . $this->number($height - $bottomRight)
+            . ' Q ' . $this->number($width) . ' ' . $this->number($height) . ' ' . $this->number($width - $bottomRight) . ' ' . $this->number($height)
+            . ' L ' . $this->number($bottomLeft) . ' ' . $this->number($height)
+            . ' Q 0 ' . $this->number($height) . ' 0 ' . $this->number($height - $bottomLeft)
+            . ' L 0 ' . $this->number($topLeft)
+            . ' Q 0 0 ' . $this->number($topLeft) . ' 0 Z';
+    }
+
+    private function cornerRadiusValue(mixed $value, float $maxRadius): float
+    {
+        return is_numeric($value) ? max(0.0, min((float) $value, $maxRadius)) : 0.0;
     }
 
     private function safeSvgPathData(string $path, int $maxBytes = self::MAX_RAW_SVG_PATH_DATA_BYTES): ?string
