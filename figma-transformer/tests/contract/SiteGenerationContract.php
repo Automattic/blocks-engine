@@ -360,6 +360,44 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{width:100%;height:483px;min-height:483px;position:relative}'), 'geometry-responsive-footer-shell-preserves-freeform-reserved-height');
     $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{height:auto}'), 'geometry-responsive-footer-shell-safety-uses-freeform-children');
 
+    $responsiveHeaderChromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Header Chrome Fixture',
+        'nodes' => array(
+            array('id' => 'chrome-header:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-header:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 127, 'children' => array(
+                    array('id' => 'chrome-header:desktop-row', 'type' => 'FRAME', 'name' => 'Header row', 'x' => 112, 'y' => 24, 'width' => 1216, 'height' => 79, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-header:desktop-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'width' => 96, 'height' => 24, 'fontSize' => 20),
+                        array('id' => 'chrome-header:desktop-nav', 'type' => 'FRAME', 'name' => 'Primary nav', 'width' => 420, 'height' => 24, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                            array('id' => 'chrome-header:desktop-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                            array('id' => 'chrome-header:desktop-nav-contact', 'type' => 'TEXT', 'name' => 'Contact link', 'characters' => 'Contact', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                        )),
+                    )),
+                )),
+            )),
+            array('id' => 'chrome-header:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-header:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 160, 'children' => array(
+                    array('id' => 'chrome-header:mobile-row', 'type' => 'FRAME', 'name' => 'Header row', 'x' => 24, 'y' => 24, 'width' => 342, 'height' => 112, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-header:mobile-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'width' => 96, 'height' => 24, 'fontSize' => 20),
+                        array('id' => 'chrome-header:mobile-nav', 'type' => 'FRAME', 'name' => 'Primary nav', 'width' => 210, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                            array('id' => 'chrome-header:mobile-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                            array('id' => 'chrome-header:mobile-nav-contact', 'type' => 'TEXT', 'name' => 'Contact link', 'characters' => 'Contact', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                        )),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'chrome-header:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'chrome-header:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $responsiveHeaderChromeCss = $fileContent($responsiveHeaderChromeResult, 'style.css');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{height:auto;min-height:127px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row{width:100%;max-width:100%;height:auto;position:relative;left:auto;right:auto;top:auto;justify-content:flex-start;align-items:center;flex-wrap:wrap;gap:16px'), 'responsive-header-inner-safety-is-generic-not-frame-name');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
+
     $fixedSocialFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fixed Social Footer Breakpoint Fixture',
         'nodes' => array(

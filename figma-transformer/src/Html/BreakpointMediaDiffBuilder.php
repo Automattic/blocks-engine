@@ -348,6 +348,10 @@ final class BreakpointMediaDiffBuilder
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $declarations);
         }
 
+        if ( $this->isNavigationShellName($name) && $isContainer ) {
+            return array('reason_code' => 'responsive_navigation_shell_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
+        }
+
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
             return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
         }
@@ -528,6 +532,16 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $declarations;
+    }
+
+    private function isHeaderChromeShellName(string $name): bool
+    {
+        return (bool) preg_match('/^(?:header|site\s+header|page\s+header|main\s+header|masthead|top\s*bar|site\s*chrome)$/', $name);
+    }
+
+    private function isNavigationShellName(string $name): bool
+    {
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu)(?:[^a-z0-9]|$)/', $name);
     }
 
     /**
