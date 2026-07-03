@@ -16,7 +16,8 @@ final class VisualNodeMapBuilder
      */
     public function __construct(
         private readonly array $assetsById = array(),
-        private readonly bool $renderTextGlyphPaths = false
+        private readonly bool $renderTextGlyphPaths = false,
+        private readonly array $emittedNodeMetadata = array()
     ) {
         $this->layoutIntentClassifier = new LayoutIntentClassifier($assetsById);
     }
@@ -92,6 +93,12 @@ final class VisualNodeMapBuilder
                 // Figma Dev Mode status (#280) surfaced for the diagnostics map.
                 'dev_status' => isset($node['dev_status']) && is_string($node['dev_status']) ? $node['dev_status'] : null,
             );
+            $emittedMetadata = $this->emittedMetadataForNode((string) ($node['id'] ?? ''));
+            if ( ! empty($emittedMetadata) ) {
+                $entry['emitted_class'] = $emittedMetadata['class'] ?? null;
+                $entry['emitted_tag'] = $emittedMetadata['tag'] ?? null;
+                $entry['page_path'] = $emittedMetadata['page_path'] ?? null;
+            }
             if ( null !== $visibleRect && $visibleRect !== $nodeRect ) {
                 $entry['visible_rect'] = $visibleRect;
                 $entry['clip'] = array('source' => 'parent_clips_content');
@@ -164,6 +171,18 @@ final class VisualNodeMapBuilder
                 $this->appendVisualNodeMap($child, $map, $childX + $position['cross'], $childY + $position['main'], $node, $childClipRect, $nodeTransform ?? $parentTransform);
             }
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emittedMetadataForNode(string $nodeId): array
+    {
+        if ( '' === $nodeId || ! isset($this->emittedNodeMetadata[$nodeId]) || ! is_array($this->emittedNodeMetadata[$nodeId]) ) {
+            return array();
+        }
+
+        return $this->emittedNodeMetadata[$nodeId];
     }
 
     private function visualFlexChildPositions(array $children, array $layout, bool $isFlex, bool $isRow, string $mainAxis, string $crossAxis, ?float $contentMainSize, ?float $contentCrossSize, float $gap): array

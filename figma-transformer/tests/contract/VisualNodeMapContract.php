@@ -52,6 +52,77 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
     $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+    $emittedClassResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Node Emitted Class Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'visual-emitted:page',
+                'type'     => 'FRAME',
+                'name'     => 'Evidence Page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array(
+                        'id'         => 'visual-emitted:title',
+                        'type'       => 'TEXT',
+                        'name'       => 'Traceable Title',
+                        'text'       => 'Traceable title',
+                        'width'      => 180,
+                        'height'     => 32,
+                        'fontSize'   => 24,
+                        'fontWeight' => 700,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $emittedClassNode = blocks_engine_figma_transformer_contract_find_visual_node($emittedClassResult, 'visual-emitted:title');
+    $emittedClassHtml = blocks_engine_figma_transformer_contract_file_content($emittedClassResult, 'index.html');
+    $emittedClassCss = blocks_engine_figma_transformer_contract_file_content($emittedClassResult, 'style.css');
+    $assert('figma-node-visual-emitted-title-traceable-title' === ($emittedClassNode['emitted_class'] ?? null), 'visual-map-emitted-class-json-hook');
+    $assert('h2' === ($emittedClassNode['emitted_tag'] ?? null), 'visual-map-emitted-class-json-tag');
+    $assert('index.html' === ($emittedClassNode['page_path'] ?? null), 'visual-map-emitted-class-json-page-path');
+    $assert(str_contains($emittedClassHtml, 'class="figma-node-visual-emitted-title-traceable-title" data-figma-node-id="visual-emitted:title"'), 'visual-map-emitted-class-html-hook');
+    $assert(str_contains($emittedClassCss, '.figma-node-visual-emitted-title-traceable-title{'), 'visual-map-emitted-class-css-hook');
+
+    $multiPageEmittedClassResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Visual Node Multi Page Emitted Class Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'visual-emitted:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'visual-emitted:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home Page',
+                        'width'    => 320,
+                        'height'   => 160,
+                        'children' => array(
+                            array('id' => 'visual-emitted:home-title', 'type' => 'TEXT', 'name' => 'Home Title', 'text' => 'Home', 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'visual-emitted:about',
+                        'type'     => 'FRAME',
+                        'name'     => 'About Page',
+                        'width'    => 320,
+                        'height'   => 160,
+                        'children' => array(
+                            array('id' => 'visual-emitted:about-title', 'type' => 'TEXT', 'name' => 'About Title', 'text' => 'About', 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('visual-emitted:home', 'visual-emitted:about'), 'entry_frame_id' => 'visual-emitted:home'));
+    $multiPageAboutNode = blocks_engine_figma_transformer_contract_find_visual_node($multiPageEmittedClassResult, 'visual-emitted:about-title');
+    $multiPageAboutHtml = blocks_engine_figma_transformer_contract_file_content($multiPageEmittedClassResult, 'about-page.html');
+    $assert('about-page.html' === ($multiPageAboutNode['page_path'] ?? null), 'visual-map-emitted-class-multi-page-path');
+    $assert('figma-node-visual-emitted-about-title-about-title' === ($multiPageAboutNode['emitted_class'] ?? null), 'visual-map-emitted-class-multi-page-class');
+    $assert(str_contains($multiPageAboutHtml, 'class="figma-node-visual-emitted-about-title-about-title" data-figma-node-id="visual-emitted:about-title"'), 'visual-map-emitted-class-multi-page-html-hook');
+
     $reverseZIndexResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Reverse Z Index Auto Layout Fixture',
         'nodes' => array(

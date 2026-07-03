@@ -245,6 +245,14 @@ final class StaticHtmlEmitter
     private array $nodeReadableNames = array();
 
     /**
+     * Source node id => emitted DOM metadata used to connect result JSON back to
+     * the emitted HTML/CSS artifact.
+     *
+     * @var array<string, array{class: string, tag: string, page_path: string}>
+     */
+    private array $emittedNodeMetadata = array();
+
+    /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
      * @return array<string, mixed>
@@ -256,6 +264,7 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
+        $this->emittedNodeMetadata = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->implicitRoutePaths = array();
@@ -264,10 +273,11 @@ final class StaticHtmlEmitter
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
+        $pagePath = (string) ($options['static_site_page_path'] ?? 'index.html');
         $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
-        $this->prepareHeadingAnchors($nodes, 'index.html');
+        $this->prepareHeadingAnchors($nodes, $pagePath);
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
@@ -311,7 +321,7 @@ final class StaticHtmlEmitter
                 'path'      => 'index.html',
                 'role'      => 'entrypoint',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, (string) ($options['static_site_page_path'] ?? 'index.html'), html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, $pagePath, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
             ),
             array(
                 'path'      => 'style.css',
@@ -381,6 +391,7 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
+        $this->emittedNodeMetadata = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
@@ -633,6 +644,13 @@ final class StaticHtmlEmitter
             $tag = 'div';
         }
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
+        if ( '' !== $id ) {
+            $this->emittedNodeMetadata[$id] = array(
+                'class'     => $className,
+                'tag'       => $tag,
+                'page_path' => $this->currentPagePath,
+            );
+        }
         $children = $this->nodeList($node);
         $content = $text;
         $nodeIntroducesLink = ! $insideLink && $this->nodeWouldWrapWithLink($node, $parentNode);
@@ -3234,7 +3252,7 @@ final class StaticHtmlEmitter
      */
     private function visualNodeMap(array $nodes): array
     {
-        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths))->build($nodes);
+        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths, $this->emittedNodeMetadata))->build($nodes);
     }
 
     /**

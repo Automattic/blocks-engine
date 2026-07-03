@@ -579,6 +579,7 @@ final class FigmaTransformer
         $cssChunks = array();
         $cssChunkIndexesByPath = array();
         $pageReports = array();
+        $visualNodeMap = array();
         $fontFamilies = array();
         $fontUsage = array();
         $fontCssSupplied = false;
@@ -632,6 +633,12 @@ final class FigmaTransformer
             $pageFontFamilies = is_array($pageHtmlReport['font_families'] ?? null) ? $pageHtmlReport['font_families'] : array();
             $pageFontUsage = is_array($pageHtmlReport['font_usage'] ?? null) ? $pageHtmlReport['font_usage'] : array();
             $pageTransformDiagnostics = is_array($pageHtmlReport['transform_diagnostics'] ?? null) ? $pageHtmlReport['transform_diagnostics'] : array();
+            $pageVisualNodeMap = is_array($pageHtmlReport['visual_node_map'] ?? null) ? array_values($pageHtmlReport['visual_node_map']) : array();
+            foreach ( $pageVisualNodeMap as $visualNode ) {
+                if ( is_array($visualNode) ) {
+                    $visualNodeMap[] = $visualNode;
+                }
+            }
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, $pageFontFamilies);
             $fontUsage = $this->mergeFontUsage($fontUsage, $pageFontUsage);
             $fontCssSupplied = $fontCssSupplied || true === ($pageHtmlReport['font_css_supplied'] ?? false);
@@ -675,6 +682,8 @@ final class FigmaTransformer
                 'font_families' => $pageFontFamilies,
                 'font_usage' => $pageFontUsage,
                 'font_css_supplied' => true === ($pageHtmlReport['font_css_supplied'] ?? false),
+                'visual_node_count' => count($pageVisualNodeMap),
+                'visual_node_map' => $pageVisualNodeMap,
                 'transform_diagnostics' => $pageTransformDiagnostics,
                 'diagnostic_codes' => $this->diagnosticCodeCounts($pageDiagnostics),
             );
@@ -714,6 +723,8 @@ final class FigmaTransformer
             'source_report' => array(
                 'pages' => $pageReports,
                 'page_plan' => $pagePlan,
+                'visual_node_count' => count($visualNodeMap),
+                'visual_node_map' => $visualNodeMap,
                 'font_families' => $fontFamilies,
                 'font_usage' => $fontUsage,
                 'font_css_supplied' => $fontCssSupplied,
