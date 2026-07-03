@@ -7455,6 +7455,8 @@ foreach ( $mobileSafetyBreakpointResult['files'] ?? array() as $mobileSafetyBrea
 $assert('success' === ($mobileSafetyBreakpointResult['status'] ?? null), 'mobile-safety-breakpoint-transform-success');
 $assert(str_contains($mobileSafetyBreakpointCss, '@media (max-width:390px){'), 'mobile-safety-breakpoint-keyed-at-phone-width');
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\)/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-leak-to-midpoint');
+$assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\);max-width:342px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-clamps-source-max-width-to-phone-content');
+$assert(! preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*max-width:900px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-emit-desktop-source-max-width');
 
 $paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Pagination Semantics Fixture',
@@ -7829,7 +7831,7 @@ foreach ( $responsiveSafetyResult['files'] ?? array() as $responsiveSafetyFile )
 $assert('success' === ($responsiveSafetyResult['status'] ?? null), 'responsive-safety-transform-success');
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-header-actions-frame-21\{[^}]*width:100%[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-header-actions-defixed');
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
-$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:342px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)/s', $responsiveSafetyCss), 'responsive-safety-fallbacks-do-not-leak-to-midpoint');
 

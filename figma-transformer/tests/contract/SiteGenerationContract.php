@@ -489,7 +489,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $responsiveFooterCss = $fileContent($responsiveFooterResult, 'style.css');
     $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-footer{height:auto}'), 'responsive-footer-shell-safety-uses-component-structure');
-    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:1216px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:342px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
     $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{height:auto;position:relative;left:auto;top:auto;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
 
     $geometryFooterComponent = array(
@@ -1746,9 +1746,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         }
     }
     $responsiveMismatchMobileBlock = substr($responsiveMismatchCss, strpos($responsiveMismatchCss, '@media'));
-    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-shell-content-shell{width:calc(100% - 48px);max-width:1180px;left:24px;right:auto;height:auto;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px}'), 'responsive-emit-mobile-generic-mismatched-row-stacks-and-clamps-padding');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-shell-content-shell{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px}'), 'responsive-emit-mobile-generic-mismatched-row-stacks-and-clamps-padding');
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
-    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:980px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
 
     $responsiveHeroGeometryScenegraph = array(
         'name'  => 'Responsive Hero Geometry Site',

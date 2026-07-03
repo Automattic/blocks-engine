@@ -47,7 +47,7 @@ final class ResponsiveBreakpointSafetyPolicy
             return $chromeDecision;
         }
 
-        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole);
+        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole, $viewportWidth);
         if ( '' !== $namedShellDecision['reason_code'] ) {
             return $namedShellDecision;
         }
@@ -122,7 +122,7 @@ final class ResponsiveBreakpointSafetyPolicy
      * @param array<string, mixed>|null $parentNode
      * @return array{reason_code: string, declarations: array<int, string>}
      */
-    private function namedResponsiveShellDecision(array $node, ?array $parentNode, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole): array
+    private function namedResponsiveShellDecision(array $node, ?array $parentNode, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
     {
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
             return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
@@ -133,7 +133,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
-            return array('reason_code' => 'responsive_absolute_newsletter_shell_safety', 'declarations' => array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('height:auto', 'left:24px')));
+            return array('reason_code' => 'responsive_absolute_newsletter_shell_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'), array('height:auto', 'left:24px')));
         }
 
         if ( 'frame 20' === $name && $isContainer && null !== $parentNode && str_contains($parentName, 'newsletter signup') ) {
@@ -149,7 +149,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( 'pagination' === $name && $isContainer ) {
-            return array('reason_code' => 'responsive_pagination_overflow_safety', 'declarations' => array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('overflow-x:auto')));
+            return array('reason_code' => 'responsive_pagination_overflow_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'), array('overflow-x:auto')));
         }
 
         if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
@@ -208,7 +208,7 @@ final class ResponsiveBreakpointSafetyPolicy
 
         if ( 'absolute' === $positioning ) {
             if ( $width > $mobileContentWidth ) {
-                array_push($declarations, ...$this->breakpointDimensionPolicy->sourceMaxWidthDeclarations($width, 24.0, 'absolute'));
+                array_push($declarations, ...$this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'absolute'));
                 $declarations[] = 'height:auto';
                 array_push($declarations, ...$this->stackedMobileFlowDeclarations($baseMap, $display, $hasContainerChild));
                 array_push($declarations, ...$this->mobilePaddingClampDeclarations($baseMap));
@@ -218,7 +218,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( 'auto' === ($baseMap['margin-left'] ?? null) && 'auto' === ($baseMap['margin-right'] ?? null) && $width > $mobileContentWidth ) {
-            array_push($declarations, ...$this->breakpointDimensionPolicy->sourceMaxWidthDeclarations($width, 24.0, 'centered'));
+            array_push($declarations, ...$this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'centered'));
 
             if ( $hasContainerChild ) {
                 $declarations[] = 'height:auto';
@@ -240,6 +240,18 @@ final class ResponsiveBreakpointSafetyPolicy
         array_push($declarations, ...$this->mobilePaddingClampDeclarations($baseMap));
 
         return $declarations;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mobileSafeSourceMaxWidthDeclarations(float $sourceMaxWidth, float $viewportWidth, string $placement): array
+    {
+        if ( $viewportWidth > 480.0 ) {
+            return $this->breakpointDimensionPolicy->sourceMaxWidthDeclarations($sourceMaxWidth, 24.0, $placement);
+        }
+
+        return $this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(min($sourceMaxWidth, max(1.0, $viewportWidth - 48.0)), 24.0, $placement);
     }
 
     /**
