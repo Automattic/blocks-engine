@@ -1,0 +1,135 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\FigmaTransformer\Html;
+
+/**
+ * Classifies fixed-canvas frame roles that affect viewport-width emission.
+ */
+final class LayoutFrameRoleClassifier
+{
+    public const ROLE_INTRINSIC = 'intrinsic';
+    public const ROLE_FULL_BLEED_ROOT = 'full_bleed_root';
+    public const ROLE_FULL_BLEED_BAND = 'full_bleed_band';
+    public const ROLE_FULL_BLEED_CANVAS_CHILD = 'full_bleed_canvas_child';
+    public const ROLE_CENTERED_SHELL = 'centered_shell';
+
+    /**
+     * Minimum intrinsic width (px) at which a page frame is treated as a desktop
+     * canvas that should fill the viewport instead of preserving fixed width.
+     */
+    private const FLUID_CANVAS_MIN_WIDTH = 1024.0;
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed>|null $parentNode
+     */
+    public function frameWidthRole(array $box, array $layout, ?array $parentNode): string
+    {
+        if ( ! $this->isFluidPageWidth($box, $layout, $parentNode) ) {
+            return self::ROLE_INTRINSIC;
+        }
+
+        return null === $parentNode ? self::ROLE_FULL_BLEED_ROOT : self::ROLE_FULL_BLEED_BAND;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    public function canvasChildRole(array $box, array $layout, array $parentNode, bool $parentUsesFluidCanvasCoordinates, bool $parentIsFreeform): string
+    {
+        if ( ! $parentUsesFluidCanvasCoordinates ) {
+            return self::ROLE_INTRINSIC;
+        }
+
+        if ( $this->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode, $parentIsFreeform) ) {
+            return self::ROLE_FULL_BLEED_CANVAS_CHILD;
+        }
+
+        return self::ROLE_CENTERED_SHELL;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed>|null $parentNode
+     */
+    public function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
+    {
+        if ( ! isset($box['width']) || ! is_numeric($box['width']) ) {
+            return false;
+        }
+
+        $width = (float) $box['width'];
+        if ( null === $parentNode ) {
+            return $width >= self::FLUID_CANVAS_MIN_WIDTH;
+        }
+
+        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_CANVAS_MIN_WIDTH ) {
+            return false;
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        $parentWidth = (float) $parentBox['width'];
+        return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    public function isAbsoluteFullWidthCanvasChild(array $box, array $layout, array $parentNode, bool $parentIsFreeform): bool
+    {
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $parentIsFreeform ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array($box, $parentBox) as $candidateBox ) {
+            if ( ! isset($candidateBox['width']) || ! is_numeric($candidateBox['width']) ) {
+                return false;
+            }
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    public function isFluidStretchAbsoluteChild(array $box, array $layout, array $parentNode, bool $parentIsFreeform): bool
+    {
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $parentIsFreeform ) {
+            return false;
+        }
+        if ( 'FILL' !== strtoupper((string) ($layout['sizing_horizontal'] ?? '')) && (! isset($layout['grow']) || ! is_numeric($layout['grow']) || (float) $layout['grow'] <= 0.0) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('x', 'width') as $dimension ) {
+            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+                return false;
+            }
+        }
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_CANVAS_MIN_WIDTH ) {
+            return false;
+        }
+
+        $trailing = (float) $parentBox['width'] - (float) $box['x'] - (float) $box['width'];
+        return $trailing >= -0.5;
+    }
+}

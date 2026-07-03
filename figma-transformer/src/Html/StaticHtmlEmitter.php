@@ -9,15 +9,6 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class StaticHtmlEmitter
 {
-    /**
-     * Minimum intrinsic width (px) at which a page root frame is rendered as a
-     * centered fluid container instead of a fixed canvas width. Roots at least
-     * this wide are treated as full-page desktop canvases that must fit the
-     * viewport; narrower roots are typically embedded components and keep their
-     * intrinsic size.
-     */
-    private const FLUID_ROOT_MIN_WIDTH = 1024.0;
-
     private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
 
     private LayoutGapResolver $layoutGapResolver;
@@ -73,6 +64,8 @@ final class StaticHtmlEmitter
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
     }
+
+    private ?LayoutFrameRoleClassifier $layoutFrameRoleClassifier = null;
 
     private function designSystemExtractor(): DesignSystemExtractor
     {
@@ -152,6 +145,11 @@ final class StaticHtmlEmitter
     private function layoutIntentClassifier(): LayoutIntentClassifier
     {
         return new LayoutIntentClassifier($this->assetsById);
+    }
+
+    private function layoutFrameRoleClassifier(): LayoutFrameRoleClassifier
+    {
+        return $this->layoutFrameRoleClassifier ??= new LayoutFrameRoleClassifier();
     }
 
     /**
@@ -4758,8 +4756,11 @@ final class StaticHtmlEmitter
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
-        $isAbsoluteFullWidthCanvasChild = null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode);
-        $centerWithinParentFluidCanvas = $parentUsesFluidCanvasCoordinates && ! $isAbsoluteFullWidthCanvasChild;
+        $canvasChildRole = null !== $parentNode
+            ? $this->layoutFrameRoleClassifier()->canvasChildRole($box, $layout, $parentNode, $parentUsesFluidCanvasCoordinates, $this->isFreeformContainer($parentNode))
+            : LayoutFrameRoleClassifier::ROLE_INTRINSIC;
+        $isAbsoluteFullWidthCanvasChild = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $canvasChildRole;
+        $centerWithinParentFluidCanvas = LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $canvasChildRole;
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
@@ -5147,27 +5148,7 @@ final class StaticHtmlEmitter
      */
     private function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
     {
-        if ( ! isset($box['width']) || ! is_numeric($box['width']) ) {
-            return false;
-        }
-
-        $width = (float) $box['width'];
-        if ( null === $parentNode ) {
-            return $width >= self::FLUID_ROOT_MIN_WIDTH;
-        }
-
-        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
-            return false;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_ROOT_MIN_WIDTH ) {
-            return false;
-        }
-
-        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
-        $parentWidth = (float) $parentBox['width'];
-        return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+        return $this->layoutFrameRoleClassifier()->isFluidPageWidth($box, $layout, $parentNode);
     }
 
     /**
@@ -5215,19 +5196,7 @@ final class StaticHtmlEmitter
      */
     private function isAbsoluteFullWidthCanvasChild(array $box, array $layout, array $parentNode): bool
     {
-        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) ) {
-            return false;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        foreach ( array($box, $parentBox) as $candidateBox ) {
-            if ( ! isset($candidateBox['width']) || ! is_numeric($candidateBox['width']) ) {
-                return false;
-            }
-        }
-
-        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
-        return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
+        return $this->layoutFrameRoleClassifier()->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode, $this->isFreeformContainer($parentNode));
     }
 
     /**
@@ -5237,25 +5206,7 @@ final class StaticHtmlEmitter
      */
     private function isFluidStretchAbsoluteChild(array $box, array $layout, array $parentNode): bool
     {
-        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) ) {
-            return false;
-        }
-        if ( 'FILL' !== strtoupper((string) ($layout['sizing_horizontal'] ?? '')) && (! isset($layout['grow']) || ! is_numeric($layout['grow']) || (float) $layout['grow'] <= 0.0) ) {
-            return false;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        foreach ( array('x', 'width') as $dimension ) {
-            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
-                return false;
-            }
-        }
-        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_ROOT_MIN_WIDTH ) {
-            return false;
-        }
-
-        $trailing = (float) $parentBox['width'] - (float) $box['x'] - (float) $box['width'];
-        return $trailing >= -0.5;
+        return $this->layoutFrameRoleClassifier()->isFluidStretchAbsoluteChild($box, $layout, $parentNode, $this->isFreeformContainer($parentNode));
     }
 
     /**

@@ -16,6 +16,7 @@ require_once __DIR__ . '/ImagePaintContract.php';
 require_once __DIR__ . '/KiwiSkippedFieldInventoryContract.php';
 require_once __DIR__ . '/KiwiParserContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
+require_once __DIR__ . '/LayoutFrameRoleContract.php';
 require_once __DIR__ . '/NodeTraceContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/ParserParityContract.php';
@@ -191,6 +192,8 @@ $assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
+
+blocks_engine_figma_transformer_run_layout_frame_role_contract($assert);
 
 blocks_engine_figma_transformer_run_form_control_contract($assert, $fileContent);
 
