@@ -69,6 +69,10 @@ final class VectorSvgRenderer
         }
         $renderHeight = $height <= 0 && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : $height;
 
+        if ( ! $this->hasExplicitVectorSource($node) && ! empty($this->nodeImagePaints($node)) ) {
+            return null;
+        }
+
         $elements = $this->vectorPathElements($node);
         if ( empty($elements) && $height <= 0 && null !== $zeroHeightVectorFallbackHeight ) {
             $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);

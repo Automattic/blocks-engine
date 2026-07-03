@@ -431,10 +431,7 @@ final class VisualNodeMapBuilder
 
     private function firstImagePaint(array $node): ?array
     {
-        foreach ( $this->nodeImagePaints($node) as $paint ) {
-            return $paint;
-        }
-        return null;
+        return VisualLayerEvidence::firstImagePaint($node);
     }
 
     private function visualImageMetadata(array $paint): array
@@ -599,24 +596,7 @@ final class VisualNodeMapBuilder
 
     private function nodeImagePaints(array $node): array
     {
-        $imagePaints = array();
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
-            }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-            foreach ( $paintCollections as $paints ) {
-                foreach ( $paints as $paint ) {
-                    if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
-                        $imagePaints[] = $paint;
-                    }
-                }
-            }
-        }
-        return $imagePaints;
+        return VisualLayerEvidence::imagePaints($node);
     }
 
     private function imagePaintTransformMatrix(array $paint): ?array

@@ -49,6 +49,32 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(str_contains($imageUnderlayGuardCss, '.figma-node-imageguard-photo-large-photo{width:900px;height:520px;background-image:url("assets/guard-image.svg");background-size:cover;background-position:center;flex-shrink:0}'), 'image-backed-child-remains-flex-child');
     $assert(0 === ($imageUnderlayGuardUnderlays['count'] ?? null), 'image-backed-child-not-decorative-underlay-diagnostic');
 
+    $imageBackedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Image Backed Vector Fixture',
+        'assets' => array(
+            'vector-photo' => array('mime_type' => 'image/png', 'content' => 'vector photo'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'           => 'imagevector:photo',
+                'type'         => 'VECTOR',
+                'name'         => 'Photo Vector Layer',
+                'width'        => 120,
+                'height'       => 80,
+                'figma_paints' => array(
+                    'fills' => array(array('type' => 'IMAGE', 'ref' => 'vector-photo')),
+                ),
+            ),
+        ),
+    ));
+    $imageBackedVectorHtml = $fileContent($imageBackedVectorResult, 'index.html');
+    $imageBackedVectorCss = $fileContent($imageBackedVectorResult, 'style.css');
+    $imageBackedVectorDiagnostics = $imageBackedVectorResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($imageBackedVectorCss, '.figma-node-imagevector-photo-photo-vector-layer{width:120px;height:80px;background-image:url("assets/vector-photo.png");background-size:cover;background-position:center}'), 'image-backed-vector-emits-image-background');
+    $assert(str_contains($imageBackedVectorHtml, 'data-figma-node-id="imagevector:photo"') && ! str_contains($imageBackedVectorHtml, 'data-figma-vector="true"'), 'image-backed-vector-does-not-emit-vector-svg');
+    $assert(0 === ($imageBackedVectorDiagnostics['vectors']['placeholders'] ?? null), 'image-backed-vector-not-counted-as-placeholder');
+    $assert(1 === ($imageBackedVectorDiagnostics['images']['paint_refs'] ?? null), 'image-backed-vector-image-paint-evidence-counted');
+
     $unusedAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Unused Asset Fixture',
         'assets' => array(
