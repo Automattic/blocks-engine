@@ -115,6 +115,11 @@ final class StaticHtmlEmitter
         return $this->transformDiagnosticsBuilder ??= new TransformDiagnosticsBuilder();
     }
 
+    private function visualGeometryResolver(): VisualGeometryResolver
+    {
+        return new VisualGeometryResolver($this->layoutIntentClassifier());
+    }
+
     private function effectOverflowPolicy(): EffectOverflowPolicy
     {
         return $this->effectOverflowPolicy ??= new EffectOverflowPolicy();
@@ -5412,27 +5417,7 @@ final class StaticHtmlEmitter
      */
     private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
     {
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( true !== ($parentLayout['clips_content'] ?? false) || ! $this->isClippableDecorativeVisualNode($node) ) {
-            return false;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
-            return false;
-        }
-
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
-        if ( null === $left || null === $top ) {
-            return false;
-        }
-
-        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
-        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
-
-        return null === $this->rectIntersection($parentRect, $childRect);
+        return $this->visualGeometryResolver()->isFullyClippedDecorativeChild($node, $parentNode);
     }
 
     /**
@@ -5441,31 +5426,7 @@ final class StaticHtmlEmitter
      */
     private function isFullyOffCanvasRootChild(array $node, array $parentNode): bool
     {
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
-            return false;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
-            return false;
-        }
-
-        if ( (float) $box['width'] <= 0.0 || (float) $box['height'] <= 0.0 || (float) $parentBox['width'] <= 0.0 || (float) $parentBox['height'] <= 0.0 ) {
-            return false;
-        }
-
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
-        if ( null === $left || null === $top ) {
-            return false;
-        }
-
-        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
-        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
-
-        return null === $this->rectIntersection($parentRect, $childRect);
+        return $this->visualGeometryResolver()->isFullyOffCanvasChild($node, $parentNode);
     }
 
     /**
@@ -5474,17 +5435,7 @@ final class StaticHtmlEmitter
      */
     private function hasRootOffCanvasChildCluster(array $children, array $parentNode): bool
     {
-        $count = 0;
-        foreach ( $children as $child ) {
-            if ( is_array($child) && $this->isFullyOffCanvasRootChild($child, $parentNode) ) {
-                ++$count;
-                if ( $count >= 2 ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return $this->visualGeometryResolver()->hasOffCanvasChildCluster($children, $parentNode);
     }
 
     /**
@@ -5695,15 +5646,7 @@ final class StaticHtmlEmitter
      */
     private function rectIntersection(array $rect, array $clipRect): ?array
     {
-        $left = max($rect['x'], $clipRect['x']);
-        $top = max($rect['y'], $clipRect['y']);
-        $right = min($rect['x'] + $rect['width'], $clipRect['x'] + $clipRect['width']);
-        $bottom = min($rect['y'] + $rect['height'], $clipRect['y'] + $clipRect['height']);
-        if ( $right <= $left || $bottom <= $top ) {
-            return null;
-        }
-
-        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
+        return $this->visualGeometryResolver()->rectIntersection($rect, $clipRect);
     }
 
     /**
@@ -6358,28 +6301,7 @@ final class StaticHtmlEmitter
      */
     private function cssTransformMatrixValues(?array $transform): ?array
     {
-        if ( null === $transform ) {
-            return null;
-        }
-
-        if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
-            if ( 0.00001 > abs((float) $transform['m00'] - 1.0) && 0.00001 > abs((float) $transform['m01']) && 0.00001 > abs((float) $transform['m10']) && 0.00001 > abs((float) $transform['m11'] - 1.0) ) {
-                return null;
-            }
-            $values = array($transform['m00'], $transform['m10'], $transform['m01'], $transform['m11'], 0, 0);
-        } elseif ( 2 === count($transform) && is_array($transform[0] ?? null) && is_array($transform[1] ?? null) ) {
-            $values = array($transform[0][0] ?? null, $transform[1][0] ?? null, $transform[0][1] ?? null, $transform[1][1] ?? null, $transform[0][2] ?? null, $transform[1][2] ?? null);
-        } else {
-            return null;
-        }
-
-        foreach ( $values as $value ) {
-            if ( ! is_numeric($value) ) {
-                return null;
-            }
-        }
-
-        return array_map(static fn (mixed $value): float => (float) $value, $values);
+        return $this->visualGeometryResolver()->cssTransformMatrixValues($transform);
     }
 
     /**
