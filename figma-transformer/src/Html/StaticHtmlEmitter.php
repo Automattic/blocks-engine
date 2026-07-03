@@ -623,6 +623,10 @@ final class StaticHtmlEmitter
             return '';
         }
 
+        if ( $depth > 0 && $this->isNonRenderingVectorLayer($node) ) {
+            return '';
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
@@ -3858,6 +3862,10 @@ final class StaticHtmlEmitter
         $type = strtoupper((string) ($node['type'] ?? ''));
         $booleanComposedChildren = false;
         if ( $this->isUnsupportedVectorType($type) ) {
+            if ( $this->isNonRenderingVectorLayer($node) ) {
+                return;
+            }
+
             ++$vectors['nodes'];
             $this->collectVectorChildCompositionDiagnostics($node, $vectors, $parentNode);
             $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -3962,7 +3970,9 @@ final class StaticHtmlEmitter
             }
         }
 
-        $childParentOmissionReason = null !== $ownOmissionReason ? 'parent-omitted' : null;
+        $childParentOmissionReason = null !== $ownOmissionReason
+            ? ($this->isIntentionalComponentCloneSuppression($ownOmissionReason) ? $ownOmissionReason : 'parent-omitted')
+            : null;
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
                 $this->collectComponentCloneEmissionNode($child, $components, $html, $node, $childParentOmissionReason);
@@ -4023,6 +4033,9 @@ final class StaticHtmlEmitter
         if ( $this->isMaskOperatorNode($node) ) {
             return 'mask-source';
         }
+        if ( $this->isNonRenderingVectorLayer($node) ) {
+            return 'non-rendering-vector-layer';
+        }
         if ( null !== $parentNode && $this->isComposedVectorChild($node, $parentNode) ) {
             return 'composed-into-parent';
         }
@@ -4042,7 +4055,66 @@ final class StaticHtmlEmitter
 
     private function isIntentionalComponentCloneSuppression(string $reason): bool
     {
-        return in_array($reason, array('mask-source'), true);
+        return in_array($reason, array('mask-source', 'composed-into-parent', 'non-rendering-vector-layer'), true);
+    }
+
+    /**
+     * Figma can include structural vector layers whose own paints are explicitly
+     * invisible because the visible output is supplied by a sibling mask/fill layer.
+     * Treat those layers like source scaffolding, not failed vector output.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isNonRenderingVectorLayer(array $node): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! $this->isUnsupportedVectorType($type) || $this->isMaskOperatorNode($node) ) {
+            return false;
+        }
+
+        return $this->hasExplicitInvisiblePaintCollections($node) && ! $this->hasVisiblePaintCollection($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasExplicitInvisiblePaintCollections(array $node): bool
+    {
+        $foundPaint = false;
+        foreach ( array('fillPaints', 'fills', 'strokePaints', 'strokes') as $key ) {
+            if ( ! is_array($node[$key] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$key] as $paint ) {
+                if ( ! is_array($paint) ) {
+                    continue;
+                }
+                $foundPaint = true;
+                if ( false !== ($paint['visible'] ?? true) && ((isset($paint['opacity']) && is_numeric($paint['opacity'])) ? (float) $paint['opacity'] > 0.0 : true) ) {
+                    return false;
+                }
+            }
+        }
+
+        return $foundPaint;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasVisiblePaintCollection(array $node): bool
+    {
+        foreach ( array('fills', 'strokes', 'background') as $key ) {
+            $paints = is_array($node['figma_paints'][$key] ?? null) ? $node['figma_paints'][$key] : array();
+            foreach ( $paints as $paint ) {
+                if ( is_array($paint) && false !== ($paint['visible'] ?? true) && ((isset($paint['opacity']) && is_numeric($paint['opacity'])) ? (float) $paint['opacity'] > 0.0 : true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

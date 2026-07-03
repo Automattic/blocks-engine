@@ -72,12 +72,12 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(! str_contains($html, 'data-figma-node-id="clone-contract:mask-source"'), 'component-clone-mask-source-suppressed-html');
     $assert(4 === ($components['clone_source_node_count'] ?? null), 'component-clone-source-count-includes-source-id-and-geometry');
     $assert(1 === ($components['emitted_clone_node_count'] ?? null), 'component-clone-emitted-count');
-    $assert(2 === ($components['missing_emitted_clone_node_count'] ?? null), 'component-clone-missing-count');
-    $assert(1 === ($components['intentionally_suppressed_clone_node_count'] ?? null), 'component-clone-intentionally-suppressed-count');
-    $assert(array('composed-into-parent' => 1, 'hidden' => 1) === ($components['omission_reason_counts'] ?? null), 'component-clone-omission-reason-counts');
-    $assert(array('mask-source' => 1) === ($components['intentional_suppression_reason_counts'] ?? null), 'component-clone-intentional-suppression-reason-counts');
-    $assert(2 === ($qualitySignal['count'] ?? null), 'component-clone-quality-signal-count');
-    $assert(array('composed-into-parent' => 1, 'hidden' => 1) === ($qualitySignal['omission_reason_counts'] ?? null), 'component-clone-quality-signal-reason-counts');
+    $assert(1 === ($components['missing_emitted_clone_node_count'] ?? null), 'component-clone-missing-count');
+    $assert(2 === ($components['intentionally_suppressed_clone_node_count'] ?? null), 'component-clone-intentionally-suppressed-count');
+    $assert(array('hidden' => 1) === ($components['omission_reason_counts'] ?? null), 'component-clone-omission-reason-counts');
+    $assert(array('composed-into-parent' => 1, 'mask-source' => 1) === ($components['intentional_suppression_reason_counts'] ?? null), 'component-clone-intentional-suppression-reason-counts');
+    $assert(1 === ($qualitySignal['count'] ?? null), 'component-clone-quality-signal-count');
+    $assert(array('hidden' => 1) === ($qualitySignal['omission_reason_counts'] ?? null), 'component-clone-quality-signal-reason-counts');
 
     $missing = is_array($components['missing_emitted_clone_nodes'] ?? null) ? $components['missing_emitted_clone_nodes'] : array();
     $hiddenSamples = array_values(array_filter($missing, static fn (array $node): bool => 'clone-contract:hidden-geometry' === ($node['node_id'] ?? null)));
@@ -89,11 +89,11 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(48 === ($sample['height'] ?? null), 'component-clone-missing-sample-height');
     $assert(8640 === ($sample['visible_area_px'] ?? null), 'component-clone-missing-sample-visible-area');
 
-    $composedSamples = array_values(array_filter($missing, static fn (array $node): bool => 'clone-contract:composed-child' === ($node['node_id'] ?? null)));
+    $intentional = is_array($components['intentionally_suppressed_clone_nodes'] ?? null) ? $components['intentionally_suppressed_clone_nodes'] : array();
+    $composedSamples = array_values(array_filter($intentional, static fn (array $node): bool => 'clone-contract:composed-child' === ($node['node_id'] ?? null)));
     $composedSample = is_array($composedSamples[0] ?? null) ? $composedSamples[0] : array();
     $assert('composed-into-parent' === ($composedSample['omission_reason'] ?? null), 'component-clone-composed-child-reason');
 
-    $intentional = is_array($components['intentionally_suppressed_clone_nodes'] ?? null) ? $components['intentionally_suppressed_clone_nodes'] : array();
     $maskSamples = array_values(array_filter($intentional, static fn (array $node): bool => 'clone-contract:mask-source' === ($node['node_id'] ?? null)));
     $maskSample = is_array($maskSamples[0] ?? null) ? $maskSamples[0] : array();
     $assert('mask-source' === ($maskSample['omission_reason'] ?? null), 'component-clone-mask-source-intentional-reason');
