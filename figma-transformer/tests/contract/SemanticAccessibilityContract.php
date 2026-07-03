@@ -123,4 +123,71 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $layeringCss = $fileContent($layeringResult, 'style.css');
     $assert(1 === preg_match('/\.figma-node-layer-header-site-header\{[^}]*z-index:2/s', $layeringCss), 'semantic-accessibility-top-header-outranks-overlapping-hero');
     $assert(1 === preg_match('/\.figma-node-layer-hero-hero-artwork-group\{[^}]*z-index:1/s', $layeringCss), 'semantic-accessibility-overlapping-hero-keeps-base-stack-rank');
+
+    $chromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Generic Chrome Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'chrome:root',
+                'type'     => 'FRAME',
+                'name'     => 'Home',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array(
+                        'id'       => 'chrome:top',
+                        'type'     => 'FRAME',
+                        'name'     => 'Top Bar',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1440,
+                        'height'   => 96,
+                        'children' => array(
+                            array('id' => 'chrome:brand', 'type' => 'TEXT', 'name' => 'Brand Logo', 'characters' => 'Brand', 'fontSize' => 20),
+                            array('id' => 'chrome:home', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'Home', 'fontSize' => 16, 'figma_link' => array('url' => '/')),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'chrome:social',
+                        'type'     => 'FRAME',
+                        'name'     => 'Social Links',
+                        'x'        => 0,
+                        'y'        => 980,
+                        'width'    => 120,
+                        'height'   => 32,
+                        'children' => array(
+                            array('id' => 'chrome:facebook', 'type' => 'VECTOR', 'name' => 'Facebook', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'figma_link' => array('url' => 'https://facebook.example')),
+                            array('id' => 'chrome:instagram', 'type' => 'VECTOR', 'name' => 'Instagram', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'figma_link' => array('url' => 'https://instagram.example')),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'chrome:cta',
+                        'type'     => 'FRAME',
+                        'name'     => 'Call to Action',
+                        'x'        => 0,
+                        'y'        => 1030,
+                        'width'    => 240,
+                        'height'   => 56,
+                        'children' => array(array('id' => 'chrome:cta-label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Book now', 'fontSize' => 16)),
+                    ),
+                    array(
+                        'id'       => 'chrome:bottom',
+                        'type'     => 'FRAME',
+                        'name'     => 'Bottom Bar',
+                        'x'        => 0,
+                        'y'        => 1120,
+                        'width'    => 1440,
+                        'height'   => 80,
+                        'children' => array(array('id' => 'chrome:legal', 'type' => 'TEXT', 'name' => 'Legal', 'characters' => 'Copyright 2026. All rights reserved.', 'fontSize' => 12)),
+                    ),
+                ),
+            ),
+        ),
+    ));
+
+    $chromeHtml = $fileContent($chromeResult, 'index.html');
+    $assert(str_contains($chromeHtml, '<header class="figma-node-chrome-top-top-bar"'), 'semantic-accessibility-generic-top-chrome-emits-header');
+    $assert(str_contains($chromeHtml, '<nav class="figma-node-chrome-social-social-links"'), 'semantic-accessibility-social-cluster-emits-nav');
+    $assert(str_contains($chromeHtml, '<div class="figma-node-chrome-cta-call-to-action"'), 'semantic-accessibility-cta-group-stays-structural');
+    $assert(str_contains($chromeHtml, '<footer class="figma-node-chrome-bottom-bottom-bar"'), 'semantic-accessibility-generic-bottom-chrome-emits-footer');
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutFrameRoleClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
 
 /**
  * @param callable(bool, string): void $assert
@@ -89,4 +90,73 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $contentShellDecision = $resolver->resolve($contentShellNode, $flowBand, $root);
     $assert($contentShellDecision->responsiveCenteredFlowShell, 'canvas-shell-decision-responsive-centered-flow-shell');
     $assert($contentShellDecision->responsiveCenteredFlowWidth, 'canvas-shell-decision-responsive-centered-flow-width');
+
+    $intent = new LayoutIntentClassifier();
+    $chromeRoot = array(
+        'id'       => 'chrome:root',
+        'type'     => 'FRAME',
+        'name'     => 'Home Page',
+        'box'      => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 1200),
+        'children' => array(
+            array(
+                'id'       => 'chrome:header',
+                'type'     => 'FRAME',
+                'name'     => 'Top Bar',
+                'box'      => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 96),
+                'children' => array(
+                    array('id' => 'chrome:logo', 'type' => 'TEXT', 'name' => 'Brand Logo', 'characters' => 'Brand'),
+                    array('id' => 'chrome:link', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'Home', 'figma_link' => array('url' => '/')),
+                ),
+            ),
+            array(
+                'id'       => 'chrome:main',
+                'type'     => 'FRAME',
+                'name'     => 'Content',
+                'box'      => array('x' => 0, 'y' => 160, 'width' => 1440, 'height' => 800),
+                'children' => array(array('id' => 'chrome:main-text', 'type' => 'TEXT', 'characters' => 'Body')),
+            ),
+            array(
+                'id'       => 'chrome:footer',
+                'type'     => 'FRAME',
+                'name'     => 'Bottom Bar',
+                'box'      => array('x' => 0, 'y' => 1080, 'width' => 1440, 'height' => 120),
+                'children' => array(array('id' => 'chrome:legal', 'type' => 'TEXT', 'characters' => 'Copyright 2026. All rights reserved.')),
+            ),
+        ),
+    );
+    $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $intent->chromeGroupRole($chromeRoot['children'][0], $chromeRoot, 1), 'layout-intent-top-logo-region-classifies-header');
+    $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $intent->chromeGroupRole($chromeRoot['children'][2], $chromeRoot, 1), 'layout-intent-bottom-legal-region-classifies-footer');
+    $assert(LayoutIntentClassifier::LAYER_ROLE_CHROME === $intent->siblingLayerRole($chromeRoot['children'][0], $chromeRoot), 'layout-intent-top-header-layer-is-chrome');
+
+    $nav = array(
+        'id'       => 'chrome:nav',
+        'type'     => 'FRAME',
+        'name'     => 'Primary Navigation',
+        'children' => array(
+            array('id' => 'chrome:nav-home', 'type' => 'TEXT', 'characters' => 'Home', 'figma_link' => array('url' => '/')),
+            array('id' => 'chrome:nav-about', 'type' => 'TEXT', 'characters' => 'About', 'figma_link' => array('url' => '/about')),
+        ),
+    );
+    $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $intent->chromeGroupRole($nav, null, 1), 'layout-intent-link-cluster-classifies-navigation');
+
+    $social = array(
+        'id'       => 'chrome:social',
+        'type'     => 'FRAME',
+        'name'     => 'Social Links',
+        'children' => array(
+            array('id' => 'chrome:facebook', 'type' => 'VECTOR', 'name' => 'Facebook', 'width' => 24, 'height' => 24, 'figma_link' => array('url' => 'https://facebook.example')),
+            array('id' => 'chrome:instagram', 'type' => 'VECTOR', 'name' => 'Instagram', 'width' => 24, 'height' => 24, 'figma_link' => array('url' => 'https://instagram.example')),
+        ),
+    );
+    $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_SOCIAL === $intent->chromeGroupRole($social, null, 1), 'layout-intent-social-icon-cluster-classifies-social');
+
+    $cta = array(
+        'id'       => 'chrome:cta',
+        'type'     => 'FRAME',
+        'name'     => 'Call to Action',
+        'width'    => 240,
+        'height'   => 56,
+        'children' => array(array('id' => 'chrome:cta-label', 'type' => 'TEXT', 'characters' => 'Book now')),
+    );
+    $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_CTA === $intent->chromeGroupRole($cta, null, 1), 'layout-intent-cta-group-classifies-cta');
 }

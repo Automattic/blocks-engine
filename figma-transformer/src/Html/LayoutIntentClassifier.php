@@ -13,6 +13,12 @@ final class LayoutIntentClassifier
     public const LAYER_ROLE_CONTENT = 'content';
     public const LAYER_ROLE_CHROME = 'chrome';
 
+    public const CHROME_GROUP_ROLE_HEADER = 'header';
+    public const CHROME_GROUP_ROLE_FOOTER = 'footer';
+    public const CHROME_GROUP_ROLE_NAVIGATION = 'navigation';
+    public const CHROME_GROUP_ROLE_SOCIAL = 'social';
+    public const CHROME_GROUP_ROLE_CTA = 'cta';
+
     /** @var array<int, string> */
     private const FREEFORM_CONTAINER_TYPES = array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION');
 
@@ -32,7 +38,7 @@ final class LayoutIntentClassifier
     private const PAINT_COLLECTION_KEYS = array('fills', 'strokes', 'background');
 
     /** @var array<int, string> */
-    private const CHROME_NAME_HINTS = array('header', 'footer', 'nav', 'navigation', 'menu');
+    private const CHROME_NAME_HINTS = array('header', 'footer', 'nav', 'navigation', 'menu', 'social', 'cta', 'call to action');
 
     /** @var array<int, string> */
     private const CONTROL_LIST_NAME_HINTS = array('pagination', 'page number');
@@ -155,6 +161,11 @@ final class LayoutIntentClassifier
             if ( ! is_array($candidate) ) {
                 continue;
             }
+
+            if ( null !== $this->chromeGroupRole($candidate, null, 1) ) {
+                return true;
+            }
+
             $name = strtolower((string) ($candidate['name'] ?? ''));
             foreach ( array_merge(self::CHROME_NAME_HINTS, self::CONTROL_LIST_NAME_HINTS) as $hint ) {
                 if ( str_contains($name, $hint) ) {
@@ -164,6 +175,72 @@ final class LayoutIntentClassifier
         }
 
         return false;
+    }
+
+    /**
+     * Classifies generic website chrome groups independently from the eventual
+     * HTML element chosen by the emitter.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    public function chromeGroupRole(array $node, ?array $parentNode, int $depth): ?string
+    {
+        if ( $depth <= 0 ) {
+            return null;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+
+        if ( str_contains($name, 'header') && (str_contains($name, 'menu') || str_contains($name, 'nav')) && $this->isNavigationContainer($children) ) {
+            return self::CHROME_GROUP_ROLE_NAVIGATION;
+        }
+
+        if ( str_contains($name, 'social') && $this->isSocialIconCluster($node, $children) ) {
+            return self::CHROME_GROUP_ROLE_SOCIAL;
+        }
+
+        if ( str_contains($name, 'header') ) {
+            return $this->isHeaderChromeCandidate($node, $children, $depth, $parentNode) ? self::CHROME_GROUP_ROLE_HEADER : null;
+        }
+
+        if ( str_contains($name, 'footer') ) {
+            return $this->isFooterChromeCandidate($node, $depth, $parentNode) ? self::CHROME_GROUP_ROLE_FOOTER : null;
+        }
+
+        if ( (str_contains($name, 'nav') || str_contains($name, 'menu')) && ! $this->isMenuItemName($name) ) {
+            return $this->isNavigationContainer($children) ? self::CHROME_GROUP_ROLE_NAVIGATION : null;
+        }
+
+        if ( $this->isCtaGroup($node, $children) ) {
+            return self::CHROME_GROUP_ROLE_CTA;
+        }
+
+        if ( empty($children) ) {
+            return null;
+        }
+
+        $linkCount = $this->linkChildCount($children);
+        if ( $depth <= 1 && null !== $parentNode ) {
+            $region = $this->verticalRegion($node, $parentNode);
+            if ( 'top' === $region && $this->hasLogoChild($children) && ( $linkCount >= 1 || count($children) >= 2 ) ) {
+                return self::CHROME_GROUP_ROLE_HEADER;
+            }
+            if ( 'bottom' === $region && $this->hasLegalText($node) && $this->textDescendantCount($node) <= 12 ) {
+                return self::CHROME_GROUP_ROLE_FOOTER;
+            }
+        }
+
+        if ( $this->isSocialIconCluster($node, $children) ) {
+            return self::CHROME_GROUP_ROLE_SOCIAL;
+        }
+
+        if ( $linkCount >= 2 && $linkCount === count($children) ) {
+            return self::CHROME_GROUP_ROLE_NAVIGATION;
+        }
+
+        return null;
     }
 
     /**
@@ -1017,12 +1094,8 @@ final class LayoutIntentClassifier
      */
     private function isTopChromeLayer(array $node, array $parentNode): bool
     {
-        $name = strtolower((string) ($node['name'] ?? ''));
-        if ( '' === $name || (! str_contains($name, 'header') && ! str_contains($name, 'nav') && ! str_contains($name, 'navigation') && ! str_contains($name, 'menu')) ) {
-            return false;
-        }
-
-        if ( str_contains($name, 'footer') || 1 === preg_match('/\b(menu|nav(?:igation)?)\s*item\b|\bitem\s*(menu|nav(?:igation)?)\b/', $name) ) {
+        $role = $this->chromeGroupRole($node, $parentNode, 1);
+        if ( ! in_array($role, array(self::CHROME_GROUP_ROLE_HEADER, self::CHROME_GROUP_ROLE_NAVIGATION), true) ) {
             return false;
         }
 
@@ -1044,6 +1117,201 @@ final class LayoutIntentClassifier
         }
 
         return $rect['height'] <= max(160.0, null === $parentHeight ? 0.0 : $parentHeight * 0.25);
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed>|null        $parentNode
+     */
+    private function isHeaderChromeCandidate(array $node, array $children, int $depth, ?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        return 'top' === $this->verticalRegion($node, $parentNode)
+            && ($this->hasLogoChild($children) || $this->linkChildCount($children) >= 1 || $depth <= 1);
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFooterChromeCandidate(array $node, int $depth, ?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        return 'bottom' === $this->verticalRegion($node, $parentNode) || $this->hasLegalText($node) || $depth <= 1;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isNavigationContainer(array $children): bool
+    {
+        if ( empty($children) ) {
+            return false;
+        }
+
+        $linkCount = $this->linkChildCount($children);
+        if ( $linkCount >= 2 && $linkCount === count($children) ) {
+            return true;
+        }
+
+        $textCount = 0;
+        foreach ( $children as $child ) {
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) || $this->isMenuItemName(strtolower((string) ($child['name'] ?? ''))) ) {
+                $textCount++;
+            }
+        }
+
+        return $textCount >= 2 && $textCount === count($children);
+    }
+
+    private function isMenuItemName(string $lowerName): bool
+    {
+        return 1 === preg_match('/\b(menu|nav(?:igation)?)\s*item\b|\bitem\s*(menu|nav(?:igation)?)\b/', $lowerName);
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isSocialIconCluster(array $node, array $children): bool
+    {
+        if ( count($children) < 2 ) {
+            return false;
+        }
+
+        $nameAndText = strtolower((string) ($node['name'] ?? '') . ' ' . $this->subtreePlainText($node));
+        $hasSocialSignal = 1 === preg_match('/\b(social|facebook|instagram|linkedin|twitter|x social|x\.com|youtube|tiktok|pinterest)\b/', $nameAndText);
+        if ( ! $hasSocialSignal ) {
+            return false;
+        }
+
+        $compactVisualCount = 0;
+        foreach ( $children as $child ) {
+            if ( $this->subtreeHasLink($child) || $this->isCompactVisualOnlyNode($child) ) {
+                $compactVisualCount++;
+            }
+        }
+
+        return $compactVisualCount === count($children);
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isCtaGroup(array $node, array $children): bool
+    {
+        $nameAndText = strtolower((string) ($node['name'] ?? '') . ' ' . $this->subtreePlainText($node));
+        if ( 1 !== preg_match('/\b(cta|call to action|book now|get started|sign up|subscribe|contact us|learn more)\b/', $nameAndText) ) {
+            return false;
+        }
+
+        if ( count($children) > 0 && count($children) <= 3 ) {
+            return true;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        return null !== $width && null !== $height && $width <= 640.0 && $height <= 220.0 && $this->textDescendantCount($node) <= 3;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isCompactVisualOnlyNode(array $node): bool
+    {
+        if ( $this->treeHasText($node) ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $width && $width > 96.0 ) {
+            return false;
+        }
+        if ( null !== $height && $height > 96.0 ) {
+            return false;
+        }
+
+        return $this->treeIsShapeOnlyPrimitiveVisual($node) || $this->treeHasImageReference($node);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function hasLogoChild(array $children): bool
+    {
+        foreach ( $children as $child ) {
+            $name = strtolower((string) ($child['name'] ?? ''));
+            if ( str_contains($name, 'logo') || str_contains($name, 'brand') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasLegalText(array $node): bool
+    {
+        $text = strtolower($this->subtreePlainText($node));
+        return str_contains($text, '©') || str_contains($text, 'copyright') || str_contains($text, 'rights reserved');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function verticalRegion(array $node, array $parentNode): ?string
+    {
+        $siblings = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
+        if ( 2 > count($siblings) ) {
+            return 'middle';
+        }
+
+        $thisId = (string) ($node['id'] ?? '');
+        $positions = array();
+        $haveAll = true;
+        foreach ( $siblings as $sibling ) {
+            $y = $this->boxValue($sibling, 'y');
+            if ( null === $y ) {
+                $haveAll = false;
+                break;
+            }
+            $positions[(string) ($sibling['id'] ?? '')] = $y;
+        }
+
+        if ( $haveAll && isset($positions[$thisId]) ) {
+            $y = $positions[$thisId];
+            if ( $y <= min($positions) ) {
+                return 'top';
+            }
+            if ( $y >= max($positions) ) {
+                return 'bottom';
+            }
+
+            return 'middle';
+        }
+
+        $firstId = (string) ($siblings[0]['id'] ?? '');
+        $lastId = (string) ($siblings[count($siblings) - 1]['id'] ?? '');
+        if ( $thisId === $firstId ) {
+            return 'top';
+        }
+        if ( $thisId === $lastId ) {
+            return 'bottom';
+        }
+
+        return 'middle';
     }
 
     /**

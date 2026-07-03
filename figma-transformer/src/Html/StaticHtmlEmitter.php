@@ -1050,52 +1050,19 @@ final class StaticHtmlEmitter
      */
     private function landmarkTag(array $node, string $lowerName, array $children, int $depth, ?array $parentNode): ?string
     {
-        if ( $depth <= 0 ) {
-            return null;
+        $role = $this->layoutIntentClassifier()->chromeGroupRole($node, $parentNode, $depth);
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $role ) {
+            return 'header';
         }
-
-        if ( str_contains($lowerName, 'header') && (str_contains($lowerName, 'menu') || str_contains($lowerName, 'nav')) && $this->isNavigationContainer($children) ) {
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $role ) {
+            return 'footer';
+        }
+        if ( in_array($role, array(LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION, LayoutIntentClassifier::CHROME_GROUP_ROLE_SOCIAL), true) ) {
             return 'nav';
-        }
-
-        if ( str_contains($lowerName, 'header') ) {
-            return $this->isHeaderLandmarkCandidate($node, $children, $depth, $parentNode) ? 'header' : null;
-        }
-
-        if ( str_contains($lowerName, 'footer') ) {
-            return $this->isFooterLandmarkCandidate($node, $depth, $parentNode) ? 'footer' : null;
-        }
-
-        if ( (str_contains($lowerName, 'nav') || str_contains($lowerName, 'menu')) && ! $this->isMenuItemName($lowerName) ) {
-            return $this->isNavigationContainer($children) ? 'nav' : null;
         }
 
         if ( str_contains($lowerName, 'article') ) {
             return 'article';
-        }
-
-        if ( empty($children) ) {
-            return null;
-        }
-
-        $linkCount = $this->linkChildCount($children);
-
-        // Top region with a logo and a cluster of links reads as a site header;
-        // a bottom region with links or legal text reads as a footer.
-        if ( $depth <= 1 && null !== $parentNode ) {
-            $region = $this->verticalRegion($node, $parentNode);
-            if ( 'top' === $region && $this->hasLogoChild($children) && ( $linkCount >= 1 || count($children) >= 2 ) ) {
-                return 'header';
-            }
-            if ( 'bottom' === $region && $this->hasLegalText($node) && $this->textDescendantCount($node) <= 12 ) {
-                return 'footer';
-            }
-        }
-
-        // A tight cluster whose children are all links reads as navigation; a
-        // region that merely contains a couple of link-bearing sub-areas does not.
-        if ( $linkCount >= 2 && $linkCount === count($children) ) {
-            return 'nav';
         }
 
         return null;
