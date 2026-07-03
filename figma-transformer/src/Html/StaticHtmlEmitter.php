@@ -717,6 +717,9 @@ final class StaticHtmlEmitter
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
+            foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
+                $cssRules[] = $rule;
+            }
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
@@ -3380,12 +3383,15 @@ final class StaticHtmlEmitter
         );
         $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
         $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
+        $invalidCssDiagnostics = $this->invalidCssNumericTokenDiagnostics($css);
         $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
             'large_css_offset_count' => count($cssOffsetDiagnostics),
             'large_css_offset_nodes' => $cssOffsetDiagnostics,
+            'invalid_css_count' => count($invalidCssDiagnostics),
+            'invalid_css_tokens' => $invalidCssDiagnostics,
             'off_canvas_visual_node_count' => count($visualOffsetDiagnostics),
             'off_canvas_visual_nodes' => $visualOffsetDiagnostics,
             'clipped_visual_node_count' => (int) ($visualClipDiagnostics['clipped_visual_node_count'] ?? 0),
@@ -4971,7 +4977,7 @@ final class StaticHtmlEmitter
 
     private function reportNumericValue(mixed $value): mixed
     {
-        if ( ! is_numeric($value) ) {
+        if ( ! $this->isFiniteNumeric($value) ) {
             return null;
         }
 
@@ -5268,7 +5274,7 @@ final class StaticHtmlEmitter
                         continue;
                     }
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
-                } elseif ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                } elseif ( 'flex' === ($layout['display'] ?? null) && $this->isFiniteNumeric($box[$dimension] ?? null) ) {
                     $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
                     $styles[] = $dimension . ':' . (null === $intrinsicMainAxisSize ? $this->number((float) $box[$dimension]) . 'px' : $intrinsicMainAxisSize);
                 } else {
@@ -5276,7 +5282,7 @@ final class StaticHtmlEmitter
                 }
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
-            } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+            } elseif ( $this->isFiniteNumeric($box[$dimension] ?? null) ) {
                 $property = $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
                 if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
@@ -5300,7 +5306,7 @@ final class StaticHtmlEmitter
             'min_height' => 'min-height',
             'max_height' => 'max-height',
         ) as $layoutKey => $property ) {
-            if ( isset($layout[$layoutKey]) && is_numeric($layout[$layoutKey]) && ! $this->stylesDeclareProperty($styles, $property) ) {
+            if ( $this->isFiniteNumeric($layout[$layoutKey] ?? null) && ! $this->stylesDeclareProperty($styles, $property) ) {
                 $styles[] = $property . ':' . $this->number((float) $layout[$layoutKey]) . 'px';
             }
         }
@@ -5359,7 +5365,7 @@ final class StaticHtmlEmitter
             $styles[] = 'position:relative';
         }
 
-        if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
+        if ( $this->isFiniteNumeric($layout['z_index'] ?? null) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
             $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
         } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
             if ( null !== $overlapZIndex ) {
@@ -5375,7 +5381,7 @@ final class StaticHtmlEmitter
         }
 
         $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
-        if ( isset($box['opacity']) && is_numeric($box['opacity']) ) {
+        if ( $this->isFiniteNumeric($box['opacity'] ?? null) ) {
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
@@ -5462,7 +5468,7 @@ final class StaticHtmlEmitter
 
         if ( isset($layout['padding']) && is_array($layout['padding']) ) {
             foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
-                if ( isset($layout['padding'][$edge]) && is_numeric($layout['padding'][$edge]) ) {
+                if ( $this->isFiniteNumeric($layout['padding'][$edge] ?? null) ) {
                     $paddingValue = $this->cssPaddingValue($node, $edge, $parentNode);
                     $styles[] = 'padding-' . $edge . ':' . (is_string($paddingValue) ? $paddingValue : $this->number($paddingValue) . 'px');
                 }
@@ -5790,10 +5796,10 @@ final class StaticHtmlEmitter
     private function localPositionStyles(array $box): array
     {
         $styles = array();
-        if ( isset($box['x']) && is_numeric($box['x']) ) {
+        if ( $this->isFiniteNumeric($box['x'] ?? null) ) {
             $styles[] = 'left:' . $this->number((float) $box['x']) . 'px';
         }
-        if ( isset($box['y']) && is_numeric($box['y']) ) {
+        if ( $this->isFiniteNumeric($box['y'] ?? null) ) {
             $styles[] = 'top:' . $this->number((float) $box['y']) . 'px';
         }
 
@@ -6027,7 +6033,7 @@ final class StaticHtmlEmitter
         } elseif ( $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
             $styles[] = 'flex-shrink:1';
             $styles[] = 'min-width:0';
-        } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
+        } elseif ( $this->isFiniteNumeric($layout['grow'] ?? null) ) {
             $styles[] = 'flex-grow:' . $this->number((float) $layout['grow']);
         } elseif ( $isFlexChild ) {
             $styles[] = 'flex-shrink:0';
@@ -8773,8 +8779,67 @@ final class StaticHtmlEmitter
         return $html;
     }
 
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function negativeAutoLayoutSpacingRules(string $className, array $node): array
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'flex' !== ($layout['display'] ?? null) || ! $this->isFiniteNumeric($layout['item_spacing'] ?? null) || (float) $layout['item_spacing'] >= 0.0 ) {
+            return array();
+        }
+
+        $property = 'column' === ($layout['flex_direction'] ?? null) ? 'margin-top' : 'margin-left';
+        return array('.' . $className . '>*+*{' . $property . ':' . $this->number((float) $layout['item_spacing']) . 'px}');
+    }
+
+    /**
+     * @return array<int, array{token: string, declaration: string}>
+     */
+    private function invalidCssNumericTokenDiagnostics(string $css): array
+    {
+        $diagnostics = array();
+        $css = $this->cssWithoutQuotedStringsAndUrls($css);
+        if ( preg_match_all('/(?<declaration>[\w-]+:[^;{}]*(?<token>NaN|Infinity|INF)[^;{}]*)/i', $css, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                $diagnostics[] = array(
+                    'token' => trim((string) $match['token']),
+                    'declaration' => trim((string) $match['declaration']),
+                );
+            }
+        }
+        if ( preg_match_all('/(?<declaration>gap:\s*-[0-9.]+px(?:\s+-?[0-9.]+px)?)/i', $css, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                $diagnostics[] = array(
+                    'token' => 'gap:-',
+                    'declaration' => trim((string) $match['declaration']),
+                );
+            }
+        }
+
+        return $diagnostics;
+    }
+
+    private function cssWithoutQuotedStringsAndUrls(string $css): string
+    {
+        $css = preg_replace('/url\((?:[^()"\']+|"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\')*\)/i', 'url()', $css);
+        $css = preg_replace('/"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\'/s', '""', (string) $css);
+
+        return (string) $css;
+    }
+
+    private function isFiniteNumeric(mixed $value): bool
+    {
+        return is_numeric($value) && is_finite((float) $value);
+    }
+
     private function number(float $value): string
     {
+        if ( ! is_finite($value) ) {
+            return '0';
+        }
+
         return rtrim(rtrim(sprintf('%.3F', $value), '0'), '.');
     }
 

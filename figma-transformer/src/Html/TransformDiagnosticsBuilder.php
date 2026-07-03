@@ -67,6 +67,14 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
             );
         }
+        if ( ! empty($layout['invalid_css_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_tokens',
+                'count' => (int) $layout['invalid_css_count'],
+                'sample_tokens' => array_slice(is_array($layout['invalid_css_tokens'] ?? null) ? $layout['invalid_css_tokens'] : array(), 0, 10),
+            );
+        }
         if ( ! empty($layout['off_canvas_visual_node_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -228,6 +236,7 @@ final class TransformDiagnosticsBuilder
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
+                'invalid_css_count' => (int) ($layout['invalid_css_count'] ?? 0),
                 'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
                 'clipped_visual_node_count' => (int) ($layout['clipped_visual_node_count'] ?? 0),
                 'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),

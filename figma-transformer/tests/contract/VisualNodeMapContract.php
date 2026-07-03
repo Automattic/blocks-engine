@@ -155,6 +155,8 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     ));
     $reverseZIndexCss = blocks_engine_figma_transformer_contract_file_content($reverseZIndexResult, 'style.css');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;isolation:isolate;display:flex;flex-direction:row;gap:0px}'), 'visual-map-reverse-z-parent-gap-clamped');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row>*+*{margin-left:-20px}'), 'visual-map-reverse-z-negative-spacing-overlap-margin');
+    $assert(! str_contains($reverseZIndexCss, 'gap:-'), 'visual-map-reverse-z-no-negative-gap-css');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
 
@@ -281,6 +283,35 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
     $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
     $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
+
+    $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Invalid CSS Sanitization Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'invalid-css:root',
+                'type'     => 'FRAME',
+                'name'     => 'NaN Root Shell',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'invalid-css:child', 'type' => 'RECTANGLE', 'name' => 'Infinity card', 'x' => NAN, 'y' => INF, 'width' => INF, 'height' => NAN),
+                ),
+            ),
+        ),
+    ), array('font_css' => '@font-face{font-family:"False Positive";src:url("https://example.com/NaN-INF-Infinity.woff2") format("woff2")}'));
+    $invalidCssSanitizationCss = blocks_engine_figma_transformer_contract_file_content($invalidCssSanitizationResult, 'style.css');
+    $invalidCssSanitizationDiagnostics = $invalidCssSanitizationResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(0 === preg_match('/(?<![A-Za-z0-9_-])(?:NaN|Infinity|INF)(?![A-Za-z0-9_-])|gap:-/', str_replace('https://example.com/NaN-INF-Infinity.woff2', '', $invalidCssSanitizationCss)), 'visual-map-invalid-css-finite-layout-output');
+    $assert(0 === ($invalidCssSanitizationDiagnostics['invalid_css_count'] ?? null), 'visual-map-invalid-css-url-false-positive-ignored');
+
+    $invalidCssDetectionResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Invalid CSS Detection Fixture',
+        'nodes' => array(
+            array('id' => 'invalid-css-detect:root', 'type' => 'FRAME', 'name' => 'Root', 'width' => 320, 'height' => 180),
+        ),
+    ), array('font_css' => 'body{width:NaNpx;background-image:url("https://example.com/Infinity.png")}'));
+    $invalidCssDetectionDiagnostics = $invalidCssDetectionResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(1 === ($invalidCssDetectionDiagnostics['invalid_css_count'] ?? null), 'visual-map-invalid-css-detects-declaration-token');
 
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(
