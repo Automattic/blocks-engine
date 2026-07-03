@@ -702,6 +702,10 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
     $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
     $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
+    $assert('unknown_binary_blob' === ($vectorNetworkDiagnostic['context']['vector_network_blob_kind'] ?? null), 'vector-network-diagnostic-blob-kind');
+    $assert('missing_vector_network_counts' === ($vectorNetworkDiagnostic['context']['decoder_blocker'] ?? null), 'vector-network-diagnostic-decoder-blocker');
+    $assert('high' === ($vectorNetworkDiagnostic['context']['render_risk'] ?? null), 'vector-network-diagnostic-render-risk');
+    $assert('vector:data-malformed' === ($vectorNetworkDiagnostic['context']['sample_render_risk_nodes'][0]['node_id'] ?? null), 'vector-network-diagnostic-risk-node-sample');
 
     // Compact vectorNetwork blob: straight segments can be encoded as just
     // start/end uint32 pairs. This is a generic .fig layout, not a named-icon
@@ -1087,6 +1091,9 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(array('vertex_stride' => 20, 'segment_stride' => 16, 'region_bytes' => 44) === ($nonRectVectorNetworkDiagnostic['context']['candidate_layout'] ?? null), 'vector-network-candidate-layout-diagnostic');
     $assert(array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) === ($nonRectVectorNetworkDiagnostic['context']['candidate_vertex_points_sample'] ?? null), 'vector-network-candidate-point-sample');
     $assert('Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.' === ($nonRectVectorNetworkDiagnostic['context']['candidate_decoder_requirement'] ?? null), 'vector-network-candidate-requirement');
+    $assert('single_region_equal_count_44_byte_loop' === ($nonRectVectorNetworkDiagnostic['context']['vector_network_blob_kind'] ?? null), 'vector-network-candidate-blob-kind');
+    $assert('segment_endpoints_not_valid_for_known_layout' === ($nonRectVectorNetworkDiagnostic['context']['decoder_blocker'] ?? null), 'vector-network-candidate-decoder-blocker');
+    $assert('high' === ($nonRectVectorNetworkDiagnostic['context']['render_risk'] ?? null), 'vector-network-candidate-render-risk');
     
     $loopDecoderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Vector Network Loop Decoder Fixture',
