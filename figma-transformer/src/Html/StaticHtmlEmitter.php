@@ -3464,9 +3464,10 @@ final class StaticHtmlEmitter
             ),
         );
         $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
+        $cssGeometryIndex = $this->cssBaseGeometryIndex($css);
         $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
         $invalidCssDiagnostics = $this->invalidCssNumericTokenDiagnostics($css);
-        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
+        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex, $cssGeometryIndex);
         $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
@@ -4712,6 +4713,35 @@ final class StaticHtmlEmitter
         return array_values($samples);
     }
 
+    /**
+     * @return array<string, array<string, float>>
+     */
+    private function cssBaseGeometryIndex(string $css): array
+    {
+        $baseCss = preg_split('/@media\\b/', $css, 2)[0] ?? $css;
+        if ( ! preg_match_all('/\\.(figma-node-[A-Za-z0-9_-]+)\\{([^}]*)\\}/s', $baseCss, $rules, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $index = array();
+        foreach ( $rules as $rule ) {
+            $className = (string) ($rule[1] ?? '');
+            $body = (string) ($rule[2] ?? '');
+            $geometry = array();
+            foreach ( array('left', 'top', 'width', 'height') as $property ) {
+                $value = $this->cssPixelDeclarationValue($body, $property);
+                if ( null !== $value ) {
+                    $geometry[$property] = $value;
+                }
+            }
+            if ( array() !== $geometry ) {
+                $index[$className] = $geometry;
+            }
+        }
+
+        return $index;
+    }
+
     private function cssPixelDeclarationValue(string $body, string $property): ?float
     {
         return preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . ':\s*(-?\d+(?:\.\d+)?)px(?:;|$)/', $body, $match)
@@ -4722,9 +4752,10 @@ final class StaticHtmlEmitter
     /**
      * @param array<int, array<string, mixed>> $visualNodeMap
      * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @param array<string, array<string, float>> $cssGeometryIndex
      * @return array<int, array<string, mixed>>
      */
-    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $nodeIndex): array
+    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $nodeIndex, array $cssGeometryIndex): array
     {
         $byId = array();
         foreach ( $visualNodeMap as $entry ) {
@@ -4750,6 +4781,25 @@ final class StaticHtmlEmitter
                 }
             }
 
+            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
+            $className = isset($entry['emitted_class']) && is_scalar($entry['emitted_class']) ? (string) $entry['emitted_class'] : (string) ($node['class'] ?? '');
+            $cssGeometry = '' !== $className && is_array($cssGeometryIndex[$className] ?? null) ? $cssGeometryIndex[$className] : array();
+            $sourceRect = $rect;
+            if ( array() !== $cssGeometry ) {
+                if ( isset($cssGeometry['left']) ) {
+                    $rect['x'] = (float) $parentRect['x'] + (float) $cssGeometry['left'];
+                }
+                if ( isset($cssGeometry['top']) ) {
+                    $rect['y'] = (float) $parentRect['y'] + (float) $cssGeometry['top'];
+                }
+                if ( isset($cssGeometry['width']) ) {
+                    $rect['width'] = (float) $cssGeometry['width'];
+                }
+                if ( isset($cssGeometry['height']) ) {
+                    $rect['height'] = (float) $cssGeometry['height'];
+                }
+            }
+
             $offCanvas = (float) $rect['x'] < (float) $parentRect['x'] - 100.0
                 || (float) $rect['x'] > (float) $parentRect['x'] + (float) $parentRect['width'] + 100.0
                 || (float) $rect['x'] + (float) $rect['width'] < (float) $parentRect['x'] - 100.0
@@ -4760,12 +4810,11 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
             $sample = array_filter(array(
                 'node_id' => (string) ($entry['id'] ?? ''),
                 'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
                 'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
-                'class' => (string) ($node['class'] ?? ''),
+                'class' => $className,
                 'parent_id' => (string) ($entry['parent_id'] ?? ''),
                 'left' => $this->reportNumericValue((float) $rect['x'] - (float) $parentRect['x']),
                 'top' => $this->reportNumericValue((float) $rect['y'] - (float) $parentRect['y']),
@@ -4776,6 +4825,11 @@ final class StaticHtmlEmitter
                 'parent_width' => $this->reportNumericValue((float) $parentRect['width']),
                 'parent_height' => $this->reportNumericValue((float) $parentRect['height']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            if ( array() !== $cssGeometry ) {
+                $sample['geometry_source'] = 'emitted_css';
+                $sample['source_left'] = $this->reportNumericValue((float) $sourceRect['x'] - (float) $parentRect['x']);
+                $sample['source_top'] = $this->reportNumericValue((float) $sourceRect['y'] - (float) $parentRect['y']);
+            }
             $classification = $this->visualOffCanvasClassification($entry, $parent);
             if ( '' !== $classification ) {
                 $sample['classification'] = $classification;
