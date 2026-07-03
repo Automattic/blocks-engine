@@ -5895,6 +5895,23 @@ final class StaticHtmlEmitter
             );
         }
 
+        if ( null !== $positioningStyleDecision->absolutePositioningDecision ) {
+            $absoluteDecision = $positioningStyleDecision->absolutePositioningDecision;
+            $this->recordDecisionTrace(
+                'positioning_context',
+                $absoluteDecision->reasonCode,
+                $node,
+                'resolve_absolute_positioning',
+                $parentNode,
+                array_merge($baseEvidence, array(
+                    'positioning_declarations' => $absoluteDecision->declarations,
+                    'suppressed_full_bleed_horizontal_offsets' => $absoluteDecision->suppressedFullBleedHorizontalOffsets,
+                    'centered_within_parent_fluid_canvas' => $canvasShell->centeredWithinParentFluidCanvas,
+                    'full_bleed_canvas_child' => $canvasShell->fullBleedCanvasChild,
+                ))
+            );
+        }
+
         $stackingContextPlan = $this->layoutIntentClassifier()->stackingContextPlan($node, $parentNode);
         if ( true === ($stackingContextPlan['manages_local_stacking'] ?? false) || true === ($stackingContextPlan['needs_isolation'] ?? false) || null !== ($stackingContextPlan['z_index'] ?? null) || null !== $positioningStyleDecision->zIndexReasonCode ) {
             $this->recordDecisionTrace(

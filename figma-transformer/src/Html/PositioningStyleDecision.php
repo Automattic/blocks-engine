@@ -17,6 +17,7 @@ final class PositioningStyleDecision
         public readonly bool $willPositionAbsolute,
         public readonly bool $isDecorativeFlexUnderlay,
         public readonly ?string $zIndexReasonCode = null,
+        public readonly ?AbsolutePositioningDecision $absolutePositioningDecision = null,
     ) {
     }
 }

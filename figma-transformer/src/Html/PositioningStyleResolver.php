@@ -55,43 +55,18 @@ final class PositioningStyleResolver
             $styles[] = 'isolation:isolate';
         }
 
+        $absolutePositioningDecision = $this->absolutePositioningDecision($node, $parentNode, $box, $layout, $canvasShell, $isDecorativeFlexUnderlay, $parentFreeformUsesFlow);
+        if ( null !== $absolutePositioningDecision ) {
+            foreach ( $absolutePositioningDecision->declarations as $style ) {
+                $styles[] = $style;
+            }
+        }
+
         if ( $isDecorativeFlexUnderlay ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
-                    continue;
-                }
-                $styles[] = $style;
-            }
-            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
-                $styles[] = $style;
-            }
             if ( null !== $effectiveZIndex && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') ) {
                 $styles[] = 'z-index:' . (string) $effectiveZIndex;
             }
             $styles[] = 'pointer-events:none';
-        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
-                    continue;
-                }
-                $styles[] = $style;
-            }
-            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
-                $styles[] = $style;
-            }
-        } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
-                    continue;
-                }
-                $styles[] = $style;
-            }
-            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
-                $styles[] = $style;
-            }
         }
 
         if ( null !== $parentNode && ! $willPositionAbsolute && null === $effectiveZIndex && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
@@ -107,7 +82,44 @@ final class PositioningStyleResolver
             $styles[] = 'z-index:' . (string) $effectiveZIndex;
         }
 
-        return new PositioningStyleDecision($styles, $willPositionAbsolute, $isDecorativeFlexUnderlay, $zIndexReason);
+        return new PositioningStyleDecision($styles, $willPositionAbsolute, $isDecorativeFlexUnderlay, $zIndexReason, $absolutePositioningDecision);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     */
+    private function absolutePositioningDecision(array $node, ?array $parentNode, array $box, array $layout, CanvasShellDecision $canvasShell, bool $isDecorativeFlexUnderlay, bool $parentFreeformUsesFlow): ?AbsolutePositioningDecision
+    {
+        $reasonCode = '';
+        if ( $isDecorativeFlexUnderlay ) {
+            $reasonCode = 'decorative_flex_underlay_absolute';
+        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
+            $reasonCode = 'freeform_parent_absolute_child';
+        } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            $reasonCode = 'explicit_absolute_positioning';
+        }
+
+        if ( '' === $reasonCode ) {
+            return null;
+        }
+
+        $declarations = array('position:absolute');
+        $suppressedFullBleedHorizontalOffsets = false;
+        foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
+            if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
+                $suppressedFullBleedHorizontalOffsets = true;
+                continue;
+            }
+            $declarations[] = $style;
+        }
+        foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
+            $declarations[] = $style;
+        }
+
+        return new AbsolutePositioningDecision($reasonCode, $declarations, $suppressedFullBleedHorizontalOffsets);
     }
 
     /**

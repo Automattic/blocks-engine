@@ -43,6 +43,33 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $normalResult, 'clipped_visual_area', 'diagnostics-evidence-normal-no-clipped-area-signal');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $normalResult, 'source_loss_coverage_gap', 'diagnostics-evidence-normal-no-source-loss-signal');
 
+    $positioningTraceResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Positioning Trace Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:positioning-page',
+                'type'     => 'FRAME',
+                'name'     => 'Positioning Page',
+                'width'    => 320,
+                'height'   => 200,
+                'children' => array(
+                    array('id' => 'diag:absolute-box', 'type' => 'RECTANGLE', 'name' => 'Absolute Box', 'x' => 10, 'y' => 20, 'width' => 40, 'height' => 30, 'layout' => array('positioning' => 'absolute')),
+                ),
+            ),
+        ),
+    ));
+    $positioningTraceDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($positioningTraceResult);
+    $positioningTraceSample = null;
+    foreach ( $positioningTraceDiagnostics['decision_traces']['samples'] ?? array() as $trace ) {
+        if ( is_array($trace) && 'positioning_context' === ($trace['domain'] ?? null) ) {
+            $positioningTraceSample = $trace;
+            break;
+        }
+    }
+    $assert(1 === ($positioningTraceDiagnostics['decision_traces']['domain_counts']['positioning_context'] ?? null), 'diagnostics-evidence-positioning-context-trace-count');
+    $assert('freeform_parent_absolute_child' === ($positioningTraceSample['reason_code'] ?? null), 'diagnostics-evidence-positioning-context-reason');
+    $assert(in_array('position:absolute', $positioningTraceSample['evidence']['positioning_declarations'] ?? array(), true), 'diagnostics-evidence-positioning-context-declarations');
+
     $styleReferenceFallbackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Style Reference Fallback Fixture',
         'nodes' => array(

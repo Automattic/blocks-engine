@@ -5,8 +5,10 @@ declare(strict_types=1);
 use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy;
 use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellDecision;
+use Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutFrameRoleClassifier;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\PositioningStyleResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\VisualGeometryResolver;
 
 /**
@@ -120,6 +122,22 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert($backgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-full-bleed-child');
     $assert('full_bleed_canvas_child_viewport_breakout' === $resolver->fullBleedViewportBreakoutDecision($backgroundDecision)['reason_code'], 'canvas-shell-decision-breakout-reason-code');
     $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($backgroundDecision), 'canvas-shell-decision-breakout-styles');
+
+    $positioningIntent = new LayoutIntentClassifier();
+    $positioningResolver = new PositioningStyleResolver(
+        $positioningIntent,
+        new CssPositioningResolver($positioningIntent, static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
+        $resolver,
+        static fn (array $node): bool => true === (($node['layout']['freeform'] ?? false)),
+        static fn (array $node): bool => true === (($node['layout']['freeform_uses_flow'] ?? false)),
+        static fn (array $node, array $parentNode): bool => false,
+        static fn (array $node): bool => false,
+    );
+    $positioningDecision = $positioningResolver->resolve($backgroundNode, 'FRAME', $freeformBand, $backgroundBox, $backgroundLayout, $backgroundDecision, array('width:100vw'));
+    $assert(null !== $positioningDecision->absolutePositioningDecision, 'positioning-decision-records-absolute-boundary');
+    $assert('freeform_parent_absolute_child' === ($positioningDecision->absolutePositioningDecision->reasonCode ?? null), 'positioning-decision-reason-freeform-parent');
+    $assert(array('position:absolute', 'top:0px', 'left:50%', 'margin-left:-50vw') === ($positioningDecision->absolutePositioningDecision->declarations ?? array()), 'positioning-decision-declarations-filter-local-and-append-viewport');
+    $assert(true === ($positioningDecision->absolutePositioningDecision->suppressedFullBleedHorizontalOffsets ?? null), 'positioning-decision-records-suppressed-local-horizontal-offset');
 
     $reflectedBackgroundNode = array('id' => 'roles:reflected-bg', 'type' => 'FRAME', 'box' => $reflectedFullBleedChild['box'], 'figma_box' => $reflectedFullBleedChild['figma_box'], 'layout' => array());
     $reflectedBackgroundDecision = $resolver->resolve($reflectedBackgroundNode, $freeformBand, $root);
