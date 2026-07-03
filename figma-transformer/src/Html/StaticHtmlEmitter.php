@@ -909,7 +909,7 @@ final class StaticHtmlEmitter
             foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
                 $cssRules[] = $rule;
             }
-            $this->staticHtmlCssRuleSet()->markReadableName($className, $name, $type);
+            $this->staticHtmlCssRuleSet()->rememberNodeReadableName($className, $name, $type);
         }
         if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
@@ -3691,6 +3691,14 @@ final class StaticHtmlEmitter
         }
 
         return DecisionTraceBuilder::summary($this->decisionTraces);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function htmlArtifactDiagnostics(string $html, string $css): array
+    {
+        return $this->staticHtmlEmissionDiagnostics()->htmlArtifactDiagnostics($html, $css);
     }
 
     /**
