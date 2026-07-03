@@ -398,6 +398,27 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row{width:100%;max-width:100%;height:auto;position:relative;left:auto;right:auto;top:auto;justify-content:flex-start;align-items:center;flex-wrap:wrap;gap:16px;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px'), 'responsive-header-inner-safety-is-generic-not-frame-name');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
 
+    $rootAbsoluteChromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Root Absolute Chrome Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'root-chrome:page',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 1200,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array('id' => 'root-chrome:header', 'type' => 'FRAME', 'name' => 'Site header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 96, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'root-chrome:hero', 'type' => 'GROUP', 'name' => 'Clipped hero group', 'x' => 0, 'y' => 96, 'width' => 1440, 'height' => 640, 'layoutPositioning' => 'ABSOLUTE', 'clipsContent' => true),
+                ),
+            ),
+        ),
+    ));
+    $rootAbsoluteChromeCss = $fileContent($rootAbsoluteChromeResult, 'style.css');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-header-site-header{width:100vw;height:96px;position:absolute;left:0px;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-header-breaks-out-to-viewport');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-hero-clipped-hero-group{width:100vw;height:640px;overflow:hidden;position:absolute;left:0px;top:96px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-clipped-hero-breaks-out-to-viewport');
+
     $fixedSocialFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fixed Social Footer Breakpoint Fixture',
         'nodes' => array(

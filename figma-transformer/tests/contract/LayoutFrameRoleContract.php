@@ -117,6 +117,17 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert($reflectedBackgroundDecision->fullBleedCanvasChildReflected, 'canvas-shell-decision-reflected-full-bleed-child-reflection-flag');
     $assert(array('left:50%', 'margin-left:50vw') === $resolver->fullBleedViewportBreakoutStyles($reflectedBackgroundDecision), 'canvas-shell-decision-reflected-breakout-styles');
 
+    $absoluteChromeRoot = $root;
+    $absoluteChromeRoot['children'] = array($backgroundNode);
+    $absoluteChromeDecision = $resolver->resolve($backgroundNode, $absoluteChromeRoot, null);
+    $assert($absoluteChromeDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-root-uses-fluid-coordinates-for-absolute-children');
+    $assert($absoluteChromeDecision->fullBleedCanvasChild, 'canvas-shell-decision-root-absolute-child-is-full-bleed');
+
+    $standaloneRowRoot = $absoluteChromeRoot;
+    $standaloneRowRoot['layout'] = array('display' => 'flex', 'flex_direction' => 'row');
+    $standaloneRowDecision = $resolver->resolve($backgroundNode, $standaloneRowRoot, null);
+    $assert(! $standaloneRowDecision->fullBleedCanvasChild, 'canvas-shell-decision-standalone-row-root-keeps-source-width-children');
+
     $flowBand = $band;
     $flowBand['layout']['freeform_uses_flow'] = true;
     $contentShellNode = array('id' => 'roles:shell', 'type' => 'FRAME', 'box' => $contentShellBox, 'layout' => array());

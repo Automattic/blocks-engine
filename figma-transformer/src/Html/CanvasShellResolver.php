@@ -153,12 +153,16 @@ final class CanvasShellResolver
         }
 
         $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( 'COMPONENT' === $type || null === $parentNode ) {
+        if ( 'COMPONENT' === $type ) {
             return false;
         }
 
         if ( 'INSTANCE' === $type ) {
             return $this->isFreeformContainer($node);
+        }
+
+        if ( null === $parentNode && ('flex' !== ($layout['display'] ?? null) || 'column' !== ($layout['flex_direction'] ?? null)) ) {
+            return false;
         }
 
         return $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
