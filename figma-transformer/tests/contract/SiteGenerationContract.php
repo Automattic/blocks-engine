@@ -527,6 +527,36 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row', array('position:relative', 'left:auto', 'top:auto'), 'responsive-header-inner-skips-generic-flow-safety-with-matched-variant');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
 
+    $responsiveHeaderDuplicateKeyResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Header Duplicate Key Fixture',
+        'nodes' => array(
+            array('id' => 'chrome-leak:desktop', 'type' => 'FRAME', 'name' => 'Clinic Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-leak:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 112, 'children' => array(
+                    array('id' => 'chrome-leak:desktop-actions', 'source_id' => 'component:header-actions', 'type' => 'FRAME', 'name' => 'Actions', 'x' => 760, 'y' => 32, 'width' => 500, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-leak:desktop-actions-label', 'type' => 'TEXT', 'name' => 'Actions label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+            array('id' => 'chrome-leak:mobile', 'type' => 'FRAME', 'name' => 'Clinic Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-leak:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 144, 'children' => array(
+                    array('id' => 'chrome-leak:mobile-actions', 'type' => 'FRAME', 'name' => 'Actions', 'x' => 24, 'y' => 48, 'width' => 342, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-leak:mobile-actions-label', 'type' => 'TEXT', 'name' => 'Actions label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'chrome-leak:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'chrome-leak:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Clinic Page',
+    ));
+    $responsiveHeaderDuplicateKeyCss = $fileContent($responsiveHeaderDuplicateKeyResult, 'style.css');
+    $responsiveHeaderDuplicateKeyMobileBlock = substr($responsiveHeaderDuplicateKeyCss, strpos($responsiveHeaderDuplicateKeyCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveHeaderDuplicateKeyMobileBlock, '.figma-node-chrome-leak-desktop-actions-actions', array('width:calc(100% - 48px)', 'left:24px', 'top:48px'), 'responsive-header-duplicate-key-actions-preserves-matched-geometry');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveHeaderDuplicateKeyMobileBlock, '.figma-node-chrome-leak-desktop-actions-actions', array('position:relative', 'left:auto', 'top:auto', 'padding-top:24px'), 'responsive-header-duplicate-key-actions-skips-unmatched-source-flow-safety');
+
     $responsiveMixedHeaderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Responsive Mixed Header Chrome Fixture',
         'nodes' => array(

@@ -110,7 +110,7 @@ final class BreakpointMediaDiffBuilder
 
             $rules = array_merge(
                 $this->diffRules($baseStyles, $variantStyles),
-                $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth)
+                $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth, $this->matchedBreakpointGeometryClasses($baseStyles, $variantStyles))
             );
             if ( empty($rules) ) {
                 $prevViewportWidth = (float) $viewportWidth;
@@ -289,7 +289,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, array<string, mixed>> $variantStyles
      * @return array<int, string>
      */
-    private function responsiveSafetyRules(array $baseStyles, array $variantStyles, float $viewportWidth): array
+    private function responsiveSafetyRules(array $baseStyles, array $variantStyles, float $viewportWidth, array $matchedBreakpointGeometryClasses): array
     {
         $rules = array();
         foreach ( $baseStyles as $base ) {
@@ -311,6 +311,11 @@ final class BreakpointMediaDiffBuilder
                 continue;
             }
 
+            $reasonCode = (string) ($decision['reason_code'] ?? 'responsive_safety_override');
+            if ( isset($matchedBreakpointGeometryClasses[$class]) && $this->isGenericResponsiveFlowSafetyReason($reasonCode) ) {
+                continue;
+            }
+
             $changed = array();
             foreach ( $declarations as $declaration ) {
                 $parts = explode(':', $declaration, 2);
@@ -325,11 +330,50 @@ final class BreakpointMediaDiffBuilder
             }
             if ( ! empty($changed) ) {
                 $rules[] = '.' . $class . '{' . implode(';', $changed) . '}';
-                $this->recordResponsiveDecisionTrace($node, $parentNode, (string) ($decision['reason_code'] ?? 'responsive_safety_override'), $viewportWidth, $changed);
+                $this->recordResponsiveDecisionTrace($node, $parentNode, $reasonCode, $viewportWidth, $changed);
             }
         }
 
         return array_values(array_unique($rules));
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @param array<string, array<string, mixed>> $variantStyles
+     * @return array<string, true>
+     */
+    private function matchedBreakpointGeometryClasses(array $baseStyles, array $variantStyles): array
+    {
+        $classes = array();
+        foreach ( $baseStyles as $pathKey => $base ) {
+            if ( ! isset($variantStyles[$pathKey]) ) {
+                continue;
+            }
+
+            $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
+            if ( '' === $class ) {
+                continue;
+            }
+
+            $variantMap = $this->styleDeclarationMap(is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array());
+            foreach ( array('position', 'left', 'right', 'top', 'bottom', 'width', 'height') as $property ) {
+                if ( array_key_exists($property, $variantMap) ) {
+                    $classes[$class] = true;
+                    break;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    private function isGenericResponsiveFlowSafetyReason(string $reasonCode): bool
+    {
+        return in_array($reasonCode, array(
+            'responsive_header_child_chrome_safety',
+            'responsive_footer_child_chrome_safety',
+            'responsive_generic_mobile_safety',
+        ), true);
     }
 
     /**
