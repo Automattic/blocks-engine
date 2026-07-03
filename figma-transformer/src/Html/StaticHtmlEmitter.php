@@ -60,6 +60,8 @@ final class StaticHtmlEmitter
 
     private ?StyleDeclarationBuilder $styleDeclarationBuilder = null;
 
+    private ?PaintStackResolver $paintStackResolver = null;
+
     private ?TransformDiagnosticsBuilder $transformDiagnosticsBuilder = null;
 
     private ?EffectOverflowPolicy $effectOverflowPolicy = null;
@@ -110,6 +112,15 @@ final class StaticHtmlEmitter
         return $this->styleDeclarationBuilder ??= new StyleDeclarationBuilder(
             fn (float $value): string => $this->number($value),
             fn (array $paints): ?array => $this->firstCssPaint($paints),
+            fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
+        );
+    }
+
+    private function paintStackResolver(): PaintStackResolver
+    {
+        return $this->paintStackResolver ??= new PaintStackResolver(
+            fn (array $paint): ?string => $this->resolveAndMarkPaintAssetPath($paint),
+            fn (float $value): string => $this->number($value),
             fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
         );
     }
@@ -6355,31 +6366,7 @@ final class StaticHtmlEmitter
      */
     private function composedImageBackgroundStyles(array $node): array
     {
-        $styles = array();
-        $imageLayers = $this->nodeImagePaintLayers($node);
-        if ( empty($imageLayers) ) {
-            $assetPaths = $this->nodeAssetPaths($node);
-            if ( empty($assetPaths) ) {
-                return array();
-            }
-
-            $styles[] = 'background-image:' . $this->cssUrlList($assetPaths);
-            $styles[] = 'background-size:cover';
-            $styles[] = 'background-position:center';
-            return $styles;
-        }
-
-        $backgroundLayers = $this->nodeComposedBackgroundLayers($node, $imageLayers);
-        $styles[] = 'background-image:' . implode(',', array_map(static fn (array $layer): string => (string) $layer['css'], $backgroundLayers));
-        $blendModes = $this->composedBackgroundBlendModes($backgroundLayers);
-        if ( ! empty($blendModes) ) {
-            $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
-        }
-        foreach ( $this->composedBackgroundLayerStyles($node, $backgroundLayers) as $style ) {
-            $styles[] = $style;
-        }
-
-        return $styles;
+        return $this->paintStackResolver()->composedImageBackgroundStyles($node, $this->nodeAssetPaths($node));
     }
 
     /**
@@ -6389,54 +6376,7 @@ final class StaticHtmlEmitter
      */
     private function nodeComposedBackgroundLayers(array $node, array $fallbackImageLayers): array
     {
-        $layers = array();
-        foreach ( array('fills', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
-            }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-
-            foreach ( $paintCollections as $paints ) {
-                foreach ( array_reverse(array_values($paints)) as $paint ) {
-                    if ( ! is_array($paint) || false === ($paint['visible'] ?? true) ) {
-                        continue;
-                    }
-
-                    if ( 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
-                        foreach ( $this->paintAssetReferences($paint) as $assetId ) {
-                            $path = $this->resolveAssetPath($assetId);
-                            if ( null === $path ) {
-                                continue;
-                            }
-                            $this->usedAssetPaths[$path] = true;
-                            $layers[] = array('type' => 'image', 'css' => 'url("' . $path . '")', 'paint' => $paint);
-                            break;
-                        }
-                        continue;
-                    }
-
-                    if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
-                        $gradient = $this->gradientPaint($paint);
-                        if ( null !== $gradient ) {
-                            $layers[] = array('type' => 'gradient', 'css' => $gradient, 'paint' => $paint);
-                        }
-                    }
-                }
-            }
-        }
-
-        if ( ! empty($layers) ) {
-            return $layers;
-        }
-
-        return array_map(static fn (array $layer): array => array(
-            'type'  => 'image',
-            'css'   => 'url("' . (string) $layer['path'] . '")',
-            'paint' => is_array($layer['paint'] ?? null) ? $layer['paint'] : array(),
-        ), $fallbackImageLayers);
+        return $this->paintStackResolver()->nodeComposedBackgroundLayers($node, $fallbackImageLayers);
     }
 
     /**
@@ -6446,37 +6386,7 @@ final class StaticHtmlEmitter
      */
     private function composedBackgroundLayerStyles(array $node, array $layers): array
     {
-        $sizes = array();
-        $repeats = array();
-        $positions = array();
-        foreach ( $layers as $layer ) {
-            if ( 'image' !== ($layer['type'] ?? null) ) {
-                $sizes[] = '100% 100%';
-                $repeats[] = 'no-repeat';
-                $positions[] = 'center';
-                continue;
-            }
-
-            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
-            $layerStyles = $this->imagePaintLayerBackgroundStyles($node, $paint, $this->imagePaintScaleMode($paint));
-            $sizes[] = $layerStyles['size'];
-            $repeats[] = $layerStyles['repeat'];
-            $positions[] = $layerStyles['position'];
-        }
-
-        if ( empty($sizes) ) {
-            return array();
-        }
-
-        if ( array('cover') === array_values(array_unique($sizes)) && array('no-repeat') === array_values(array_unique($repeats)) && array('center') === array_values(array_unique($positions)) ) {
-            return array('background-size:cover', 'background-position:center');
-        }
-
-        return array(
-            'background-size:' . implode(',', $sizes),
-            'background-repeat:' . implode(',', $repeats),
-            'background-position:' . implode(',', $positions),
-        );
+        return $this->paintStackResolver()->composedBackgroundLayerStyles($node, $layers);
     }
 
     /**
@@ -6485,22 +6395,7 @@ final class StaticHtmlEmitter
      */
     private function composedBackgroundBlendModes(array $layers): array
     {
-        $blendModes = array();
-        foreach ( $layers as $layer ) {
-            if ( 'image' !== ($layer['type'] ?? null) ) {
-                $blendModes[] = 'normal';
-                continue;
-            }
-
-            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
-            $blendMode = null;
-            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
-                $blendMode = $this->blendModeCss((string) $paint['blendMode']);
-            }
-            $blendModes[] = $blendMode ?? 'normal';
-        }
-
-        return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
+        return $this->paintStackResolver()->composedBackgroundBlendModes($layers);
     }
 
     /**
@@ -8421,48 +8316,7 @@ final class StaticHtmlEmitter
      */
     private function nodeImagePaintLayers(array $node): array
     {
-        $paths = array();
-
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
-            }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-
-            foreach ( $paintCollections as $paints ) {
-                // Figma stores fills bottom→top; reverse so topmost is first
-                // (CSS background-image: first url = topmost layer).
-                $orderedPaints = array_reverse(array_values($paints));
-                foreach ( $orderedPaints as $paint ) {
-                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
-                        continue;
-                    }
-                    // Honour Figma visibility flag.
-                    if ( false === ($paint['visible'] ?? true) ) {
-                        continue;
-                    }
-
-                    foreach ( $this->paintAssetReferences($paint) as $assetId ) {
-                        $path = $this->resolveAssetPath($assetId);
-                        if ( null === $path ) {
-                            continue;
-                        }
-                        $this->usedAssetPaths[$path] = true;
-                        $paths[] = array('path' => $path, 'paint' => $paint);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if ( ! empty($paths) ) {
-            return $paths;
-        }
-
-        return array();
+        return $this->paintStackResolver()->nodeImagePaintLayers($node);
     }
 
     /**
@@ -8487,54 +8341,11 @@ final class StaticHtmlEmitter
      */
     private function imageBackgroundStyles(array $node, array $imageLayers): array
     {
-        if ( 1 === count($imageLayers) ) {
-            $paint = is_array($imageLayers[0]['paint'] ?? null) ? $imageLayers[0]['paint'] : array();
-            $scaleMode = $this->imagePaintScaleMode($paint);
-            $transformStyles = $this->imagePaintTransformStyles($node, $paint);
-            if ( ! empty($transformStyles) ) {
-                return array(
-                    'background-size:' . $transformStyles['size'],
-                    'background-repeat:' . $transformStyles['repeat'],
-                    'background-position:' . $transformStyles['position'],
-                );
-            }
-
-            if ( 'STRETCH' === $scaleMode ) {
-                return array('background-size:100% 100%', 'background-repeat:no-repeat', 'background-position:center');
-            }
-
-            if ( 'TILE' === $scaleMode ) {
-                return array('background-repeat:repeat', 'background-position:center');
-            }
-
-            return array('background-size:cover', 'background-position:center');
-        }
-
-        $sizes = array();
-        $repeats = array();
-        $positions = array();
-        foreach ( $imageLayers as $layer ) {
-            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
-            $scaleMode = $this->imagePaintScaleMode($paint);
-            $layerStyles = $this->imagePaintLayerBackgroundStyles($node, $paint, $scaleMode);
-            $sizes[] = $layerStyles['size'];
-            $repeats[] = $layerStyles['repeat'];
-            $positions[] = $layerStyles['position'];
-        }
-
-        if ( empty($sizes) ) {
-            return array();
-        }
-
-        if ( array('cover') === array_values(array_unique($sizes)) && array('no-repeat') === array_values(array_unique($repeats)) && array('center') === array_values(array_unique($positions)) ) {
-            return array('background-size:cover', 'background-position:center');
-        }
-
-        return array(
-            'background-size:' . implode(',', $sizes),
-            'background-repeat:' . implode(',', $repeats),
-            'background-position:' . implode(',', $positions),
-        );
+        return $this->composedBackgroundLayerStyles($node, array_map(static fn (array $layer): array => array(
+            'type'  => 'image',
+            'css'   => 'url("' . (string) ($layer['path'] ?? '') . '")',
+            'paint' => is_array($layer['paint'] ?? null) ? $layer['paint'] : array(),
+        ), $imageLayers));
     }
 
     /**
@@ -8543,17 +8354,11 @@ final class StaticHtmlEmitter
      */
     private function imageBackgroundBlendModes(array $imageLayers): array
     {
-        $blendModes = array();
-        foreach ( $imageLayers as $layer ) {
-            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
-            $blendMode = null;
-            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
-                $blendMode = $this->blendModeCss((string) $paint['blendMode']);
-            }
-            $blendModes[] = $blendMode ?? 'normal';
-        }
-
-        return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
+        return $this->composedBackgroundBlendModes(array_map(static fn (array $layer): array => array(
+            'type'  => 'image',
+            'css'   => 'url("' . (string) ($layer['path'] ?? '') . '")',
+            'paint' => is_array($layer['paint'] ?? null) ? $layer['paint'] : array(),
+        ), $imageLayers));
     }
 
     /**
@@ -8563,22 +8368,14 @@ final class StaticHtmlEmitter
      */
     private function imagePaintLayerBackgroundStyles(array $node, array $paint, string $scaleMode): array
     {
-        if ( 'TILE' !== $scaleMode ) {
-            $transformStyles = $this->imagePaintTransformStyles($node, $paint);
-            if ( ! empty($transformStyles) ) {
-                return $transformStyles;
-            }
-        }
+        $layers = array(array('type' => 'image', 'css' => '', 'paint' => $paint));
+        $styles = $this->paintStackResolver()->composedBackgroundLayerStyles($node, $layers);
 
-        if ( 'STRETCH' === $scaleMode ) {
-            return array('size' => '100% 100%', 'repeat' => 'no-repeat', 'position' => 'center');
-        }
-
-        if ( 'TILE' === $scaleMode ) {
-            return array('size' => 'auto', 'repeat' => 'repeat', 'position' => 'center');
-        }
-
-        return array('size' => 'cover', 'repeat' => 'no-repeat', 'position' => 'center');
+        return array(
+            'size'     => substr($styles[0] ?? 'background-size:cover', strlen('background-size:')),
+            'repeat'   => substr($styles[1] ?? 'background-repeat:no-repeat', strlen('background-repeat:')),
+            'position' => substr($styles[2] ?? 'background-position:center', strlen('background-position:')),
+        );
     }
 
     /**
@@ -8588,46 +8385,7 @@ final class StaticHtmlEmitter
      */
     private function imagePaintTransformStyles(array $node, array $paint): array
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : (is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array());
-        $width = $box['width'] ?? $node['width'] ?? null;
-        $height = $box['height'] ?? $node['height'] ?? null;
-        if ( ! is_numeric($width) || ! is_numeric($height) || 0 >= (float) $width || 0 >= (float) $height ) {
-            return array();
-        }
-
-        $matrix = $this->imagePaintTransformMatrix($paint);
-        if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
-            $cropRect = $this->imagePaintCropRect($paint);
-            if ( null === $cropRect ) {
-                return array();
-            }
-
-            $backgroundWidth = (float) $width / $cropRect['width'];
-            $backgroundHeight = (float) $height / $cropRect['height'];
-            $backgroundX = -1 * $cropRect['x'] * $backgroundWidth;
-            $backgroundY = -1 * $cropRect['y'] * $backgroundHeight;
-
-            return array(
-                'size'     => $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
-                'repeat'   => 'no-repeat',
-                'position' => $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
-            );
-        }
-
-        if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
-            return array();
-        }
-
-        $backgroundWidth = (float) $width / $matrix['m00'];
-        $backgroundHeight = (float) $height / $matrix['m11'];
-        $backgroundX = -1 * $matrix['m02'] * $backgroundWidth;
-        $backgroundY = -1 * $matrix['m12'] * $backgroundHeight;
-
-        return array(
-            'size'     => $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
-            'repeat'   => 'no-repeat',
-            'position' => $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
-        );
+        return $this->paintStackResolver()->imagePaintTransformStyles($node, $paint);
     }
 
     /**
@@ -8822,6 +8580,24 @@ final class StaticHtmlEmitter
 
         $slugged = $this->slug($assetId);
         return isset($this->assetsById[$slugged]) ? (string) $this->assetsById[$slugged]['path'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     */
+    private function resolveAndMarkPaintAssetPath(array $paint): ?string
+    {
+        foreach ( $this->paintAssetReferences($paint) as $assetId ) {
+            $path = $this->resolveAssetPath($assetId);
+            if ( null === $path ) {
+                continue;
+            }
+
+            $this->usedAssetPaths[$path] = true;
+            return $path;
+        }
+
+        return null;
     }
 
     /**
@@ -9065,27 +8841,7 @@ final class StaticHtmlEmitter
      */
     private function firstCssPaint(array $paints): ?array
     {
-        foreach ( $paints as $paint ) {
-            if ( ! is_array($paint) ) {
-                continue;
-            }
-
-            if ( 'SOLID' === ($paint['type'] ?? null) ) {
-                $color = $this->color($paint['color'] ?? null, $paint['opacity'] ?? null);
-                if ( null !== $color ) {
-                    return array('css' => $color, 'gradient' => false);
-                }
-            }
-
-            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
-                $gradient = $this->gradientPaint($paint);
-                if ( null !== $gradient ) {
-                    return array('css' => $gradient, 'gradient' => true);
-                }
-            }
-        }
-
-        return null;
+        return $this->paintStackResolver()->firstCssPaint($paints);
     }
 
     /**
@@ -9112,51 +8868,7 @@ final class StaticHtmlEmitter
      */
     private function gradientPaint(array $paint): ?string
     {
-        $stops = is_array($paint['stops'] ?? null) ? $paint['stops'] : array();
-        if ( empty($stops) ) {
-            return null;
-        }
-
-        $cssStops = array();
-        foreach ( $stops as $stop ) {
-            if ( ! is_array($stop) || ! isset($stop['position']) || ! is_numeric($stop['position']) ) {
-                continue;
-            }
-
-            $opacity = $paint['opacity'] ?? null;
-            $color = $stop['color'] ?? null;
-            if ( is_numeric($opacity) && is_array($color) && isset($color['a']) && is_numeric($color['a']) ) {
-                $opacity = (float) $opacity * (float) $color['a'];
-            }
-
-            $cssColor = $this->color($color, $opacity);
-            if ( null === $cssColor ) {
-                continue;
-            }
-
-            $cssStops[] = $cssColor . ' ' . $this->number((float) $stop['position'] * 100) . '%';
-        }
-
-        if ( empty($cssStops) ) {
-            return null;
-        }
-
-        if ( 'GRADIENT_RADIAL' === ($paint['type'] ?? null) ) {
-            // Radial center/radius are encoded in the gradientTransform too, but
-            // recovering them faithfully is more involved; emit a centered circle
-            // as the supported baseline.
-            return 'radial-gradient(circle,' . implode(',', $cssStops) . ')';
-        }
-
-        if ( 'GRADIENT_ANGULAR' === ($paint['type'] ?? null) ) {
-            $geometry = $this->angularGradientGeometry($paint);
-
-            return 'conic-gradient(from ' . $this->number($geometry['from']) . 'deg at '
-                . $this->number($geometry['cx']) . '% ' . $this->number($geometry['cy']) . '%,'
-                . implode(',', $cssStops) . ')';
-        }
-
-        return 'linear-gradient(' . $this->number($this->linearGradientAngle($paint)) . 'deg,' . implode(',', $cssStops) . ')';
+        return $this->paintStackResolver()->gradientPaint($paint);
     }
 
     /**
