@@ -337,13 +337,14 @@ final class BreakpointMediaDiffBuilder
     {
         $hasNewsletter = false;
         $hasBottomRow = false;
+        $freeformParent = $this->isFreeformContainer($node);
         foreach ( ($this->nodeList)($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
             $name = strtolower(trim((string) ($child['name'] ?? '')));
             $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( str_contains($name, 'newsletter signup') && 'absolute' === ($layout['positioning'] ?? null) ) {
+            if ( str_contains($name, 'newsletter signup') && ('absolute' === ($layout['positioning'] ?? null) || $freeformParent) ) {
                 $hasNewsletter = true;
             }
             if ( 'frame 19' === $name ) {
@@ -352,6 +353,15 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $hasNewsletter && $hasBottomRow;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isFreeformContainer(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return empty($layout['display']) && ! empty(($this->nodeList)($node));
     }
 
     /**

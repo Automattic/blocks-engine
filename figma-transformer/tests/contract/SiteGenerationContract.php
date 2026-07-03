@@ -271,6 +271,41 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:1216px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
     $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{height:auto;position:relative;left:auto;top:auto;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
 
+    $geometryFooterComponent = array(
+        'id'       => 'geometry-footer:component',
+        'type'     => 'COMPONENT',
+        'name'     => 'Footer',
+        'width'    => 1440,
+        'height'   => 483,
+        'children' => array(
+            array('id' => 'geometry-footer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter Signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352),
+            array('id' => 'geometry-footer:bottom', 'type' => 'FRAME', 'name' => 'Frame 19', 'x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131, 'children' => array(
+                array('id' => 'geometry-footer:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+            )),
+        ),
+    );
+    $geometryResponsiveFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Geometry Responsive Footer Shell Fixture',
+        'nodes' => array(
+            $geometryFooterComponent,
+            array('id' => 'geometry-footer:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'geometry-footer:desktop-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'geometry-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'geometry-footer:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'geometry-footer:mobile-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'geometry-footer:component', 'width' => 390, 'height' => 483),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'geometry-footer:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'geometry-footer:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $geometryResponsiveFooterCss = $fileContent($geometryResponsiveFooterResult, 'style.css');
+    $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{width:100%;height:483px;min-height:483px;position:relative}'), 'geometry-responsive-footer-shell-preserves-freeform-reserved-height');
+    $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{height:auto}'), 'geometry-responsive-footer-shell-safety-uses-freeform-children');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
