@@ -5856,7 +5856,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $figmaBox
      * @param array<string, mixed> $layout
      * @param array{reason_code: string, declarations: array<int, string>}|null $canvasWidthDecision
-     * @param array{reason_code: string, declarations: array<int, string>} $fullBleedBreakoutDecision
+     * @param array{reason_code: string, declarations: array<int, string>, evidence?: array<string, mixed>} $fullBleedBreakoutDecision
      * @param array<int, string> $styles
      */
     private function recordGeometryDecisionDiagnostics(array $node, string $type, ?array $parentNode, array $sourceBox, array $figmaBox, array $layout, CanvasShellDecision $canvasShell, ?array $canvasWidthDecision, array $fullBleedBreakoutDecision, PositioningStyleDecision $positioningStyleDecision, array $styles, ?string $transform): void
@@ -5893,11 +5893,13 @@ final class StaticHtmlEmitter
                         'responsive_centered_flow_shell' => $canvasShell->responsiveCenteredFlowShell,
                         'fluid_stretch_canvas_child' => $canvasShell->fluidStretchCanvasChild,
                         'responsive_centered_flow_width' => $canvasShell->responsiveCenteredFlowWidth,
+                        'full_bleed_canvas_child_reflected' => $canvasShell->fullBleedCanvasChildReflected,
                     ),
                     'canvas_width_reason_code' => $canvasReason,
                     'canvas_width_declarations' => $canvasWidthDecision['declarations'] ?? array(),
                     'full_bleed_reason_code' => $fullBleedReason,
                     'full_bleed_declarations' => $fullBleedBreakoutDecision['declarations'],
+                    'full_bleed_evidence' => is_array($fullBleedBreakoutDecision['evidence'] ?? null) ? $fullBleedBreakoutDecision['evidence'] : array(),
                 ))
             );
         }

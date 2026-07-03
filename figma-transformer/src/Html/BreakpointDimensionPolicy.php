@@ -118,7 +118,7 @@ final class BreakpointDimensionPolicy
     }
 
     /**
-     * @return array{reason_code: string, declarations: array<int, string>}
+     * @return array{reason_code: string, declarations: array<int, string>, evidence?: array<string, mixed>}
      */
     public function fullBleedViewportBreakoutDecision(CanvasShellDecision $canvasShell): array
     {
@@ -126,9 +126,31 @@ final class BreakpointDimensionPolicy
             return array('reason_code' => '', 'declarations' => array());
         }
 
+        $evidence = $this->fullBleedViewportBreakoutEvidence($canvasShell);
+
         return array(
             'reason_code'  => 'full_bleed_canvas_child_viewport_breakout',
             'declarations' => array('left:50%', 'margin-left:-50vw'),
+            'evidence'     => $evidence,
+        );
+    }
+
+    /**
+     * Explain why viewport breakout uses the mirrored-safe start anchor.
+     *
+     * @return array<string, mixed>
+     */
+    private function fullBleedViewportBreakoutEvidence(CanvasShellDecision $canvasShell): array
+    {
+        return array(
+            'frame_width_role'                       => $canvasShell->frameWidthRole,
+            'canvas_child_role'                      => $canvasShell->canvasChildRole,
+            'parent_renders_fluid_canvas'            => $canvasShell->parentRendersFluidCanvas,
+            'parent_uses_fluid_canvas_coordinates'   => $canvasShell->parentUsesFluidCanvasCoordinates,
+            'full_bleed_canvas_child'                => $canvasShell->fullBleedCanvasChild,
+            'full_bleed_canvas_child_reflected'      => $canvasShell->fullBleedCanvasChildReflected,
+            'viewport_anchor_strategy'               => 'mirrored_safe_start_edge',
+            'viewport_anchor_declarations'           => array('left:50%', 'margin-left:-50vw'),
         );
     }
 

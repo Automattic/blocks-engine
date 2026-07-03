@@ -82,6 +82,8 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
         true,
     ));
     $assert(in_array('margin-left:-50vw', $reflectedBreakoutDecision['declarations'], true), 'layout-frame-role-reflected-full-bleed-breakout-anchors-viewport-start');
+    $assert('mirrored_safe_start_edge' === ($reflectedBreakoutDecision['evidence']['viewport_anchor_strategy'] ?? null), 'layout-frame-role-reflected-full-bleed-breakout-evidence-anchor-strategy');
+    $assert(true === ($reflectedBreakoutDecision['evidence']['full_bleed_canvas_child_reflected'] ?? null), 'layout-frame-role-reflected-full-bleed-breakout-evidence-reflection');
 
     $contentShellBox = array('x' => 112, 'y' => 80, 'width' => 1216, 'height' => 240);
     $contentShellLayout = array('positioning' => 'absolute');
@@ -144,6 +146,8 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert($reflectedBackgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-reflected-visual-full-bleed-child');
     $assert($reflectedBackgroundDecision->fullBleedCanvasChildReflected, 'canvas-shell-decision-reflected-full-bleed-child-reflection-flag');
     $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($reflectedBackgroundDecision), 'canvas-shell-decision-reflected-breakout-styles');
+    $reflectedResolverBreakoutDecision = $resolver->fullBleedViewportBreakoutDecision($reflectedBackgroundDecision);
+    $assert(array('left:50%', 'margin-left:-50vw') === ($reflectedResolverBreakoutDecision['evidence']['viewport_anchor_declarations'] ?? null), 'canvas-shell-decision-reflected-breakout-evidence-declarations');
 
     $absoluteChromeRoot = $root;
     $absoluteChromeRoot['children'] = array($backgroundNode);
@@ -159,6 +163,9 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert(! $freeformRootDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-freeform-root-keeps-source-coordinates');
     $assert($freeformRootDecision->fullBleedCanvasChild, 'canvas-shell-decision-freeform-root-overscan-child-is-full-bleed');
     $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($freeformRootDecision), 'canvas-shell-decision-freeform-root-overscan-child-breakout-styles');
+    $freeformRootBreakoutDecision = $resolver->fullBleedViewportBreakoutDecision($freeformRootDecision);
+    $assert(false === ($freeformRootBreakoutDecision['evidence']['parent_uses_fluid_canvas_coordinates'] ?? null), 'canvas-shell-decision-freeform-root-overscan-breakout-evidence-source-coordinates');
+    $assert(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === ($freeformRootBreakoutDecision['evidence']['canvas_child_role'] ?? null), 'canvas-shell-decision-freeform-root-overscan-breakout-evidence-role');
 
     $standaloneRowRoot = $absoluteChromeRoot;
     $standaloneRowRoot['layout'] = array('display' => 'flex', 'flex_direction' => 'row');

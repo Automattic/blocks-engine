@@ -110,7 +110,7 @@ final class CanvasShellResolver
     }
 
     /**
-     * @return array{reason_code: string, declarations: array<int, string>}
+     * @return array{reason_code: string, declarations: array<int, string>, evidence?: array<string, mixed>}
      */
     public function fullBleedViewportBreakoutDecision(CanvasShellDecision $decision): array
     {
