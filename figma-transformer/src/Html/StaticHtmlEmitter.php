@@ -3488,24 +3488,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $countsByReason = array();
-        $countsByDomain = array();
-        foreach ( $this->decisionTraces as $trace ) {
-            $reason = (string) ($trace['reason_code'] ?? 'unknown');
-            $domain = (string) ($trace['domain'] ?? 'unknown');
-            $countsByReason[$reason] = (int) ($countsByReason[$reason] ?? 0) + 1;
-            $countsByDomain[$domain] = (int) ($countsByDomain[$domain] ?? 0) + 1;
-        }
-        ksort($countsByReason);
-        ksort($countsByDomain);
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
-            'trace_count' => count($this->decisionTraces),
-            'reason_counts' => $countsByReason,
-            'domain_counts' => $countsByDomain,
-            'samples' => array_slice(array_values($this->decisionTraces), 0, 100),
-        );
+        return DecisionTraceBuilder::summary($this->decisionTraces);
     }
 
     /**
@@ -3515,48 +3498,17 @@ final class StaticHtmlEmitter
      */
     private function recordDecisionTrace(string $domain, string $reasonCode, array $node, string $decision, ?array $parentNode = null, array $evidence = array()): void
     {
-        if ( '' === $reasonCode ) {
-            $reasonCode = 'unknown';
-        }
-        $nodeId = (string) ($node['id'] ?? '');
-        $parentId = null === $parentNode ? '' : (string) ($parentNode['id'] ?? '');
-        $key = implode('|', array($domain, $reasonCode, $decision, $nodeId, $parentId, (string) ($evidence['page_path'] ?? $this->currentPagePath)));
-        if ( isset($this->decisionTraces[$key]) ) {
-            $this->decisionTraces[$key]['count'] = (int) ($this->decisionTraces[$key]['count'] ?? 1) + 1;
-            return;
-        }
-
-        $trace = array_filter(array(
-            'domain' => $domain,
-            'reason_code' => $reasonCode,
-            'decision' => $decision,
-            'node_id' => $nodeId,
-            'name' => (string) ($node['name'] ?? ''),
-            'type' => strtoupper((string) ($node['type'] ?? '')),
-            'class' => '' === $nodeId && empty($node['name'] ?? '') ? null : $this->nodeDiagnosticClass($node),
-            'parent_id' => $parentId,
-            'page_path' => (string) ($evidence['page_path'] ?? $this->currentPagePath),
-            'evidence' => $this->boundedDecisionEvidence($evidence),
-            'count' => 1,
-        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
-
-        $this->decisionTraces[$key] = $trace;
-    }
-
-    /**
-     * @param array<string, mixed> $evidence
-     * @return array<string, mixed>
-     */
-    private function boundedDecisionEvidence(array $evidence): array
-    {
-        unset($evidence['domain'], $evidence['reason_code'], $evidence['decision'], $evidence['node_id'], $evidence['name'], $evidence['type']);
-        foreach ( $evidence as $key => $value ) {
-            if ( is_array($value) ) {
-                $evidence[$key] = array_slice($value, 0, 10);
-            }
-        }
-
-        return array_filter($evidence, static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        DecisionTraceBuilder::recordEmitterTrace(
+            $this->decisionTraces,
+            $domain,
+            $reasonCode,
+            $node,
+            $decision,
+            $parentNode,
+            $evidence,
+            $this->currentPagePath,
+            fn (array $traceNode): string => $this->nodeDiagnosticClass($traceNode)
+        );
     }
 
     /**

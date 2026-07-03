@@ -325,28 +325,7 @@ final class BreakpointMediaDiffBuilder
      */
     private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations): void
     {
-        if ( '' === $reasonCode ) {
-            $reasonCode = 'responsive_safety_override';
-        }
-        $nodeId = (string) ($node['id'] ?? '');
-        $key = implode('|', array($reasonCode, $nodeId, (string) ($parentNode['id'] ?? ''), (string) $viewportWidth));
-        if ( isset($this->decisionTraces[$key]) ) {
-            $this->decisionTraces[$key]['count'] = (int) ($this->decisionTraces[$key]['count'] ?? 1) + 1;
-            return;
-        }
-
-        $this->decisionTraces[$key] = array_filter(array(
-            'domain' => 'responsive_decision',
-            'reason_code' => $reasonCode,
-            'decision' => 'emit_media_override',
-            'node_id' => $nodeId,
-            'name' => (string) ($node['name'] ?? ''),
-            'type' => strtoupper((string) ($node['type'] ?? '')),
-            'parent_id' => null === $parentNode ? null : (string) ($parentNode['id'] ?? ''),
-            'viewport_width' => $viewportWidth,
-            'declarations' => array_values($declarations),
-            'count' => 1,
-        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        DecisionTraceBuilder::recordResponsiveTrace($this->decisionTraces, $node, $parentNode, $reasonCode, $viewportWidth, $declarations);
     }
 
     private function cssPixelValue(string $value): ?float
