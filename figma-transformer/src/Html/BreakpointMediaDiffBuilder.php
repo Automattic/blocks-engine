@@ -396,6 +396,11 @@ final class BreakpointMediaDiffBuilder
         }
 
         if ( $viewportWidth <= 480.0 ) {
+            $mobileTextDeclarations = $this->mobileCenteredTextSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth, $type, $width, $positioning, $variantNode);
+            if ( ! empty($mobileTextDeclarations) ) {
+                return array('reason_code' => 'responsive_centered_text_mobile_safety', 'declarations' => $mobileTextDeclarations);
+            }
+
             $mobileDeclarations = $this->genericMobileSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth, $isContainer, $width, $positioning, $display);
             if ( ! empty($mobileDeclarations) ) {
                 return array('reason_code' => 'responsive_generic_mobile_safety', 'declarations' => $mobileDeclarations);
@@ -539,6 +544,63 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $declarations;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     * @param array<string, mixed>|null $variantNode
+     * @return array<int, string>
+     */
+    private function mobileCenteredTextSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, string $type, ?float $width, string $positioning, ?array $variantNode): array
+    {
+        if ( 'TEXT' !== $type || null === $parentNode || null === $width || 'absolute' !== $positioning ) {
+            return array();
+        }
+
+        $computedLeft = $this->mobileComputedCenteredLeft($baseMap['left'] ?? '', $viewportWidth);
+        if ( null === $computedLeft || $computedLeft >= 0.0 ) {
+            return array();
+        }
+
+        if ( null !== $variantNode && $this->variantTextFitsViewport($variantNode, $viewportWidth) ) {
+            return array();
+        }
+
+        $mobileContentWidth = max(1.0, $viewportWidth - 48.0);
+        return array(
+            'width:calc(100% - 48px)',
+            'max-width:' . ($this->number)(min($width, $mobileContentWidth)) . 'px',
+            'left:24px',
+            'right:auto',
+        );
+    }
+
+    private function mobileComputedCenteredLeft(string $left, float $viewportWidth): ?float
+    {
+        $left = trim($left);
+        if ( 1 === preg_match('/^calc\(50%\s*([+-])\s*(\d+(?:\.\d+)?)px\)$/', $left, $matches) ) {
+            $delta = (float) $matches[2];
+            return ($viewportWidth / 2.0) + ('-' === $matches[1] ? -$delta : $delta);
+        }
+
+        return $this->cssPixelValue($left);
+    }
+
+    /**
+     * @param array<string, mixed> $variantNode
+     */
+    private function variantTextFitsViewport(array $variantNode, float $viewportWidth): bool
+    {
+        $box = is_array($variantNode['box'] ?? null) ? $variantNode['box'] : array();
+        if ( ! isset($box['x'], $box['width']) || ! is_numeric($box['x']) || ! is_numeric($box['width']) ) {
+            return false;
+        }
+
+        $x = (float) $box['x'];
+        $width = (float) $box['width'];
+        return $x >= 0.0 && $width > 0.0 && ($x + min($width, $viewportWidth)) <= $viewportWidth + 1.0;
     }
 
     private function isHeaderChromeShellName(string $name): bool

@@ -1532,6 +1532,124 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:980px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
 
+    $responsiveHeroGeometryScenegraph = array(
+        'name'  => 'Responsive Hero Geometry Site',
+        'nodes' => array(
+            $responsiveEmitFrame('dr-geometry:desktop', 'Dr Aarti Desktop', 1440.0, 900.0, array(
+                array(
+                    'id'     => 'dr-geometry:desktop-headline',
+                    'type'   => 'TEXT',
+                    'name'   => 'Hero headline',
+                    'box'    => array('x' => 165.0, 'y' => 176.0, 'width' => 563.0, 'height' => 168.0),
+                    'layout' => array('positioning' => 'absolute', 'constraints' => array('horizontal' => 'CENTER')),
+                    'characters' => 'Doctor-led skin treatments tailored to you',
+                    'fontSize' => 56,
+                ),
+            )),
+            $responsiveEmitFrame('dr-geometry:mobile', 'Dr Aarti Mobile', 390.0, 960.0, array(
+                array(
+                    'id'     => 'dr-geometry:mobile-headline',
+                    'type'   => 'TEXT',
+                    'name'   => 'Hero headline',
+                    'box'    => array('x' => 24.0, 'y' => 144.0, 'width' => 342.0, 'height' => 132.0),
+                    'layout' => array('positioning' => 'absolute'),
+                    'characters' => 'Doctor-led skin treatments tailored to you',
+                    'fontSize' => 38,
+                ),
+            )),
+        ),
+    );
+    $responsiveHeroGeometryResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveHeroGeometryScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'dr-geometry:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'dr-geometry:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'dr-geometry:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveHeroGeometryCss = '';
+    foreach ( $responsiveHeroGeometryResult['files'] ?? array() as $responsiveHeroGeometryFile ) {
+        if ( is_array($responsiveHeroGeometryFile) && 'style.css' === ($responsiveHeroGeometryFile['path'] ?? null) ) {
+            $responsiveHeroGeometryCss = (string) ($responsiveHeroGeometryFile['content'] ?? '');
+        }
+    }
+    $responsiveHeroGeometryBaseRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroGeometryCss, '.figma-node-dr-geometry-desktop-headline-hero-headline');
+    $responsiveHeroGeometryMobileBlock = substr($responsiveHeroGeometryCss, strpos($responsiveHeroGeometryCss, '@media'));
+    $responsiveHeroGeometryMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroGeometryMobileBlock, '.figma-node-dr-geometry-desktop-headline-hero-headline');
+    $assert(str_contains($responsiveHeroGeometryBaseRule, 'left:calc(50% - 555px)'), 'responsive-emit-hero-text-base-keeps-desktop-centered-canvas-left');
+    $assert(str_contains($responsiveHeroGeometryMobileRule, 'width:calc(100% - 48px)') && str_contains($responsiveHeroGeometryMobileRule, 'left:24px'), 'responsive-emit-hero-text-mobile-matched-geometry-safe');
+    $responsiveHeroGeometryComputedMobileX = str_contains($responsiveHeroGeometryMobileRule, 'left:24px') ? 24.0 : -360.0;
+    $assert($responsiveHeroGeometryComputedMobileX >= 0.0, 'responsive-emit-hero-text-mobile-computed-x-non-negative');
+
+    $responsiveHeroFallbackScenegraph = array(
+        'name'  => 'Responsive Hero Fallback Site',
+        'nodes' => array(
+            $responsiveEmitFrame('hero-fallback:desktop', 'Hero Fallback Desktop', 1440.0, 900.0, array(
+                array('id' => 'hero-fallback:desktop-headline', 'type' => 'TEXT', 'name' => 'Hero headline', 'box' => array('x' => 165.0, 'y' => 176.0, 'width' => 563.0, 'height' => 168.0), 'layout' => array('positioning' => 'absolute', 'constraints' => array('horizontal' => 'CENTER')), 'characters' => 'Desktop centered headline', 'fontSize' => 56),
+            )),
+            $responsiveEmitFrame('hero-fallback:mobile', 'Hero Fallback Mobile', 390.0, 960.0, array(
+                array('id' => 'hero-fallback:mobile-card', 'type' => 'FRAME', 'name' => 'Hero card', 'box' => array('x' => 24.0, 'y' => 144.0, 'width' => 342.0, 'height' => 220.0), 'layout' => array('positioning' => 'absolute')),
+            )),
+        ),
+    );
+    $responsiveHeroFallbackResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveHeroFallbackScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'hero-fallback:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'hero-fallback:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'hero-fallback:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveHeroFallbackCss = '';
+    foreach ( $responsiveHeroFallbackResult['files'] ?? array() as $responsiveHeroFallbackFile ) {
+        if ( is_array($responsiveHeroFallbackFile) && 'style.css' === ($responsiveHeroFallbackFile['path'] ?? null) ) {
+            $responsiveHeroFallbackCss = (string) ($responsiveHeroFallbackFile['content'] ?? '');
+        }
+    }
+    $responsiveHeroFallbackMobileBlock = substr($responsiveHeroFallbackCss, strpos($responsiveHeroFallbackCss, '@media'));
+    $responsiveHeroFallbackMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroFallbackMobileBlock, '.figma-node-hero-fallback-desktop-headline-hero-headline');
+    $assert(str_contains($responsiveHeroFallbackMobileRule, 'width:calc(100% - 48px)') && str_contains($responsiveHeroFallbackMobileRule, 'left:24px') && str_contains($responsiveHeroFallbackMobileRule, 'right:auto'), 'responsive-emit-hero-text-mobile-fallback-clamps-offcanvas-centered-left');
+
+    $reflectedFullBleedScenegraph = array(
+        'name'  => 'Reflected Full Bleed Geometry Site',
+        'nodes' => array(
+            $responsiveEmitFrame('reflected:root', 'Reflected Root', 1440.0, 900.0, array(
+                array(
+                    'id'        => 'reflected:hero-image',
+                    'type'      => 'RECTANGLE',
+                    'name'      => 'Hero image',
+                    'box'       => array('x' => 1440.0, 'y' => 0.0, 'width' => 1440.0, 'height' => 620.0),
+                    'figma_box' => array('transform' => array(array(-1.0, 0.0, 0.0), array(0.0, 1.0, 0.0))),
+                    'layout'    => array('positioning' => 'absolute'),
+                    'background' => '#d8e7ef',
+                ),
+            )),
+        ),
+    );
+    $reflectedFullBleedResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($reflectedFullBleedScenegraph, array(
+        'pages' => array(array('frame_id' => 'reflected:root', 'path' => 'index.html', 'entrypoint' => true)),
+    ));
+    $reflectedFullBleedCss = '';
+    foreach ( $reflectedFullBleedResult['files'] ?? array() as $reflectedFullBleedFile ) {
+        if ( is_array($reflectedFullBleedFile) && 'style.css' === ($reflectedFullBleedFile['path'] ?? null) ) {
+            $reflectedFullBleedCss = (string) ($reflectedFullBleedFile['content'] ?? '');
+        }
+    }
+    $reflectedFullBleedRule = blocks_engine_figma_transformer_contract_css_rule($reflectedFullBleedCss, '.figma-node-reflected-hero-image-hero-image');
+    $assert(str_contains($reflectedFullBleedRule, 'left:0px') && str_contains($reflectedFullBleedRule, 'transform:matrix(-1,0,0,1,0,0)') && 1 === substr_count($reflectedFullBleedRule, 'left:'), 'responsive-emit-reflected-full-bleed-source-position-preserves-visual-viewport-x');
+
     $responsiveChromeScenegraph = array(
         'name'  => 'Responsive Top Chrome Site',
         'nodes' => array(
