@@ -933,19 +933,14 @@ final class TextNormalizer
     private function normalizeStyledTextSegments(array $node, array $paintStyles = array()): array
     {
         $segments = array();
-        $rawSegments = null;
-        foreach ( array('styledTextSegments', 'segments') as $key ) {
-            if ( is_array($node[$key] ?? null) ) {
-                $rawSegments = $node[$key];
-                break;
-            }
-        }
+        $rawSegments = $this->rawStyledTextSegments($node);
 
         if ( ! is_array($rawSegments) ) {
             // Fall back to character-level override encoding when no segment list is present.
             return $this->normalizeCharacterStyleOverrideSegments($node, $paintStyles);
         }
 
+        $sourceCharacters = $this->sourceTextCharacters($node);
         foreach ( $rawSegments as $segment ) {
             if ( ! is_array($segment) ) {
                 continue;
@@ -963,8 +958,27 @@ final class TextNormalizer
                     $normalized[$key] = (int) $segment[$key];
                 }
             }
+            if ( ! isset($normalized['characters']) && isset($normalized['start'], $normalized['end']) ) {
+                $characters = $this->sliceTextCharacters($sourceCharacters, $normalized['start'], $normalized['end']);
+                if ( null !== $characters ) {
+                    $normalized['characters'] = $characters;
+                }
+            }
 
             $style = is_array($segment['style'] ?? null) ? $this->normalizeTextStyle($segment['style']) : $this->normalizeTextStyle($segment);
+            if ( ! isset($style['color']) ) {
+                $segmentFills = $this->firstFillList(array($segment['fills'] ?? null, $segment['fillPaints'] ?? null));
+                $fillColor = $this->solidFillColor($segmentFills);
+                if ( null !== $fillColor ) {
+                    $style['color'] = $fillColor;
+                }
+            }
+            if ( ! isset($style['color']) ) {
+                $styleFillColor = $this->styleFillColor($segment['styleIdForFill'] ?? null, $paintStyles);
+                if ( null !== $styleFillColor ) {
+                    $style['color'] = $styleFillColor;
+                }
+            }
             if ( ! empty($style) ) {
                 $normalized['style'] = $style;
             }
@@ -975,6 +989,60 @@ final class TextNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, mixed>|null
+     */
+    private function rawStyledTextSegments(array $node): ?array
+    {
+        foreach ( array($node, $node['textData'] ?? null, $node['derivedTextData'] ?? null) as $source ) {
+            if ( ! is_array($source) ) {
+                continue;
+            }
+
+            foreach ( array('styledTextSegments', 'segments') as $key ) {
+                if ( is_array($source[$key] ?? null) ) {
+                    return $source[$key];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function sourceTextCharacters(array $node): string
+    {
+        foreach ( array(
+            $node['characters'] ?? null,
+            $node['text'] ?? null,
+            $node['textData']['characters'] ?? null,
+            $node['derivedTextData']['characters'] ?? null,
+        ) as $value ) {
+            if ( is_scalar($value) ) {
+                return (string) $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function sliceTextCharacters(string $characters, int $start, int $end): ?string
+    {
+        if ( '' === $characters || $end <= $start || $start < 0 ) {
+            return null;
+        }
+
+        $chars = preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY);
+        if ( ! is_array($chars) || $start >= count($chars) ) {
+            return null;
+        }
+
+        return implode('', array_slice($chars, $start, $end - $start));
     }
 
     /**

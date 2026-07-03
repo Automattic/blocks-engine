@@ -308,7 +308,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert('byte_limit_exceeded' === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['reason'] ?? null), 'oversized-glyph-diagnostics-reason');
     $assert(strlen($oversizedGlyphCommandBlob) === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['byte_length'] ?? null), 'oversized-glyph-diagnostics-byte-length');
     $assert(array() === ($oversizedGlyphVisualNode['text']['derived_layout']['glyph_paths'] ?? array()), 'oversized-glyph-omits-derived-path-data');
-     
+
     // Whitespace glyphs are emitted by Figma as a single 0x00 (empty-path) command
     // blob: well-formed, but carrying no drawable outline. These are valid, not
     // unsupported, and must NOT raise unsupported_text_glyph_command_blob warnings
@@ -1325,7 +1325,80 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     
     // Mixed-weight: only "Bold" differs in font-weight — it gets a font-weight span.
     $assert(str_contains($inlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'inline-style-mixed-weight-spans');
-    
+
+    // Some decoded .fig/Yotako text segment payloads carry only Unicode start/end
+    // offsets plus style metadata. The normalizer hydrates those ranges from the
+    // node/TextData characters so the emitter does not drop the styled text runs.
+    $offsetOnlySegmentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Offset Only Segment Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'seg:offset-node',
+                'type'               => 'TEXT',
+                'name'               => 'Offset segment text',
+                'characters'         => 'Alpha Beta',
+                'fontSize'           => 16,
+                'styledTextSegments' => array(
+                    array('start' => 0, 'end' => 6, 'style' => array('fontWeight' => 400)),
+                    array('start' => 6, 'end' => 10, 'style' => array('fontWeight' => 700)),
+                ),
+            ),
+            array(
+                'id'       => 'seg:kiwi-textdata-node',
+                'type'     => 'TEXT',
+                'name'     => 'Kiwi TextData segment text',
+                'fontSize' => 16,
+                'textData' => array(
+                    'characters' => 'Café Blue',
+                    'segments'   => array(
+                        array('start' => 0, 'end' => 5),
+                        array('start' => 5, 'end' => 9, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $offsetOnlySegmentHtml = $fileContent($offsetOnlySegmentResult, 'index.html');
+    $offsetOnlySegmentNormalized = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer() )->normalize(array(
+        'name'  => 'Offset Only Segment Normalization Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'seg:offset-node',
+                'type'               => 'TEXT',
+                'characters'         => 'Alpha Beta',
+                'styledTextSegments' => array(
+                    array('start' => 0, 'end' => 6, 'style' => array('fontWeight' => 400)),
+                    array('start' => 6, 'end' => 10, 'style' => array('fontWeight' => 700)),
+                ),
+            ),
+            array(
+                'id'       => 'seg:kiwi-textdata-node',
+                'type'     => 'TEXT',
+                'textData' => array(
+                    'characters' => 'Café Blue',
+                    'segments'   => array(
+                        array('start' => 0, 'end' => 5),
+                        array('start' => 5, 'end' => 9, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $offsetOnlySegmentNormalizedById = array();
+    foreach ( $offsetOnlySegmentNormalized['nodes'] ?? array() as $normalizedNode ) {
+        if ( is_array($normalizedNode) && isset($normalizedNode['id']) ) {
+            $offsetOnlySegmentNormalizedById[(string) $normalizedNode['id']] = $normalizedNode;
+        }
+    }
+    $normalizedOffsetNode = $offsetOnlySegmentNormalizedById['seg:offset-node']['figma_text']['segments'] ?? array();
+    $normalizedKiwiTextDataNode = $offsetOnlySegmentNormalizedById['seg:kiwi-textdata-node']['figma_text']['segments'] ?? array();
+    $assert('Alpha ' === ($normalizedOffsetNode[0]['characters'] ?? null), 'offset-only-segment-normalizes-first-run-text');
+    $assert('Beta' === ($normalizedOffsetNode[1]['characters'] ?? null), 'offset-only-segment-normalizes-second-run-text');
+    $assert('Café ' === ($normalizedKiwiTextDataNode[0]['characters'] ?? null), 'kiwi-textdata-offset-segment-normalizes-unicode-first-run');
+    $assert('Blue' === ($normalizedKiwiTextDataNode[1]['characters'] ?? null), 'kiwi-textdata-offset-segment-normalizes-unicode-second-run');
+    $assert(str_contains($offsetOnlySegmentHtml, '<span style="font-weight:400">Alpha </span><span style="font-weight:700">Beta</span>'), 'offset-only-segment-emits-hydrated-spans');
+    $assert(str_contains($offsetOnlySegmentHtml, 'Café <span style="color:#0000ff">Blue</span>'), 'kiwi-textdata-offset-segment-emits-hydrated-color-span');
+
     // Paragraph splitting must preserve inline override spans inside the correct
     // paragraph, and single-paragraph nodes must not gain a wrapper (#318 follow-up).
     //
