@@ -8780,7 +8780,7 @@ final class StaticHtmlEmitter
 
     private function isGenericVectorName(string $name): bool
     {
-        return '' === $name || 1 === preg_match('/^(vector|union|ellipse|rectangle|line|polygon|star|regular polygon|group|shape|icon)(\s+\d+)?$/i', $name);
+        return '' === $name || 1 === preg_match('/^(vector|union|subtract|intersect|exclude|ellipse|rectangle|line|polygon|star|regular polygon|group|shape|icon)(\s+\d+)?$/i', $name);
     }
 
     /**

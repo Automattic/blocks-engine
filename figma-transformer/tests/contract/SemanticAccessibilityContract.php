@@ -75,6 +75,51 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($html, 'data-figma-node-id="semantic:icon"') && str_contains($html, 'aria-hidden="true" focusable="false"'), 'semantic-accessibility-generic-icon-decorative');
     $assert(str_contains($html, 'data-figma-node-id="semantic:logo-icon"') && str_contains($html, 'role="img" aria-label="Logo"'), 'semantic-accessibility-logo-icon-keeps-accessible-name');
 
+    $booleanLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Decorative Boolean Label Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'boolean:subtract',
+                'type'     => 'BOOLEAN_OPERATION',
+                'name'     => 'Subtract',
+                'width'    => 120,
+                'height'   => 80,
+                'children' => array(
+                    array('id' => 'boolean:a', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 120, 'height' => 80, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)))),
+                    array('id' => 'boolean:b', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'x' => 20, 'y' => 20, 'width' => 40, 'height' => 40, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                ),
+            ),
+        ),
+    ));
+    $booleanLabelHtml = $fileContent($booleanLabelResult, 'index.html');
+    $assert(str_contains($booleanLabelHtml, 'data-figma-node-id="boolean:subtract"') && str_contains($booleanLabelHtml, 'aria-hidden="true" focusable="false"'), 'semantic-accessibility-generic-subtract-vector-decorative');
+
+    $largeVectorUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Large Vector Underlay Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'underlay:root',
+                'type'     => 'FRAME',
+                'name'     => 'Background Hero',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'underlay:vector-cluster',
+                        'type'     => 'GROUP',
+                        'name'     => 'Group 127',
+                        'width'    => 1100,
+                        'height'   => 560,
+                        'children' => array(array('id' => 'underlay:shape', 'type' => 'VECTOR', 'name' => 'Vector 21', 'width' => 1100, 'height' => 560, 'fillGeometry' => array(array('path' => 'M0 0L1100 0L1100 560L0 560Z')), 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 1, 'a' => 0.03))))),
+                    ),
+                    array('id' => 'underlay:title', 'type' => 'TEXT', 'name' => 'Title', 'x' => 64, 'y' => 96, 'width' => 420, 'height' => 80, 'characters' => 'Readable foreground text', 'fontSize' => 40),
+                ),
+            ),
+        ),
+    ));
+    $largeVectorUnderlayCss = $fileContent($largeVectorUnderlayResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $largeVectorUnderlayCss, '.figma-node-underlay-vector-cluster-group-127', array('position:absolute', 'z-index:0', 'pointer-events:none'), 'semantic-accessibility-large-vector-background-underlay');
+
     $layeringResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Header Layering Fixture',
         'nodes' => array(

@@ -803,15 +803,17 @@ final class LayoutIntentClassifier
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isCompactControlUnderlay = $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
-        if ( ! $isCompactControlUnderlay && ! $this->parentSupportsDecorativeUnderlay($parentNode, $parentLayout) ) {
+        $isLargeVectorUnderlay = $this->isLargeDecorativeVectorUnderlay($node, $parentNode);
+        if ( ! $isCompactControlUnderlay && ! $isLargeVectorUnderlay && ! $this->parentSupportsDecorativeUnderlay($parentNode, $parentLayout) ) {
             return false;
         }
 
-        if ( ! $isCompactControlUnderlay && ! $this->hasDecorativeUnderlayForegroundEvidence($node, $parentNode) ) {
+        if ( ! $isCompactControlUnderlay && ! $isLargeVectorUnderlay && ! $this->hasDecorativeUnderlayForegroundEvidence($node, $parentNode) ) {
             return false;
         }
 
         return $isCompactControlUnderlay
+            || $isLargeVectorUnderlay
             || $this->isOversizedAgainstParent($node, $parentNode)
             || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout)
             || $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
@@ -960,6 +962,33 @@ final class LayoutIntentClassifier
     private function isDecorativeUnderlayVisualCandidate(array $node): bool
     {
         return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsShapeOnlyPrimitiveVisual($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isLargeDecorativeVectorUnderlay(array $node, array $parentNode): bool
+    {
+        if ( $this->isDecorativeUnderlayVisualCandidate($parentNode) || ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->isOversizedAgainstParent($node, $parentNode) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $parentName = strtolower((string) ($parentNode['name'] ?? ''));
+        if ( str_contains($name, 'logo') || str_contains($parentName, 'logo') || str_contains($parentName, 'social') ) {
+            return false;
+        }
+
+        foreach ( array('background', 'bg', 'underlay', 'decorative', 'artwork', 'illustration') as $hint ) {
+            if ( str_contains($name, $hint) || str_contains($parentName, $hint) ) {
+                return true;
+            }
+        }
+
+        return $this->parentHasTextOutsideNode($parentNode, $node)
+            && $this->nodeOverlapsTextOutsideNode($parentNode, $node)
+            && $this->nodeIsBehindTextOutsideNode($parentNode, $node);
     }
 
     /**
