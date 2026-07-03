@@ -149,6 +149,60 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(! str_contains($vectorStateDuplicateCss, '.figma-node-state-dup-right-arrow-3-right-arrow-3{'), 'same-path-vector-state-duplicate-has-no-visible-css');
     $assert(1 === ($vectorStateDuplicateDiagnostics['decision_traces']['reason_counts']['same_path_vector_state_duplicate_suppressed'] ?? null), 'same-path-vector-state-duplicate-suppression-traced');
 
+    $wrappedVectorStateDuplicateResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Wrapped Vector State Duplicate Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'wrapped-state:root',
+                'type'     => 'FRAME',
+                'name'     => 'Carousel Controls',
+                'width'    => 64,
+                'height'   => 64,
+                'children' => array(
+                    array(
+                        'id'       => 'wrapped-state:right-arrow-2',
+                        'type'     => 'GROUP',
+                        'name'     => 'right-arrow 2',
+                        'x'        => 20,
+                        'y'        => 20,
+                        'width'    => 24,
+                        'height'   => 24,
+                        'children' => array(array(
+                            'id'       => 'wrapped-state:right-arrow-2:vector',
+                            'type'     => 'VECTOR',
+                            'name'     => 'Vector',
+                            'width'    => 24,
+                            'height'   => 24,
+                            'pathData' => 'M4 12H20M14 6L20 12L14 18',
+                            'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 0.0, 'g' => 0.0, 'b' => 0.0, 'a' => 1))),
+                        )),
+                    ),
+                    array(
+                        'id'       => 'wrapped-state:right-arrow-3',
+                        'type'     => 'GROUP',
+                        'name'     => 'right-arrow 3',
+                        'x'        => 20,
+                        'y'        => 20,
+                        'width'    => 24,
+                        'height'   => 24,
+                        'children' => array(array(
+                            'id'       => 'wrapped-state:right-arrow-3:vector',
+                            'type'     => 'VECTOR',
+                            'name'     => 'Vector',
+                            'width'    => 24,
+                            'height'   => 24,
+                            'pathData' => 'M4 12H20M14 6L20 12L14 18',
+                            'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 0.9, 'g' => 0.1, 'b' => 0.1, 'a' => 1))),
+                        )),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $wrappedVectorStateDuplicateHtml = $fileContent($wrappedVectorStateDuplicateResult, 'index.html');
+    $assert(str_contains($wrappedVectorStateDuplicateHtml, 'data-figma-node-id="wrapped-state:right-arrow-2"'), 'wrapped-same-path-vector-state-default-emitted');
+    $assert(! str_contains($wrappedVectorStateDuplicateHtml, 'data-figma-node-id="wrapped-state:right-arrow-3"'), 'wrapped-same-path-vector-state-duplicate-not-emitted');
+
     $largeImageTintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Large Image Tint Overlay Fixture',
         'assets' => array(

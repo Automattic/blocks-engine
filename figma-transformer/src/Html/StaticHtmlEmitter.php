@@ -5735,11 +5735,12 @@ final class StaticHtmlEmitter
     private function samePathVectorStateSignature(array $node): ?string
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( ! $this->isUnsupportedVectorType($type) || ! $this->hasVisiblePaintCollection($node) ) {
+        $pathSignature = $this->vectorPathSignature($node);
+        if ( ! $this->isUnsupportedVectorType($type) ) {
+            $pathSignature = $this->wrappedSingleVectorPathSignature($node, 0);
+        } elseif ( ! $this->hasVisiblePaintCollection($node) ) {
             return null;
         }
-
-        $pathSignature = $this->vectorPathSignature($node);
         if ( null === $pathSignature ) {
             return null;
         }
@@ -5755,6 +5756,27 @@ final class StaticHtmlEmitter
         }
 
         return $type . '|' . implode('|', $boxParts) . '|' . $pathSignature;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function wrappedSingleVectorPathSignature(array $node, int $depth): ?string
+    {
+        if ( $depth > 3 ) {
+            return null;
+        }
+
+        $children = array_values(array_filter(is_array($node['children'] ?? null) ? $node['children'] : array(), 'is_array'));
+        if ( 1 !== count($children) ) {
+            return null;
+        }
+
+        $child = $children[0];
+        $childType = strtoupper((string) ($child['type'] ?? ''));
+        if ( $this->isUnsupportedVectorType($childType) && $this->hasVisiblePaintCollection($child) ) {
+            return $this->vectorPathSignature($child);
+        }
+
+        return $this->wrappedSingleVectorPathSignature($child, $depth + 1);
     }
 
     /** @param array<string, mixed> $node */
