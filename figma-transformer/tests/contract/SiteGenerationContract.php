@@ -1211,11 +1211,19 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     };
     $responsiveHomePage = $responsivePageByFrame($responsivePagePlan, 'frame:home-desktop');
     $responsiveAboutPage = $responsivePageByFrame($responsivePagePlan, 'frame:about-desktop');
+    $responsiveSourceFrameEvidence = is_array($responsivePagePlan['source_frame_evidence'] ?? null) ? $responsivePagePlan['source_frame_evidence'] : array();
     $assert(4 === ($responsivePagePlan['candidate_count'] ?? null), 'page-plan-responsive-candidate-count');
     $assert(2 === ($responsivePagePlan['page_count'] ?? null), 'page-plan-responsive-collapses-to-two-pages');
+    $assert('blocks-engine/figma-transformer/source-frame-evidence/v1' === ($responsiveSourceFrameEvidence['schema'] ?? null), 'page-plan-source-frame-evidence-schema');
+    $responsiveEvidencePrimaryIds = is_array($responsiveSourceFrameEvidence['emitted_primary_frame_ids'] ?? null) ? $responsiveSourceFrameEvidence['emitted_primary_frame_ids'] : array();
+    sort($responsiveEvidencePrimaryIds);
+    $assert(array('frame:about-desktop', 'frame:home-desktop') === $responsiveEvidencePrimaryIds, 'page-plan-source-frame-evidence-primary-ids');
     $assert(null !== $responsiveHomePage, 'page-plan-responsive-home-primary-is-desktop');
     $assert(true === ($responsiveHomePage['responsive'] ?? null), 'page-plan-responsive-home-flagged-responsive');
     $assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
+    $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['selected_frame_id'] ?? null), 'page-plan-source-frame-identity-selected-frame');
+    $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['primary_frame_id'] ?? null), 'page-plan-source-frame-identity-primary-frame');
+    $assert(array('frame:home-tablet', 'frame:home-mobile') === ($responsiveHomePage['source_frame_identity']['variant_sibling_frame_ids'] ?? null), 'page-plan-source-frame-identity-variant-siblings');
     // A responsive page's slug reflects the PAGE, not its widest variant: the
     // breakpoint token ("Desktop") is stripped so desktop+mobile collapse to one
     // stable slug.
@@ -1811,6 +1819,11 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert('frame:home-desktop' === ($utilityFramePlan['pages'][0]['frame_id'] ?? null), 'page-plan-utility-route-keeps-responsive-page');
     $utilityFilterDiagnostic = $planDiagnosticByCode($utilityFramePlan, 'low_confidence_route_frame_filtered');
     $assert(null !== $utilityFilterDiagnostic, 'page-plan-utility-route-filter-diagnostic-emitted');
+    $utilityFilteredReasons = array_map(
+        static fn (array $evidence): string => (string) ($evidence['reason'] ?? ''),
+        is_array($utilityFramePlan['source_frame_evidence']['filtered_candidates'] ?? null) ? $utilityFramePlan['source_frame_evidence']['filtered_candidates'] : array()
+    );
+    $assert(in_array('low_confidence_route_frame', $utilityFilteredReasons, true), 'page-plan-source-frame-evidence-filtered-utility-route');
     
     // (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
     // candidates, not total node count. The `responsive_detection_bounded`
