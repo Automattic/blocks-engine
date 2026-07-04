@@ -538,6 +538,9 @@ final class FigmaTransformer
 
         $primaryFrameId = (string) ($variants[0]['frame_id'] ?? '');
         $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : '';
+        $pagePath = isset($options['static_site_page_path']) && is_scalar($options['static_site_page_path']) && '' !== (string) $options['static_site_page_path']
+            ? (string) $options['static_site_page_path']
+            : 'index.html';
 
         // Normalize the FULL scenegraph (drop the single-frame selection) so
         // every variant frame is present in the emitter node map. render_document
@@ -559,7 +562,7 @@ final class FigmaTransformer
                 array(
                     'frame_id'   => $primaryFrameId,
                     'name'       => '' !== $pageName ? $pageName : ($normalized['name'] ?? $primaryFrameId),
-                    'path'       => 'index.html',
+                    'path'       => $pagePath,
                     'entrypoint' => true,
                     'responsive' => true,
                     'variants'   => $variants,
@@ -700,7 +703,10 @@ final class FigmaTransformer
             $fontUsage = $this->mergeFontUsage($fontUsage, $pageFontUsage);
             $fontCssSupplied = $fontCssSupplied || true === ($pageHtmlReport['font_css_supplied'] ?? false);
 
-            $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
+            $html = $this->fileContent($pageResult['files'] ?? array(), $path);
+            if ( '' === $html ) {
+                $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
+            }
             $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
             if ( '' !== $css ) {
                 $css = $this->scopeRootCustomPropertiesToPage($css, $html);
@@ -834,9 +840,7 @@ final class FigmaTransformer
 
             $visualNode['source_page_index'] = $pageIndex;
             $visualNode['source_page_frame_id'] = $frameId;
-            $visualNode['page_path'] = isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) && '' !== (string) $visualNode['page_path']
-                ? (string) $visualNode['page_path']
-                : $path;
+            $visualNode['page_path'] = $path;
             $traced[] = $visualNode;
         }
 

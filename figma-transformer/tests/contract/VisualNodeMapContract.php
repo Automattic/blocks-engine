@@ -134,6 +134,43 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(str_contains($multiPageAboutHtml, 'class="figma-node-visual-emitted-about-title-about-title" data-figma-node-id="visual-emitted:about-title"'), 'visual-map-emitted-class-multi-page-html-hook');
     $assert(str_contains($multiPageCss, '.figma-node-visual-emitted-about-title-about-title{'), 'visual-map-emitted-class-multi-page-css-hook');
 
+    $responsivePagePathResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Page Path Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-path:desktop',
+                'type'     => 'FRAME',
+                'name'     => 'Article Desktop',
+                'width'    => 1024,
+                'height'   => 640,
+                'children' => array(
+                    array('id' => 'responsive-path:desktop-title', 'type' => 'TEXT', 'name' => 'Article Title', 'text' => 'Article', 'width' => 240, 'height' => 36, 'fontSize' => 28),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-path:mobile',
+                'type'     => 'FRAME',
+                'name'     => 'Article Mobile',
+                'width'    => 390,
+                'height'   => 640,
+                'children' => array(
+                    array('id' => 'responsive-path:mobile-title', 'type' => 'TEXT', 'name' => 'Article Title', 'text' => 'Article', 'width' => 220, 'height' => 32, 'fontSize' => 24),
+                ),
+            ),
+        ),
+    ), array(
+        'static_site_page_path' => 'article.html',
+        'page_name' => 'Article',
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-path:desktop', 'viewport_width' => 1024, 'primary' => true),
+            array('frame_id' => 'responsive-path:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsivePagePathHtml = blocks_engine_figma_transformer_contract_file_content($responsivePagePathResult, 'article.html');
+    $responsivePagePathNode = blocks_engine_figma_transformer_contract_find_visual_node($responsivePagePathResult, 'responsive-path:desktop-title');
+    $assert(str_contains($responsivePagePathHtml, 'data-page-path="article.html"'), 'visual-map-responsive-page-root-uses-static-site-page-path');
+    $assert('article.html' === ($responsivePagePathNode['page_path'] ?? null), 'visual-map-responsive-page-node-uses-static-site-page-path');
+
     $reverseZIndexResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Reverse Z Index Auto Layout Fixture',
         'nodes' => array(
