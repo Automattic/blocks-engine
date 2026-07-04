@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-sidebar-content-grid-shell",
+  "description": "Converts a generic CSS grid shell with sidebar/content/rail children to core/columns without relying on fixture-specific class names.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-sidebar-content-grid-shell.json",
+    "notes": "Distilled from docs/garden layouts with aside/main/aside children and external CSS grid declarations."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"layout\"><aside class=\"sidebar\"><p>Nav</p></aside><main class=\"content\"><h1>Title</h1><p>Body</p></main><aside class=\"rail\"><p>Related</p></aside></div>",
+    "static_css": ".layout{display:grid;grid-template-columns:250px minmax(0,1fr) 220px;gap:2rem}.sidebar{position:sticky;top:1rem}"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "layout" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "sidebar" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "content" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/column", "attrs": { "className": "rail" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"layout\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:column {\"className\":\"sidebar\"} -->" }
+  ]
+}

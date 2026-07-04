@@ -32,6 +32,7 @@ final class ColumnsPattern
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): (array<string, mixed>|null) $convertElement
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
@@ -41,9 +42,10 @@ final class ColumnsPattern
         callable $convertChildren,
         callable $convertElement,
         callable $presentationAttributes,
+        callable $resolvedStyle,
         callable $createBlock
     ): ?array {
-        if ( ! $this->looksLikeColumnsContainer($element) ) {
+        if ( ! $this->looksLikeColumnsContainer($element, $resolvedStyle($element)) ) {
             return null;
         }
 
@@ -81,14 +83,15 @@ final class ColumnsPattern
         return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
     }
 
-    private function looksLikeColumnsContainer(DOMElement $element): bool
+    private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle): bool
     {
         if ( $this->hasClass($element, 'wp-block-columns') ) {
             return true;
         }
 
         $className = strtolower($this->attr($element, 'class'));
-        $style = strtolower($this->attr($element, 'style'));
+        $inlineStyle = strtolower($this->attr($element, 'style'));
+        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : $inlineStyle);
 
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
             return false;
@@ -110,7 +113,9 @@ final class ColumnsPattern
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
             || ( $this->looksLikeSplitLayout($element) && 2 === $this->directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
-            || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+            || $this->hasSidebarAndContentChildren($element)
+            || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle)
+            || ( 2 < $this->directElementChildCount($element) && preg_match('/(?:^|;)\s*grid-template-columns\s*:/', $style) );
     }
 
     /**
@@ -164,7 +169,7 @@ final class ColumnsPattern
 
             $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
             $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
-            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main', 'section' ), true)
+            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main' ), true)
                 || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
         }
 

@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-decorative-svg-text-row",
+  "description": "Converts a div/span text row with an aria-hidden inline SVG icon into editable RichText instead of preserving the whole div as core/html.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-decorative-svg-text-row.json",
+    "notes": "Distilled from repeated utility/header metadata rows whose decorative SVG icon made RichText safety fall back to raw HTML."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"utility-left\"><span class=\"utility-current\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle></svg> Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></span></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "utility-left utility-current", "content": "Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"utility-left utility-current\",\"content\":\"Current patient? Call" }
+  ]
+}

@@ -1762,6 +1762,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $columns ) {
@@ -1922,7 +1923,10 @@ final class HtmlTransformer
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
 
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
-            return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+            $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
+            if ( $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+                return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+            }
         }
 
         if ( $sourceElement instanceof DOMElement ) {
@@ -2474,12 +2478,24 @@ final class HtmlTransformer
             return null;
         }
 
-        $content = $this->innerHtml($element);
+        $content = $this->richTextContentWithoutDecorativeSvg($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function richTextContentWithoutDecorativeSvg(DOMElement $element): string
+    {
+        return $this->stripDecorativeSvgFromRichText($this->innerHtml($element));
+    }
+
+    private function stripDecorativeSvgFromRichText(string $content): string
+    {
+        $content = preg_replace('/<(?:span|i|b)\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[^>]*>\s*<svg\b[\s\S]*?<\/svg>\s*<\/(?:span|i|b)>\s*/i', '', $content) ?? $content;
+
+        return preg_replace('/<svg\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[\s\S]*?<\/svg>\s*/i', '', $content) ?? $content;
     }
 
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
