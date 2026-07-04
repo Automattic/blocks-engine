@@ -72,6 +72,32 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('freeform_parent_absolute_child' === ($positioningTraceSample['reason_code'] ?? null), 'diagnostics-evidence-positioning-context-reason');
     $assert(in_array('position:absolute', $positioningTraceSample['evidence']['positioning_declarations'] ?? array(), true), 'diagnostics-evidence-positioning-context-declarations');
 
+    $responsiveTraceSink = array();
+    \Automattic\BlocksEngine\FigmaTransformer\Html\DecisionTraceBuilder::recordResponsiveTrace(
+        $responsiveTraceSink,
+        array('id' => 'diag:responsive-card', 'name' => 'Responsive Card', 'type' => 'FRAME'),
+        array('id' => 'diag:responsive-page'),
+        'responsive_generic_mobile_safety',
+        390.0,
+        array('position:relative', 'left:auto', 'top:auto'),
+        'diag-responsive-card',
+        array(
+            'source' => 'matched_breakpoint_variant',
+            'matched_breakpoint_geometry' => true,
+            'absolute_to_flow_conversion' => true,
+            'base_position' => 'absolute',
+            'variant_node_id' => 'diag:responsive-card-mobile',
+        )
+    );
+    $responsiveTraceSummary = \Automattic\BlocksEngine\FigmaTransformer\Html\DecisionTraceBuilder::summary($responsiveTraceSink);
+    $responsiveTraceSample = $responsiveTraceSummary['samples'][0] ?? array();
+    $responsiveTraceDomainSample = $responsiveTraceSummary['samples_by_domain']['responsive_decision'][0] ?? array();
+    $assert(1 === ($responsiveTraceSummary['domain_counts']['responsive_decision'] ?? null), 'diagnostics-evidence-responsive-decision-trace-count');
+    $assert(true === ($responsiveTraceSample['evidence']['matched_breakpoint_geometry'] ?? null), 'diagnostics-evidence-responsive-trace-matched-geometry');
+    $assert(true === ($responsiveTraceSample['evidence']['absolute_to_flow_conversion'] ?? null), 'diagnostics-evidence-responsive-trace-absolute-to-flow');
+    $assert('matched_breakpoint_variant' === ($responsiveTraceSample['evidence']['source'] ?? null), 'diagnostics-evidence-responsive-trace-source');
+    $assert('diag:responsive-card' === ($responsiveTraceDomainSample['node_id'] ?? null), 'diagnostics-evidence-responsive-domain-sample');
+
     $localCardResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Local Card Fixture',
         'nodes' => array(

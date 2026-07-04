@@ -338,7 +338,7 @@ final class BreakpointMediaDiffBuilder
             }
             if ( ! empty($changed) ) {
                 $rules[] = '.' . $class . '{' . implode(';', $changed) . '}';
-                $this->recordResponsiveDecisionTrace($node, $parentNode, $reasonCode, $viewportWidth, $changed, $class);
+                $this->recordResponsiveDecisionTrace($node, $parentNode, $reasonCode, $viewportWidth, $changed, $class, $baseMap, $variantNode, isset($matchedBreakpointGeometryClasses[$class]));
             }
         }
 
@@ -389,9 +389,52 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, mixed>|null $parentNode
      * @param array<int, string> $declarations
      */
-    private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class): void
+    private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class, array $baseMap, ?array $variantNode, bool $matchedBreakpointGeometry): void
     {
-        DecisionTraceBuilder::recordResponsiveTrace($this->decisionTraces, $node, $parentNode, $reasonCode, $viewportWidth, $declarations, $class);
+        DecisionTraceBuilder::recordResponsiveTrace($this->decisionTraces, $node, $parentNode, $reasonCode, $viewportWidth, $declarations, $class, $this->responsiveDecisionEvidence($baseMap, $variantNode, $matchedBreakpointGeometry, $declarations));
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     * @param array<string, mixed>|null $variantNode
+     * @param array<int, string> $declarations
+     * @return array<string, mixed>
+     */
+    private function responsiveDecisionEvidence(array $baseMap, ?array $variantNode, bool $matchedBreakpointGeometry, array $declarations): array
+    {
+        $variantBox = is_array($variantNode['box'] ?? null) ? $variantNode['box'] : array();
+        $variantLayout = is_array($variantNode['layout'] ?? null) ? $variantNode['layout'] : array();
+
+        return array_filter(array(
+            'source' => null === $variantNode ? 'class_safety_fallback' : 'matched_breakpoint_variant',
+            'matched_breakpoint_geometry' => $matchedBreakpointGeometry,
+            'absolute_to_flow_conversion' => $this->responsiveDeclarationsConvertAbsoluteToFlow($baseMap, $declarations),
+            'base_position' => $baseMap['position'] ?? null,
+            'base_left' => $baseMap['left'] ?? null,
+            'base_top' => $baseMap['top'] ?? null,
+            'base_width' => $baseMap['width'] ?? null,
+            'variant_node_id' => is_array($variantNode) && is_scalar($variantNode['id'] ?? null) ? (string) $variantNode['id'] : null,
+            'variant_positioning' => is_scalar($variantLayout['positioning'] ?? null) ? (string) $variantLayout['positioning'] : null,
+            'variant_box' => array_intersect_key($variantBox, array('x' => true, 'y' => true, 'width' => true, 'height' => true, 'coordinate_space' => true)),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     * @param array<int, string> $declarations
+     */
+    private function responsiveDeclarationsConvertAbsoluteToFlow(array $baseMap, array $declarations): bool
+    {
+        if ( 'absolute' !== ($baseMap['position'] ?? null) ) {
+            return false;
+        }
+
+        $map = $this->styleDeclarationMap($declarations);
+        return 'relative' === ($map['position'] ?? null)
+            || 'auto' === ($map['left'] ?? null)
+            || 'auto' === ($map['right'] ?? null)
+            || 'auto' === ($map['top'] ?? null)
+            || 'auto' === ($map['bottom'] ?? null);
     }
 
     private function cssPixelValue(string $value): ?float

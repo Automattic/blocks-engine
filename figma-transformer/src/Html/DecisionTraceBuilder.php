@@ -56,8 +56,9 @@ final class DecisionTraceBuilder
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
      * @param array<int, string> $declarations
+     * @param array<string, mixed> $evidence
      */
-    public static function recordResponsiveTrace(array &$traces, array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class = ''): void
+    public static function recordResponsiveTrace(array &$traces, array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class = '', array $evidence = array()): void
     {
         if ( '' === $reasonCode ) {
             $reasonCode = 'responsive_safety_override';
@@ -81,6 +82,7 @@ final class DecisionTraceBuilder
             'parent_id' => null === $parentNode ? null : (string) ($parentNode['id'] ?? ''),
             'viewport_width' => $viewportWidth,
             'declarations' => array_values($declarations),
+            'evidence' => self::boundedEvidence($evidence),
             'count' => 1,
         ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
     }
@@ -93,14 +95,22 @@ final class DecisionTraceBuilder
     {
         $countsByReason = array();
         $countsByDomain = array();
+        $samplesByDomain = array();
         foreach ( $traces as $trace ) {
             $reason = (string) ($trace['reason_code'] ?? 'unknown');
             $domain = (string) ($trace['domain'] ?? 'unknown');
             $countsByReason[$reason] = (int) ($countsByReason[$reason] ?? 0) + 1;
             $countsByDomain[$domain] = (int) ($countsByDomain[$domain] ?? 0) + 1;
+            if ( ! isset($samplesByDomain[$domain]) ) {
+                $samplesByDomain[$domain] = array();
+            }
+            if ( count($samplesByDomain[$domain]) < 20 ) {
+                $samplesByDomain[$domain][] = $trace;
+            }
         }
         ksort($countsByReason);
         ksort($countsByDomain);
+        ksort($samplesByDomain);
 
         $samplesByReason = array();
         foreach ( $traces as $trace ) {
@@ -120,6 +130,7 @@ final class DecisionTraceBuilder
             'domain_counts' => $countsByDomain,
             'samples' => array_slice(array_values($traces), 0, 100),
             'samples_by_reason' => $samplesByReason,
+            'samples_by_domain' => $samplesByDomain,
         );
     }
 
