@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-data-attribute-runtime-target-preserved.json",
-    "notes": "Covers generic SSI-style runtime selectors such as [data-stagger], [data-attr-val], and [data-cfg-name], including value selectors and a bounded child combinator."
+    "notes": "Covers generic SSI-style runtime selectors such as [data-attr-val] and [data-cfg-name], including value selectors, while presentation-only data animation hooks are allowed to decompose."
   },
   "legacy_comparison": {
     "skip": true,
@@ -34,7 +34,6 @@
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
     { "path": "source_reports.runtime_dependency_parity.dependencies.0.selector", "assert": "equals", "value": "[data-attr-val]" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "data-stagger" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-attr-val=\"card\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-cfg-name=\"hero\"" },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "dom" }

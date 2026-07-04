@@ -1310,6 +1310,38 @@ $assert(in_array('dom', $runtimePreservedIslandKinds, true), 'runtime-preserved 
 $runtimeSummary = $runtimePreserved['source_reports']['conversion_report']['conversion_classification_summary']['by_classification'] ?? array();
 $assert(3 <= ($runtimeSummary['runtime_island_preserved'] ?? 0), 'conversion report summarizes runtime island preservation counts');
 
+$decorativeSvgLayout = ( new HtmlTransformer() )->transform(
+    '<div class="layout"><aside><svg class="brand-mark" aria-hidden="true"><path d="M0 0h10v10z"></path></svg><button id="navToggle" aria-label="Toggle navigation">Menu</button></aside><div id="overlay"></div><main><h1>Docs</h1><p>Readable content.</p></main></div>',
+    array('runtime_dom_selectors' => array('#navToggle', '#overlay'))
+)->toArray();
+$decorativeSvgLayoutShellHtml = array_values(array_filter(
+    $decorativeSvgLayout['blocks'] ?? array(),
+    static fn (array $block): bool => 'core/html' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), 'class="layout"')
+));
+$assert(array() === $decorativeSvgLayoutShellHtml, 'decorative SVG descendants do not force an ordinary layout wrapper into a raw app-shell island');
+$assert(str_contains((string) ($decorativeSvgLayout['serialized_blocks'] ?? ''), '<!-- wp:heading'), 'decomposed decorative-SVG layout keeps native content blocks');
+
+$runtimeSvgLayout = ( new HtmlTransformer() )->transform(
+    '<div class="layout"><svg id="graph" role="img" aria-label="Runtime graph"></svg><button id="run">Run</button></div>',
+    array('runtime_dom_selectors' => array('#graph', '#run'))
+)->toArray();
+$runtimeSvgLayoutShellHtml = array_values(array_filter(
+    $runtimeSvgLayout['blocks'] ?? array(),
+    static fn (array $block): bool => 'core/html' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), 'id="graph"')
+));
+$assert(1 === count($runtimeSvgLayoutShellHtml), 'runtime-addressed SVG surfaces still preserve their enclosing app shell');
+
+$staggeredCards = ( new HtmlTransformer() )->transform(
+    '<div class="cards" data-stagger="120"><article class="card"><h2>One</h2><p>Alpha.</p></article><article class="card"><h2>Two</h2><p>Beta.</p></article></div>',
+    array('runtime_dom_selectors' => array('[data-stagger]'))
+)->toArray();
+$staggeredCardsHtml = array_values(array_filter(
+    $staggeredCards['blocks'] ?? array(),
+    static fn (array $block): bool => 'core/html' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), 'data-stagger')
+));
+$assert(array() === $staggeredCardsHtml, 'presentational data-stagger animation hooks do not preserve card grids as raw runtime HTML');
+$assert(str_contains((string) ($staggeredCards['serialized_blocks'] ?? ''), '<!-- wp:heading'), 'staggered card grids decompose to native editable blocks');
+
 $unsupportedLoss = ( new HtmlTransformer() )->transform('<main><applet code="clock.class"></applet></main>')->toArray();
 $unsupportedDiagnostic = $unsupportedLoss['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert('html_unsupported_element' === ($unsupportedDiagnostic['diagnostic_code'] ?? ''), 'unsupported element emits fallback diagnostic');
@@ -1869,9 +1901,10 @@ foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependenc
     $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
 }
 $assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
-foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+foreach ( array( '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
     $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
 }
+$assert(! isset($runtimeTargetDependencies['.reveal']), 'presentational reveal animation targets are not reported as runtime dependencies');
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'nav-toggle'), 'artifact block markup preserves runtime-targeted menu toggle class');
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
 $assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
