@@ -3493,7 +3493,7 @@ final class StaticHtmlEmitter
         $nodeDiagnosticIndex = $geometryDiagnostics['nodes'];
         $cssGeometryIndex = $geometryDiagnostics['emitted_css'];
         $visualNodeMapById = $geometryDiagnostics['visual_by_id'];
-        $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
+        $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex, $geometryDiagnostics['visual_by_class'], $visualNodeMapById);
         $invalidCssDiagnostics = $this->invalidCssNumericTokenDiagnostics($css);
         $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $visualNodeMapById, $nodeDiagnosticIndex, $cssGeometryIndex);
         $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
@@ -4654,7 +4654,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<int, array<string, mixed>> $nodes
      * @param array<int, array<string, mixed>> $visualNodeMap
-     * @return array{nodes: array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>}, emitted_css: array<string, array<string, float>>, visual_by_id: array<string, array<string, mixed>>}
+     * @return array{nodes: array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>}, emitted_css: array<string, array<string, float>>, visual_by_id: array<string, array<string, mixed>>, visual_by_class: array<string, array<string, mixed>>}
      */
     private function diagnosticGeometryIndexes(array $nodes, array $visualNodeMap, string $css): array
     {
@@ -4662,6 +4662,7 @@ final class StaticHtmlEmitter
             'nodes' => $this->nodeDiagnosticIndex($nodes),
             'emitted_css' => $this->cssBaseGeometryIndex($css),
             'visual_by_id' => $this->visualNodeMapIndex($visualNodeMap),
+            'visual_by_class' => $this->visualNodeMapClassIndex($visualNodeMap),
         );
     }
 
@@ -4744,6 +4745,22 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, array<string, mixed>>
+     */
+    private function visualNodeMapClassIndex(array $visualNodeMap): array
+    {
+        $byClass = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( is_array($entry) && isset($entry['emitted_class']) && is_scalar($entry['emitted_class']) ) {
+                $byClass[(string) $entry['emitted_class']] = $entry;
+            }
+        }
+
+        return $byClass;
+    }
+
+    /**
      * @param array<string, mixed> $base
      * @param array<string, mixed> $rect
      * @param array<string, mixed> $parentRect
@@ -4799,7 +4816,7 @@ final class StaticHtmlEmitter
      * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
      * @return array<int, array<string, mixed>>
      */
-    private function cssAbsoluteOffsetDiagnostics(string $css, array $nodeIndex): array
+    private function cssAbsoluteOffsetDiagnostics(string $css, array $nodeIndex, array $visualNodeMapByClass = array(), array $visualNodeMapById = array()): array
     {
         $samples = array();
         if ( ! preg_match_all('/\.(figma-node-[A-Za-z0-9_-]+)\{([^}]*)\}/s', $css, $rules, PREG_SET_ORDER) ) {
@@ -4819,6 +4836,9 @@ final class StaticHtmlEmitter
             }
 
             $node = is_array($nodeIndex['by_class'][$className] ?? null) ? $nodeIndex['by_class'][$className] : array();
+            if ( $this->isContainedCssOffset($className, $visualNodeMapByClass, $visualNodeMapById) ) {
+                continue;
+            }
             $sample = array_filter(array(
                 'node_id' => (string) ($node['node_id'] ?? ''),
                 'name' => (string) ($node['name'] ?? ''),
@@ -4832,6 +4852,39 @@ final class StaticHtmlEmitter
         }
 
         return array_values($samples);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $visualNodeMapByClass
+     * @param array<string, array<string, mixed>> $visualNodeMapById
+     */
+    private function isContainedCssOffset(string $className, array $visualNodeMapByClass, array $visualNodeMapById): bool
+    {
+        $entry = is_array($visualNodeMapByClass[$className] ?? null) ? $visualNodeMapByClass[$className] : array();
+        $parentId = isset($entry['parent_id']) && is_scalar($entry['parent_id']) ? (string) $entry['parent_id'] : '';
+        $parent = '' !== $parentId && is_array($visualNodeMapById[$parentId] ?? null) ? $visualNodeMapById[$parentId] : array();
+        $rect = is_array($entry['rect'] ?? null) ? $entry['rect'] : array();
+        $parentRect = is_array($parent['rect'] ?? null) ? $parent['rect'] : array();
+        foreach ( array('x', 'y', 'width', 'height') as $key ) {
+            if ( ! is_numeric($rect[$key] ?? null) || ! is_numeric($parentRect[$key] ?? null) ) {
+                return false;
+            }
+        }
+
+        $epsilon = 0.5;
+        $rectLeft = (float) $rect['x'];
+        $rectRight = $rectLeft + (float) $rect['width'];
+        $parentLeft = (float) $parentRect['x'];
+        $parentRight = $parentLeft + (float) $parentRect['width'];
+        $rectTop = (float) $rect['y'];
+        $rectBottom = $rectTop + (float) $rect['height'];
+        $parentTop = (float) $parentRect['y'];
+        $parentBottom = $parentTop + (float) $parentRect['height'];
+
+        return $rectLeft >= $parentLeft - $epsilon
+            && $rectRight <= $parentRight + $epsilon
+            && $rectTop >= $parentTop - $epsilon
+            && $rectBottom <= $parentBottom + $epsilon;
     }
 
     private function isDecorativeHairlineOffsetRule(string $body): bool

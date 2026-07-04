@@ -271,6 +271,25 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['reason_code'] ?? null), 'diagnostics-evidence-large-css-offset-reason-code');
 
+    $containedVerticalOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Contained Vertical Offset Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:contained-vertical-page',
+                'type'     => 'FRAME',
+                'name'     => 'Contained Vertical Page',
+                'width'    => 320,
+                'height'   => 1500,
+                'children' => array(
+                    array('id' => 'diag:contained-vertical-section', 'type' => 'FRAME', 'name' => 'Contained Section', 'x' => 0, 'y' => 1200, 'width' => 320, 'height' => 300),
+                ),
+            ),
+        ),
+    ));
+    $containedVerticalOffsetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($containedVerticalOffsetResult);
+    $assert(0 === ($containedVerticalOffsetDiagnostics['layout']['large_css_offset_count'] ?? null), 'diagnostics-evidence-contained-vertical-offset-no-large-css-offset');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $containedVerticalOffsetResult, 'large_css_offsets', 'diagnostics-evidence-contained-vertical-offset-no-quality-signal');
+
     $decorativeHairlineResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Decorative Hairline Offset Fixture',
         'nodes' => array(
