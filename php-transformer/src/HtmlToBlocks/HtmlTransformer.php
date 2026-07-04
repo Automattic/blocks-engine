@@ -4714,15 +4714,12 @@ final class HtmlTransformer
 
     private function hasWorkspaceSurface(DOMElement $element): bool
     {
-        foreach ( $this->descendantElements($element) as $descendant ) {
-            $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
-                return true;
-            }
-            if ( 'svg' === $tagName && $this->isRuntimeDomTarget($descendant) ) {
-                return true;
-            }
-            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+		foreach ( $this->descendantElements($element) as $descendant ) {
+			$tagName = strtolower($descendant->tagName);
+			if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
+				return true;
+			}
+			if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
                 return true;
             }
         }
