@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-presentational-data-attributes-native",
+  "description": "Presentation-only animation data attributes such as data-reveal/data-delay do not force editable text and generic groups into core/html runtime preservation when callers provide matching runtime_dom_selectors.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-presentational-data-attributes-native.json",
+    "notes": "Generic regression for static marketing sections that use data-* reveal hooks on labels, headings, paragraphs, and wrappers."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer generic data-attribute runtime selector behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"feature-section\" aria-label=\"Feature\"><div class=\"feature-header\" data-reveal><span class=\"section-label\" data-reveal>Feature Label</span><h2 class=\"feature-heading\" data-reveal data-delay=\"1\">Built on <em>care</em><br>and craft</h2><p class=\"feature-sub\" data-reveal data-delay=\"2\">Readable source copy.</p></div></section>",
+    "options": {
+      "runtime_dom_selectors": ["[data-reveal]", "[data-delay]"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-section", "tagName": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-header" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<span class=\"section-label\" data-reveal>Feature Label</span>" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Built on <em>care</em><br>and craft", "level": 2, "className": "feature-heading" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Readable source copy.", "className": "feature-sub" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph" }
+  ]
+}

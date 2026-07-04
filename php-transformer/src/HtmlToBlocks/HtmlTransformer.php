@@ -4348,6 +4348,10 @@ final class HtmlTransformer
         }
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( $this->isPresentationalAnimationDataSelector((string) $selector) ) {
+                continue;
+            }
+
             if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
@@ -4496,6 +4500,26 @@ final class HtmlTransformer
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
             if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                if ( $this->isPresentationalAnimationDataSelector((string) $selector) ) {
+                    continue;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isPresentationalAnimationDataSelector(string $selector): bool
+    {
+        if ( ! preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
+            return false;
+        }
+
+        $attribute = strtolower((string) $match[1]);
+        foreach ( preg_split('/[^a-z0-9]+/', substr($attribute, 5)) ?: array() as $token ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'transition' ), true) ) {
                 return true;
             }
         }
