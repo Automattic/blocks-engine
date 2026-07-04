@@ -10,5 +10,8 @@
     "product-grid",
     "pricing"
   ],
+  "capabilities": [
+    "commerce-products"
+  ],
   "complexity": 2
 }
