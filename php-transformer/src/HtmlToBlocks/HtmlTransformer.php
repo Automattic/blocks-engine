@@ -4250,14 +4250,51 @@ final class HtmlTransformer
             return null;
         }
 
-        // Keep illustrative/decorative inline SVG inline as a core/html block.
-        // Externalizing to an `assets/*.svg` file + core/image would be lost in
-        // WordPress, which blocks SVG uploads by default. The markup is already
-        // safe-sanitized above (scripts, event handlers, foreignObject, and
-        // javascript: URLs stripped via sanitizeInlineSvgMarkup + verified by
-        // isSafeSvgContent), and the original outer SVG preserves
-        // viewBox/role/aria-label/class.
-        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
+        // core/icon is dynamic and references registered icon names; it cannot
+        // carry arbitrary imported SVG markup. Keep illustrative/decorative SVGs
+        // inline as sanitized core/html, but make viewBox-only SVGs explicitly
+        // bounded so they do not render oversized if source CSS is unavailable.
+        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgSizing($html)) ), array(), $element);
+    }
+
+    private function ensureInlineSvgSizing(string $html): string
+    {
+        if ( 1 !== preg_match('/<svg\b([^>]*)>/i', $html, $match, PREG_OFFSET_CAPTURE) ) {
+            return $html;
+        }
+
+        $attrs = $match[1][0];
+        if ( preg_match('/\s(?:width|height)\s*=/i', $attrs) || preg_match('/\sstyle\s*=\s*(["\'])(?:(?!\1).)*(?:width|height)\s*:/i', $attrs) ) {
+            return $html;
+        }
+
+        if ( 1 !== preg_match('/\sviewbox\s*=\s*(["\'])([^"\']+)\1/i', $attrs, $viewBoxMatch) ) {
+            return $html;
+        }
+
+        $parts = preg_split('/[\s,]+/', trim($viewBoxMatch[2])) ?: array();
+        if ( count($parts) < 4 || ! is_numeric($parts[2]) || ! is_numeric($parts[3]) ) {
+            return $html;
+        }
+
+        $width = $this->normalizedSvgDimension((float) $parts[2]);
+        $height = $this->normalizedSvgDimension((float) $parts[3]);
+        if ( '' === $width || '' === $height ) {
+            return $html;
+        }
+
+        $insertAt = $match[0][1] + strlen($match[0][0]) - 1;
+        return substr($html, 0, $insertAt) . ' width="' . $width . '" height="' . $height . '"' . substr($html, $insertAt);
+    }
+
+    private function normalizedSvgDimension(float $value): string
+    {
+        if ( $value <= 0 ) {
+            return '';
+        }
+
+        $formatted = rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');
+        return '' === $formatted ? '' : $formatted;
     }
 
     /**
