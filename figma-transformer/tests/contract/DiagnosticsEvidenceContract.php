@@ -394,6 +394,35 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-intentional-domain-count');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $omittedTextResult, 'source_loss_coverage_gap', 'diagnostics-evidence-hidden-text-no-source-loss-signal');
 
+    $offCanvasTextResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Off Canvas Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:off-canvas-text-page',
+                'type'     => 'FRAME',
+                'name'     => 'Off Canvas Text Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:off-canvas-title', 'type' => 'TEXT', 'name' => 'Off Canvas Title', 'text' => 'Archived hero title', 'x' => 10, 'y' => -260, 'width' => 180, 'height' => 40),
+                    array('id' => 'diag:off-canvas-decor', 'type' => 'RECTANGLE', 'name' => 'Off Canvas Decor', 'x' => 10, 'y' => -180, 'width' => 80, 'height' => 40),
+                    array('id' => 'diag:on-canvas-title', 'type' => 'TEXT', 'name' => 'On Canvas Title', 'text' => 'Published title', 'x' => 10, 'y' => 20, 'width' => 180, 'height' => 40),
+                ),
+            ),
+        ),
+    ));
+    $offCanvasTextDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($offCanvasTextResult);
+    $offCanvasTextReasons = $offCanvasTextDiagnostics['text']['intentional_suppression_reason_counts'] ?? array();
+    $assert(0 === ($offCanvasTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-off-canvas-text-no-missing-count');
+    $assert(1 === ($offCanvasTextDiagnostics['text']['intentionally_suppressed_text_node_count'] ?? null), 'diagnostics-evidence-off-canvas-text-intentional-count');
+    $assert(1 === ($offCanvasTextReasons['root_off_canvas_child_suppressed'] ?? null), 'diagnostics-evidence-off-canvas-text-intentional-reason');
+    $assert('root_off_canvas_child_suppressed' === ($offCanvasTextDiagnostics['text']['intentionally_suppressed_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-off-canvas-text-sample-reason');
+    $assert(2 === ($offCanvasTextDiagnostics['decision_traces']['reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'diagnostics-evidence-off-canvas-text-decision-trace-reason');
+    $assert(0 === ($offCanvasTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-off-canvas-text-source-loss-domain-count');
+    $assert(1 === ($offCanvasTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-off-canvas-text-source-loss-intentional-domain-count');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $offCanvasTextResult, 'decoded_text_not_emitted', 'diagnostics-evidence-off-canvas-text-no-missing-signal');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $offCanvasTextResult, 'source_loss_coverage_gap', 'diagnostics-evidence-off-canvas-text-no-source-loss-signal');
+
     $suppressedEffectResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Suppressed Effect Fixture',
         'nodes' => array(

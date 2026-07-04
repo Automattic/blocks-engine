@@ -5232,6 +5232,10 @@ final class StaticHtmlEmitter
         if ( null !== $ancestorOmissionReason ) {
             return $ancestorOmissionReason;
         }
+        $suppressionReason = $this->suppressedLayoutDiagnosticReason($node, null);
+        if ( null !== $suppressionReason ) {
+            return $suppressionReason;
+        }
         if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
             return 'hidden';
         }
@@ -5256,6 +5260,10 @@ final class StaticHtmlEmitter
     {
         if ( null !== $ancestorOmissionReason ) {
             return $ancestorOmissionReason;
+        }
+        $suppressionReason = $this->suppressedLayoutDiagnosticReason($node, null);
+        if ( null !== $suppressionReason ) {
+            return $suppressionReason;
         }
         if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
             return 'hidden';
@@ -5287,7 +5295,7 @@ final class StaticHtmlEmitter
 
     private function isIntentionalTextOmissionReason(string $reason): bool
     {
-        return in_array($reason, array('hidden', 'clipped_masked', 'zero_area', 'converted_to_form_control', 'decorative', 'list_marker', 'component_source_duplicate'), true);
+        return in_array($reason, array('hidden', 'clipped_masked', 'zero_area', 'converted_to_form_control', 'decorative', 'list_marker', 'component_source_duplicate', 'root_off_canvas_child_suppressed'), true);
     }
 
     /**
