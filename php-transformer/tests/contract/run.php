@@ -1326,10 +1326,13 @@ $runtimeSvgLayout = ( new HtmlTransformer() )->transform(
     array('runtime_dom_selectors' => array('#graph', '#run'))
 )->toArray();
 $runtimeSvgLayoutShellHtml = array_values(array_filter(
-    $runtimeSvgLayout['blocks'] ?? array(),
-    static fn (array $block): bool => 'core/html' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), 'id="graph"')
+	$runtimeSvgLayout['blocks'] ?? array(),
+	static fn (array $block): bool => 'core/html' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), 'class="layout"')
 ));
-$assert(1 === count($runtimeSvgLayoutShellHtml), 'runtime-addressed SVG surfaces still preserve their enclosing app shell');
+$runtimeSvgLayoutIslandSelectors = array_map(static fn (array $island): string => (string) ($island['selector'] ?? ''), $runtimeSvgLayout['source_reports']['runtime_islands'] ?? array());
+$assert(array() === $runtimeSvgLayoutShellHtml, 'runtime-addressed SVG surfaces do not force their enclosing layout into a raw app-shell island');
+$assert(in_array('#graph', $runtimeSvgLayoutIslandSelectors, true), 'runtime-addressed SVG surfaces preserve the SVG as a bounded runtime island');
+$assert(in_array('#run', $runtimeSvgLayoutIslandSelectors, true), 'runtime-addressed SVG layouts preserve sibling runtime controls as bounded runtime islands');
 
 $staggeredCards = ( new HtmlTransformer() )->transform(
     '<div class="cards" data-stagger="120"><article class="card"><h2>One</h2><p>Alpha.</p></article><article class="card"><h2>Two</h2><p>Beta.</p></article></div>',
