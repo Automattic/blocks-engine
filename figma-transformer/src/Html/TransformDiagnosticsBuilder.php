@@ -351,104 +351,36 @@ final class TransformDiagnosticsBuilder
      */
     private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping): array
     {
+        $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
         $domains = array(
-            'images' => $this->sourceLossDomain(...$this->imageSourceLossCounts($image)),
-            'vectors' => $this->sourceLossDomain(
-                (int) ($vectors['nodes'] ?? 0),
-                (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
-                (int) ($vectors['placeholders'] ?? 0)
-            ),
-            'text' => $this->sourceLossDomain(
+            'images' => $sourceLossCoverageBuilder->imageDomain($image),
+            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
+            'text' => $sourceLossCoverageBuilder->domain(
                 (int) ($text['decoded_text_node_count'] ?? 0),
                 (int) ($text['emitted_text_node_count'] ?? 0),
                 (int) ($text['missing_emitted_text_node_count'] ?? 0),
                 (int) ($text['intentionally_suppressed_text_node_count'] ?? 0)
             ),
-            'components' => $this->sourceLossDomain(
+            'components' => $sourceLossCoverageBuilder->domain(
                 (int) ($components['clone_source_node_count'] ?? 0),
                 (int) ($components['emitted_clone_node_count'] ?? 0),
                 (int) ($components['missing_emitted_clone_node_count'] ?? 0),
                 (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0)
             ),
-            'effects' => $this->sourceLossDomain(
+            'effects' => $sourceLossCoverageBuilder->domain(
                 (int) ($effects['source_effect_node_count'] ?? 0),
                 (int) ($effects['emitted_effect_node_count'] ?? 0),
                 (int) ($effects['missing_emitted_effect_node_count'] ?? 0),
                 (int) ($effects['intentionally_suppressed_effect_node_count'] ?? 0)
             ),
-            'masks' => $this->sourceLossDomain(
+            'masks' => $sourceLossCoverageBuilder->domain(
                 (int) ($maskEffectClipping['mask_node_count'] ?? 0),
                 (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0) + (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0),
                 0
             ),
         );
 
-        $decoded = 0;
-        $emitted = 0;
-        $notEmitted = 0;
-        foreach ( $domains as $domain ) {
-            $decoded += (int) ($domain['decoded_source_nodes'] ?? 0);
-            $emitted += (int) ($domain['emitted_source_nodes'] ?? 0);
-            $notEmitted += (int) ($domain['not_emitted_source_nodes'] ?? 0);
-        }
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/source-loss-coverage/v1',
-            'decoded_source_nodes' => $decoded,
-            'emitted_source_nodes' => $emitted,
-            'not_emitted_source_nodes' => $notEmitted,
-            'coverage_ratio' => $decoded > 0 ? round($emitted / $decoded, 3) : 1.0,
-            'domains' => $domains,
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted, int $intentionallySuppressed = 0): array
-    {
-        $decoded = max(0, $decoded);
-        $emitted = max(0, $emitted);
-        $notEmitted = max(0, $notEmitted);
-        $intentionallySuppressed = max(0, $intentionallySuppressed);
-
-        return array(
-            'decoded_source_nodes' => $decoded,
-            'emitted_source_nodes' => min($decoded, $emitted + $intentionallySuppressed),
-            'intentionally_suppressed_source_nodes' => min($decoded, $intentionallySuppressed),
-            'not_emitted_source_nodes' => $notEmitted,
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $image
-     * @return array{0: int, 1: int, 2: int, 3: int}
-     */
-    private function imageSourceLossCounts(array $image): array
-    {
-        $decoded = (int) ($image['node_refs'] ?? 0);
-        $assetNodes = is_array($image['asset_nodes'] ?? null) ? $image['asset_nodes'] : array();
-        if ( empty($assetNodes) ) {
-            return array($decoded, (int) ($image['resolved_assets'] ?? 0), count($image['missing_assets'] ?? array()), 0);
-        }
-
-        $emitted = 0;
-        $suppressed = 0;
-        foreach ( $assetNodes as $assetNode ) {
-            if ( ! is_array($assetNode) ) {
-                continue;
-            }
-            if ( true === ($assetNode['emitted'] ?? null) ) {
-                ++$emitted;
-                continue;
-            }
-            if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
-                ++$suppressed;
-            }
-        }
-
-        $notEmitted = max(0, $decoded - $emitted - $suppressed);
-        return array($decoded, $emitted, $notEmitted, $suppressed);
+        return $sourceLossCoverageBuilder->aggregate($domains);
     }
 
     /**

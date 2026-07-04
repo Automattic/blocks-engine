@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBui
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver;
+use Automattic\BlocksEngine\FigmaTransformer\Html\SourceLossCoverageBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
@@ -1557,80 +1558,13 @@ final class FigmaTransformer
      */
     private function sourceLossCoverage(array $images, array $vectors): array
     {
+        $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
         $domains = array(
-            'images' => $this->sourceLossDomain(...$this->imageSourceLossCounts($images)),
-            'vectors' => $this->sourceLossDomain(
-                (int) ($vectors['nodes'] ?? 0),
-                (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
-                (int) ($vectors['placeholders'] ?? 0)
-            ),
+            'images' => $sourceLossCoverageBuilder->imageDomain($images),
+            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
         );
 
-        $decoded = 0;
-        $emitted = 0;
-        $notEmitted = 0;
-        foreach ( $domains as $domain ) {
-            $decoded += (int) ($domain['decoded_source_nodes'] ?? 0);
-            $emitted += (int) ($domain['emitted_source_nodes'] ?? 0);
-            $notEmitted += (int) ($domain['not_emitted_source_nodes'] ?? 0);
-        }
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/source-loss-coverage/v1',
-            'decoded_source_nodes' => $decoded,
-            'emitted_source_nodes' => $emitted,
-            'not_emitted_source_nodes' => $notEmitted,
-            'coverage_ratio' => $decoded > 0 ? round($emitted / $decoded, 3) : 1.0,
-            'domains' => $domains,
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted, int $intentionallySuppressed = 0): array
-    {
-        $decoded = max(0, $decoded);
-        $emitted = max(0, $emitted);
-        $intentionallySuppressed = max(0, $intentionallySuppressed);
-
-        return array(
-            'decoded_source_nodes' => $decoded,
-            'emitted_source_nodes' => min($decoded, $emitted + $intentionallySuppressed),
-            'intentionally_suppressed_source_nodes' => min($decoded, $intentionallySuppressed),
-            'not_emitted_source_nodes' => max(0, $notEmitted),
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $images
-     * @return array{0: int, 1: int, 2: int, 3: int}
-     */
-    private function imageSourceLossCounts(array $images): array
-    {
-        $decoded = (int) ($images['node_refs'] ?? 0);
-        $assetNodes = is_array($images['asset_nodes'] ?? null) ? $images['asset_nodes'] : array();
-        if ( empty($assetNodes) ) {
-            return array($decoded, (int) ($images['resolved_assets'] ?? 0), count($images['missing_assets'] ?? array()), 0);
-        }
-
-        $emitted = 0;
-        $suppressed = 0;
-        foreach ( $assetNodes as $assetNode ) {
-            if ( ! is_array($assetNode) ) {
-                continue;
-            }
-            if ( true === ($assetNode['emitted'] ?? null) ) {
-                ++$emitted;
-                continue;
-            }
-            if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
-                ++$suppressed;
-            }
-        }
-
-        $notEmitted = max(0, $decoded - $emitted - $suppressed);
-        return array($decoded, $emitted, $notEmitted, $suppressed);
+        return $sourceLossCoverageBuilder->aggregate($domains);
     }
 
     /**
