@@ -105,8 +105,10 @@ final class ColumnsPattern
             return false;
         }
 
+        // Split-layout names describe two-pane structures. Multi-child content
+        // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 1 < $this->directElementChildCount($element) )
+            || ( $this->looksLikeSplitLayout($element) && 2 === $this->directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
     }
