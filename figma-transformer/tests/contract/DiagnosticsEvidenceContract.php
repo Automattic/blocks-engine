@@ -297,6 +297,40 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['reason_code'] ?? null), 'diagnostics-evidence-large-css-offset-reason-code');
 
+    $backgroundBleedResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Background Bleed Classification Fixture',
+        'nodes' => array(
+            array(
+                'id'           => 'diag:background-bleed-page',
+                'type'         => 'FRAME',
+                'name'         => 'Background Bleed Page',
+                'width'        => 320,
+                'height'       => 180,
+                'clipsContent' => true,
+                'children'     => array(
+                    array(
+                        'id'         => 'diag:background-bleed-art',
+                        'type'       => 'RECTANGLE',
+                        'name'       => 'Background glow',
+                        'x'          => -1200,
+                        'y'          => -160,
+                        'width'      => 1700,
+                        'height'     => 520,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.8, 'a' => 1))),
+                    ),
+                    array('id' => 'diag:background-bleed-copy', 'type' => 'TEXT', 'name' => 'Foreground Copy', 'text' => 'Foreground remains actionable', 'x' => 24, 'y' => 32, 'width' => 220, 'height' => 24),
+                ),
+            ),
+        ),
+    ));
+    $backgroundBleedDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($backgroundBleedResult);
+    $backgroundCssNodes = $backgroundBleedDiagnostics['layout']['large_css_offset_nodes'] ?? array();
+    $backgroundVisualNodes = $backgroundBleedDiagnostics['layout']['off_canvas_visual_nodes'] ?? array();
+    $backgroundAbsoluteNodes = $backgroundBleedDiagnostics['layout']['large_absolute_offset_nodes'] ?? array();
+    $assert('intended_background_bleed' === ($backgroundCssNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-large-css-classification');
+    $assert('intended_background_bleed' === ($backgroundVisualNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-visual-classification');
+    $assert('intended_background_bleed' === ($backgroundAbsoluteNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-absolute-classification');
+
     $containedVerticalOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Contained Vertical Offset Fixture',
         'nodes' => array(

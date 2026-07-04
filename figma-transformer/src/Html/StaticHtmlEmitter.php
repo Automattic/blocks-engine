@@ -4644,11 +4644,14 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        return $this->diagnosticGeometrySample(
+        $sample = $this->diagnosticGeometrySample(
             $this->diagnosticNodeSample($node) + array('parent_id' => (string) ($parentNode['id'] ?? '')),
             array('x' => $left, 'y' => $top, 'width' => $width, 'height' => $height),
             array('x' => 0.0, 'y' => 0.0, 'width' => $parentWidth, 'height' => $parentHeight)
         );
+        $this->applyDiagnosticReason($sample, $this->largeGeometryIntentClassification($node, array(), $parentNode), 'large_absolute_offset');
+
+        return $sample;
     }
 
     /**
@@ -4836,6 +4839,7 @@ final class StaticHtmlEmitter
             }
 
             $node = is_array($nodeIndex['by_class'][$className] ?? null) ? $nodeIndex['by_class'][$className] : array();
+            $visualEntry = is_array($visualNodeMapByClass[$className] ?? null) ? $visualNodeMapByClass[$className] : array();
             if ( $this->isContainedCssOffset($className, $visualNodeMapByClass, $visualNodeMapById) ) {
                 continue;
             }
@@ -4847,7 +4851,7 @@ final class StaticHtmlEmitter
                 'left' => null === $left ? null : $this->reportNumericValue($left),
                 'top' => null === $top ? null : $this->reportNumericValue($top),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
-            $this->applyDiagnosticReason($sample, $this->largeCssOffsetClassification($node), 'large_css_offset');
+            $this->applyDiagnosticReason($sample, $this->largeCssOffsetClassification($node, $visualEntry), 'large_css_offset');
             $samples[] = $sample;
         }
 
@@ -5018,7 +5022,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function largeCssOffsetClassification(array $node): string
+    private function largeCssOffsetClassification(array $node, array $visualEntry = array()): string
     {
         if ( true === ($node['component_clone_geometry'] ?? false) ) {
             return 'component_clone_geometry_leak';
@@ -5026,6 +5030,11 @@ final class StaticHtmlEmitter
 
         if ( true === ($node['empty_visible_container'] ?? false) ) {
             return 'empty_visible_container';
+        }
+
+        $intent = $this->largeGeometryIntentClassification($node, $visualEntry);
+        if ( '' !== $intent ) {
+            return $intent;
         }
 
         return '';
@@ -5058,7 +5067,105 @@ final class StaticHtmlEmitter
             return 'component_clone_geometry_leak';
         }
 
+        $intent = $this->largeGeometryIntentClassification($entry, $entry, $parent);
+        if ( '' !== $intent ) {
+            return $intent;
+        }
+
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $visualEntry
+     * @param array<string, mixed>|null $parent
+     */
+    private function largeGeometryIntentClassification(array $node, array $visualEntry = array(), ?array $parent = null): string
+    {
+        if ( $this->hasBackgroundArtNameHint($node) || $this->hasBackgroundArtNameHint($visualEntry) ) {
+            return 'intended_background_bleed';
+        }
+
+        if ( $this->hasImagePaintEvidence($node) || $this->hasImagePaintEvidence($visualEntry) ) {
+            return 'intended_image_crop_bleed';
+        }
+
+        if ( $this->isClippedDecorativeGeometry($node, $visualEntry, $parent) ) {
+            return 'intended_clipped_decorative_art';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasBackgroundArtNameHint(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( '' === $name ) {
+            return false;
+        }
+
+        foreach ( array('background', 'bg ', 'bg-', 'bg_', 'gradient', 'underlay', 'artwork', 'illustration', 'blob') as $hint ) {
+            if ( str_contains($name, $hint) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasImagePaintEvidence(array $node): bool
+    {
+        if ( is_array($node['image'] ?? null) ) {
+            return true;
+        }
+
+        $paints = is_array($node['paints'] ?? null) ? $node['paints'] : array();
+        foreach ( array('fills', 'background') as $paintKey ) {
+            foreach ( is_array($paints[$paintKey] ?? null) ? $paints[$paintKey] : array() as $paint ) {
+                if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        foreach ( array('fills', 'background') as $paintKey ) {
+            foreach ( is_array($node[$paintKey] ?? null) ? $node[$paintKey] : array() as $paint ) {
+                if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $visualEntry
+     * @param array<string, mixed>|null $parent
+     */
+    private function isClippedDecorativeGeometry(array $node, array $visualEntry, ?array $parent): bool
+    {
+        $clip = is_array($visualEntry['clip'] ?? null) ? $visualEntry['clip'] : array();
+        $parentLayout = is_array($parent['layout'] ?? null) ? $parent['layout'] : array();
+        $isClipped = 'parent_clips_content' === ($clip['source'] ?? null) || true === ($parentLayout['clips_content'] ?? false);
+        if ( ! $isClipped ) {
+            return false;
+        }
+
+        if ( $this->hasBackgroundArtNameHint($node) || $this->hasBackgroundArtNameHint($visualEntry) || $this->hasImagePaintEvidence($node) || $this->hasImagePaintEvidence($visualEntry) ) {
+            return true;
+        }
+
+        $type = strtoupper((string) ($visualEntry['type'] ?? ($node['type'] ?? '')));
+        return in_array($type, array('VECTOR', 'RECTANGLE', 'ROUNDED_RECTANGLE', 'ELLIPSE', 'BOOLEAN_OPERATION'), true)
+            && '' === trim((string) ($visualEntry['text']['characters'] ?? $node['characters'] ?? ''));
     }
 
     /**
