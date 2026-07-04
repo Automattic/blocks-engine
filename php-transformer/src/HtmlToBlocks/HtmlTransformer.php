@@ -1552,14 +1552,10 @@ final class HtmlTransformer
                 }
             }
 
-            // Imported inline SVGs are preserved faithfully as raw markup
-            // (core/html via inlineSvgBlockFromElement). They are never routed
-            // through core/icon: that block is a dynamic block keyed on a
-            // registry slug (its `icon` attribute) and discards arbitrary inline
-            // SVG markup, so render_block_core_icon() returns empty output for
-            // imported SVGs. Faithful passthrough keeps the original element,
-            // its sizing class(es), and correct-case viewBox so the
-            // materialized source CSS can size it.
+            // Imported inline SVGs are never routed through core/icon: that block
+            // is dynamic and keyed on a registered icon slug, not arbitrary SVG.
+            // Passive self-contained SVGs can be represented by core/image using
+            // a data:image/svg+xml source; the rest stay faithful core/html.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
                 // Faithfully preserve any inline SVG that carries real drawable
                 // artwork — icons, diagrams, illustrations — even when it is
@@ -4250,11 +4246,105 @@ final class HtmlTransformer
             return null;
         }
 
-        // core/icon is dynamic and references registered icon names; it cannot
-        // carry arbitrary imported SVG markup. Keep illustrative/decorative SVGs
-        // inline as sanitized core/html, but make viewBox-only SVGs explicitly
-        // bounded so they do not render oversized if source CSS is unavailable.
-        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgSizing($html)) ), array(), $element);
+        $html = $this->restoreSvgCasing($this->ensureInlineSvgSizing($html));
+        $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
+        if ( null !== $imageBlock ) {
+            return $imageBlock;
+        }
+
+        // Honest floor: keep SVGs that need inline document context as sanitized
+        // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
+        return $this->createBlock('core/html', array( 'content' => $html ), array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgImageBlockFromMarkup(DOMElement $element, string $html): ?array
+    {
+        if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
+            return null;
+        }
+
+        $dimensions = $this->svgImageDimensions($element, $html);
+        $attrs = array_filter(array_merge(array(
+            'url'          => 'data:image/svg+xml,' . rawurlencode($html),
+            'alt'          => $this->svgImageAlt($element),
+            'className'    => $this->attr($element, 'class'),
+            'isDecorative' => 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ? true : null,
+        ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
+
+        return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
+    {
+        if ( ! $this->isPassiveSvgMarkup($element) ) {
+            return false;
+        }
+
+        // <img src="data:image/svg+xml,..."> renders in a separate image
+        // document, so inherited color/custom properties and external fragments
+        // cannot be represented faithfully as core/image.
+        if ( preg_match('/\bcurrentColor\b|var\s*\(/i', $html) ) {
+            return false;
+        }
+        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function svgImageDimensions(DOMElement $element, string $html): array
+    {
+        $width = $this->svgLengthAttributeForImage($this->attr($element, 'width'));
+        $height = $this->svgLengthAttributeForImage($this->attr($element, 'height'));
+        if ( '' !== $width && '' !== $height ) {
+            return array( 'width' => $width, 'height' => $height );
+        }
+
+        if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])([^"\']+)\1/i', $html, $viewBoxMatch) ) {
+            return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
+        }
+
+        $parts = preg_split('/[\s,]+/', trim($viewBoxMatch[2])) ?: array();
+        if ( count($parts) >= 4 ) {
+            $width = '' !== $width ? $width : ( is_numeric($parts[2]) ? $this->normalizedSvgDimension((float) $parts[2]) : '' );
+            $height = '' !== $height ? $height : ( is_numeric($parts[3]) ? $this->normalizedSvgDimension((float) $parts[3]) : '' );
+        }
+
+        return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
+    }
+
+    private function svgLengthAttributeForImage(string $value): string
+    {
+        $value = trim($value);
+        if ( '' === $value || ! preg_match('/^\d+(?:\.\d+)?$/', $value) ) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    private function svgImageAlt(DOMElement $element): string
+    {
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+            return '';
+        }
+
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $value = trim($this->attr($element, $attribute));
+            if ( '' !== $value ) {
+                return $value;
+            }
+        }
+
+        $title = $element->getElementsByTagName('title')->item(0);
+        return $title instanceof DOMElement ? trim((string) $title->textContent) : '';
     }
 
     private function ensureInlineSvgSizing(string $html): string

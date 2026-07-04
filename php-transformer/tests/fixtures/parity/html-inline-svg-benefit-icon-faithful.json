@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-benefit-icon-faithful",
-  "description": "Imported feature/benefit inline SVGs are preserved faithfully as core/html so the verbatim <svg> element, its sizing class (e.g. benefit-icon), and its correct-case viewBox survive rendering. They are never routed through the dynamic core/icon block, which is keyed on a registry slug and discards inline SVG markup (rendering empty).",
+  "description": "Imported passive feature/benefit inline SVGs are represented as core/image data URI blocks so the graphic remains native and editor-valid. They are never routed through the dynamic core/icon block, which is keyed on a registry slug and discards inline SVG markup (rendering empty).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-benefit-icon-faithful.json",
-    "notes": "Regression guard: core/icon discards arbitrary inline SVG (render_block_core_icon returns empty without a registry slug), so imported feature icons must use faithful core/html passthrough that keeps element + class + viewBox case."
+    "notes": "Regression guard: core/icon discards arbitrary inline SVG (render_block_core_icon returns empty without a registry slug), so imported passive feature icons use core/image data URIs and keep class + viewBox-derived sizing."
   },
   "legacy_comparison": {
     "skip": true,
@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "features" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast", "level": 3 } }
   ],
   "expect": [
@@ -26,9 +26,9 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "assets", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "class=\"benefit-icon\"" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "viewBox=\"0 0 24 24\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<svg class=\"benefit-icon\" viewBox=\"0 0 24 24\"" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.className", "assert": "equals", "value": "benefit-icon" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.width", "assert": "equals", "value": "24" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data:image/svg+xml," },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
