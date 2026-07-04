@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-button-runtime-controls-commerce-boundary",
+  "description": "Separates static CTA buttons from runtime-bound controls in an artifact with commerce-style JS product rendering: static source CTAs become native core/button, script-targeted controls are preserved as runtime islands, and JS-generated product add-to-cart controls are not guessed into native commerce blocks without a source product-card contract.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-button-runtime-controls-commerce-boundary.json",
+    "notes": "Round-2 button-family coverage: marketing CTA, lightbox/gallery control, and commerce placeholder whose product cards/add-to-cart buttons are rendered by client JS rather than present in the static DOM. The generic transformer can preserve runtime targets and native static CTAs, but needs an upstream product-scoped contract to map JS-generated add-to-cart controls to seeded product permalinks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime target extraction and commerce-boundary diagnostics are current transformer contracts with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><section class=\"hero\"><button class=\"donate-submit\" type=\"button\">Donate Now</button></section><section class=\"gallery\"><button class=\"tile\" data-lightbox=\"Foggy cliff portrait\"><span>Foggy cliff portrait</span></button></section><section class=\"shop\"><h2>Shop</h2><div class=\"product-grid\" data-shop-grid></div></section><script src=\"js/app.js\"></script></main>"
+        },
+        {
+          "path": "js/app.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('[data-lightbox]').forEach(function (button) { button.addEventListener('click', function () {}); }); var products = [{ id: 'fern', name: 'Bird Nest Fern', price: 24 }]; var grid = document.querySelector('[data-shop-grid]'); if (grid) { grid.innerHTML = products.map(function (p) { return '<article class=\"product-card\" data-product-id=\"' + p.id + '\"><h3>' + p.name + '</h3><p class=\"price\">$' + p.price + '</p><button class=\"btn btn-add\" data-add=\"' + p.id + '\">Add to cart</button></article>'; }).join(''); } document.addEventListener('click', function (event) { var add = event.target.closest('[data-add]'); if (add) { event.preventDefault(); } });"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button {\"className\":\"donate-submit\",\"type\":\"button\",\"tagName\":\"button\",\"text\":\"Donate Now\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\">Donate Now</button>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data-lightbox=\"Foggy cliff portrait\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Add to cart" },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": ".tile" },
+    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "dom" }
+  ]
+}
