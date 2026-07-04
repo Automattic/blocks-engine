@@ -54,6 +54,13 @@ $assert(str_contains($groupInnerHtml, 'is-layout-flex wp-block-columns-is-layout
 $assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: rendered wrapper omits blockGap when the core save shape does not reproduce it', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: rendered wrapper does not carry raw flex declarations', $groupInnerHtml);
 
+$stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';
+$stackResult = ( new HtmlTransformer() )->transform($stackHtml, array())->toArray();
+$stack = $stackResult['blocks'][0] ?? array();
+
+$assert('core/group' === ($stack['blockName'] ?? ''), '15: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
+$assert('hero-content' === (($stack['attrs']['className'] ?? '')), '16: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);
