@@ -430,6 +430,7 @@ final class HtmlTransformer
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
@@ -4445,6 +4446,93 @@ final class HtmlTransformer
         }
 
         return $targets;
+    }
+
+    private function shouldRecordRuntimeHtmlSubtreeIsland(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'main', 'section' ), true) ) {
+            return false;
+        }
+
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return false;
+        }
+
+        if ( 0 < count($this->runtimeTargetsInSubtree($element, 1)) ) {
+            return true;
+        }
+
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            if ( 'form' === $tagName && $this->formHasDataEntryControls($descendant) ) {
+                return true;
+            }
+            if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function recordRuntimeIslandsForPreservedHtmlBlocks(array $blocks): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( 'core/html' === ($block['blockName'] ?? '') ) {
+                $content = is_array($block['attrs'] ?? null) && is_scalar($block['attrs']['content'] ?? null) ? (string) $block['attrs']['content'] : '';
+                $element = $this->preservedHtmlRootElement($content);
+                if ( $element instanceof DOMElement && $this->shouldRecordRuntimeHtmlSubtreeIsland($element) ) {
+                    $targets = $this->runtimeTargetsInSubtree($element, 8);
+                    $this->recordRuntimeIsland($element, 'app_shell', 'runtime_html_subtree', 'client_script_execution', array(
+                        'events'            => $this->eventMetadata($element),
+                        'target_count'      => count($targets),
+                        'targets'           => $targets,
+                        'app_shell_signals' => $this->runtimeAppShellSignals($element),
+                        'required_scripts'  => $this->requiredScriptsForElement($element),
+                    ));
+                }
+            }
+
+            if ( isset($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->recordRuntimeIslandsForPreservedHtmlBlocks($block['innerBlocks']);
+            }
+        }
+    }
+
+    private function preservedHtmlRootElement(string $html): ?DOMElement
+    {
+        if ( '' === trim($html) ) {
+            return null;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return null;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return $child;
+            }
+        }
+
+        return null;
     }
 
     /**
