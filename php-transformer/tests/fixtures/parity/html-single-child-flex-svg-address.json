@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-single-child-flex-svg-address",
-  "description": "Preserves single-child flex wrappers with safe illustrative inline SVG (kept inline as a core/html block, since WordPress blocks SVG uploads and an externalized .svg asset would not render) and readable address line breaks without unsupported fallbacks.",
+  "description": "Preserves single-child flex wrappers with safe illustrative inline SVG (kept inline as a core/icon block) and readable address line breaks without unsupported fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-single-child-flex-svg-address.json",
@@ -18,15 +18,15 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "illustration-frame", "layout": { "type": "flex", "justifyContent": "center" } } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/icon" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a>" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 40 20\"" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "Storefront illustration" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg", "assert": "contains", "value": "<svg viewBox=\"0 0 40 20\"" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg", "assert": "contains", "value": "Storefront illustration" },
     { "path": "assets", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Storefront illustration" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

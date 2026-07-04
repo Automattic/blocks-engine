@@ -1552,14 +1552,10 @@ final class HtmlTransformer
                 }
             }
 
-            // Imported inline SVGs are preserved faithfully as raw markup
-            // (core/html via inlineSvgBlockFromElement). They are never routed
-            // through core/icon: that block is a dynamic block keyed on a
-            // registry slug (its `icon` attribute) and discards arbitrary inline
-            // SVG markup, so render_block_core_icon() returns empty output for
-            // imported SVGs. Faithful passthrough keeps the original element,
-            // its sizing class(es), and correct-case viewBox so the
-            // materialized source CSS can size it.
+            // Imported inline SVGs are represented as core/icon with the
+            // sanitized source <svg> stored verbatim in its svg attribute. This
+            // keeps the actual SVG element, sizing classes/attributes, and
+            // correct-case viewBox while avoiding core/html fallback blocks.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
                 // Faithfully preserve any inline SVG that carries real drawable
                 // artwork — icons, diagrams, illustrations — even when it is
@@ -4247,14 +4243,38 @@ final class HtmlTransformer
             return null;
         }
 
-        // Keep illustrative/decorative inline SVG inline as a core/html block.
         // Externalizing to an `assets/*.svg` file + core/image would be lost in
-        // WordPress, which blocks SVG uploads by default. The markup is already
-        // safe-sanitized above (scripts, event handlers, foreignObject, and
-        // javascript: URLs stripped via sanitizeInlineSvgMarkup + verified by
-        // isSafeSvgContent), and the original outer SVG preserves
-        // viewBox/role/aria-label/class.
-        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
+        // WordPress, which blocks SVG uploads by default. core/icon is the
+        // native block in this runtime that can carry inline SVG markup, and the
+        // original outer SVG preserves viewBox/width/height/preserveAspectRatio,
+        // role/aria-label, and CSS sizing classes on the actual rendered <svg>.
+        return $this->createBlock('core/icon', $this->inlineSvgIconAttributes($element, $html), array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function inlineSvgIconAttributes(DOMElement $element, string $html): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        $attrs['svg'] = $this->restoreSvgCasing($html);
+
+        $label = trim($this->attr($element, 'aria-label'));
+        if ( '' === $label ) {
+            $title = $element->getElementsByTagName('title')->item(0);
+            if ( $title instanceof DOMElement ) {
+                $label = trim($title->textContent ?? '');
+            }
+        }
+        if ( '' !== $label ) {
+            $attrs['label'] = $label;
+        }
+
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array(strtolower(trim($this->attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
+            $attrs['ariaHidden'] = true;
+        }
+
+        return $attrs;
     }
 
     /**
