@@ -4328,8 +4328,8 @@ final class HtmlTransformer
 
         $parts = preg_split('/[\s,]+/', trim($viewBoxMatch[2])) ?: array();
         if ( count($parts) >= 4 ) {
-            $width = '' !== $width ? $width : ( is_numeric($parts[2]) ? $this->normalizedSvgDimension((float) $parts[2]) : '' );
-            $height = '' !== $height ? $height : ( is_numeric($parts[3]) ? $this->normalizedSvgDimension((float) $parts[3]) : '' );
+            $width = '' !== $width ? $width : ( is_numeric($parts[2]) ? $this->svgLengthAttributeForImage($this->normalizedSvgDimension((float) $parts[2])) : '' );
+            $height = '' !== $height ? $height : ( is_numeric($parts[3]) ? $this->svgLengthAttributeForImage($this->normalizedSvgDimension((float) $parts[3])) : '' );
         }
 
         return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
@@ -4342,7 +4342,7 @@ final class HtmlTransformer
             return '';
         }
 
-        return $value;
+        return $value . 'px';
     }
 
     private function svgImageAlt(DOMElement $element): string
