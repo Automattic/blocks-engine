@@ -24,7 +24,7 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 400 300\" aria-hidden=\"true\">" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 400 300\" aria-hidden=\"true\" width=\"400\" height=\"300\">" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<linearGradient id=\"pipe-grad\"" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<stop offset=\"0%\" stop-color=\"#88c\"></stop>" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<line x1=\"200\" y1=\"0\" x2=\"200\" y2=\"300\" stroke=\"#333\" stroke-width=\"6\"></line>" },

@@ -30,7 +30,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg class=\"product-image\" role=\"img\" aria-label=\"Ceramic bowl\" viewBox=\"0 0 10 10\">" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg class=\"product-image\" role=\"img\" aria-label=\"Ceramic bowl\" viewBox=\"0 0 10 10\" width=\"10\" height=\"10\">" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<circle cx=\"5\" cy=\"5\" r=\"4\"></circle>" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "not_contains", "value": "data:image/svg+xml" },
     { "path": "assets", "assert": "count", "count": 0 },
