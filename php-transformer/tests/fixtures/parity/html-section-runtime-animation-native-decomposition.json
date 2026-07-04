@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-section-runtime-animation-native-decomposition",
+  "description": "Artifact compilation keeps marketing sections with presentation-only reveal and counter scripts decomposed into native editable blocks instead of preserving the whole section as a runtime app shell.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-section-runtime-animation-native-decomposition.json",
+    "notes": "Distilled from SSI fixture-matrix section fallbacks: semantic section, header wrapper, repeated card grid, inline SVG artwork, reveal classes, and data-count animation selectors. The structure is generic and avoids fixture-specific class names."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "html": "<main><section id=\"features\" aria-labelledby=\"features-title\"><div class=\"wrap\"><div class=\"reveal\"><span class=\"kicker\">Overview</span><h2 id=\"features-title\">Native sections</h2></div><div class=\"feature-grid\"><article class=\"feature-card reveal\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg><h3>One</h3><p><span class=\"metric\" data-count=\"42\" data-suffix=\"%\">0</span> faster.</p></article><article class=\"feature-card reveal\"><h3>Two</h3><p>Editable card text.</p></article></div></div></section><script>const io=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting)entry.target.classList.add('visible');}));document.querySelectorAll('.reveal').forEach(el=>io.observe(el));document.querySelectorAll('[data-count]').forEach(el=>{el.textContent=el.dataset.count+(el.dataset.suffix||'');});</script></main>"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "features", "tagName": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "wrap" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "reveal" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Native sections", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "One", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "script" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"features\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group feature-card reveal\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<svg viewBox=\"0 0 10 10\" aria-hidden=\"true\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"\\u003csection" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "preservation_reason\":\"runtime_app_shell" }
+  ]
+}

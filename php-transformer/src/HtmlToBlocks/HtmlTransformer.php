@@ -2625,6 +2625,9 @@ final class HtmlTransformer
     private function dynamicTextContent(DOMElement $element): ?string
     {
         $target = trim($this->attr($element, 'data-target'));
+        if ( '' === $target ) {
+            $target = trim($this->attr($element, 'data-count'));
+        }
         if ( '' === $target || ! is_numeric($target) ) {
             return null;
         }
@@ -4337,18 +4340,18 @@ final class HtmlTransformer
     private function isRuntimeDomTarget(DOMElement $element): bool
     {
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) {
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) && ! $this->isPresentationalAnimationSelector('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) {
+            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) && ! $this->isPresentationalAnimationSelector('.' . $class) ) {
                 return true;
             }
         }
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
-            if ( $this->isPresentationalAnimationDataSelector((string) $selector) ) {
+            if ( $this->isPresentationalAnimationSelector((string) $selector) ) {
                 continue;
             }
 
@@ -4500,7 +4503,7 @@ final class HtmlTransformer
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
             if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
-                if ( $this->isPresentationalAnimationDataSelector((string) $selector) ) {
+                if ( $this->isPresentationalAnimationSelector((string) $selector) ) {
                     continue;
                 }
 
@@ -4511,15 +4514,23 @@ final class HtmlTransformer
         return false;
     }
 
-    private function isPresentationalAnimationDataSelector(string $selector): bool
+    private function isPresentationalAnimationSelector(string $selector): bool
     {
-        if ( ! preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
+        $name = '';
+        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
+            $name = substr(strtolower((string) $match[1]), 5);
+        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        }
+
+        if ( '' === $name ) {
             return false;
         }
 
-        $attribute = strtolower((string) $match[1]);
-        foreach ( preg_split('/[^a-z0-9]+/', substr($attribute, 5)) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'transition' ), true) ) {
+        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'transition' ), true) ) {
                 return true;
             }
         }
