@@ -735,6 +735,9 @@ final class RuntimeDependencyParityReport
         if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
                 $dependencies[] = array(
                     'kind'       => $this->selectorKind($selector),
                     'selector'   => $selector,
@@ -748,6 +751,9 @@ final class RuntimeDependencyParityReport
         if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
                 $dependencies[] = array(
                     'kind'       => $this->selectorKind($selector),
                     'selector'   => $selector,
@@ -790,6 +796,9 @@ final class RuntimeDependencyParityReport
         if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
                 $dependencies[] = array(
                     'kind'       => $this->selectorKind($selector),
                     'selector'   => $selector,
@@ -801,6 +810,9 @@ final class RuntimeDependencyParityReport
         }
 
         foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
+            if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                continue;
+            }
             $dependencies[] = array(
                 'kind'       => 'attribute',
                 'selector'   => $selector,
@@ -880,15 +892,26 @@ final class RuntimeDependencyParityReport
         }
         if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
         if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
         foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
+            if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                continue;
+            }
             $selectors[$selector] = true;
         }
         foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
@@ -902,7 +925,11 @@ final class RuntimeDependencyParityReport
         }
         if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
 
@@ -936,16 +963,46 @@ final class RuntimeDependencyParityReport
         $selectors = array();
         if ( preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches, PREG_SET_ORDER) ) {
             foreach ( $matches as $match ) {
-                $selectors[strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']'] = true;
+                $selector = strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
+                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
+                    $selectors[$selector] = true;
+                }
             }
         }
         if ( preg_match_all('/\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches) ) {
             foreach ( $matches[1] as $attribute ) {
-                $selectors['[' . strtolower((string) $attribute) . ']'] = true;
+                $selector = '[' . strtolower((string) $attribute) . ']';
+                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
+                    $selectors[$selector] = true;
+                }
             }
         }
 
         return array_keys($selectors);
+    }
+
+    private function isPresentationalRuntimeSelector(string $selector): bool
+    {
+        $name = '';
+        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
+            $name = substr(strtolower((string) $match[1]), 5);
+        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        }
+
+        if ( '' === $name ) {
+            return false;
+        }
+
+        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

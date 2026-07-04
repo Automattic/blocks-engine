@@ -4716,7 +4716,10 @@ final class HtmlTransformer
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'svg', 'template', 'textarea' ), true) ) {
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
+                return true;
+            }
+            if ( 'svg' === $tagName && $this->isRuntimeDomTarget($descendant) ) {
                 return true;
             }
             if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
@@ -4785,7 +4788,7 @@ final class HtmlTransformer
         }
 
         foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'transition' ), true) ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
                 return true;
             }
         }
