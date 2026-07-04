@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-unsafe",
-  "description": "Sanitizes unsafe inline SVG in place — stripping scripts, event handlers, and javascript: URLs — while preserving the shape markup as a native core/icon block instead of dropping the whole graphic.",
+  "description": "Sanitizes unsafe inline SVG in place — stripping scripts, event handlers, and javascript: URLs — while preserving the shape markup as a faithful core/html block instead of dropping the whole graphic.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-unsafe.json",
@@ -16,20 +16,20 @@
     "content": "<svg viewBox=\"0 0 20 20\" onclick=\"alert(1)\"><script>alert(2)</script><a xlink:href=\"javascript:alert(3)\"><circle onmouseover=\"alert(4)\" cx=\"10\" cy=\"10\" r=\"8\"></circle></a></svg><p>After</p>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/icon" },
+    { "path": "blocks.0", "name": "core/html" },
     { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "After" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.attrs.svg", "assert": "contains", "value": "<svg viewBox=\"0 0 20 20\">" },
-    { "path": "blocks.0.attrs.svg", "assert": "contains", "value": "<circle cx=\"10\" cy=\"10\" r=\"8\"></circle>" },
-    { "path": "blocks.0.attrs.svg", "assert": "not_contains", "value": "<script" },
-    { "path": "blocks.0.attrs.svg", "assert": "not_contains", "value": "onclick" },
-    { "path": "blocks.0.attrs.svg", "assert": "not_contains", "value": "onmouseover" },
-    { "path": "blocks.0.attrs.svg", "assert": "not_contains", "value": "javascript:" },
-    { "path": "blocks.0.attrs.svg", "assert": "not_contains", "value": "alert(" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 20 20\" width=\"20\" height=\"20\">" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<circle cx=\"10\" cy=\"10\" r=\"8\"></circle>" },
+    { "path": "blocks.0.attrs.content", "assert": "not_contains", "value": "<script" },
+    { "path": "blocks.0.attrs.content", "assert": "not_contains", "value": "onclick" },
+    { "path": "blocks.0.attrs.content", "assert": "not_contains", "value": "onmouseover" },
+    { "path": "blocks.0.attrs.content", "assert": "not_contains", "value": "javascript:" },
+    { "path": "blocks.0.attrs.content", "assert": "not_contains", "value": "alert(" },
     { "path": "assets", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

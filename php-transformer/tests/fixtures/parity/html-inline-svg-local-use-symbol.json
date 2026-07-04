@@ -29,7 +29,7 @@
     },
     {
       "path": "blocks.0.innerBlocks.0.innerBlocks.0",
-      "name": "core/icon"
+      "name": "core/html"
     }
   ],
   "expect": [
@@ -39,22 +39,22 @@
       "value": "success"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg",
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
       "assert": "contains",
       "value": "<symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg",
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
       "assert": "contains",
       "value": "<use href=\"#valve\" x=\"0\" y=\"0\"></use>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg",
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
       "assert": "contains",
       "value": "<use href=\"#valve\" x=\"24\" y=\"0\"></use>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.svg",
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
       "assert": "not_contains",
       "value": "icons.svg#gear"
     },
