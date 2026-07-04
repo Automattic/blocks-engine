@@ -99,7 +99,8 @@ final class ComponentSourceCloneGeometry
         $sourceBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
         $merged = '' !== $cloneId ? $this->retargetSourceIds($refreshed, $sourceId, $cloneId) : $refreshed;
 
-        $preferRefreshedGeometry = $this->shouldUseRefreshedGeometry($clone, $refreshed);
+        $geometryDecision = $this->decideGeometrySource($clone, $refreshed);
+        $preferRefreshedGeometry = $geometryDecision->useRefreshedGeometry;
         foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout', 'x', 'y', 'width', 'height') as $key ) {
             if ( $preferRefreshedGeometry && in_array($key, array('box', 'figma_box', 'x', 'y'), true) ) {
                 continue;
@@ -109,6 +110,7 @@ final class ComponentSourceCloneGeometry
             }
         }
         $merged = $this->mergeLayoutMetadata($merged, $clone, $refreshed);
+        $merged['_component_source_clone_geometry_decision'] = $geometryDecision->toArray();
         if ( $preferRefreshedGeometry && is_array($refreshed['box'] ?? null) ) {
             foreach ( array('x', 'y') as $dimension ) {
                 if ( isset($refreshed['box'][$dimension]) && is_numeric($refreshed['box'][$dimension]) ) {
@@ -157,6 +159,9 @@ final class ComponentSourceCloneGeometry
 
         $mergedLayout = is_array($merged['layout'] ?? null) ? $merged['layout'] : array();
         $mergedLayout['z_index'] = (int) $refreshedLayout['z_index'];
+        if ( is_string($refreshedLayout['z_index_source'] ?? null) ) {
+            $mergedLayout['z_index_source'] = $refreshedLayout['z_index_source'];
+        }
         $merged['layout'] = $mergedLayout;
 
         return $merged;
@@ -166,29 +171,99 @@ final class ComponentSourceCloneGeometry
      * @param array<string, mixed> $clone
      * @param array<string, mixed> $refreshed
      */
-    private function shouldUseRefreshedGeometry(array $clone, array $refreshed): bool
+    public function decideGeometrySource(array $clone, array $refreshed): ComponentSourceCloneGeometryDecision
     {
         $cloneBox = is_array($clone['box'] ?? null) ? $clone['box'] : array();
         $refreshedBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
-        if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($refreshedBox) ) {
-            return false;
+        $refreshedCoordinateSpace = GeometryBox::coordinateSpace($refreshedBox);
+        if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== $refreshedCoordinateSpace ) {
+            return new ComponentSourceCloneGeometryDecision(
+                false,
+                ComponentSourceCloneGeometryDecision::REASON_REFRESHED_BOX_NOT_PARENT_LOCAL,
+                null,
+                $refreshedCoordinateSpace,
+                $this->hasComponentSourceIdentity($clone, $cloneBox)
+            );
         }
 
-        $hasComponentSource = isset($clone['figma_component_source_id']) && is_scalar($clone['figma_component_source_id']) && '' !== (string) $clone['figma_component_source_id'];
-        if ( ! $hasComponentSource && empty($clone['_component_source_clone_geometry']) && self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE !== ($cloneBox['geometry_semantics'] ?? null) ) {
-            return false;
+        $hasComponentSourceIdentity = $this->hasComponentSourceIdentity($clone, $cloneBox);
+        if ( ! $hasComponentSourceIdentity ) {
+            return new ComponentSourceCloneGeometryDecision(
+                false,
+                ComponentSourceCloneGeometryDecision::REASON_CLONE_NOT_COMPONENT_SOURCE,
+                null,
+                $refreshedCoordinateSpace,
+                false
+            );
         }
 
         foreach ( array('x', 'y') as $dimension ) {
+            if ( $this->cloneBoxDisagreesWithMatchingScalar($clone, $cloneBox, $refreshedBox, $dimension) ) {
+                return new ComponentSourceCloneGeometryDecision(
+                    true,
+                    'x' === $dimension ? ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_X_DISAGREES_WITH_SCALAR : ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_Y_DISAGREES_WITH_SCALAR,
+                    $dimension,
+                    $refreshedCoordinateSpace,
+                    true
+                );
+            }
+
             if ( isset($cloneBox[$dimension], $refreshedBox[$dimension]) && is_numeric($cloneBox[$dimension]) && is_numeric($refreshedBox[$dimension]) && abs((float) $cloneBox[$dimension] - (float) $refreshedBox[$dimension]) >= 1000.0 ) {
-                return true;
+                return new ComponentSourceCloneGeometryDecision(
+                    true,
+                    'x' === $dimension ? ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_X_FAR_FROM_REFRESHED : ComponentSourceCloneGeometryDecision::REASON_CLONE_BOX_Y_FAR_FROM_REFRESHED,
+                    $dimension,
+                    $refreshedCoordinateSpace,
+                    true
+                );
             }
             if ( isset($clone[$dimension], $refreshedBox[$dimension]) && is_numeric($clone[$dimension]) && is_numeric($refreshedBox[$dimension]) && abs((float) $clone[$dimension] - (float) $refreshedBox[$dimension]) >= 1000.0 ) {
-                return true;
+                return new ComponentSourceCloneGeometryDecision(
+                    true,
+                    'x' === $dimension ? ComponentSourceCloneGeometryDecision::REASON_CLONE_X_FAR_FROM_REFRESHED : ComponentSourceCloneGeometryDecision::REASON_CLONE_Y_FAR_FROM_REFRESHED,
+                    $dimension,
+                    $refreshedCoordinateSpace,
+                    true
+                );
             }
         }
 
-        return false;
+        return new ComponentSourceCloneGeometryDecision(
+            false,
+            ComponentSourceCloneGeometryDecision::REASON_CLONE_GEOMETRY_PRESERVED,
+            null,
+            $refreshedCoordinateSpace,
+            true
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $cloneBox
+     * @param array<string, mixed> $refreshedBox
+     */
+    private function cloneBoxDisagreesWithMatchingScalar(array $clone, array $cloneBox, array $refreshedBox, string $dimension): bool
+    {
+        if ( ! isset($clone[$dimension], $cloneBox[$dimension], $refreshedBox[$dimension]) || ! is_numeric($clone[$dimension]) || ! is_numeric($cloneBox[$dimension]) || ! is_numeric($refreshedBox[$dimension]) ) {
+            return false;
+        }
+
+        $cloneScalar = (float) $clone[$dimension];
+        $cloneBoxCoordinate = (float) $cloneBox[$dimension];
+        $refreshedCoordinate = (float) $refreshedBox[$dimension];
+
+        return abs($cloneBoxCoordinate - $cloneScalar) > 0.5 && abs($cloneScalar - $refreshedCoordinate) <= 0.5;
+    }
+
+    /**
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $cloneBox
+     */
+    private function hasComponentSourceIdentity(array $clone, array $cloneBox): bool
+    {
+        return (isset($clone['figma_component_source_id']) && is_scalar($clone['figma_component_source_id']) && '' !== (string) $clone['figma_component_source_id'])
+            || ! empty($clone['_component_source_clone_geometry'])
+            || self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE === ($cloneBox['geometry_semantics'] ?? null);
     }
 
     /**

@@ -166,6 +166,68 @@ describe('buildReport', () => {
     },
   );
 
+  it('emits reviewer-friendly HTML quality diagnostics for generated Figma exports', () => {
+    const inputHtml = `
+      <main data-page-path="index.html">
+        <section data-figma-node-name="Home Hero">
+          <div data-figma-node-name="hero image"></div>
+          <div data-figma-node-name="Rectangle"><svg><path fill="#198097" /></svg></div>
+        </section>
+        <section data-figma-node-name="Frame 1">
+          ${Array.from(
+            { length: 30 },
+            (_, index) => `<div data-figma-node-name="Frame ${index}"><svg></svg></div>`,
+          ).join('')}
+          ${Array.from(
+            { length: 15 },
+            (_, index) => `<div data-figma-node-name="Group ${index}"></div>`,
+          ).join('')}
+          <h6 data-figma-node-name="body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore.</h6>
+          <ol><li><h4>Full service range including</h4></li></ol>
+          <a href="index.html" data-figma-link-type="node">Contact Us</a>
+        </section>
+        <section data-figma-node-name="Featured Posts">
+          <article><h2>A Days of thunder lego set is coming</h2></article>
+        </section>
+        <section data-figma-node-name="Featured Posts">
+          <article><h2>A Days of thunder lego set is coming</h2></article>
+          <h4>We’ve Tried the LEGO I
+deas Twilight Set</h4>
+        </section>
+      </main>`;
+
+    const report = buildReport({
+      inputHtml,
+      blockMarkup: '<!-- wp:paragraph --><p>Converted</p><!-- /wp:paragraph -->',
+      fixResult: fixResult({ blockCount: 1 }),
+      transformDurationMs: 3,
+    });
+
+    expect(report.status).toBe('success_with_warnings');
+    expect(report.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'body_text_promoted_to_heading', selector: 'h6' }),
+        expect.objectContaining({ code: 'heading_inside_list_item', selector: 'li h4' }),
+        expect.objectContaining({
+          code: 'scaffold_noise_candidate',
+          totalNodes: expect.any(Number),
+          scaffoldNodes: expect.any(Number),
+          scaffoldRatio: expect.any(Number),
+        }),
+        expect.objectContaining({ code: 'svg_dense_region', svgCount: 30 }),
+        expect.objectContaining({
+          code: 'route_self_link_oddity',
+          selector: 'a[href="index.html"]',
+        }),
+        expect.objectContaining({
+          code: 'duplicate_canvas_chrome',
+          duplicateText: 'a days of thunder lego set is coming',
+        }),
+      ]),
+    );
+    expect(report.metrics.diagnosticCount).toBe(6);
+  });
+
   it('does not value-import WordPress packages', () => {
     const reportDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 

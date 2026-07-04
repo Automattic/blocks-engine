@@ -12,13 +12,14 @@ if ( is_readable($autoload) ) {
 
 $path = $argv[1] ?? '';
 if ( '' === $path || '--help' === $path || '-h' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--font-family-css=<family>:<css>] [--font-family-css-file=<family>:<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-render-evidence-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--inspect-kiwi-gate] [--kiwi-gated-decode] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-canvas-bytes=<bytes>] [--max-nested-fig-bytes=<bytes>] [--max-archive-asset-content-bytes=<bytes>] [--max-zstd-inflated-bytes=<bytes>] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--max-kiwi-selective-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--font-family-css=<family>:<css>] [--font-family-css-file=<family>:<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-render-evidence-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
     exit(1);
 }
 
 $options = array();
 $zstdCommand = getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null;
 $outputDir = null;
+$inspectKiwiGateMode = false;
 foreach ( array_slice($argv, 2) as $argument ) {
     if ( ! str_starts_with($argument, '--') ) {
         continue;
@@ -46,6 +47,17 @@ foreach ( array_slice($argv, 2) as $argument ) {
         continue;
     }
 
+    if ( 'inspect-kiwi-gate' === $name ) {
+        $options['inspect_kiwi_gate'] = true;
+        $inspectKiwiGateMode = true;
+        continue;
+    }
+
+    if ( 'kiwi-gated-decode' === $name ) {
+        $options['inspect_kiwi_gate'] = true;
+        continue;
+    }
+
     if ( 'inspect-frame-limit' === $name ) {
         $options['frame_inspection_limit'] = max(1, (int) $value);
         continue;
@@ -58,6 +70,31 @@ foreach ( array_slice($argv, 2) as $argument ) {
 
     if ( 'max-kiwi-message-decode-bytes' === $name ) {
         $options['max_kiwi_message_decode_bytes'] = max(0, (int) $value);
+        continue;
+    }
+
+    if ( 'max-kiwi-selective-message-decode-bytes' === $name ) {
+        $options['max_kiwi_selective_message_decode_bytes'] = max(0, (int) $value);
+        continue;
+    }
+
+    if ( 'max-canvas-bytes' === $name ) {
+        $options['max_canvas_bytes'] = max(0, (int) $value);
+        continue;
+    }
+
+    if ( 'max-nested-fig-bytes' === $name ) {
+        $options['max_nested_fig_bytes'] = max(0, (int) $value);
+        continue;
+    }
+
+    if ( 'max-archive-asset-content-bytes' === $name ) {
+        $options['max_archive_asset_content_bytes'] = max(0, (int) $value);
+        continue;
+    }
+
+    if ( 'max-zstd-inflated-bytes' === $name ) {
+        $options['max_zstd_inflated_bytes'] = max(0, (int) $value);
         continue;
     }
 
@@ -195,7 +232,9 @@ if ( isset($options['parity']['render_evidence_path']) && is_scalar($options['pa
 }
 
 $transformer = blocks_engine_figma_transformer_cli_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
-if ( true === ($options['inspect_frames'] ?? false) ) {
+if ( $inspectKiwiGateMode && ! str_ends_with(strtolower($path), '.json') ) {
+    $result = $transformer->inspectKiwiGateFile($path, $options);
+} elseif ( true === ($options['inspect_frames'] ?? false) ) {
     if ( str_ends_with(strtolower($path), '.json') ) {
         $decoded = json_decode((string) file_get_contents($path), true);
         $result = $transformer->inspectFramesScenegraph(is_array($decoded) ? $decoded : array(), $options);

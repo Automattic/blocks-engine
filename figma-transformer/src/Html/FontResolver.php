@@ -116,7 +116,9 @@ final class FontResolver
             $key = strtolower($family);
             $weights = $this->normalizeWeights(is_array($usage['weights'] ?? null) ? $usage['weights'] : array());
 
-            if ( $operatorSupplied ) {
+            if ( $this->isStyleTokenOnlyUsage($usage) ) {
+                $resolution = 'style_token_only';
+            } elseif ( $operatorSupplied ) {
                 $resolution = 'operator_supplied';
             } elseif ( isset($normalizedOverrides[$key]) ) {
                 $resolution = 'operator_supplied_family';
@@ -227,6 +229,33 @@ final class FontResolver
         }
 
         return 'sans-serif';
+    }
+
+    /**
+     * Materialized design-token CSS can carry a source family label even when no
+     * emitted text uses that family. Treat those labels as metadata, not missing
+     * web-font requirements; real text usage still reports unresolved fonts.
+     *
+     * @param array<string, mixed> $usage
+     */
+    private function isStyleTokenOnlyUsage(array $usage): bool
+    {
+        if ( 0 !== (int) ($usage['text_node_count'] ?? 0) || 0 !== (int) ($usage['visible_text_area_px'] ?? 0) ) {
+            return false;
+        }
+
+        $samples = is_array($usage['sample_nodes'] ?? null) ? $usage['sample_nodes'] : array();
+        if ( empty($samples) ) {
+            return false;
+        }
+
+        foreach ( $samples as $sample ) {
+            if ( ! is_array($sample) || 'materialized_css' !== ($sample['source'] ?? null) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

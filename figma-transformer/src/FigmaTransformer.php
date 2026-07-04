@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBui
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver;
+use Automattic\BlocksEngine\FigmaTransformer\Html\SourceLossCoverageBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
@@ -84,6 +85,49 @@ final class FigmaTransformer
     public function inspectFramesScenegraph(array $scenegraph, array $options = array()): array
     {
         return $this->frameInspector->inspect($scenegraph, $options);
+    }
+
+    /**
+     * Inspect minimal Kiwi node-gating metadata without materializing full nodes.
+     *
+     * @param array<string, mixed> $options Inspection options.
+     * @return array<string, mixed>
+     */
+    public function inspectKiwiGateFile(string $path, array $options = array()): array
+    {
+        $options['inspect_kiwi_gate'] = true;
+        $options['kiwi_gate_only'] = true;
+        $archive = $this->archiveReader->read($path, $options);
+        $chunks = is_array($archive['archive']['canvas']['chunks'] ?? null) ? $archive['archive']['canvas']['chunks'] : array();
+        $reports = array();
+
+        foreach ( $chunks as $chunk ) {
+            if ( ! is_array($chunk) ) {
+                continue;
+            }
+
+            $payload = $chunk['payload'] ?? array();
+            if ( ! is_array($payload) || ! is_array($payload['kiwi_node_gate'] ?? null) ) {
+                continue;
+            }
+
+            $reports[] = array(
+                'chunk_index' => (int) ($chunk['index'] ?? count($reports)),
+                'compressed_bytes' => (int) ($chunk['compressed_bytes'] ?? 0),
+                'inflated_bytes' => (int) ($chunk['inflated_bytes'] ?? 0),
+                'compression' => (string) ($chunk['compression'] ?? ''),
+                'kiwi_node_gate' => $payload['kiwi_node_gate'],
+            );
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/kiwi-gate-inspection/v1',
+            'status' => empty($archive['diagnostics']) ? 'success' : 'success_with_warnings',
+            'input' => $archive['input'] ?? array(),
+            'report_count' => count($reports),
+            'reports' => $reports,
+            'diagnostics' => is_array($archive['diagnostics'] ?? null) ? $archive['diagnostics'] : array(),
+        );
     }
 
     /**
@@ -377,9 +421,11 @@ final class FigmaTransformer
             if ( in_array($code, array(
                 'figma_transformer_unreadable_file',
                 'figma_transformer_invalid_zip',
+                'figma_transformer_nested_fig_preflight_failed',
                 'figma_transformer_nested_fig_unreadable',
                 'figma_transformer_tempfile_failed',
                 'figma_transformer_missing_canvas',
+                'figma_transformer_canvas_decode_preflight_failed',
                 'figma_transformer_canvas_too_short',
                 'figma_transformer_kiwi_truncated_chunk_table',
                 'figma_transformer_kiwi_truncated_chunk',
@@ -416,6 +462,7 @@ final class FigmaTransformer
         $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
 
         return FigmaTransformResult::create(
             $artifact['status'],
@@ -437,6 +484,7 @@ final class FigmaTransformer
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -490,6 +538,9 @@ final class FigmaTransformer
 
         $primaryFrameId = (string) ($variants[0]['frame_id'] ?? '');
         $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : '';
+        $pagePath = isset($options['static_site_page_path']) && is_scalar($options['static_site_page_path']) && '' !== (string) $options['static_site_page_path']
+            ? (string) $options['static_site_page_path']
+            : 'index.html';
 
         // Normalize the FULL scenegraph (drop the single-frame selection) so
         // every variant frame is present in the emitter node map. render_document
@@ -511,7 +562,7 @@ final class FigmaTransformer
                 array(
                     'frame_id'   => $primaryFrameId,
                     'name'       => '' !== $pageName ? $pageName : ($normalized['name'] ?? $primaryFrameId),
-                    'path'       => 'index.html',
+                    'path'       => $pagePath,
                     'entrypoint' => true,
                     'responsive' => true,
                     'variants'   => $variants,
@@ -527,6 +578,8 @@ final class FigmaTransformer
         $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
+
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
 
         return FigmaTransformResult::create(
             $artifact['status'],
@@ -549,6 +602,7 @@ final class FigmaTransformer
                 'file_count'             => count($artifact['files']),
                 'breakpoint_count'       => count($variants),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -579,6 +633,7 @@ final class FigmaTransformer
         $cssChunks = array();
         $cssChunkIndexesByPath = array();
         $pageReports = array();
+        $visualNodeMap = array();
         $fontFamilies = array();
         $fontUsage = array();
         $fontCssSupplied = false;
@@ -604,6 +659,9 @@ final class FigmaTransformer
             $pageOptions['layout_mismatch_options']['page_path'] = $path;
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
+            $pageOptions['static_site_page_path'] = $path;
+            $pageOptions['implicit_route_page_plan'] = $pagePlan;
+            $pageOptions['inline_css'] = false;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map'], $pageOptions['responsive_variants'], $pageOptions['page_name']);
             $pageOptions['link_target_paths'] = $linkTargetPaths;
 
@@ -629,13 +687,29 @@ final class FigmaTransformer
             $pageFontFamilies = is_array($pageHtmlReport['font_families'] ?? null) ? $pageHtmlReport['font_families'] : array();
             $pageFontUsage = is_array($pageHtmlReport['font_usage'] ?? null) ? $pageHtmlReport['font_usage'] : array();
             $pageTransformDiagnostics = is_array($pageHtmlReport['transform_diagnostics'] ?? null) ? $pageHtmlReport['transform_diagnostics'] : array();
+            $pageIndex = count($pageReports);
+            $pageVisualNodeMap = $this->visualNodeMapWithPageTrace(
+                is_array($pageHtmlReport['visual_node_map'] ?? null) ? array_values($pageHtmlReport['visual_node_map']) : array(),
+                $pageIndex,
+                $frameId,
+                $path
+            );
+            foreach ( $pageVisualNodeMap as $visualNode ) {
+                if ( is_array($visualNode) ) {
+                    $visualNodeMap[] = $visualNode;
+                }
+            }
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, $pageFontFamilies);
             $fontUsage = $this->mergeFontUsage($fontUsage, $pageFontUsage);
             $fontCssSupplied = $fontCssSupplied || true === ($pageHtmlReport['font_css_supplied'] ?? false);
 
-            $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
+            $html = $this->fileContent($pageResult['files'] ?? array(), $path);
+            if ( '' === $html ) {
+                $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
+            }
             $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
             if ( '' !== $css ) {
+                $css = $this->scopeRootCustomPropertiesToPage($css, $html);
                 $cssChunkIndexesByPath[$path] = count($cssChunks);
                 $cssChunks[] = $css;
             }
@@ -672,6 +746,8 @@ final class FigmaTransformer
                 'font_families' => $pageFontFamilies,
                 'font_usage' => $pageFontUsage,
                 'font_css_supplied' => true === ($pageHtmlReport['font_css_supplied'] ?? false),
+                'visual_node_count' => count($pageVisualNodeMap),
+                'visual_node_map' => $pageVisualNodeMap,
                 'transform_diagnostics' => $pageTransformDiagnostics,
                 'diagnostic_codes' => $this->diagnosticCodeCounts($pageDiagnostics),
             );
@@ -703,7 +779,7 @@ final class FigmaTransformer
         }
 
         $assetReport = $this->assetReportFromFiles(array_values($assetsByPath));
-        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport);
+        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport, $visualNodeMap);
         $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
         $artifact = array(
             'files' => $files,
@@ -711,6 +787,8 @@ final class FigmaTransformer
             'source_report' => array(
                 'pages' => $pageReports,
                 'page_plan' => $pagePlan,
+                'visual_node_count' => count($visualNodeMap),
+                'visual_node_map' => $visualNodeMap,
                 'font_families' => $fontFamilies,
                 'font_usage' => $fontUsage,
                 'font_css_supplied' => $fontCssSupplied,
@@ -743,8 +821,30 @@ final class FigmaTransformer
                 'file_count'             => count($files),
                 'page_count'             => count($pageReports),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
+    }
+
+    /**
+     * @param array<int, mixed> $visualNodeMap
+     * @return array<int, array<string, mixed>>
+     */
+    private function visualNodeMapWithPageTrace(array $visualNodeMap, int $pageIndex, string $frameId, string $path): array
+    {
+        $traced = array();
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) ) {
+                continue;
+            }
+
+            $visualNode['source_page_index'] = $pageIndex;
+            $visualNode['source_page_frame_id'] = $frameId;
+            $visualNode['page_path'] = $path;
+            $traced[] = $visualNode;
+        }
+
+        return $traced;
     }
 
     /**
@@ -1023,11 +1123,12 @@ final class FigmaTransformer
     /**
      * @param array<int, array<string, mixed>> $pageReports
      * @param array<int, array<string, mixed>> $assetReport
+     * @param array<int, array<string, mixed>> $visualNodeMap
      * @return array<string, mixed>
      */
-    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
+    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport, array $visualNodeMap): array
     {
-        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
+        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array(), 'asset_nodes' => array());
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
@@ -1086,8 +1187,45 @@ final class FigmaTransformer
             'anchors_emitted'    => 0,
             'url_links'          => 0,
             'node_links'         => 0,
+            'toc_links'          => 0,
+            'implicit_route_links' => 0,
+            'implicit_route_self_suppressed' => 0,
+            'route_targets'      => array(),
             'unresolved'         => 0,
             'unresolved_targets' => array(),
+        );
+        $css = array(
+            'schema' => 'blocks-engine/figma-transformer/css-diagnostics/v1',
+            'invalid_numeric_token_count' => 0,
+            'invalid_numeric_tokens' => array(),
+        );
+        $htmlArtifact = array(
+            'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
+            'media_query_count' => 0,
+            'fixed_width_over_desktop_count' => 0,
+            'large_fixed_canvas_height' => false,
+            'desktop_canvas_without_responsive_breakpoints' => false,
+        );
+        $decisionTraces = array(
+            'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
+            'trace_count' => 0,
+            'reason_counts' => array(),
+            'domain_counts' => array(),
+            'samples' => array(),
+        );
+        $positionalParity = array(
+            'schema' => 'blocks-engine/figma-transformer/positional-parity/v1',
+            'full_bleed_viewport_width_count' => 0,
+            'full_bleed_breakout_count' => 0,
+            'mirrored_transform_count' => 0,
+            'reflected_full_bleed_count' => 0,
+            'fixed_over_root_width_underlay_count' => 0,
+            'fixed_over_root_width_underlays' => array(),
+            'chrome_overflow_count' => 0,
+            'chrome_overflow_nodes' => array(),
+            'root_stacking_trace_count' => 0,
+            'root_stacking_reason_counts' => array(),
+            'decision_trace_samples' => array(),
         );
 
         foreach ( $pageReports as $page ) {
@@ -1103,6 +1241,7 @@ final class FigmaTransformer
             DiagnosticAggregation::addIntegerCounts($images, $pageImages, array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count'));
             DiagnosticAggregation::appendContextSamples($images, 'image_block_nodes', $pageImages, 'image_block_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($images, 'missing_assets', $pageImages, 'missing_assets', $pageContext);
+            DiagnosticAggregation::appendContextSamples($images, 'asset_nodes', $pageImages, 'asset_nodes', $pageContext);
 
             $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
             DiagnosticAggregation::addIntegerCounts($vectors, $pageVectors, array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders'));
@@ -1116,11 +1255,22 @@ final class FigmaTransformer
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
 
             $pageLinks = is_array($diagnostics['links'] ?? null) ? $diagnostics['links'] : array();
-            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'unresolved'));
+            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'toc_links', 'implicit_route_links', 'implicit_route_self_suppressed', 'unresolved'));
+            DiagnosticAggregation::appendContextSamples($links, 'route_targets', $pageLinks, 'route_targets', $pageContext);
             DiagnosticAggregation::appendContextSamples($links, 'unresolved_targets', $pageLinks, 'unresolved_targets', $pageContext);
+
+            $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
+            DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
+            DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
+            $pageHtmlArtifact = is_array($diagnostics['html_artifact'] ?? null) ? $diagnostics['html_artifact'] : array();
+            DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count'));
+            $htmlArtifact['large_fixed_canvas_height'] = ! empty($htmlArtifact['large_fixed_canvas_height']) || ! empty($pageHtmlArtifact['large_fixed_canvas_height']);
+            $htmlArtifact['desktop_canvas_without_responsive_breakpoints'] = ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) || ! empty($pageHtmlArtifact['desktop_canvas_without_responsive_breakpoints']);
+            $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
+            $this->mergePositionalParityDiagnostics($positionalParity, is_array($pageLayout['positional_parity'] ?? null) ? $pageLayout['positional_parity'] : array(), $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'large_css_offset_nodes', $pageLayout, 'large_css_offset_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'off_canvas_visual_nodes', $pageLayout, 'off_canvas_visual_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'large_absolute_offset_nodes', $pageLayout, 'large_absolute_offset_nodes', $pageContext);
@@ -1209,6 +1359,7 @@ final class FigmaTransformer
         $layout['sticky_ghosts']['count'] = count($layout['sticky_ghosts']['candidates']);
         $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
         $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
+        $links['route_targets'] = array_values($links['route_targets']);
         $links['unresolved_targets'] = array_values($links['unresolved_targets']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         ksort($layout['empty_visible_container_categories']);
@@ -1218,6 +1369,13 @@ final class FigmaTransformer
             $layout['render_style']['status'] = 'not_run';
             $layout['render_style_mismatch_status'] = 'not_run';
         }
+        ksort($decisionTraces['reason_counts']);
+        ksort($decisionTraces['domain_counts']);
+        ksort($positionalParity['root_stacking_reason_counts']);
+        $positionalParity['fixed_over_root_width_underlays'] = array_slice(array_values($positionalParity['fixed_over_root_width_underlays']), 0, 25);
+        $positionalParity['chrome_overflow_nodes'] = array_slice(array_values($positionalParity['chrome_overflow_nodes']), 0, 25);
+        $positionalParity['decision_trace_samples'] = array_slice(array_values($positionalParity['decision_trace_samples']), 0, 100);
+        $layout['positional_parity'] = $positionalParity;
         ksort($diagnosticCodes);
         $fontResolution = ( new FontResolver() )->resolve($fontUsage, $fontCssSupplied ? 'operator-supplied' : '');
         $fonts = array(
@@ -1241,6 +1399,7 @@ final class FigmaTransformer
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'scope' => 'multi_page',
             'selection' => $this->multiPageSelectionDiagnostics($pageReports),
+            'visual_node_map_summary' => $this->visualNodeMapSummary($visualNodeMap),
             'pages' => $pages,
             'images' => $images,
             'vectors' => $vectors,
@@ -1248,10 +1407,49 @@ final class FigmaTransformer
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'decision_traces' => $decisionTraces,
             'links' => $links,
-            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links),
+            'css' => $css,
+            'html_artifact' => $htmlArtifact,
+            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css, $htmlArtifact),
             'diagnostic_codes' => $diagnosticCodes,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $target
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $pageContext
+     */
+    private function mergeDecisionTraceDiagnostics(array &$target, array $source, array $pageContext): void
+    {
+        $target['trace_count'] = (int) ($target['trace_count'] ?? 0) + (int) ($source['trace_count'] ?? 0);
+        DiagnosticAggregation::addCounterMap($target['reason_counts'], is_array($source['reason_counts'] ?? null) ? $source['reason_counts'] : array());
+        DiagnosticAggregation::addCounterMap($target['domain_counts'], is_array($source['domain_counts'] ?? null) ? $source['domain_counts'] : array());
+        DiagnosticAggregation::appendContextSamples($target, 'samples', $source, 'samples', $pageContext);
+        $target['samples'] = array_slice($target['samples'], 0, 100);
+    }
+
+    /**
+     * @param array<string, mixed> $target
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $pageContext
+     */
+    private function mergePositionalParityDiagnostics(array &$target, array $source, array $pageContext): void
+    {
+        DiagnosticAggregation::addIntegerCounts($target, $source, array(
+            'full_bleed_viewport_width_count',
+            'full_bleed_breakout_count',
+            'mirrored_transform_count',
+            'reflected_full_bleed_count',
+            'fixed_over_root_width_underlay_count',
+            'chrome_overflow_count',
+            'root_stacking_trace_count',
+        ));
+        DiagnosticAggregation::addCounterMap($target['root_stacking_reason_counts'], is_array($source['root_stacking_reason_counts'] ?? null) ? $source['root_stacking_reason_counts'] : array());
+        DiagnosticAggregation::appendContextSamples($target, 'fixed_over_root_width_underlays', $source, 'fixed_over_root_width_underlays', $pageContext);
+        DiagnosticAggregation::appendContextSamples($target, 'chrome_overflow_nodes', $source, 'chrome_overflow_nodes', $pageContext);
+        DiagnosticAggregation::appendContextSamples($target, 'decision_trace_samples', $source, 'decision_trace_samples', $pageContext);
     }
 
     /**
@@ -1262,9 +1460,11 @@ final class FigmaTransformer
      * @param array<string, mixed> $generatedSvgAssets
      * @param array<string, mixed> $layout
      * @param array<string, mixed> $links
+     * @param array<string, mixed> $css
+     * @param array<string, mixed> $htmlArtifact
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array()): array
+    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $css = array(), array $htmlArtifact = array()): array
     {
         $signals = array();
 
@@ -1323,6 +1523,33 @@ final class FigmaTransformer
                 'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
             );
         }
+        if ( ! empty($css['invalid_numeric_token_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_numeric_token',
+                'count' => (int) $css['invalid_numeric_token_count'],
+                'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'desktop_canvas_without_responsive_breakpoints',
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
+            );
+        }
+        $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
+        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'source_loss_coverage_gap',
+                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
+                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'domains' => $sourceLossCoverage['domains'],
+            );
+        }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
         $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
@@ -1348,7 +1575,7 @@ final class FigmaTransformer
             );
         }
 
-        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
         $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
@@ -1383,13 +1610,90 @@ final class FigmaTransformer
                 'link_sources_found' => (int) ($links['sources_found'] ?? 0),
                 'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
+                'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
+                'source_loss_coverage' => $sourceLossCoverage,
             ),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $images
+     * @param array<string, mixed> $vectors
+     * @return array<string, mixed>
+     */
+    private function sourceLossCoverage(array $images, array $vectors): array
+    {
+        $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
+        $domains = array(
+            'images' => $sourceLossCoverageBuilder->imageDomain($images),
+            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
+        );
+
+        return $sourceLossCoverageBuilder->aggregate($domains);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, mixed>
+     */
+    private function visualNodeMapSummary(array $visualNodeMap): array
+    {
+        $pagePathCounts = array();
+        $sourcePageCounts = array();
+        $emittedClassSamples = array();
+        $withEmittedMetadata = 0;
+        $withPagePath = 0;
+
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) ) {
+                continue;
+            }
+
+            $pagePath = isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) ? (string) $visualNode['page_path'] : '';
+            if ( '' !== $pagePath ) {
+                ++$withPagePath;
+                $pagePathCounts[$pagePath] = ($pagePathCounts[$pagePath] ?? 0) + 1;
+            }
+
+            if ( isset($visualNode['source_page_index']) && is_numeric($visualNode['source_page_index']) ) {
+                $sourcePageIndex = (string) ((int) $visualNode['source_page_index']);
+                $sourcePageCounts[$sourcePageIndex] = ($sourcePageCounts[$sourcePageIndex] ?? 0) + 1;
+            }
+
+            $emittedClass = isset($visualNode['emitted_class']) && is_scalar($visualNode['emitted_class']) ? (string) $visualNode['emitted_class'] : '';
+            $emittedTag = isset($visualNode['emitted_tag']) && is_scalar($visualNode['emitted_tag']) ? (string) $visualNode['emitted_tag'] : '';
+            if ( '' !== $emittedClass || '' !== $emittedTag ) {
+                ++$withEmittedMetadata;
+            }
+            if ( '' !== $emittedClass && count($emittedClassSamples) < 10 ) {
+                $emittedClassSamples[] = array(
+                    'node_id' => isset($visualNode['id']) && is_scalar($visualNode['id']) ? (string) $visualNode['id'] : '',
+                    'class' => $emittedClass,
+                    'page_path' => '' !== $pagePath ? $pagePath : null,
+                );
+            }
+        }
+
+        ksort($pagePathCounts);
+        ksort($sourcePageCounts);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/visual-node-map-summary/v1',
+            'visual_node_count' => count($visualNodeMap),
+            'nodes_with_emitted_metadata' => $withEmittedMetadata,
+            'nodes_with_page_path' => $withPagePath,
+            'page_path_counts' => $pagePathCounts,
+            'source_page_index_counts' => $sourcePageCounts,
+            'emitted_class_samples' => $emittedClassSamples,
         );
     }
 
@@ -1595,6 +1899,36 @@ final class FigmaTransformer
     }
 
     /**
+     * Multi-page output merges independently-emitted page stylesheets. Leaving
+     * per-page design tokens on `:root` lets later pages override earlier page
+     * typography/color variables, so scope custom properties to the emitted page
+     * frame when a concrete root node class is available.
+     */
+    private function scopeRootCustomPropertiesToPage(string $css, string $html): string
+    {
+        if ( '' === $css || '' === $html || ! str_contains($css, ':root{') ) {
+            return $css;
+        }
+
+        if ( 1 !== preg_match('/<main\b[^>]*data-figma-root="true"[^>]*>\s*<[^>]+class="([^"]*)"/s', $html, $matches) ) {
+            return $css;
+        }
+
+        $rootClass = '';
+        foreach ( preg_split('/\s+/', trim((string) $matches[1])) ?: array() as $class ) {
+            if ( str_starts_with($class, 'figma-node-') ) {
+                $rootClass = $class;
+                break;
+            }
+        }
+        if ( '' === $rootClass ) {
+            return $css;
+        }
+
+        return (string) preg_replace('/(^|\n):root\{/m', '$1.' . $rootClass . '{', $css);
+    }
+
+    /**
      * @return array{class: string, body: string}|null
      */
     private function readableCssRule(string $statement): ?array
@@ -1639,10 +1973,57 @@ final class FigmaTransformer
         $statements = array();
         $buffer = '';
         $depth = 0;
+        $parenDepth = 0;
+        $quote = null;
+        $escaped = false;
+        $inComment = false;
         $length = strlen($css);
         for ( $i = 0; $i < $length; $i++ ) {
             $char = $css[$i];
             $buffer .= $char;
+
+            if ( $inComment ) {
+                if ( '*' === $char && '/' === ($css[$i + 1] ?? '') ) {
+                    $buffer .= '/';
+                    ++$i;
+                    $inComment = false;
+                }
+                continue;
+            }
+
+            if ( null !== $quote ) {
+                if ( $escaped ) {
+                    $escaped = false;
+                    continue;
+                }
+                if ( '\\' === $char ) {
+                    $escaped = true;
+                    continue;
+                }
+                if ( $quote === $char ) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ( '/' === $char && '*' === ($css[$i + 1] ?? '') ) {
+                $buffer .= '*';
+                ++$i;
+                $inComment = true;
+                continue;
+            }
+            if ( '"' === $char || "'" === $char ) {
+                $quote = $char;
+                continue;
+            }
+            if ( '(' === $char ) {
+                ++$parenDepth;
+                continue;
+            }
+            if ( ')' === $char ) {
+                $parenDepth = max(0, $parenDepth - 1);
+                continue;
+            }
             if ( '{' === $char ) {
                 ++$depth;
                 continue;
@@ -1655,7 +2036,7 @@ final class FigmaTransformer
                 }
                 continue;
             }
-            if ( ';' === $char && 0 === $depth ) {
+            if ( ';' === $char && 0 === $depth && 0 === $parenDepth ) {
                 // Top-level statement with no block body (e.g. `@import …;`).
                 $statements[] = trim($buffer);
                 $buffer = '';

@@ -154,6 +154,16 @@ final class ScenegraphFrameClassifier
             $reasons[] = 'override:page_intent';
         }
 
+        // A page-sized frame with its own explicit front-page name (for example
+        // a top-level "Home" artboard) remains a page even if the surrounding
+        // canvas/section has design-system language. Keep this narrow: generic
+        // page/archive labels inside style-guide scopes are often component or
+        // pattern specimens, not routes.
+        if ( in_array('scope:design_system', $reasons, true) && self::PAGE_TYPE_FRONT_PAGE === $this->pageTypeNameMatch($name) && $this->isPageSized($signals) ) {
+            $isDesignSystem = false;
+            $reasons[] = 'override:page_intent';
+        }
+
         return array(
             'is_design_system' => $isDesignSystem,
             'signals'          => $reasons,
@@ -253,6 +263,17 @@ final class ScenegraphFrameClassifier
     private function hasPageIntentSuffix(string $name): bool
     {
         return 1 === preg_match('/\b(page|landing|home\s*page|homepage)\b/i', $name);
+    }
+
+    /**
+     * @param array<string, mixed> $signals
+     */
+    private function isPageSized(array $signals): bool
+    {
+        $width = isset($signals['width']) && is_numeric($signals['width']) ? (float) $signals['width'] : 0.0;
+        $height = isset($signals['height']) && is_numeric($signals['height']) ? (float) $signals['height'] : 0.0;
+
+        return $width >= 320.0 && $width <= 2048.0 && $height >= 700.0;
     }
 
     /**

@@ -57,13 +57,18 @@ $source = array(
     'Charcoal'              => 'Charcoal, Impact, sans-serif',
 
     // --- Sans-serif: Humanist / UI (system UI faces) ---
+    'SF Pro Display'        => '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'SF Pro Text'           => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     'Segoe UI'              => '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
+    'SF Pro Text'           => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'SF UI Text'            => '"SF UI Text", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     'Tahoma'                => 'Tahoma, Geneva, Verdana, sans-serif',
     'Geneva'                => 'Geneva, Tahoma, Verdana, sans-serif',
     'Verdana'               => 'Verdana, Geneva, sans-serif',
     'Trebuchet MS'          => '"Trebuchet MS", "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Tahoma, sans-serif',
     'Calibri'               => 'Calibri, "Segoe UI", Candara, Optima, sans-serif',
     'Candara'               => 'Candara, Calibri, "Segoe UI", Optima, sans-serif',
+    'Avenir'                => 'Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif',
     'Optima'                => 'Optima, Candara, "Segoe UI", sans-serif',
     'Gill Sans'             => '"Gill Sans", "Gill Sans MT", Calibri, "Trebuchet MS", sans-serif',
     'Gill Sans MT'          => '"Gill Sans MT", "Gill Sans", Calibri, "Trebuchet MS", sans-serif',
@@ -101,6 +106,7 @@ $source = array(
     'Consolas'              => 'Consolas, "Lucida Console", Monaco, monospace',
     'Monaco'                => 'Monaco, Consolas, "Lucida Console", monospace',
     'Menlo'                 => 'Menlo, Monaco, Consolas, "Courier New", monospace',
+    'SF Mono'               => '"SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
     'Lucida Console'        => '"Lucida Console", Monaco, monospace',
     'Andale Mono'           => '"Andale Mono", AndaleMono, Monaco, monospace',
 );

@@ -41,11 +41,12 @@ final class TextNormalizer
         }
 
         $style = array();
+        $hasLocalStyle = is_array($node['style'] ?? null);
         $styleId = $this->readStyleGuidId($node['styleIdForText'] ?? null);
         if ( null !== $styleId && is_array($textStyles[$styleId] ?? null) ) {
             $style = $this->normalizeTextStyle($textStyles[$styleId]);
         } elseif ( null !== $styleId ) {
-            $this->appendMissingTextStyleDiagnostic($diagnostics, $nodeId, $styleId);
+            $this->appendMissingTextStyleDiagnostic($diagnostics, $nodeId, $styleId, $hasLocalStyle);
         }
 
         if ( is_array($node['style'] ?? null) ) {
@@ -58,6 +59,8 @@ final class TextNormalizer
                 $style[$key] = $value;
             }
         }
+        $this->applyExplicitOriginalTextCaseOverride($node, $style, $style);
+        $style = $this->removeInheritedUppercaseForMixedCaseOverrideText($node, $style, (string) ($text['characters'] ?? ''));
 
         if ( ! isset($style['color']) ) {
             $fillColor = $this->styleFillColor($node['styleIdForFill'] ?? null, $paintStyles);
@@ -89,6 +92,12 @@ final class TextNormalizer
 
         $segments = $this->normalizeStyledTextSegments($node, $paintStyles);
         if ( ! empty($segments) ) {
+            $style = $this->removeTextCaseOverriddenBySegments($style, $segments);
+            if ( empty($style) ) {
+                unset($text['style']);
+            } else {
+                $text['style'] = $style;
+            }
             $text['segments'] = $segments;
         }
 
@@ -96,9 +105,69 @@ final class TextNormalizer
     }
 
     /**
+     * @param array<string, mixed> $style
+     * @param array<int, array<string, mixed>> $segments
+     * @return array<string, mixed>
+     */
+    private function removeTextCaseOverriddenBySegments(array $style, array $segments): array
+    {
+        if ( isset($style['text_transform']) && $this->segmentsExplicitlyResetTextStyle($segments, 'text_transform', 'none') ) {
+            unset($style['text_transform']);
+        }
+
+        if ( isset($style['font_variant']) && $this->segmentsExplicitlyResetTextStyle($segments, 'font_variant', 'normal') ) {
+            unset($style['font_variant']);
+        }
+
+        return $style;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $style
+     * @return array<string, mixed>
+     */
+    private function removeInheritedUppercaseForMixedCaseOverrideText(array $node, array $style, string $characters): array
+    {
+        if ( 'uppercase' !== strtolower((string) ($style['text_transform'] ?? '')) ) {
+            return $style;
+        }
+        if ( true !== ($node['_figma_instance_override_applied'] ?? null) ) {
+            return $style;
+        }
+        if ( 1 !== preg_match('/\p{Ll}/u', $characters) ) {
+            return $style;
+        }
+
+        unset($style['text_transform']);
+        return $style;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $segments
+     */
+    private function segmentsExplicitlyResetTextStyle(array $segments, string $key, string $resetValue): bool
+    {
+        $hasText = false;
+        foreach ( $segments as $segment ) {
+            if ( ! isset($segment['characters']) || ! is_scalar($segment['characters']) || '' === (string) $segment['characters'] ) {
+                continue;
+            }
+
+            $hasText = true;
+            $segmentStyle = is_array($segment['style'] ?? null) ? $segment['style'] : array();
+            if ( strtolower((string) ($segmentStyle[$key] ?? '')) !== $resetValue ) {
+                return false;
+            }
+        }
+
+        return $hasText;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function appendMissingTextStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId): void
+    private function appendMissingTextStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId, bool $hasLocalStyle): void
     {
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'figma_missing_text_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
@@ -112,13 +181,14 @@ final class TextNormalizer
         }
 
         $diagnostics[] = array(
-            'severity' => 'warning',
+            'severity' => $hasLocalStyle ? 'info' : 'warning',
             'code'     => 'figma_missing_text_style_reference',
             'message'  => 'Figma text node references a text style that is not present in the decoded source graph.',
             'source'   => 'TextNormalizer',
             'context'  => array(
-                'node_id'  => $nodeId,
-                'style_id' => $styleId,
+                'node_id'              => $nodeId,
+                'style_id'             => $styleId,
+                'local_style_preserved' => $hasLocalStyle,
             ),
         );
     }
@@ -865,19 +935,14 @@ final class TextNormalizer
     private function normalizeStyledTextSegments(array $node, array $paintStyles = array()): array
     {
         $segments = array();
-        $rawSegments = null;
-        foreach ( array('styledTextSegments', 'segments') as $key ) {
-            if ( is_array($node[$key] ?? null) ) {
-                $rawSegments = $node[$key];
-                break;
-            }
-        }
+        $rawSegments = $this->rawStyledTextSegments($node);
 
         if ( ! is_array($rawSegments) ) {
             // Fall back to character-level override encoding when no segment list is present.
             return $this->normalizeCharacterStyleOverrideSegments($node, $paintStyles);
         }
 
+        $sourceCharacters = $this->sourceTextCharacters($node);
         foreach ( $rawSegments as $segment ) {
             if ( ! is_array($segment) ) {
                 continue;
@@ -895,8 +960,27 @@ final class TextNormalizer
                     $normalized[$key] = (int) $segment[$key];
                 }
             }
+            if ( ! isset($normalized['characters']) && isset($normalized['start'], $normalized['end']) ) {
+                $characters = $this->sliceTextCharacters($sourceCharacters, $normalized['start'], $normalized['end']);
+                if ( null !== $characters ) {
+                    $normalized['characters'] = $characters;
+                }
+            }
 
             $style = is_array($segment['style'] ?? null) ? $this->normalizeTextStyle($segment['style']) : $this->normalizeTextStyle($segment);
+            if ( ! isset($style['color']) ) {
+                $segmentFills = $this->firstFillList(array($segment['fills'] ?? null, $segment['fillPaints'] ?? null));
+                $fillColor = $this->solidFillColor($segmentFills);
+                if ( null !== $fillColor ) {
+                    $style['color'] = $fillColor;
+                }
+            }
+            if ( ! isset($style['color']) ) {
+                $styleFillColor = $this->styleFillColor($segment['styleIdForFill'] ?? null, $paintStyles);
+                if ( null !== $styleFillColor ) {
+                    $style['color'] = $styleFillColor;
+                }
+            }
             if ( ! empty($style) ) {
                 $normalized['style'] = $style;
             }
@@ -907,6 +991,60 @@ final class TextNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, mixed>|null
+     */
+    private function rawStyledTextSegments(array $node): ?array
+    {
+        foreach ( array($node, $node['textData'] ?? null, $node['derivedTextData'] ?? null) as $source ) {
+            if ( ! is_array($source) ) {
+                continue;
+            }
+
+            foreach ( array('styledTextSegments', 'segments') as $key ) {
+                if ( is_array($source[$key] ?? null) ) {
+                    return $source[$key];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function sourceTextCharacters(array $node): string
+    {
+        foreach ( array(
+            $node['characters'] ?? null,
+            $node['text'] ?? null,
+            $node['textData']['characters'] ?? null,
+            $node['derivedTextData']['characters'] ?? null,
+        ) as $value ) {
+            if ( is_scalar($value) ) {
+                return (string) $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function sliceTextCharacters(string $characters, int $start, int $end): ?string
+    {
+        if ( '' === $characters || $end <= $start || $start < 0 ) {
+            return null;
+        }
+
+        $chars = preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY);
+        if ( ! is_array($chars) || $start >= count($chars) ) {
+            return null;
+        }
+
+        return implode('', array_slice($chars, $start, $end - $start));
     }
 
     /**
@@ -1072,11 +1210,7 @@ final class TextNormalizer
      */
     private function applyExplicitOriginalTextCaseOverride(array $rawOverride, array $baseStyle, array &$overrideStyle): void
     {
-        if ( ! isset($rawOverride['textCase']) || ! is_scalar($rawOverride['textCase']) ) {
-            return;
-        }
-
-        if ( 'ORIGINAL' !== strtoupper((string) $rawOverride['textCase']) ) {
+        if ( ! $this->hasExplicitOriginalTextCase($rawOverride) ) {
             return;
         }
 
@@ -1086,6 +1220,18 @@ final class TextNormalizer
         if ( isset($baseStyle['font_variant']) ) {
             $overrideStyle['font_variant'] = 'normal';
         }
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function hasExplicitOriginalTextCase(array $source): bool
+    {
+        if ( isset($source['textCase']) && is_scalar($source['textCase']) && 'ORIGINAL' === strtoupper((string) $source['textCase']) ) {
+            return true;
+        }
+
+        return is_array($source['style'] ?? null) && $this->hasExplicitOriginalTextCase($source['style']);
     }
 
     /**

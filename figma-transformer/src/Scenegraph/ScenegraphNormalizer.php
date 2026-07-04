@@ -11,6 +11,8 @@ final class ScenegraphNormalizer
 {
     private const GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE = 'component_source_clone';
 
+    private const DIMENSION_ZERO_EPSILON = 0.000001;
+
     private readonly TextNormalizer $textNormalizer;
 
     private readonly InstanceResolver $instanceResolver;
@@ -56,8 +58,8 @@ final class ScenegraphNormalizer
         $diagnostics = $index['diagnostics'];
         $blobs       = is_array($source['blobs'] ?? null) ? $source['blobs'] : array();
         if ( isset($options['max_nodes']) && is_numeric($options['max_nodes']) && (int) $options['max_nodes'] > 0 && count($index['nodes']) > (int) $options['max_nodes'] ) {
-            $preferredRootId = isset($options['frame_id']) && is_scalar($options['frame_id']) ? (string) $options['frame_id'] : null;
-            $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootId);
+            $preferredRootIds = $this->preferredLimitRootIds($options, $index['nodes']);
+            $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootIds);
         }
         $paintStyles = $this->buildPaintStyleDefinitions($index['nodes'], $diagnostics);
         $textStyles  = $this->buildTextStyleDefinitions($index['nodes']);
@@ -152,12 +154,19 @@ final class ScenegraphNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function limitIndexNodes(array $index, int $maxNodes, array &$diagnostics, ?string $preferredRootId = null): array
+    private function limitIndexNodes(array $index, int $maxNodes, array &$diagnostics, array $preferredRootIds = array()): array
     {
         $nodes = is_array($index['nodes'] ?? null) ? $index['nodes'] : array();
-        $allowedIds = null !== $preferredRootId && isset($nodes[$preferredRootId])
-            ? $this->limitedSubtreeIds($preferredRootId, is_array($index['children_index'] ?? null) ? $index['children_index'] : array(), $maxNodes)
-            : array_slice(array_keys($nodes), 0, $maxNodes);
+        $childrenIndex = is_array($index['children_index'] ?? null) ? $index['children_index'] : array();
+        $allowedIds = array();
+        foreach ( $preferredRootIds as $preferredRootId ) {
+            if ( is_string($preferredRootId) && isset($nodes[$preferredRootId]) ) {
+                foreach ( $this->limitedSubtreeIds($preferredRootId, $childrenIndex, $maxNodes) as $allowedId ) {
+                    $allowedIds[$allowedId] = $allowedId;
+                }
+            }
+        }
+        $allowedIds = array() !== $allowedIds ? array_values($allowedIds) : array_slice(array_keys($nodes), 0, $maxNodes);
         $allowedIds = $this->includeComponentClosureIds($allowedIds, $nodes, is_array($index['children_index'] ?? null) ? $index['children_index'] : array());
         $allowed = array_fill_keys($allowedIds, true);
         $limitedNodes = array();
@@ -183,8 +192,12 @@ final class ScenegraphNormalizer
             static fn (string $id): bool => isset($allowed[$id])
         ));
 
-        if ( null !== $preferredRootId && isset($allowed[$preferredRootId]) ) {
-            $index['top_level_node_ids'] = array($preferredRootId);
+        $allowedPreferredRootIds = array_values(array_filter(
+            $preferredRootIds,
+            static fn (string $preferredRootId): bool => isset($allowed[$preferredRootId])
+        ));
+        if ( array() !== $allowedPreferredRootIds ) {
+            $index['top_level_node_ids'] = $allowedPreferredRootIds;
         } elseif ( empty($index['top_level_node_ids']) && ! empty($allowedIds) ) {
             $index['top_level_node_ids'] = array($allowedIds[0]);
         }
@@ -198,11 +211,41 @@ final class ScenegraphNormalizer
                 'original_node_count' => count($nodes),
                 'max_nodes'           => $maxNodes,
                 'selected_node_count' => count($allowedIds),
-                'preferred_root_id'   => $preferredRootId,
+                'preferred_root_id'   => $preferredRootIds[0] ?? null,
+                'preferred_root_ids'  => $preferredRootIds,
             ),
         );
 
         return $index;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $nodes
+     * @return array<int, string>
+     */
+    private function preferredLimitRootIds(array $options, array $nodes): array
+    {
+        $ids = array();
+        if ( isset($options['frame_id']) && is_scalar($options['frame_id']) ) {
+            $ids[] = (string) $options['frame_id'];
+        }
+        if ( is_array($options['document_frame_ids'] ?? null) ) {
+            foreach ( $options['document_frame_ids'] as $id ) {
+                if ( is_scalar($id) ) {
+                    $ids[] = (string) $id;
+                }
+            }
+        }
+
+        $deduped = array();
+        foreach ( $ids as $id ) {
+            if ( '' !== $id && isset($nodes[$id]) ) {
+                $deduped[$id] = $id;
+            }
+        }
+
+        return array_values($deduped);
     }
 
     /**
@@ -547,16 +590,19 @@ final class ScenegraphNormalizer
                 continue;
             }
 
+            $value = (float) $box[$dimension];
+            $isZero = ! is_finite($value) || abs($value) <= self::DIMENSION_ZERO_EPSILON;
+
             $diagnostics[] = array(
-                'severity' => 0.0 === (float) $box[$dimension] ? 'info' : 'warning',
-                'code'     => 0.0 === (float) $box[$dimension] ? 'figma_node_zero_dimension' : 'figma_node_negative_dimension',
+                'severity' => $isZero ? 'info' : 'warning',
+                'code'     => $isZero ? 'figma_node_zero_dimension' : 'figma_node_negative_dimension',
                 'message'  => 'Figma node normalized with a non-positive layout dimension.',
                 'context'  => array(
                     'node_id'   => $nodeId,
                     'node_name' => (string) ($node['name'] ?? ''),
                     'node_type' => strtoupper((string) ($node['type'] ?? '')),
                     'dimension' => $dimension,
-                    'value'     => (float) $box[$dimension],
+                    'value'     => $isZero ? 0.0 : $value,
                     'source'    => (string) ($box['coordinate_space'] ?? 'unknown'),
                 ),
             );
@@ -1188,6 +1234,11 @@ final class ScenegraphNormalizer
                 continue;
             }
 
+            $layoutDisplay = is_scalar($node['layout']['display'] ?? null) ? (string) $node['layout']['display'] : '';
+            if ( ! in_array($layoutDisplay, array('flex', 'inline-flex'), true) ) {
+                continue;
+            }
+
             $children = array_values(array_filter($node['children'], 'is_array'));
             $childCount = count($children);
             foreach ( $children as $index => $child ) {
@@ -1198,6 +1249,7 @@ final class ScenegraphNormalizer
 
                 $layout = is_array($nodeMap[$childId]['layout'] ?? null) ? $nodeMap[$childId]['layout'] : array();
                 $layout['z_index'] = $childCount - (int) $index;
+                $layout['z_index_source'] = 'reverse_child_order';
                 $nodeMap[$childId]['layout'] = $layout;
             }
         }
@@ -1234,6 +1286,23 @@ final class ScenegraphNormalizer
 
         if ( is_array($node['componentPropRefs'] ?? null) ) {
             $metadata['component_prop_refs'] = $node['componentPropRefs'];
+        }
+
+        $overrideKey = $this->readGuidId($node['overrideKey'] ?? null);
+        if ( null !== $overrideKey ) {
+            $metadata['override_key'] = $overrideKey;
+        }
+
+        if ( array_key_exists('proportionsConstrained', $node) && is_bool($node['proportionsConstrained']) ) {
+            $metadata['proportions_constrained'] = $node['proportionsConstrained'];
+        }
+
+        if ( is_array($node['targetAspectRatio'] ?? null) ) {
+            $metadata['target_aspect_ratio'] = $this->normalizeMetadataValue($node['targetAspectRatio']);
+        }
+
+        if ( array_key_exists('derivedSymbolDataLayoutVersion', $node) && is_scalar($node['derivedSymbolDataLayoutVersion']) ) {
+            $metadata['derived_symbol_data_layout_version'] = $node['derivedSymbolDataLayoutVersion'];
         }
 
         if ( true === ($node['isStateGroup'] ?? false) ) {
@@ -1490,341 +1559,6 @@ final class ScenegraphNormalizer
 		return $this->componentSourceCloneGeometry->repairFarGeometry($node, $nodeMap);
 	}
 
-	/**
-	 * @param array<string, mixed> $node
-	 * @param array<string, array<string, mixed>> $nodeMap
-	 * @return array<string, mixed>
-	 */
-	private function repairFarComponentSourceCloneGeometry(array $node, array $nodeMap): array
-	{
-		$sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
-		if ( '' === $sourceId || ! is_array($nodeMap[$sourceId]['box'] ?? null) || ! is_array($node['box'] ?? null) ) {
-			return $node;
-		}
-
-		$sourceBox = $nodeMap[$sourceId]['box'];
-		if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($sourceBox) ) {
-			return $node;
-		}
-
-		$repaired = false;
-		foreach ( array('x', 'y') as $dimension ) {
-			if ( isset($sourceBox[$dimension], $node['box'][$dimension]) && is_numeric($sourceBox[$dimension]) && is_numeric($node['box'][$dimension]) && abs((float) $node['box'][$dimension] - (float) $sourceBox[$dimension]) >= 1000.0 ) {
-				$node[$dimension] = (float) $sourceBox[$dimension];
-				$node['box'][$dimension] = (float) $sourceBox[$dimension];
-				if ( is_array($node['figma_box'] ?? null) && isset($node['figma_box'][$dimension]) && is_numeric($node['figma_box'][$dimension]) ) {
-					$node['figma_box'][$dimension] = (float) $sourceBox[$dimension];
-				}
-				$repaired = true;
-			}
-		}
-
-		if ( $repaired ) {
-			$node['box']['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
-			if ( is_array($node['figma_box'] ?? null) ) {
-				$node['figma_box']['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
-			}
-		}
-
-		return $node;
-	}
-
-	/**
-	 * @param array<string, mixed> $clone
-     * @param array<string, mixed> $refreshed
-     */
-    private function isRefreshableComponentSourceClone(array $clone, array $refreshed): bool
-    {
-        $cloneType = strtoupper((string) ($clone['type'] ?? ''));
-        $refreshedType = strtoupper((string) ($refreshed['type'] ?? ''));
-
-        return 'INSTANCE' === $cloneType
-            || 'INSTANCE' === $refreshedType
-            || true === ($clone['figma_component']['resolved'] ?? false)
-            || true === ($refreshed['figma_component']['resolved'] ?? false);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function subtreeHasInstanceOverrideApplied(array $node): bool
-    {
-        if ( true === ($node['_figma_instance_override_applied'] ?? false) ) {
-            return true;
-        }
-
-        foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
-            if ( is_array($child) && $this->subtreeHasInstanceOverrideApplied($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Refresh a namespaced component-source clone without replacing its instance placement.
-     *
-     * @param array<string, mixed> $clone
-     * @param array<string, mixed> $refreshed
-     * @return array<string, mixed>
-     */
-    private function mergeRefreshedComponentSource(array $clone, array $refreshed, string $sourceId): array
-    {
-        $cloneId = (string) ($clone['id'] ?? '');
-        $sourceBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
-        $merged = '' !== $cloneId ? $this->retargetComponentSourceIds($refreshed, $sourceId, $cloneId) : $refreshed;
-
-		$preferRefreshedGeometry = $this->componentSourceCloneShouldUseRefreshedGeometry($clone, $refreshed);
-		foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout', 'x', 'y', 'width', 'height') as $key ) {
-			if ( $preferRefreshedGeometry && in_array($key, array('box', 'figma_box', 'x', 'y'), true) ) {
-				continue;
-			}
-			if ( array_key_exists($key, $clone) ) {
-				$merged[$key] = $clone[$key];
-			}
-		}
-		$merged = $this->mergeComponentSourceCloneLayoutMetadata($merged, $clone, $refreshed);
-		if ( $preferRefreshedGeometry && is_array($refreshed['box'] ?? null) ) {
-			foreach ( array('x', 'y') as $dimension ) {
-				if ( isset($refreshed['box'][$dimension]) && is_numeric($refreshed['box'][$dimension]) ) {
-					$merged[$dimension] = (float) $refreshed['box'][$dimension];
-				}
-			}
-		}
-
-        $sourceX = isset($sourceBox['x']) && is_numeric($sourceBox['x']) ? (float) $sourceBox['x'] : null;
-        $sourceY = isset($sourceBox['y']) && is_numeric($sourceBox['y']) ? (float) $sourceBox['y'] : null;
-        $sourceWidth = isset($sourceBox['width']) && is_numeric($sourceBox['width']) ? (float) $sourceBox['width'] : null;
-        $sourceHeight = isset($sourceBox['height']) && is_numeric($sourceBox['height']) ? (float) $sourceBox['height'] : null;
-        if ( null !== $sourceX || null !== $sourceY ) {
-            $merged = $this->rebaseComponentSourceCloneDescendants($merged, $sourceX, $sourceY, $sourceWidth, $sourceHeight);
-        }
-
-        if ( is_array($clone['_component_source_clone_scale'] ?? null) && is_array($merged['children'] ?? null) ) {
-            $scaleX = isset($clone['_component_source_clone_scale']['x']) && is_numeric($clone['_component_source_clone_scale']['x']) ? (float) $clone['_component_source_clone_scale']['x'] : 1.0;
-            $scaleY = isset($clone['_component_source_clone_scale']['y']) && is_numeric($clone['_component_source_clone_scale']['y']) ? (float) $clone['_component_source_clone_scale']['y'] : 1.0;
-            if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
-            $merged['children'] = $this->vectorInstanceScaler->scaleVectorChildren($merged['children'], $scaleX, $scaleY);
-                $merged['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
-            }
-        }
-
-		return $this->markComponentSourceCloneGeometry($merged);
-	}
-
-    /**
-     * @param array<string, mixed> $merged
-     * @param array<string, mixed> $clone
-     * @param array<string, mixed> $refreshed
-     * @return array<string, mixed>
-     */
-    private function mergeComponentSourceCloneLayoutMetadata(array $merged, array $clone, array $refreshed): array
-    {
-        $refreshedLayout = is_array($refreshed['layout'] ?? null) ? $refreshed['layout'] : array();
-        if ( ! isset($refreshedLayout['z_index']) || ! is_numeric($refreshedLayout['z_index']) ) {
-            return $merged;
-        }
-
-        $cloneLayout = is_array($clone['layout'] ?? null) ? $clone['layout'] : array();
-        if ( isset($cloneLayout['z_index']) && is_numeric($cloneLayout['z_index']) ) {
-            return $merged;
-        }
-
-        $mergedLayout = is_array($merged['layout'] ?? null) ? $merged['layout'] : array();
-        $mergedLayout['z_index'] = (int) $refreshedLayout['z_index'];
-        $merged['layout'] = $mergedLayout;
-
-        return $merged;
-    }
-
-	/**
-	 * @param array<string, mixed> $clone
-	 * @param array<string, mixed> $refreshed
-	 */
-	private function componentSourceCloneShouldUseRefreshedGeometry(array $clone, array $refreshed): bool
-	{
-		$cloneBox = is_array($clone['box'] ?? null) ? $clone['box'] : array();
-		$refreshedBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
-		if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($refreshedBox) ) {
-			return false;
-		}
-
-		$hasComponentSource = isset($clone['figma_component_source_id']) && is_scalar($clone['figma_component_source_id']) && '' !== (string) $clone['figma_component_source_id'];
-		if ( ! $hasComponentSource && empty($clone['_component_source_clone_geometry']) && self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE !== ($cloneBox['geometry_semantics'] ?? null) ) {
-			return false;
-		}
-
-		foreach ( array('x', 'y') as $dimension ) {
-			if ( isset($cloneBox[$dimension], $refreshedBox[$dimension]) && is_numeric($cloneBox[$dimension]) && is_numeric($refreshedBox[$dimension]) && abs((float) $cloneBox[$dimension] - (float) $refreshedBox[$dimension]) >= 1000.0 ) {
-				return true;
-			}
-			if ( isset($clone[$dimension], $refreshedBox[$dimension]) && is_numeric($clone[$dimension]) && is_numeric($refreshedBox[$dimension]) && abs((float) $clone[$dimension] - (float) $refreshedBox[$dimension]) >= 1000.0 ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * @param array<string, mixed> $node
-     * @return array<string, mixed>
-     */
-    private function rebaseComponentSourceCloneDescendants(array $node, ?float $parentSourceX, ?float $parentSourceY, ?float $parentSourceWidth = null, ?float $parentSourceHeight = null): array
-    {
-        if ( ! is_array($node['children'] ?? null) ) {
-            return $node;
-        }
-
-        foreach ( $node['children'] as $index => $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $childSourceX = $this->componentSourceCloneBoxCoordinate($child, 'x');
-            $childSourceY = $this->componentSourceCloneBoxCoordinate($child, 'y');
-            $childSourceWidth = $this->componentSourceCloneBoxCoordinate($child, 'width');
-            $childSourceHeight = $this->componentSourceCloneBoxCoordinate($child, 'height');
-            $child = $this->rebaseComponentSourceCloneBox($child, 'box', $parentSourceX, $parentSourceY, $parentSourceWidth, $parentSourceHeight);
-            $child = $this->rebaseComponentSourceCloneBox($child, 'figma_box', $parentSourceX, $parentSourceY, $parentSourceWidth, $parentSourceHeight);
-            $node['children'][$index] = $this->rebaseComponentSourceCloneDescendants(
-                $child,
-                null !== $childSourceX ? $childSourceX : $parentSourceX,
-                null !== $childSourceY ? $childSourceY : $parentSourceY,
-                null !== $childSourceWidth ? $childSourceWidth : $parentSourceWidth,
-                null !== $childSourceHeight ? $childSourceHeight : $parentSourceHeight
-            );
-        }
-
-        return $node;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function componentSourceCloneBoxCoordinate(array $node, string $dimension): ?float
-    {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        return isset($box[$dimension]) && is_numeric($box[$dimension]) ? (float) $box[$dimension] : null;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<string, mixed>
-     */
-    private function rebaseComponentSourceCloneBox(array $node, string $boxKey, ?float $parentSourceX, ?float $parentSourceY, ?float $parentSourceWidth = null, ?float $parentSourceHeight = null): array
-    {
-        if ( ! is_array($node[$boxKey] ?? null) ) {
-            return $node;
-        }
-
-        $box = $node[$boxKey];
-        if ( 'page' !== ($box['local_origin'] ?? null) && GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE !== GeometryBox::coordinateSpace($box) ) {
-            return $node;
-        }
-
-        foreach ( array('x' => array($parentSourceX, $parentSourceWidth), 'y' => array($parentSourceY, $parentSourceHeight)) as $dimension => $parentSource ) {
-            [$parentSourceCoordinate, $parentSourceSize] = $parentSource;
-            if ( null === $parentSourceCoordinate || ! isset($node[$boxKey][$dimension]) || ! is_numeric($node[$boxKey][$dimension]) ) {
-                continue;
-            }
-            if ( GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE === GeometryBox::coordinateSpace($box) && ! $this->componentSourceCoordinateOverlapsParent((float) $node[$boxKey][$dimension], $parentSourceCoordinate, $parentSourceSize) ) {
-                continue;
-            }
-
-            $node[$boxKey][$dimension] = (float) $node[$boxKey][$dimension] - $parentSourceCoordinate;
-        }
-
-        unset($node[$boxKey]['local_origin']);
-        $node[$boxKey]['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
-
-        return $node;
-    }
-
-    private function componentSourceCoordinateOverlapsParent(float $coordinate, float $parentSourceCoordinate, ?float $parentSourceSize): bool
-    {
-        if ( null === $parentSourceSize ) {
-            return $coordinate >= $parentSourceCoordinate - 0.5;
-        }
-
-        return $coordinate >= $parentSourceCoordinate - 0.5 && $coordinate <= $parentSourceCoordinate + $parentSourceSize + 0.5;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<string, mixed>
-     */
-    private function retargetComponentSourceIds(array $node, string $sourceId, string $cloneId): array
-    {
-        foreach ( array('id', 'figma_component_source_id') as $key ) {
-            if ( ! isset($node[$key]) || ! is_scalar($node[$key]) ) {
-                continue;
-            }
-
-            $id = (string) $node[$key];
-            if ( $sourceId === $id ) {
-                $node[$key] = 'id' === $key ? $cloneId : $sourceId;
-            } elseif ( str_starts_with($id, $sourceId . '/') ) {
-                $node[$key] = ('id' === $key ? $cloneId : $sourceId) . substr($id, strlen($sourceId));
-            }
-        }
-
-        if ( is_array($node['children'] ?? null) ) {
-            foreach ( $node['children'] as $index => $child ) {
-                if ( is_array($child) ) {
-                    $node['children'][$index] = $this->retargetComponentSourceIds($child, $sourceId, $cloneId);
-                }
-            }
-        }
-
-        return $node;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<string, mixed>
-     */
-    private function markComponentSourceCloneGeometry(array $node): array
-    {
-        $node['_component_source_clone_geometry'] = true;
-        foreach ( array('box', 'figma_box') as $boxKey ) {
-            if ( ! is_array($node[$boxKey] ?? null) ) {
-                continue;
-            }
-
-			if ( 'box' === $boxKey && ! isset($node['_component_source_clone_source_box']) ) {
-				$node['_component_source_clone_source_box'] = $node[$boxKey];
-			}
-
-			$sourceKind = GeometryBox::sourceKind($node[$boxKey]);
-			foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
-				$hasRebasedLocalCoordinate = in_array($dimension, array('x', 'y'), true)
-					&& isset($node[$boxKey][$dimension])
-					&& GeometryBox::COORDINATE_SPACE_PARENT_LOCAL === GeometryBox::coordinateSpace($node[$boxKey]);
-				if ( ! $hasRebasedLocalCoordinate && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
-					$node[$boxKey][$dimension] = (float) $node[$dimension];
-				}
-			}
-
-            $node[$boxKey] = GeometryBox::withoutProvenance(GeometryBox::withProvenance($node[$boxKey], GeometryBox::SOURCE_COMPONENT_CLONE));
-            $node[$boxKey]['geometry_semantics'] = self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE;
-            if ( null !== $sourceKind ) {
-                $node[$boxKey]['component_clone_source_kind'] = $sourceKind;
-            }
-        }
-
-        if ( is_array($node['children'] ?? null) ) {
-            foreach ( $node['children'] as $index => $child ) {
-                if ( is_array($child) ) {
-                    $node['children'][$index] = $this->markComponentSourceCloneGeometry($child);
-                }
-            }
-        }
-
-        return $node;
-    }
-
     /**
      * Treat an explicitly selected page frame as the emitted document origin instead of preserving Figma canvas offsets.
      *
@@ -1924,7 +1658,8 @@ final class ScenegraphNormalizer
         }
 
         $box = $node[$boxKey];
-        if ( ! $isRoot && $this->isComponentSourceCloneTransformDescendant($node, $box) ) {
+        $componentCloneDecision = $this->componentSourceClonePageLocalDecision($node, $box, $isRoot);
+        if ( 'restore-source-box' === $componentCloneDecision['action'] ) {
             $sourceBox = $node['_component_source_clone_source_box'];
             foreach ( array('x', 'y') as $dimension ) {
                 if ( isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) ) {
@@ -1936,7 +1671,7 @@ final class ScenegraphNormalizer
             $node[$boxKey] = $box;
             return $node;
         }
-        if ( ! $isRoot && $this->isComponentSourceCloneDescendant($node, $box) ) {
+        if ( 'preserve-parent-local' === $componentCloneDecision['action'] ) {
             $box = GeometryBox::withoutProvenance($box);
             $box['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
             $node[$boxKey] = $box;
@@ -1958,6 +1693,28 @@ final class ScenegraphNormalizer
 
         $node[$boxKey] = $box;
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @return array{action: string, reason: string}
+     */
+    private function componentSourceClonePageLocalDecision(array $node, array $box, bool $isRoot): array
+    {
+        if ( $isRoot ) {
+            return array('action' => 'normal-rebase', 'reason' => 'root-node');
+        }
+
+        if ( $this->isComponentSourceCloneTransformDescendant($node, $box) ) {
+            return array('action' => 'restore-source-box', 'reason' => 'component-clone-transform-source-box');
+        }
+
+        if ( $this->isComponentSourceCloneDescendant($node, $box) ) {
+            return array('action' => 'preserve-parent-local', 'reason' => 'component-clone-parent-local');
+        }
+
+        return array('action' => 'normal-rebase', 'reason' => 'not-component-clone');
     }
 
     /**
@@ -2932,9 +2689,11 @@ final class ScenegraphNormalizer
                 } elseif ( in_array($field, array('strokes', 'strokePaints'), true) ) {
                     unset($child['styleIdForStrokeFill'], $child['styleIdForStroke']);
                 }
-                if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
-                    $child['figma_text']['characters'] = (string) $value;
-                }
+				if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
+					$child['figma_text']['characters'] = (string) $value;
+				} elseif ( 'textData' === $field && is_array($value) && isset($value['characters']) && is_scalar($value['characters']) && is_array($child['figma_text'] ?? null) ) {
+					$child['figma_text']['characters'] = (string) $value['characters'];
+				}
 			}
 			if ( $hasFieldOverride ) {
 				$child = $this->normalizeOverriddenInstanceChild($child, $id, $overrideFields, $diagnostics, $blobs, $paintStyles, $textStyles, $options, $sourceChildBox);
@@ -3115,6 +2874,10 @@ final class ScenegraphNormalizer
 		$hasVectorGeometryOverride = array_key_exists('fillGeometry', $overrideFields) || array_key_exists('strokeGeometry', $overrideFields);
 		$hasExplicitSizeOverride = array_key_exists('size', $overrideFields);
 		$hasTransformGeometryOverride = is_array($overrideFields['transform'] ?? null) || is_array($overrideFields['absoluteTransform'] ?? null) || is_array($overrideFields['relativeTransform'] ?? null);
+		$inheritedTextStyle = array();
+		if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && ! $this->instanceOverrideFieldsIncludeTypography($overrideFields) && is_array($child['figma_text']['style'] ?? null) ) {
+			$inheritedTextStyle = $child['figma_text']['style'];
+		}
         if ( is_array($child['size'] ?? null) ) {
             foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
                 if ( isset($child['size'][$source]) && is_numeric($child['size'][$source]) ) {
@@ -3173,11 +2936,15 @@ final class ScenegraphNormalizer
         }
         unset($child['figma_vector_scale']);
 
-		$child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
-		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
-			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox);
-		}
 		$child['_figma_instance_override_applied'] = true;
+		$child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
+		if ( ! empty($inheritedTextStyle) && is_array($child['figma_text'] ?? null) ) {
+			$style = is_array($child['figma_text']['style'] ?? null) ? $child['figma_text']['style'] : array();
+			$child['figma_text']['style'] = array_merge($inheritedTextStyle, $style);
+		}
+		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
+			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox, $overrideFields, $diagnostics);
+		}
         unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
             $bounds = $this->vectorGeometryNormalizer->normalizedVectorPathBounds(is_array($child['figma_vector_paths'] ?? null) ? $child['figma_vector_paths'] : array());
@@ -3196,31 +2963,68 @@ final class ScenegraphNormalizer
 	}
 
 	/**
+	 * @param array<string, mixed> $overrideFields
+	 */
+	private function instanceOverrideFieldsIncludeTypography(array $overrideFields): bool
+	{
+		foreach ( array('style', 'styleIdForText', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'textTracking') as $field ) {
+			if ( array_key_exists($field, $overrideFields) ) {
+				return true;
+			}
+		}
+
+		$textData = $overrideFields['textData'] ?? null;
+		if ( is_array($textData) ) {
+			foreach ( array('style', 'styleIdForText', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'textTracking') as $field ) {
+				if ( array_key_exists($field, $textData) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * @param array<string, mixed> $child
 	 * @param array<string, mixed> $sourceChildBox
 	 * @return array<string, mixed>
 	 */
-	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox): array
+	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox, array $overrideFields, array &$diagnostics): array
 	{
 		if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($sourceChildBox) || ! is_array($child['box'] ?? null) ) {
 			return $child;
 		}
 
 		$box = $child['box'];
-		$shouldPreserveSourcePosition = false;
+		$preservedDimensions = array();
 		foreach ( array('x', 'y') as $dimension ) {
 			if ( ! isset($sourceChildBox[$dimension], $box[$dimension]) || ! is_numeric($sourceChildBox[$dimension]) || ! is_numeric($box[$dimension]) ) {
 				continue;
 			}
 
-			if ( abs((float) $box[$dimension] - (float) $sourceChildBox[$dimension]) >= 100.0 ) {
-				$shouldPreserveSourcePosition = true;
-				break;
+			$sourceCoordinate = (float) $sourceChildBox[$dimension];
+			$overrideCoordinate = (float) $box[$dimension];
+			if ( abs($overrideCoordinate - $sourceCoordinate) >= 100.0 || (abs($overrideCoordinate) < 0.001 && abs($sourceCoordinate) >= 0.001) ) {
+				$preservedDimensions[] = $dimension;
 			}
 		}
 
-		if ( $shouldPreserveSourcePosition ) {
-			foreach ( array('x', 'y') as $dimension ) {
+		if ( ! empty($preservedDimensions) ) {
+			$diagnostics[] = array(
+				'severity' => 'warning',
+				'code'     => 'figma_component_clone_transform_override_source_preserved',
+				'message'  => 'A component clone transform override was far from the source component geometry, so the source-local coordinates were preserved.',
+				'context'  => array(
+					'node_id'              => isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : null,
+					'source_node_id'       => isset($child['figma_component_source_id']) && is_scalar($child['figma_component_source_id']) ? (string) $child['figma_component_source_id'] : null,
+					'preserved_dimensions' => $preservedDimensions,
+					'raw_override_fields'  => $this->diagnosticRawOverrideGeometryFields($overrideFields),
+					'source_box'           => $this->diagnosticGeometryBox($sourceChildBox),
+					'override_box'         => $this->diagnosticGeometryBox($box),
+				),
+			);
+			foreach ( $preservedDimensions as $dimension ) {
 				if ( ! isset($sourceChildBox[$dimension]) || ! is_numeric($sourceChildBox[$dimension]) ) {
 					continue;
 				}
@@ -3239,6 +3043,74 @@ final class ScenegraphNormalizer
 		}
 
 		return $child;
+	}
+
+	/**
+	 * @param array<string, mixed> $overrideFields
+	 * @return array<string, mixed>
+	 */
+	private function diagnosticRawOverrideGeometryFields(array $overrideFields): array
+	{
+		$fields = array();
+		foreach ( array('transform', 'relativeTransform', 'absoluteTransform', 'absoluteBoundingBox', 'size') as $field ) {
+			if ( ! array_key_exists($field, $overrideFields) ) {
+				continue;
+			}
+
+			$value = $overrideFields[$field];
+			if ( is_array($value) ) {
+				$fields[$field] = $this->diagnosticNumericArray($value);
+			} elseif ( is_scalar($value) || null === $value ) {
+				$fields[$field] = $value;
+			}
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * @param array<mixed> $value
+	 * @return array<mixed>
+	 */
+	private function diagnosticNumericArray(array $value): array
+	{
+		$summary = array();
+		foreach ( $value as $key => $item ) {
+			if ( is_array($item) ) {
+				$summary[$key] = $this->diagnosticNumericArray($item);
+			} elseif ( is_numeric($item) ) {
+				$summary[$key] = (float) $item;
+			} elseif ( is_scalar($item) || null === $item ) {
+				$summary[$key] = $item;
+			}
+		}
+
+		return $summary;
+	}
+
+	/**
+	 * @param array<string, mixed> $box
+	 * @return array<string, float|string>
+	 */
+	private function diagnosticGeometryBox(array $box): array
+	{
+		$summary = array();
+		foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
+			if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+				$summary[$dimension] = (float) $box[$dimension];
+			}
+		}
+
+		$coordinateSpace = GeometryBox::coordinateSpace($box);
+		if ( null !== $coordinateSpace ) {
+			$summary['coordinate_space'] = $coordinateSpace;
+		}
+
+		if ( isset($box['local_origin']) && is_scalar($box['local_origin']) ) {
+			$summary['local_origin'] = (string) $box['local_origin'];
+		}
+
+		return $summary;
 	}
 
 	/**
@@ -3528,6 +3400,10 @@ final class ScenegraphNormalizer
         $uniformRadius = null;
         if ( isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ) {
             $uniformRadius = (float) $node['cornerRadius'];
+        }
+
+        if ( array_key_exists('rectangleCornerRadiiIndependent', $node) ) {
+            $box['corner_radii_independent'] = (bool) $node['rectangleCornerRadiiIndependent'];
         }
 
         // Per-corner radii arrive under REST API names (`topLeftRadius`) from

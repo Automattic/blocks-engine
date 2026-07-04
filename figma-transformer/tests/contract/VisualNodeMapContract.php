@@ -52,6 +52,125 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
     $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+    $emittedClassResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Node Emitted Class Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'visual-emitted:page',
+                'type'     => 'FRAME',
+                'name'     => 'Evidence Page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array(
+                        'id'         => 'visual-emitted:title',
+                        'type'       => 'TEXT',
+                        'name'       => 'Traceable Title',
+                        'text'       => 'Traceable title',
+                        'width'      => 180,
+                        'height'     => 32,
+                        'fontSize'   => 24,
+                        'fontWeight' => 700,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $emittedClassNode = blocks_engine_figma_transformer_contract_find_visual_node($emittedClassResult, 'visual-emitted:title');
+    $emittedClassHtml = blocks_engine_figma_transformer_contract_file_content($emittedClassResult, 'index.html');
+    $emittedClassCss = blocks_engine_figma_transformer_contract_file_content($emittedClassResult, 'style.css');
+    $assert('figma-node-visual-emitted-title-traceable-title' === ($emittedClassNode['emitted_class'] ?? null), 'visual-map-emitted-class-json-hook');
+    $assert('h2' === ($emittedClassNode['emitted_tag'] ?? null), 'visual-map-emitted-class-json-tag');
+    $assert('index.html' === ($emittedClassNode['page_path'] ?? null), 'visual-map-emitted-class-json-page-path');
+    $assert(str_contains($emittedClassHtml, 'class="figma-node-visual-emitted-title-traceable-title" data-figma-node-id="visual-emitted:title"'), 'visual-map-emitted-class-html-hook');
+    $assert(str_contains($emittedClassCss, '.figma-node-visual-emitted-title-traceable-title{'), 'visual-map-emitted-class-css-hook');
+
+    $multiPageEmittedClassResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Visual Node Multi Page Emitted Class Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'visual-emitted:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'visual-emitted:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home Page',
+                        'width'    => 320,
+                        'height'   => 160,
+                        'children' => array(
+                            array('id' => 'visual-emitted:home-title', 'type' => 'TEXT', 'name' => 'Home Title', 'text' => 'Home', 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'visual-emitted:about',
+                        'type'     => 'FRAME',
+                        'name'     => 'About Page',
+                        'width'    => 320,
+                        'height'   => 160,
+                        'children' => array(
+                            array('id' => 'visual-emitted:about-title', 'type' => 'TEXT', 'name' => 'About Title', 'text' => 'About', 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('visual-emitted:home', 'visual-emitted:about'), 'entry_frame_id' => 'visual-emitted:home'));
+    $multiPageAboutNode = blocks_engine_figma_transformer_contract_find_visual_node($multiPageEmittedClassResult, 'visual-emitted:about-title');
+    $multiPageAboutHtml = blocks_engine_figma_transformer_contract_file_content($multiPageEmittedClassResult, 'about-page.html');
+    $multiPageCss = blocks_engine_figma_transformer_contract_file_content($multiPageEmittedClassResult, 'style.css');
+    $multiPageSourceReport = $multiPageEmittedClassResult['source_reports']['figma']['html'] ?? array();
+    $multiPagePages = is_array($multiPageSourceReport['pages'] ?? null) ? $multiPageSourceReport['pages'] : array();
+    $multiPageAggregateMap = is_array($multiPageSourceReport['visual_node_map'] ?? null) ? $multiPageSourceReport['visual_node_map'] : array();
+    $assert('about-page.html' === ($multiPageAboutNode['page_path'] ?? null), 'visual-map-emitted-class-multi-page-path');
+    $assert(1 === ($multiPageAboutNode['source_page_index'] ?? null), 'visual-map-aggregate-source-page-index');
+    $assert('visual-emitted:about' === ($multiPageAboutNode['source_page_frame_id'] ?? null), 'visual-map-aggregate-source-page-frame-id');
+    $assert(2 === count($multiPagePages), 'visual-map-aggregate-page-report-count');
+    $assert(4 === count($multiPageAggregateMap), 'visual-map-aggregate-node-count');
+    $assert('visual-emitted:about-title' === ($multiPagePages[1]['visual_node_map'][1]['id'] ?? null), 'visual-map-page-report-preserves-node');
+    $assert(1 === ($multiPagePages[1]['visual_node_map'][1]['source_page_index'] ?? null), 'visual-map-page-report-preserves-source-page-index');
+    $assert('figma-node-visual-emitted-about-title-about-title' === ($multiPageAboutNode['emitted_class'] ?? null), 'visual-map-emitted-class-multi-page-class');
+    $assert(str_contains($multiPageAboutHtml, 'class="figma-node-visual-emitted-about-title-about-title" data-figma-node-id="visual-emitted:about-title"'), 'visual-map-emitted-class-multi-page-html-hook');
+    $assert(str_contains($multiPageCss, '.figma-node-visual-emitted-about-title-about-title{'), 'visual-map-emitted-class-multi-page-css-hook');
+
+    $responsivePagePathResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Page Path Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-path:desktop',
+                'type'     => 'FRAME',
+                'name'     => 'Article Desktop',
+                'width'    => 1024,
+                'height'   => 640,
+                'children' => array(
+                    array('id' => 'responsive-path:desktop-title', 'type' => 'TEXT', 'name' => 'Article Title', 'text' => 'Article', 'width' => 240, 'height' => 36, 'fontSize' => 28),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-path:mobile',
+                'type'     => 'FRAME',
+                'name'     => 'Article Mobile',
+                'width'    => 390,
+                'height'   => 640,
+                'children' => array(
+                    array('id' => 'responsive-path:mobile-title', 'type' => 'TEXT', 'name' => 'Article Title', 'text' => 'Article', 'width' => 220, 'height' => 32, 'fontSize' => 24),
+                ),
+            ),
+        ),
+    ), array(
+        'static_site_page_path' => 'article.html',
+        'page_name' => 'Article',
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-path:desktop', 'viewport_width' => 1024, 'primary' => true),
+            array('frame_id' => 'responsive-path:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsivePagePathHtml = blocks_engine_figma_transformer_contract_file_content($responsivePagePathResult, 'article.html');
+    $responsivePagePathNode = blocks_engine_figma_transformer_contract_find_visual_node($responsivePagePathResult, 'responsive-path:desktop-title');
+    $assert(str_contains($responsivePagePathHtml, 'data-page-path="article.html"'), 'visual-map-responsive-page-root-uses-static-site-page-path');
+    $assert('article.html' === ($responsivePagePathNode['page_path'] ?? null), 'visual-map-responsive-page-node-uses-static-site-page-path');
+
     $reverseZIndexResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Reverse Z Index Auto Layout Fixture',
         'nodes' => array(
@@ -72,9 +191,11 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $reverseZIndexCss = blocks_engine_figma_transformer_contract_file_content($reverseZIndexResult, 'style.css');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;isolation:isolate;display:flex;flex-direction:row;gap:-20px}'), 'visual-map-reverse-z-parent-layout-order-preserved');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row', array('width:180px', 'height:80px', 'isolation:isolate', 'display:flex', 'flex-direction:row', 'gap:0px'), 'visual-map-reverse-z-parent-gap-clamped');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row>*+*', array('margin-left:-20px'), 'visual-map-reverse-z-negative-spacing-overlap-margin');
+    $assert(! str_contains($reverseZIndexCss, 'gap:-'), 'visual-map-reverse-z-no-negative-gap-css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child', array('width:80px', 'height:80px', 'position:relative', 'z-index:2', 'flex-shrink:0'), 'visual-map-reverse-z-first-child-on-top');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child', array('width:80px', 'height:80px', 'position:relative', 'z-index:1', 'flex-shrink:0'), 'visual-map-reverse-z-second-child-lower');
 
     $isolatedStackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Isolated Local Stack Fixture',
@@ -108,7 +229,326 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $isolatedStackCss = blocks_engine_figma_transformer_contract_file_content($isolatedStackResult, 'style.css');
-    $assert(str_contains($isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section{width:320px;height:180px;isolation:isolate;position:absolute;left:0px;top:0px;display:flex;flex-direction:row;gap:-80px}'), 'visual-map-local-stack-isolates-image-section-z-index');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section', array('width:320px', 'height:180px', 'isolation:isolate', 'position:absolute', 'left:0px', 'top:0px', 'display:flex', 'flex-direction:row', 'gap:0px'), 'visual-map-local-stack-clamps-negative-css-gap');
+
+    $invalidGapResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Invalid Auto Layout Gap Fixture',
+        'nodes' => array(
+            array(
+                'id'          => 'invalid-gap:nan',
+                'type'        => 'FRAME',
+                'name'        => 'NaN gap row',
+                'width'       => 300,
+                'height'      => 80,
+                'layoutMode'  => 'HORIZONTAL',
+                'itemSpacing' => NAN,
+                'children'    => array(
+                    array('id' => 'invalid-gap:nan:first', 'type' => 'RECTANGLE', 'name' => 'First', 'width' => 40, 'height' => 40),
+                    array('id' => 'invalid-gap:nan:second', 'type' => 'RECTANGLE', 'name' => 'Second', 'width' => 40, 'height' => 40),
+                ),
+            ),
+            array(
+                'id'                 => 'invalid-gap:wrap',
+                'type'               => 'FRAME',
+                'name'               => 'Wrapping row with invalid counter gap',
+                'width'              => 300,
+                'height'             => 120,
+                'layoutMode'         => 'HORIZONTAL',
+                'layoutWrap'         => 'WRAP',
+                'itemSpacing'        => -12,
+                'counterAxisSpacing' => INF,
+                'children'           => array(
+                    array('id' => 'invalid-gap:wrap:first', 'type' => 'RECTANGLE', 'name' => 'First', 'width' => 160, 'height' => 40),
+                    array('id' => 'invalid-gap:wrap:second', 'type' => 'RECTANGLE', 'name' => 'Second', 'width' => 160, 'height' => 40),
+                ),
+            ),
+        ),
+    ));
+    $invalidGapCss = blocks_engine_figma_transformer_contract_file_content($invalidGapResult, 'style.css');
+    $assert(! str_contains($invalidGapCss, 'NaNpx'), 'visual-map-gap-css-rejects-nan');
+    $assert(! str_contains($invalidGapCss, 'INFpx') && ! str_contains($invalidGapCss, 'Infinity'), 'visual-map-gap-css-rejects-infinity');
+    $assert(1 !== preg_match('/gap:[^;}]*-[0-9.]+px/', $invalidGapCss), 'visual-map-gap-css-clamps-negative-values');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $invalidGapCss, '.figma-node-invalid-gap-wrap-wrapping-row-with-invalid-counter-gap', array('width:300px', 'height:120px', 'display:flex', 'flex-direction:row', 'flex-wrap:wrap', 'align-content:flex-start', 'gap:0px'), 'visual-map-gap-css-falls-back-to-clamped-main-gap');
+
+    $mixedLayerStackResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Mixed Layer Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'mixed-layer:section',
+                'type'       => 'FRAME',
+                'name'       => 'Feature image section',
+                'width'      => 400,
+                'height'     => 240,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'                => 'mixed-layer:image',
+                        'type'              => 'RECTANGLE',
+                        'name'              => 'Featured image background',
+                        'x'                 => 0,
+                        'y'                 => 0,
+                        'width'             => 400,
+                        'height'            => 160,
+                        'layoutPositioning' => 'ABSOLUTE',
+                        'fill'              => array('r' => 1, 'g' => 0.85, 'b' => 0),
+                    ),
+                    array(
+                        'id'         => 'mixed-layer:title',
+                        'type'       => 'TEXT',
+                        'name'       => 'Headline over image',
+                        'x'          => 24,
+                        'y'          => 24,
+                        'width'      => 240,
+                        'height'     => 48,
+                        'characters' => 'Layered headline',
+                        'fontSize'   => 32,
+                        'fontWeight' => 700,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $mixedLayerStackCss = blocks_engine_figma_transformer_contract_file_content($mixedLayerStackResult, 'style.css');
+    $mixedLayerStackDiagnostics = $mixedLayerStackResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $mixedLayerStackingOrder = $mixedLayerStackDiagnostics['layout']['stacking_order'] ?? array();
+    $mixedLayerArtifactSummary = $mixedLayerStackDiagnostics['artifact_quality']['summary'] ?? array();
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-section-feature-image-section', array('position:relative', 'isolation:isolate', 'display:flex', 'flex-direction:column'), 'visual-map-mixed-layer-parent-isolated');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background', array('position:absolute', 'left:0px', 'top:0px', 'z-index:1', 'pointer-events:none', 'background:#ffd900'), 'visual-map-mixed-layer-image-behind');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image', array('position:relative', 'z-index:2', 'font-size:32px', 'font-weight:700'), 'visual-map-mixed-layer-title-above');
+    $assert(1 === ($mixedLayerStackingOrder['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-diagnostics-mixed-position-parent-count');
+    $assert(1 === ($mixedLayerStackingOrder['absolute_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-absolute-child-count');
+    $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
+    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['underlay'] ?? null), 'visual-map-mixed-layer-diagnostics-underlay-role-count');
+    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['content'] ?? null), 'visual-map-mixed-layer-diagnostics-content-role-count');
+    $assert(2 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_z_index_reasons']['overlapping_sibling_layer_rank'] ?? null), 'visual-map-mixed-layer-diagnostics-z-index-reason-count');
+    $assert(in_array('local_mixed_positioning_children', $mixedLayerStackingOrder['sample_nodes'][0]['local_stacking_reasons'] ?? array(), true), 'visual-map-mixed-layer-diagnostics-local-stack-reason');
+    $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
+    $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
+
+    $chromeOverHeroLayerResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Chrome Over Hero Layer Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'layer-role:page',
+                'type'       => 'FRAME',
+                'name'       => 'Landing page',
+                'width'      => 1440,
+                'height'     => 720,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'       => 'layer-role:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero background panel',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1440,
+                        'height'   => 320,
+                        'layout'   => array('z_index' => 39),
+                        'children' => array(
+                            array('id' => 'layer-role:hero/text', 'type' => 'TEXT', 'name' => 'Hero headline', 'characters' => 'Hero', 'x' => 120, 'y' => 140, 'width' => 200, 'height' => 48, 'fontSize' => 40),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'layer-role:header',
+                        'type'     => 'FRAME',
+                        'name'     => 'Site header navigation',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1440,
+                        'height'   => 80,
+                        'layout'   => array('z_index' => 16),
+                        'children' => array(
+                            array('id' => 'layer-role:header/logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Logo', 'x' => 32, 'y' => 24, 'width' => 80, 'height' => 24),
+                            array('id' => 'layer-role:header/nav', 'type' => 'TEXT', 'name' => 'Navigation links', 'characters' => 'Menu', 'x' => 1200, 'y' => 24, 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $chromeOverHeroLayerCss = blocks_engine_figma_transformer_contract_file_content($chromeOverHeroLayerResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-hero-hero-background-panel', array('position:relative', 'z-index:1'), 'visual-map-layer-role-hero-content-below-chrome');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-header-site-header-navigation', array('position:relative', 'z-index:2'), 'visual-map-layer-role-header-chrome-above-hero');
+
+    $reverseOrderSectionsResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Reverse Order Non Overlapping Sections Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'reverse-sections:page',
+                'type'       => 'FRAME',
+                'name'       => 'Reverse ordered page',
+                'width'      => 1440,
+                'height'     => 720,
+                'layoutMode' => 'VERTICAL',
+                'layout'     => array('display' => 'flex', 'reverse_z_index' => true),
+                'children'   => array(
+                    array('id' => 'reverse-sections:header', 'type' => 'FRAME', 'name' => 'Header band', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 120),
+                    array('id' => 'reverse-sections:content', 'type' => 'FRAME', 'name' => 'Content band', 'x' => 0, 'y' => 240, 'width' => 1440, 'height' => 320),
+                ),
+            ),
+        ),
+    ));
+    $reverseOrderSectionsCss = blocks_engine_figma_transformer_contract_file_content($reverseOrderSectionsResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $reverseOrderSectionsCss, '.figma-node-reverse-sections-header-header-band', array('z-index:'), 'visual-map-reverse-order-non-overlap-header-not-z-indexed');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $reverseOrderSectionsCss, '.figma-node-reverse-sections-content-content-band', array('z-index:'), 'visual-map-reverse-order-non-overlap-content-not-z-indexed');
+
+    $flippedChromeStripResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Flipped Chrome Strip Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'chrome-strip:page',
+                'type'     => 'FRAME',
+                'name'     => 'Chrome strip page',
+                'width'    => 1440,
+                'height'   => 640,
+                'children' => array(
+                    array(
+                        'id'       => 'chrome-strip:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer chrome',
+                        'x'        => 0,
+                        'y'        => 320,
+                        'width'    => 1440,
+                        'height'   => 251,
+                        'children' => array(
+                            array('id' => 'chrome-strip:footer/background', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 251, 'fill' => array('r' => 0.1, 'g' => 0.5, 'b' => 0.6)),
+                            array(
+                                'id'        => 'chrome-strip:footer/bottom-strip',
+                                'type'      => 'RECTANGLE',
+                                'name'      => 'Bottom info strip',
+                                'x'         => 0,
+                                'y'         => 251,
+                                'width'     => 1440,
+                                'height'    => 53,
+                                'transform' => array(
+                                    'm00' => 1,
+                                    'm01' => 0,
+                                    'm02' => 0,
+                                    'm10' => 0,
+                                    'm11' => -1,
+                                    'm12' => 0,
+                                ),
+                                'fill'      => array('r' => 0.5, 'g' => 0.85, 'b' => 0.92),
+                            ),
+                            array('id' => 'chrome-strip:footer/copy', 'type' => 'TEXT', 'name' => 'Footer copy', 'characters' => 'Open: M-F 9am-5pm', 'x' => 440, 'y' => 217, 'width' => 500, 'height' => 14),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $flippedChromeStripCss = blocks_engine_figma_transformer_contract_file_content($flippedChromeStripResult, 'style.css');
+    $flippedChromeStripDiagnostics = $flippedChromeStripResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $flippedChromeStripReserveTraces = array_values(array_filter(
+        is_array($flippedChromeStripDiagnostics['decision_traces']['samples'] ?? null) ? $flippedChromeStripDiagnostics['decision_traces']['samples'] : array(),
+        static fn (array $trace): bool => 'absolute_child_reserve_height_from_visual_bounds' === ($trace['reason_code'] ?? null)
+    ));
+    $flippedChromeStripBottomTrace = array_values(array_filter(
+        is_array($flippedChromeStripReserveTraces[0]['evidence']['child_bounds'] ?? null) ? $flippedChromeStripReserveTraces[0]['evidence']['child_bounds'] : array(),
+        static fn (array $child): bool => 'chrome-strip:footer/bottom-strip' === ($child['node_id'] ?? null)
+    ));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome', array('height:251px', 'min-height:251px'), 'visual-map-flipped-chrome-strip-reserves-rendered-height');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-bottom-strip-bottom-info-strip', array('height:53px', 'top:251px', 'transform:matrix(1,0,0,-1,0,0)', 'transform-origin:0 0'), 'visual-map-flipped-chrome-strip-keeps-source-transform');
+    $assert(! str_contains($flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome{width:100%;height:251px;min-height:304px'), 'visual-map-flipped-chrome-strip-no-untransformed-reserve-height');
+    $assert(1 === ($flippedChromeStripDiagnostics['decision_traces']['reason_counts']['absolute_child_reserve_height_from_visual_bounds'] ?? null), 'visual-map-flipped-chrome-strip-reserve-height-traced');
+    $assert(array('x' => 0.0, 'y' => 251.0, 'width' => 1440.0, 'height' => 53.0) === ($flippedChromeStripBottomTrace[0]['source_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-source-box');
+    $assert(array('x' => 0.0, 'y' => 198.0, 'width' => 1440.0, 'height' => 53.0) === ($flippedChromeStripBottomTrace[0]['transformed_visual_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-transformed-box');
+    $assert(array('min_height' => 251.0) === ($flippedChromeStripReserveTraces[0]['evidence']['emitted_css_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-emitted-css-box');
+
+    $fullBleedVectorBandResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Full Bleed Vector Band Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'vector-band:page',
+                'type'     => 'FRAME',
+                'name'     => 'Vector band page',
+                'width'    => 1440,
+                'height'   => 640,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'                => 'vector-band:diagonal',
+                        'type'              => 'VECTOR',
+                        'name'              => 'Diagonal rectangle band',
+                        'x'                 => 0,
+                        'y'                 => 120,
+                        'width'             => 1440,
+                        'height'            => 220,
+                        'layoutPositioning' => 'ABSOLUTE',
+                        'opacity'           => 0.5,
+                        'transform'         => array(
+                            'm00' => 1,
+                            'm01' => 0,
+                            'm02' => 0,
+                            'm10' => 0,
+                            'm11' => -1,
+                            'm12' => 0,
+                        ),
+                        'paints'            => array(
+                            array('type' => 'SOLID', 'color' => array('r' => 0.9328333139419556, 'g' => 0.9666666984558105, 'b' => 0.7975000143051147, 'a' => 1)),
+                        ),
+                    ),
+                    array('id' => 'vector-band:headline', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'Foreground content', 'x' => 480, 'y' => 180, 'width' => 360, 'height' => 64, 'fontSize' => 40),
+                ),
+            ),
+        ),
+    ));
+    $fullBleedVectorBandCss = blocks_engine_figma_transformer_contract_file_content($fullBleedVectorBandResult, 'style.css');
+    $fullBleedVectorBandHtml = blocks_engine_figma_transformer_contract_file_content($fullBleedVectorBandResult, 'index.html');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $fullBleedVectorBandCss, '.figma-node-vector-band-diagonal-diagonal-rectangle-band', array('width:100vw', 'left:50%', 'margin-left:-50vw', 'pointer-events:none', 'opacity:0.5', 'transform:matrix(1,0,0,-1,0,0)', 'transform-origin:0 0'), 'visual-map-full-bleed-vector-band-keeps-css-layering');
+    $assert(str_contains($fullBleedVectorBandHtml, 'data-figma-node-id="vector-band:diagonal"') && str_contains($fullBleedVectorBandHtml, 'fill="#eef7cb"'), 'visual-map-full-bleed-vector-band-keeps-svg-fill');
+
+    $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Invalid CSS Sanitization Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'invalid-css:root',
+                'type'     => 'FRAME',
+                'name'     => 'NaN Root Shell',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'invalid-css:child', 'type' => 'RECTANGLE', 'name' => 'Infinity card', 'x' => NAN, 'y' => INF, 'width' => INF, 'height' => NAN),
+                ),
+            ),
+        ),
+    ), array('font_css' => '@font-face{font-family:"False Positive";src:url("https://example.com/NaN-INF-Infinity.woff2") format("woff2")}'));
+    $invalidCssSanitizationCss = blocks_engine_figma_transformer_contract_file_content($invalidCssSanitizationResult, 'style.css');
+    $invalidCssSanitizationDiagnostics = $invalidCssSanitizationResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(0 === preg_match('/(?<![A-Za-z0-9_-])(?:NaN|Infinity|INF)(?![A-Za-z0-9_-])|gap:-/', str_replace('https://example.com/NaN-INF-Infinity.woff2', '', $invalidCssSanitizationCss)), 'visual-map-invalid-css-finite-layout-output');
+    $assert(0 === ($invalidCssSanitizationDiagnostics['invalid_css_count'] ?? null), 'visual-map-invalid-css-url-false-positive-ignored');
+
+    $invalidCssDetectionResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Invalid CSS Detection Fixture',
+        'nodes' => array(
+            array('id' => 'invalid-css-detect:root', 'type' => 'FRAME', 'name' => 'Root', 'width' => 320, 'height' => 180),
+        ),
+    ), array('font_css' => 'body{width:NaNpx;background-image:url("https://example.com/Infinity.png")}'));
+    $invalidCssDetectionDiagnostics = $invalidCssDetectionResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(1 === ($invalidCssDetectionDiagnostics['invalid_css_count'] ?? null), 'visual-map-invalid-css-detects-declaration-token');
+
+    $numericSharedClassResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Numeric Shared Class Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'numeric-shared:root',
+                'type'       => 'FRAME',
+                'name'       => 'Root',
+                'width'      => 120,
+                'height'     => 40,
+                'layoutMode' => 'HORIZONTAL',
+                'children'   => array(
+                    array('id' => 'numeric-shared:1', 'type' => 'RECTANGLE', 'name' => '1', 'width' => 16, 'height' => 8, 'fill' => '#ffffff'),
+                    array('id' => 'numeric-shared:2', 'type' => 'RECTANGLE', 'name' => '2', 'width' => 16, 'height' => 8, 'fill' => '#ffffff'),
+                ),
+            ),
+        ),
+    ));
+    $numericSharedClassCss = blocks_engine_figma_transformer_contract_file_content($numericSharedClassResult, 'style.css');
+    $numericSharedClassHtml = blocks_engine_figma_transformer_contract_file_content($numericSharedClassResult, 'index.html');
+    $assert(! str_contains($numericSharedClassCss, '.1{'), 'visual-map-numeric-shared-class-does-not-emit-invalid-selector');
+    $assert(str_contains($numericSharedClassCss, '.style-1{') && str_contains($numericSharedClassHtml, 'class="figma-node-numeric-shared-1-1 style-1"'), 'visual-map-numeric-shared-class-prefixed');
 
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(
@@ -152,8 +592,8 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         array('frame_id' => 'clone-z:page')
     );
     $componentCloneZIndexCss = blocks_engine_figma_transformer_contract_file_content($componentCloneZIndexResult, 'style.css');
-    $assert(str_contains($componentCloneZIndexCss, '.back-panel{width:160px;height:120px;z-index:2;flex-shrink:0}'), 'visual-map-component-clone-preserves-back-z-index');
-    $assert(str_contains($componentCloneZIndexCss, '.front-panel{width:160px;height:120px;z-index:1;flex-shrink:0}'), 'visual-map-component-clone-preserves-front-z-index');
+    $assert(str_contains($componentCloneZIndexCss, '.back-panel{width:160px;height:120px;position:relative;z-index:2;flex-shrink:0}'), 'visual-map-component-clone-preserves-back-z-index');
+    $assert(str_contains($componentCloneZIndexCss, '.front-panel{width:160px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'visual-map-component-clone-preserves-front-z-index');
 
     $visualFlexOffCanvasResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Off Canvas Classification Fixture',
@@ -395,7 +835,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $transitionAbsolute = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:absolute');
     $transitionFlowB = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:flow-b');
     $transitionLocalCard = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:local-card');
-    $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
+    $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;isolation:isolate;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
     $assert(str_contains($transitionCss, '.figma-node-layout-transition-freeform-freeform-board{width:360px;height:180px;position:relative}'), 'visual-map-layout-transition-freeform-css');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowA, array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0), 'visual-map-layout-transition-flow-first-position');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowB, array('x' => 92.0, 'y' => 0.0, 'width' => 60.0, 'height' => 40.0), 'visual-map-layout-transition-flow-skips-absolute-position');

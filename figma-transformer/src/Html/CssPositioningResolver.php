@@ -29,9 +29,15 @@ final class CssPositioningResolver
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $parentIsFreeform = true === ($parentLayout['freeform'] ?? false);
         $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
         $centerInsetVisualChild = null !== $node && null !== $parentNode && $this->isInsetSingleVisualChild($node, $parentNode);
+        if ( null !== $node ) {
+            $left = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'y', $top);
+        }
         if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
             $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
             $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
@@ -43,11 +49,14 @@ final class CssPositioningResolver
             $constraints['horizontal'] = 'CENTER';
             $constraints['vertical'] = 'CENTER';
         }
+        if ( null !== $node && $this->hasComponentCloneGeometry($node) && 'local' === ($box['coordinate_space'] ?? null) && 'absolute' !== ($layout['positioning'] ?? null) ) {
+            unset($constraints['horizontal'], $constraints['vertical']);
+        }
 
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $centerWithinFluidCanvas) as $style ) {
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $parentNode, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
             $styles[] = $style;
         }
-        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout, $parentNode) as $style ) {
             $styles[] = $style;
         }
 
@@ -141,6 +150,38 @@ final class CssPositioningResolver
      * @param array<string, mixed> $box
      * @param array<string, mixed> $parentBox
      */
+    private function componentSourceCloneScalarOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
+    {
+        if ( null === $offset || ! isset($node['figma_component_source_id']) || ! is_scalar($node['figma_component_source_id']) || '' === (string) $node['figma_component_source_id'] ) {
+            return $offset;
+        }
+
+        if ( 'page' !== ($box['local_origin'] ?? null) || ! isset($node[$dimension]) || ! is_numeric($node[$dimension]) ) {
+            return $offset;
+        }
+
+        $scalar = (float) $node[$dimension];
+        $sizeKey = 'x' === $dimension ? 'width' : 'height';
+        if ( isset($parentBox[$sizeKey], $box[$sizeKey]) && is_numeric($parentBox[$sizeKey]) && is_numeric($box[$sizeKey]) ) {
+            $parentSize = (float) $parentBox[$sizeKey];
+            $boxSize = (float) $box[$sizeKey];
+            if ( $parentSize > 0.0 && $boxSize > 0.0 ) {
+                $offsetFitsParent = $offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5;
+                $scalarFitsParent = $scalar >= -0.5 && $scalar + $boxSize <= $parentSize + 0.5;
+                if ( $offsetFitsParent || ! $scalarFitsParent ) {
+                    return $offset;
+                }
+            }
+        }
+
+        return abs($offset - $scalar) > 0.5 ? $scalar : $offset;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
     private function componentCloneSourceOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
     {
         if ( null === $offset ) {
@@ -181,9 +222,10 @@ final class CssPositioningResolver
      *
      * @param array<string, mixed> $parentBox
      * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, bool $centerWithinFluidCanvas = false): array
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, ?array $parentNode, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
     {
         $isHorizontal = 'horizontal' === $axis;
         $startProp = $isHorizontal ? 'left' : 'top';
@@ -202,6 +244,30 @@ final class CssPositioningResolver
         if ( $farPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
             $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
             return $styles;
+        }
+
+        if ( $isHorizontal && $parentIsFreeform && $centerWithinFluidCanvas && null !== $offset && null !== $parentSize && null !== $boxSize && $this->hasFluidStretchIntent($layout) ) {
+            $trailing = $parentSize - $offset - $boxSize;
+            if ( $trailing >= -0.5 ) {
+                $styles[] = $startProp . ':' . $this->number(max(0.0, $offset)) . 'px';
+                $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                return $styles;
+            }
+        }
+
+        if ( $isHorizontal && null !== $offset && null !== $parentSize && null !== $boxSize && $this->parentIsHeaderChrome($parentNode ?? null) ) {
+            $trailing = $parentSize - $offset - $boxSize;
+            if ( $trailing >= -0.5 && $trailing <= 64.0 && $offset > 64.0 ) {
+                if ( $boxSize >= $parentSize * 0.5 ) {
+                    $styles[] = $startProp . ':' . $this->number($offset) . 'px';
+                    $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                    $styles[] = $sizeKey . ':auto';
+                    return $styles;
+                }
+
+                $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                return $styles;
+            }
         }
 
         // Center pin: keep the child center at a constant offset from the parent
@@ -244,8 +310,31 @@ final class CssPositioningResolver
         return abs($offset - $trailing) <= 1.0;
     }
 
+    /**
+     * @param array<string, mixed> $layout
+     */
+    private function hasFluidStretchIntent(array $layout): bool
+    {
+        return isset($layout['grow']) && is_numeric($layout['grow']) && (float) $layout['grow'] > 0.0;
+    }
+
     private function number(float $value): string
     {
         return ($this->numberFormatter)($value);
+    }
+
+    /**
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function parentIsHeaderChrome(?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $name = strtolower(trim((string) ($parentNode['name'] ?? '')));
+        return LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $this->layoutIntentClassifier->chromeGroupRole($parentNode, null, 1)
+            || 'header' === $name
+            || str_contains($name, 'top bar');
     }
 }

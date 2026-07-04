@@ -22,7 +22,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
     $assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
     $assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
-    
+
     $edgeAlignedFilledVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Edge Aligned Filled Vector Fixture',
         'nodes' => array(
@@ -78,6 +78,69 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $strokedInlineVectorCss = $fileContent($strokedInlineVectorResult, 'style.css');
     $assert(str_contains($strokedInlineVectorHtml, 'stroke="#1f1f1f"') && str_contains($strokedInlineVectorHtml, 'stroke-width="2"'), 'stroked-inline-vector-svg-carries-stroke');
     $assert(! str_contains($strokedInlineVectorCss, 'border:2px solid #1f1f1f'), 'stroked-inline-vector-wrapper-no-css-border');
+
+    $zeroHeightVectorSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Height Vector Separator Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'vector:zero-height-solid-separator',
+                'type'           => 'VECTOR',
+                'name'           => 'Vector 1',
+                'width'          => 120,
+                'height'         => 0,
+                'strokeWeight'   => 2,
+                'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1))),
+                'strokeGeometry' => array(array('path' => 'M 0 1 L 120 1', 'styleID' => 'separator-local-stroke')),
+            ),
+            array(
+                'id'           => 'vector:zero-height-gradient-stroke',
+                'type'         => 'VECTOR',
+                'name'         => 'Vector 12',
+                'width'        => 120,
+                'height'       => 0,
+                'strokeWeight' => 1,
+                'strokePaints' => array(array(
+                    'type'          => 'GRADIENT_LINEAR',
+                    'gradientStops' => array(
+                        array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                    ),
+                )),
+                'figma_vector_paths' => array(array('data' => 'M 0 0 L 120 0', 'source' => 'strokeGeometry')),
+            ),
+            array(
+                'id'         => 'vector:zero-height-gradient-fill',
+                'type'       => 'VECTOR',
+                'name'       => 'Vector 11',
+                'width'      => 120,
+                'height'     => 0,
+                'figma_paints' => array(
+                    'fills' => array(array(
+                        'type'          => 'GRADIENT_LINEAR',
+                        'gradientStops' => array(
+                            array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                            array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                        ),
+                    )),
+                ),
+                'fills'      => array(array(
+                    'type'          => 'GRADIENT_LINEAR',
+                    'gradientStops' => array(
+                        array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                    ),
+                )),
+                'fillGeometry' => array(array('path' => 'M 0 0 L 120 0')),
+            ),
+        ),
+    ));
+    $zeroHeightVectorSeparatorHtml = $fileContent($zeroHeightVectorSeparatorResult, 'index.html');
+    $zeroHeightVectorSeparatorCss = $fileContent($zeroHeightVectorSeparatorResult, 'style.css');
+    $assert(! str_contains($zeroHeightVectorSeparatorHtml, 'data-figma-unsupported-vector="true"'), 'zero-height-vector-separators-no-placeholder');
+    $assert(str_contains($zeroHeightVectorSeparatorHtml, 'data-figma-node-id="vector:zero-height-solid-separator"') && str_contains($zeroHeightVectorSeparatorHtml, 'stroke="#267dff"'), 'zero-height-solid-stroke-renders-line-primitive');
+    $assert(str_contains($zeroHeightVectorSeparatorHtml, '<line x1="0" y1="0.5" x2="120" y2="0.5"'), 'zero-height-gradient-stroke-renders-line-primitive');
+    $assert(str_contains($zeroHeightVectorSeparatorCss, '.figma-node-vector-zero-height-gradient-stroke-vector-12{width:120px;height:1px') && str_contains($zeroHeightVectorSeparatorCss, 'border-image:linear-gradient(180deg,#267dff 0%,#da5955 100%) 1'), 'zero-height-gradient-stroke-preserves-local-gradient-css');
+    $assert(str_contains($zeroHeightVectorSeparatorCss, '.figma-node-vector-zero-height-gradient-fill-vector-11{width:120px;height:1px;background:linear-gradient(180deg,#267dff 0%,#da5955 100%)'), 'zero-height-gradient-fill-preserves-local-gradient-css');
 
     $strokedGeometryStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Stroked Geometry Style Fixture',
@@ -299,6 +362,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#d9d9d9'), 'local-fill-paint-wins-over-style-fill');
     $assert(! str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#ffffff'), 'style-fill-does-not-overwrite-local-fill-paint');
     $assert('local' === ($localPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'local-style-fill-conflict-diagnostic-precedence');
+    $assert('info' === ($localPaintWithStyleDiagnostics[0]['severity'] ?? null), 'local-style-fill-conflict-diagnostic-info');
 
     $containerPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Container Paint With Style Fixture',
@@ -329,6 +393,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
     $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
+    $assert('warning' === ($containerPaintWithStyleDiagnostics[0]['severity'] ?? null), 'container-style-fill-conflict-diagnostic-warning');
 
     $shapeCommandBlobPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'        => 'Shape Command Blob Paint Style Fixture',
@@ -360,6 +425,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($shapeCommandBlobPaintWithStyleCss, '.figma-node-shape-command-blob-stale-local-with-style-command-blob-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-command-blob-shape-stale-local-fill');
     $assert('style' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-precedence');
+    $assert('warning' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['severity'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-warning');
 
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -411,6 +477,29 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(1 === ($externalizedVectorDiagnostics['assets'][0]['path_element_count'] ?? null), 'generated-svg-assets-diagnostics-asset-path-element-count');
     $assert(($externalizedVectorDiagnostics['assets'][0]['path_data_bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-asset-path-data-bytes');
     $assert(1 === ($externalizedVectorDiagnostics['assets'][0]['unique_path_data_count'] ?? null), 'generated-svg-assets-diagnostics-asset-unique-path-data-count');
+
+    $inlineBudgetVectorNodes = array();
+    for ( $i = 0; $i < 4; $i++ ) {
+        $inlineBudgetVectorNodes[] = array(
+            'id'                 => 'vector:inline-budget-' . $i,
+            'type'               => 'VECTOR',
+            'name'               => 'Inline Budget Vector ' . $i,
+            'width'              => 10,
+            'height'             => 10,
+            'figma_vector_paths' => array(array('data' => 'M0 0' . str_repeat('L' . (10 + $i) . ' 10', 1800) . 'Z', 'source' => 'fillGeometry')),
+        );
+    }
+    $inlineBudgetVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Inline Budget Vector Fixture',
+        'nodes' => $inlineBudgetVectorNodes,
+    ));
+    $inlineBudgetVectorHtml = $fileContent($inlineBudgetVectorResult, 'index.html');
+    $inlineBudgetVectorDiagnostics = $inlineBudgetVectorResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $inlineBudgetGeneratedSvgDiagnostics = $inlineBudgetVectorDiagnostics['generated_svg_assets'] ?? array();
+    $assert(substr_count($inlineBudgetVectorHtml, 'class="figma-vector-asset"') > 0, 'inline-budget-vector-externalizes-after-document-budget');
+    $assert(($inlineBudgetVectorDiagnostics['html_artifact']['inline_svg_bytes'] ?? 0) < 32768, 'inline-budget-vector-keeps-inline-svg-bytes-under-warning-floor');
+    $assert(false === ($inlineBudgetVectorDiagnostics['html_artifact']['overlarge_inline_svg_ratio'] ?? true), 'inline-budget-vector-avoids-overlarge-inline-svg-ratio');
+    $assert(($inlineBudgetGeneratedSvgDiagnostics['count'] ?? 0) > 0, 'inline-budget-vector-generated-svg-assets-recorded');
     
     $starVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Star Vector Fixture',
@@ -475,6 +564,37 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($geometrylessVectorHtml, 'data-figma-node-id="vector:geometryless"') && str_contains($geometrylessVectorHtml, '<rect x="0" y="0" width="16" height="8" fill="#336699"/>'), 'geometryless-vector-renders-inherited-color-bounds');
     $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDiagnosticCodes, true), 'geometryless-vector-no-placeholder-diagnostic');
     
+    $zeroAreaBooleanResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Area Boolean Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'vector:zero-area-parent',
+                'type'     => 'FRAME',
+                'name'     => 'Zero area boolean parent',
+                'width'    => 40,
+                'height'   => 40,
+                'children' => array(
+                    array(
+                        'id'         => 'vector:zero-area-boolean',
+                        'type'       => 'BOOLEAN_OPERATION',
+                        'name'       => 'Zero area boolean',
+                        'width'      => 0,
+                        'height'     => 0,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.75, 'g' => 0.75, 'b' => 0.75))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $zeroAreaBooleanHtml = $fileContent($zeroAreaBooleanResult, 'index.html');
+    $zeroAreaBooleanDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $zeroAreaBooleanResult['diagnostics'] ?? array()
+    );
+    $assert(! str_contains($zeroAreaBooleanHtml, 'data-figma-node-id="vector:zero-area-boolean"'), 'zero-area-boolean-without-source-suppressed');
+    $assert(! str_contains($zeroAreaBooleanHtml, 'data-figma-unsupported-vector="true"'), 'zero-area-boolean-without-source-no-placeholder-markup');
+    $assert(! in_array('unsupported_vector_node_placeholder', $zeroAreaBooleanDiagnosticCodes, true), 'zero-area-boolean-without-source-no-placeholder-diagnostic');
+
     $singleLoopNetworkBlob = static function (array $points, array $segments, array $regionEntries, ?int $regionSegmentCount = null): string {
         $vertexCount = count($points);
         $segmentCount = count($segments);
@@ -605,6 +725,10 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
     $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
     $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
+    $assert('unknown_binary_blob' === ($vectorNetworkDiagnostic['context']['vector_network_blob_kind'] ?? null), 'vector-network-diagnostic-blob-kind');
+    $assert('missing_vector_network_counts' === ($vectorNetworkDiagnostic['context']['decoder_blocker'] ?? null), 'vector-network-diagnostic-decoder-blocker');
+    $assert('high' === ($vectorNetworkDiagnostic['context']['render_risk'] ?? null), 'vector-network-diagnostic-render-risk');
+    $assert('vector:data-malformed' === ($vectorNetworkDiagnostic['context']['sample_render_risk_nodes'][0]['node_id'] ?? null), 'vector-network-diagnostic-risk-node-sample');
 
     // Compact vectorNetwork blob: straight segments can be encoded as just
     // start/end uint32 pairs. This is a generic .fig layout, not a named-icon
@@ -775,6 +899,38 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M12 4L26 4 26 10 12 10Z"'), 'boolean-union-parent-path-includes-child-wordmark');
     $assert(! str_contains($booleanUnionWithParentPathHtml, 'd="M0 0L30 0 30 20 0 20Z"'), 'boolean-union-parent-path-skips-collapsed-parent');
 
+    $perCornerRoundedRectResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Per Corner Rounded Rect Fixture',
+        'nodes' => array(
+            array(
+                'id'                  => 'vector:per-corner-rounded-rect',
+                'type'                => 'ROUNDED_RECTANGLE',
+                'name'                => 'Per Corner Card',
+                'width'               => 40,
+                'height'              => 20,
+                'rectangleCornerRadii' => array(8, 4, 0, 10),
+                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
+            ),
+            array(
+                'id'         => 'vector:normalized-per-corner-rounded-rect',
+                'type'       => 'ROUNDED_RECTANGLE',
+                'name'       => 'Normalized Per Corner Card',
+                'width'      => 40,
+                'height'     => 20,
+                'rectangleTopLeftCornerRadius' => 3,
+                'rectangleTopRightCornerRadius' => 6,
+                'rectangleBottomRightCornerRadius' => 9,
+                'rectangleBottomLeftCornerRadius' => 0,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.6, 'g' => 0.4, 'b' => 0.2))),
+            ),
+        ),
+    ));
+    $perCornerRoundedRectHtml = $fileContent($perCornerRoundedRectResult, 'index.html');
+    $assert(str_contains($perCornerRoundedRectHtml, 'data-figma-node-id="vector:per-corner-rounded-rect"') && str_contains($perCornerRoundedRectHtml, 'data-figma-vector="true"'), 'per-corner-rounded-rect-renders-svg');
+    $assert(str_contains($perCornerRoundedRectHtml, '<path d="M 8 0 L 36 0 Q 40 0 40 4 L 40 20 Q 40 20 40 20 L 10 20 Q 0 20 0 10 L 0 8 Q 0 0 8 0 Z" fill="#336699"'), 'per-corner-rounded-rect-preserves-corner-radii-path');
+    $assert(! str_contains($perCornerRoundedRectHtml, '<rect x="0" y="0" width="40" height="20" rx="0"'), 'per-corner-rounded-rect-does-not-collapse-to-min-radius');
+    $assert(str_contains($perCornerRoundedRectHtml, '<path d="M 3 0 L 34 0 Q 40 0 40 6 L 40 11 Q 40 20 31 20 L 0 20 Q 0 20 0 20 L 0 3 Q 0 0 3 0 Z" fill="#996633"'), 'normalized-per-corner-rounded-rect-preserves-box-radii-path');
+
     $booleanUnionTransformOffsetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Boolean Union Transform Offset Fixture',
         'nodes' => array(
@@ -832,7 +988,98 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $booleanSubtractHtml = $fileContent($booleanSubtractResult, 'index.html');
     $assert(str_contains($booleanSubtractHtml, 'data-figma-boolean-operation="subtract"'), 'boolean-subtract-marks-subtract');
     $assert(str_contains($booleanSubtractHtml, 'd="M5 5L15 5 15 15 5 15Z M0 0L20 0 20 20 0 20Z" fill="#000000" fill-rule="evenodd"'), 'boolean-subtract-evenodd-composite');
-    
+
+    $vectorContainerCompositionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Vector Container Composition Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'logo:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 200,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'                  => 'logo:group',
+                        'type'                => 'GROUP',
+                        'name'                => 'Footer logo mascot',
+                        'x'                   => 100,
+                        'y'                   => 50,
+                        'width'               => 40,
+                        'height'              => 32,
+                        'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 40, 'height' => 32),
+                        'children'            => array(
+                            array(
+                                'id'                  => 'logo:body',
+                                'type'                => 'VECTOR',
+                                'name'                => 'Mascot body',
+                                'x'                   => 100,
+                                'y'                   => 50,
+                                'width'               => 40,
+                                'height'              => 32,
+                                'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 40, 'height' => 32),
+                                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.8274509804, 'b' => 0))),
+                                'pathData'            => 'M0 0L40 0L40 32L0 32Z',
+                            ),
+                            array(
+                                'id'                  => 'logo:face-component',
+                                'type'                => 'COMPONENT',
+                                'name'                => 'Mascot face details',
+                                'x'                   => 108,
+                                'y'                   => 59,
+                                'width'               => 24,
+                                'height'              => 12,
+                                'absoluteBoundingBox' => array('x' => 108, 'y' => 59, 'width' => 24, 'height' => 12),
+                                'children'            => array(
+                                    array(
+                                        'id'                  => 'logo:left-eye',
+                                        'type'                => 'ELLIPSE',
+                                        'name'                => 'Left eye',
+                                        'x'                   => 108,
+                                        'y'                   => 59,
+                                        'width'               => 6,
+                                        'height'              => 6,
+                                        'absoluteBoundingBox' => array('x' => 108, 'y' => 59, 'width' => 6, 'height' => 6),
+                                        'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                                    ),
+                                    array(
+                                        'id'                  => 'logo:right-eye-frame',
+                                        'type'                => 'FRAME',
+                                        'name'                => 'Right eye detail frame',
+                                        'x'                   => 124,
+                                        'y'                   => 59,
+                                        'width'               => 8,
+                                        'height'              => 8,
+                                        'absoluteBoundingBox' => array('x' => 124, 'y' => 59, 'width' => 8, 'height' => 8),
+                                        'children'            => array(
+                                            array(
+                                                'id'                  => 'logo:right-eye',
+                                                'type'                => 'ROUNDED_RECTANGLE',
+                                                'name'                => 'Right eye highlight',
+                                                'x'                   => 124,
+                                                'y'                   => 59,
+                                                'width'               => 8,
+                                                'height'              => 8,
+                                                'absoluteBoundingBox' => array('x' => 124, 'y' => 59, 'width' => 8, 'height' => 8),
+                                                'cornerRadius'        => 4,
+                                                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('frame_id' => 'logo:page'));
+    $vectorContainerCompositionHtml = $fileContent($vectorContainerCompositionResult, 'index.html');
+    $assert(str_contains($vectorContainerCompositionHtml, 'data-figma-vector-composition="group"'), 'vector-container-composition-renders-single-group-svg');
+    $assert(str_contains($vectorContainerCompositionHtml, 'd="M0 0L40 0 40 32 0 32Z" fill="#ffd300"'), 'vector-container-composition-includes-body-path');
+    $assert(str_contains($vectorContainerCompositionHtml, '<g transform="translate(8 9)"><ellipse cx="3" cy="3" rx="3" ry="3" fill="#000000"/></g>'), 'vector-container-composition-preserves-nested-component-eye-offset');
+    $assert(str_contains($vectorContainerCompositionHtml, '<g transform="translate(24 9)"><rect x="0" y="0" width="8" height="8" rx="4" ry="4" fill="#000000"/></g>'), 'vector-container-composition-preserves-nested-frame-rounded-rect-detail');
+
     $multiPageVectorPlaceholderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Multi Page Vector Placeholder Fixture',
         'nodes' => array(
@@ -867,6 +1114,9 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(array('vertex_stride' => 20, 'segment_stride' => 16, 'region_bytes' => 44) === ($nonRectVectorNetworkDiagnostic['context']['candidate_layout'] ?? null), 'vector-network-candidate-layout-diagnostic');
     $assert(array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) === ($nonRectVectorNetworkDiagnostic['context']['candidate_vertex_points_sample'] ?? null), 'vector-network-candidate-point-sample');
     $assert('Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.' === ($nonRectVectorNetworkDiagnostic['context']['candidate_decoder_requirement'] ?? null), 'vector-network-candidate-requirement');
+    $assert('single_region_equal_count_44_byte_loop' === ($nonRectVectorNetworkDiagnostic['context']['vector_network_blob_kind'] ?? null), 'vector-network-candidate-blob-kind');
+    $assert('segment_endpoints_not_valid_for_known_layout' === ($nonRectVectorNetworkDiagnostic['context']['decoder_blocker'] ?? null), 'vector-network-candidate-decoder-blocker');
+    $assert('high' === ($nonRectVectorNetworkDiagnostic['context']['render_risk'] ?? null), 'vector-network-candidate-render-risk');
     
     $loopDecoderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Vector Network Loop Decoder Fixture',
@@ -1107,4 +1357,58 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($layeredLogoHtml, 'fill="#1e7c3c"') && str_contains($layeredLogoHtml, 'stroke="#0f4823"'), 'layered-vector-logo-preserves-child-paints');
     $assert(! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:back-leaf"') && ! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:hidden-leaf"'), 'layered-vector-logo-does-not-duplicate-child-html');
     $assert(! str_contains($layeredLogoCss, '.figma-node-logo-back-leaf-back-leaf'), 'layered-vector-logo-css-omits-child-layer-rules');
+
+    $decorativeA11yResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Vector Accessibility Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'a11y:root',
+                'type'     => 'FRAME',
+                'name'     => 'Frame',
+                'width'    => 320,
+                'height'   => 80,
+                'children' => array(
+                    array(
+                        'id'                 => 'a11y:decorative-vector',
+                        'type'               => 'VECTOR',
+                        'name'               => 'Vector 12',
+                        'width'              => 16,
+                        'height'             => 16,
+                        'figma_vector_paths' => array(array('data' => 'M0 0L16 16')),
+                        'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                    array(
+                        'id'         => 'a11y:rounded-bg',
+                        'type'       => 'ROUNDED_RECTANGLE',
+                        'name'       => 'Rectangle 226',
+                        'width'      => 144,
+                        'height'     => 48,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.5, 'b' => 0.6, 'a' => 1))),
+                    ),
+                    array(
+                        'id'       => 'a11y:logo',
+                        'type'     => 'GROUP',
+                        'name'     => 'Logo',
+                        'width'    => 32,
+                        'height'   => 16,
+                        'children' => array(
+                            array(
+                                'id'                 => 'a11y:logo-vector',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Union',
+                                'width'              => 32,
+                                'height'             => 16,
+                                'figma_vector_paths' => array(array('data' => 'M0 0L32 0 32 16 0 16Z')),
+                                'fills'              => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $decorativeA11yHtml = $fileContent($decorativeA11yResult, 'index.html');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:decorative-vector"') && str_contains($decorativeA11yHtml, 'aria-hidden="true" focusable="false"') && ! str_contains($decorativeA11yHtml, 'aria-label="Vector 12"'), 'generic-decorative-vector-hidden-from-accessibility-tree');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:rounded-bg"') && str_contains($decorativeA11yHtml, 'aria-hidden="true" focusable="false"') && ! str_contains($decorativeA11yHtml, 'aria-label="Rectangle 226"'), 'generic-rounded-rectangle-background-hidden-from-accessibility-tree');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:logo"') && str_contains($decorativeA11yHtml, 'role="img"') && str_contains($decorativeA11yHtml, 'aria-label="Logo"'), 'brand-vector-remains-accessible-image');
 }

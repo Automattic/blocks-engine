@@ -484,6 +484,7 @@ final class ScenegraphFrameInspector
     public function normalizedPageName(string $name): string
     {
         $normalized = strtolower($name);
+        $normalized = (string) preg_replace('/[_\-\/]+/', ' ', $normalized);
         $normalized = (string) preg_replace('/\b(desktop|mobile|tablet|phone|web|copy|variant|version|v\d+|i\d+)\b/', ' ', $normalized);
         $normalized = (string) preg_replace('/\b\d{3,4}\s*x\s*\d{3,5}\b/', ' ', $normalized);
         $normalized = (string) preg_replace('/\b(320|375|390|393|414|428|768|834|1024|1280|1366|1440|1512|1728|1920)\b/', ' ', $normalized);

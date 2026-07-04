@@ -14,7 +14,7 @@ final class FigKiwiDecodePolicy
      */
     public function defaultScenegraphFieldPolicy(): array
     {
-        return array(
+        $policy = array(
             'Message' => $this->scenegraphRootFields(),
             'NodeChange' => $this->nodeChangeScenegraphFields(),
             'GUID' => array('sessionID', 'localID'),
@@ -23,7 +23,7 @@ final class FigKiwiDecodePolicy
             'Matrix' => array('m00', 'm01', 'm02', 'm10', 'm11', 'm12'),
             'OptionalVector' => array('x', 'y'),
             'Color' => array('r', 'g', 'b', 'a'),
-            'ColorStop' => array('position', 'color'),
+            'ColorStop' => array('position', 'color', 'colorVar', 'interpolation', 'interpolationMode', 'interpolationColorSpace'),
             'FontName' => array('family', 'style', 'postscript'),
             // Inline styled-text spans (#328, feeding the normalizer path added in
             // #305/#299). In the Kiwi encoding the per-character style-run IDs ride
@@ -47,7 +47,7 @@ final class FigKiwiDecodePolicy
             'HyperlinkBox' => array('bounds', 'url', 'guid', 'hyperlinkID', 'cmsTarget', 'openInNewTab'),
             'FontVariation' => array('axisTag', 'axisName', 'value'),
             'Number' => array('value', 'units'),
-            'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey', 'exportSettings'),
+            'Paint' => array('type', 'color', 'colorVar', 'opacity', 'visible', 'blendMode', 'stops', 'stopsVar', 'gradientInterpolation', 'interpolation', 'interpolationMode', 'colorInterpolation', 'colorSpace', 'interpolationColorSpace', 'gradientTransform', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey', 'exportSettings'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
             // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
             // resolves to the whitelisted `Vector` struct and `color` to `Color`.
@@ -67,7 +67,7 @@ final class FigKiwiDecodePolicy
             'Constraints' => array('horizontal', 'vertical'),
             'SymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides', 'uniformScaleFactor'),
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides', 'uniformScaleFactor'),
-            'SymbolOverride' => array('nodeId', 'node_id', 'nodeID', 'id', 'guid', 'nodeGuid', 'guidPath', 'characters', 'text', 'name', 'textData', 'derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'listSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'arcData', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'stackWidth', 'stackHeight', 'stackMode', 'stackPrimarySizing', 'stackCounterSizing', 'stackSpacing', 'stackCounterSpacing', 'stackHorizontalGap', 'stackVerticalGap', 'stackWrap', 'stackReverseZIndex', 'stackPositioning', 'stackChildAlignSelf', 'stackChildPrimaryGrow', 'stackChildOrder', 'stackHorizontalPadding', 'stackVerticalPadding', 'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems', 'stackCounterAlignItems', 'layoutMode', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'itemSpacing', 'gap', 'counterAxisSpacing', 'counterAxisGap', 'layoutWrap', 'layoutGrow', 'layoutAlign', 'layoutOrder', 'layoutPositioning', 'layoutSizingHorizontal', 'layoutSizingVertical', 'horizontalSizing', 'verticalSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'paddingHorizontal', 'paddingVertical', 'constraints', 'horizontalConstraint', 'verticalConstraint', 'minSize', 'maxSize', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight', 'componentPropAssignments'),
+            'SymbolOverride' => array('nodeId', 'node_id', 'nodeID', 'id', 'guid', 'nodeGuid', 'guidPath', 'characters', 'text', 'name', 'textData', 'derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'listSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'arcData', 'cornerRadius', 'rectangleCornerRadiiIndependent', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'stackWidth', 'stackHeight', 'stackMode', 'stackPrimarySizing', 'stackCounterSizing', 'stackSpacing', 'stackCounterSpacing', 'stackHorizontalGap', 'stackVerticalGap', 'stackWrap', 'stackReverseZIndex', 'stackPositioning', 'stackChildAlignSelf', 'stackChildPrimaryGrow', 'stackChildOrder', 'stackHorizontalPadding', 'stackVerticalPadding', 'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems', 'stackCounterAlignItems', 'layoutMode', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'itemSpacing', 'gap', 'counterAxisSpacing', 'counterAxisGap', 'layoutWrap', 'layoutGrow', 'layoutAlign', 'layoutOrder', 'layoutPositioning', 'layoutSizingHorizontal', 'layoutSizingVertical', 'horizontalSizing', 'verticalSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'paddingHorizontal', 'paddingVertical', 'constraints', 'horizontalConstraint', 'verticalConstraint', 'minSize', 'maxSize', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight', 'componentPropAssignments'),
             'GUIDPath' => array('guids', 'guid'),
             'StyleId' => array('guid'),
             'StateGroupPropertyValueOrder' => array('property', 'values'),
@@ -113,6 +113,17 @@ final class FigKiwiDecodePolicy
             'PrototypeEvent' => array('interactionType'),
             'PrototypeAction' => array('connectionType', 'connectionURL', 'transitionNodeID', 'navigationType', 'overlayPositionType', 'overlayRelativePosition', 'overlayBackground', 'overlayBackgroundInteraction', 'preserveScrollPosition', 'resetScrollPosition', 'resetVideoPosition', 'openUrlInNewTab', 'urlTarget'),
         );
+
+        $policy['NodeChange'] = array_values(array_unique(array_merge(
+            $policy['NodeChange'],
+            array('overrideKey', 'proportionsConstrained', 'targetAspectRatio', 'derivedSymbolDataLayoutVersion')
+        )));
+        $policy['SymbolOverride'] = array_values(array_unique(array_merge(
+            $policy['SymbolOverride'],
+            array('overrideKey', 'proportionsConstrained', 'targetAspectRatio')
+        )));
+
+        return $policy;
     }
 
     /**
@@ -164,7 +175,7 @@ final class FigKiwiDecodePolicy
     public function classifySkippedFieldRole(string $fieldName, string $type, string $parentMessage = ''): string
     {
         $name = strtolower($fieldName . ' ' . $type . ' ' . $parentMessage);
-        if ( str_contains($name, 'variable') || str_contains($name, 'varvalue') || str_contains($name, 'parameter') || str_contains($name, 'consumption') ) {
+        if ( str_contains($name, 'variable') || str_contains($name, 'varvalue') || str_contains($name, 'colorvar') || str_contains($name, 'stopsvar') || str_contains($name, 'parameter') || str_contains($name, 'consumption') ) {
             return 'variables_bindings';
         }
         if ( str_contains($name, 'stategroup') ) {
@@ -318,10 +329,11 @@ final class FigKiwiDecodePolicy
     private function nodeGeometryFields(): array
     {
         return array(
-            'size', 'transform', 'useAbsoluteBounds', 'cornerRadius', 'arcData', 'guides', 'layoutGrids',
+            'size', 'transform', 'useAbsoluteBounds', 'cornerRadius', 'rectangleCornerRadiiIndependent', 'arcData', 'guides', 'layoutGrids',
             'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius',
             'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius',
             'horizontalConstraint', 'verticalConstraint', 'resizeToFit', 'isClip', 'frameMaskDisabled', 'minSize', 'maxSize',
+            'proportionsConstrained', 'targetAspectRatio',
         );
     }
 
@@ -357,6 +369,7 @@ final class FigKiwiDecodePolicy
         return array(
             'key', 'componentKey', 'componentOrStateGroupKey', 'originComponentKey',
             'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs',
+            'overrideKey', 'derivedSymbolDataLayoutVersion',
             'isStateGroup', 'stateGroupPropertyValueOrders', 'variantPropSpecs',
             'styleIdForEffect',
             'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',

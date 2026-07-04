@@ -18,7 +18,85 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $multilineTextCss = $fileContent($multilineTextResult, 'style.css');
     $assert(str_contains($multilineTextCss, '.figma-node-text-multiline-checklist-text{font-size:16px;white-space:pre-line}'), 'multiline-text-preserves-line-breaks');
-    
+
+    $styleTokenFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Skolar Latin',
+            'weights' => array(600),
+            'weight_counts' => array(),
+            'text_node_count' => 0,
+            'visible_text_area_px' => 0,
+            'sample_nodes' => array(
+                array('weight' => 600, 'source' => 'materialized_css'),
+            ),
+        ),
+    ));
+    $assert(array() === ($styleTokenFontResolution['unresolved_families'] ?? null), 'style-token-only-font-usage-not-missing-css');
+    $assert('style_token_only' === ($styleTokenFontResolution['coverage'][0]['resolution'] ?? null), 'style-token-only-font-resolution-reported');
+
+    $visibleFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Skolar Latin',
+            'weights' => array(600),
+            'text_node_count' => 1,
+            'visible_text_area_px' => 1200,
+            'sample_nodes' => array(
+                array('node_id' => 'text:visible', 'name' => 'Visible text', 'weight' => 600),
+            ),
+        ),
+    ));
+    $assert(array('Skolar Latin') === ($visibleFontResolution['unresolved_families'] ?? null), 'visible-unresolved-font-usage-still-missing-css');
+
+    $systemFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'SF Pro Text',
+            'weights' => array(900),
+            'text_node_count' => 1,
+            'visible_text_area_px' => 1200,
+            'sample_nodes' => array(
+                array('node_id' => 'text:footer', 'name' => 'Footer text', 'weight' => 900),
+            ),
+        ),
+    ));
+    $assert(array() === ($systemFontResolution['unresolved_families'] ?? null), 'sf-pro-text-system-font-not-missing-css');
+    $assert('web_safe' === ($systemFontResolution['coverage'][0]['resolution'] ?? null), 'sf-pro-text-system-font-resolution-reported');
+
+    $avenirFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Avenir',
+            'weights' => array(400, 500, 800),
+            'text_node_count' => 3,
+            'visible_text_area_px' => 2400,
+            'sample_nodes' => array(
+                array('node_id' => 'text:avenir-regular', 'name' => 'Avenir regular', 'weight' => 400),
+                array('node_id' => 'text:avenir-medium', 'name' => 'Avenir medium', 'weight' => 500),
+                array('node_id' => 'text:avenir-heavy', 'name' => 'Avenir heavy', 'weight' => 800),
+            ),
+        ),
+    ));
+    $assert(array() === ($avenirFontResolution['unresolved_families'] ?? null), 'avenir-system-font-not-missing-css');
+    $assert('web_safe' === ($avenirFontResolution['coverage'][0]['resolution'] ?? null), 'avenir-system-font-resolution-reported');
+    $assert(false === ($avenirFontResolution['coverage'][0]['needs_operator_font'] ?? null), 'avenir-system-font-does-not-need-operator-font');
+    $assert('Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif' === ($avenirFontResolution['coverage'][0]['fallback_stack'] ?? null), 'avenir-system-font-stack-reported');
+
+    $avenirCssResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Avenir Font Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:avenir-heavy',
+                'type'       => 'TEXT',
+                'name'       => 'Avenir Heavy',
+                'characters' => 'Avenir heavy text',
+                'fontName'   => array('family' => 'Avenir', 'style' => 'Heavy'),
+                'fontWeight' => 800,
+                'fontSize'   => 18,
+            ),
+        ),
+    ));
+    $avenirCss = $fileContent($avenirCssResult, 'style.css');
+    $assert(str_contains($avenirCss, 'font-family:Avenir, "Avenir Next", "Helvetica Neue", Arial, sans-serif'), 'avenir-system-font-stack-emitted-css');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $avenirCssResult, 'font_css_missing_for_source_font', 'avenir-system-font-no-missing-css-signal');
+
     $derivedTextLayoutScenegraph = array(
         'name'  => 'Derived Text Layout Fixture',
         'blobs' => array(
@@ -151,6 +229,165 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
 
+    $orderedTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Ordered Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:ordered-list',
+                'type'       => 'TEXT',
+                'name'       => 'Coverage List',
+                'characters' => "Comprehensive News Coverage\nIn-Depth Reviews\nHelpful Guides and Tutorials\nCommunity Engagement",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 3, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 4, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 5, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 6, 'isFirstLineOfList' => true),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $orderedTextListHtml = $fileContent($orderedTextListResult, 'index.html');
+    $orderedTextListCss = $fileContent($orderedTextListResult, 'style.css');
+    $assert(str_contains($orderedTextListHtml, '<ol class="figma-node-text-ordered-list-coverage-list" data-figma-node-id="text:ordered-list" data-figma-node-name="Coverage List" start="3">'), 'source-text-ordered-list-emits-ol-start');
+    $assert(str_contains($orderedTextListHtml, '<li>Comprehensive News Coverage</li><li>In-Depth Reviews</li><li>Helpful Guides and Tutorials</li><li>Community Engagement</li>'), 'source-text-ordered-list-emits-list-items');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'ol', 1, 'source-text-ordered-list-single-ol');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'li', 4, 'source-text-ordered-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $orderedTextListCss, '.figma-node-text-ordered-list-coverage-list', array('list-style:decimal', 'padding-left:1.5em'), 'source-text-ordered-list-restores-marker-css');
+
+    $bulletTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Bullet Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:bullet-list',
+                'type'       => 'TEXT',
+                'name'       => 'Bullet Coverage List',
+                'characters' => "• Comprehensive News Coverage\n• In-Depth Reviews",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'BULLET', 'isFirstLineOfList' => true),
+                        array('lineType' => 'BULLET', 'isFirstLineOfList' => true),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $bulletTextListHtml = $fileContent($bulletTextListResult, 'index.html');
+    $bulletTextListCss = $fileContent($bulletTextListResult, 'style.css');
+    $assert(str_contains($bulletTextListHtml, '<ul class="figma-node-text-bullet-list-bullet-coverage-list" data-figma-node-id="text:bullet-list" data-figma-node-name="Bullet Coverage List"><li>Comprehensive News Coverage</li><li>In-Depth Reviews</li></ul>'), 'source-text-bullet-list-strips-embedded-marker-glyphs');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'ul', 1, 'source-text-bullet-list-single-ul');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'li', 2, 'source-text-bullet-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $bulletTextListCss, '.figma-node-text-bullet-list-bullet-coverage-list', array('list-style:disc', 'padding-left:1.5em'), 'source-text-bullet-list-restores-marker-css');
+
+    $nestedRichTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Source Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'text:nested-rich-list',
+                'type'     => 'TEXT',
+                'name'     => 'Nested Rich Coverage List',
+                'fontSize' => 16,
+                'fontName' => array('family' => 'Inter', 'style' => 'Regular'),
+                'textData' => array(
+                    'characters' => 'Intro itemNested bold noteFinal item',
+                    'lines'      => array(
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 2, 'isFirstLineOfList' => true),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 3, 'isFirstLineOfList' => true),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 10, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 10, 'endCharacter' => 26, 'position' => array('x' => 18, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 26, 'endCharacter' => 36, 'position' => array('x' => 0, 'y' => 56), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_merge(array_fill(0, 10, 0), array_fill(0, 11, 1), array_fill(0, 15, 0)),
+                    'styleOverrideTable' => array(
+                        array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold')),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $nestedRichTextListHtml = $fileContent($nestedRichTextListResult, 'index.html');
+    $nestedRichTextListCss = $fileContent($nestedRichTextListResult, 'style.css');
+    $assert(str_contains($nestedRichTextListHtml, '<ol class="figma-node-text-nested-rich-list-nested-rich-coverage-list" data-figma-node-id="text:nested-rich-list" data-figma-node-name="Nested Rich Coverage List" start="2">'), 'source-text-nested-list-emits-root-ol-start');
+    $assert(str_contains($nestedRichTextListHtml, '<li>Intro item<ul style="list-style:disc;padding-left:1.5em"><li><span style="font-weight:700">Nested bold</span> note</li></ul></li><li>Final item</li>'), 'source-text-nested-list-emits-indent-and-rich-spans');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ol', 1, 'source-text-nested-list-root-ol-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ul', 1, 'source-text-nested-list-child-ul-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'li', 3, 'source-text-nested-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $nestedRichTextListCss, '.figma-node-text-nested-rich-list-nested-rich-coverage-list', array('list-style:decimal', 'padding-left:1.5em'), 'source-text-nested-list-root-marker-css');
+
+    $nestedContinuationListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Source Text List Continuation Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'text:nested-continuation-list',
+                'type'     => 'TEXT',
+                'name'     => 'Nested Continuation List',
+                'fontSize' => 16,
+                'textData' => array(
+                    'characters' => 'Parent item continuationNested childFinal item',
+                    'lines'      => array(
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 2, 'isFirstLineOfList' => true),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 11, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 11, 'endCharacter' => 24, 'position' => array('x' => 24, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 24, 'endCharacter' => 36, 'position' => array('x' => 18, 'y' => 56), 'lineHeight' => 20),
+                        array('firstCharacter' => 36, 'endCharacter' => 46, 'position' => array('x' => 0, 'y' => 76), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_fill(0, 46, 0),
+                ),
+            ),
+        ),
+    ));
+    $nestedContinuationListHtml = $fileContent($nestedContinuationListResult, 'index.html');
+    $assert(str_contains($nestedContinuationListHtml, '<li>Parent item<br>continuation<ul style="list-style:disc;padding-left:1.5em"><li>Nested child</li></ul></li><li>Final item</li>'), 'source-text-nested-list-continuation-stays-in-parent-li');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'ol', 1, 'source-text-nested-continuation-root-ol-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'ul', 1, 'source-text-nested-continuation-child-ul-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'li', 3, 'source-text-nested-continuation-li-count');
+
+    $explicitNewlineFalseListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Explicit Newline False List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:explicit-newline-false-list',
+                'type'       => 'TEXT',
+                'name'       => 'Explicit Newline False List',
+                'characters' => "One\nTwo\nThree",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 3, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 4, 'endCharacter' => 7, 'position' => array('x' => 0, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 8, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 56), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_fill(0, 13, 0),
+                ),
+            ),
+        ),
+    ));
+    $explicitNewlineFalseListHtml = $fileContent($explicitNewlineFalseListResult, 'index.html');
+    $assert(str_contains($explicitNewlineFalseListHtml, '<ul class="figma-node-text-explicit-newline-false-list-explicit-newline-false-list" data-figma-node-id="text:explicit-newline-false-list" data-figma-node-name="Explicit Newline False List"><li>One</li><li>Two</li><li>Three</li></ul>'), 'source-text-explicit-newlines-keep-false-list-lines-separate');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $explicitNewlineFalseListHtml, 'li', 3, 'source-text-explicit-newlines-false-li-count');
+
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Soft Wrap Fixture',
         'nodes' => array(
@@ -255,7 +492,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert('byte_limit_exceeded' === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['reason'] ?? null), 'oversized-glyph-diagnostics-reason');
     $assert(strlen($oversizedGlyphCommandBlob) === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['byte_length'] ?? null), 'oversized-glyph-diagnostics-byte-length');
     $assert(array() === ($oversizedGlyphVisualNode['text']['derived_layout']['glyph_paths'] ?? array()), 'oversized-glyph-omits-derived-path-data');
-     
+
     // Whitespace glyphs are emitted by Figma as a single 0x00 (empty-path) command
     // blob: well-formed, but carrying no drawable outline. These are valid, not
     // unsupported, and must NOT raise unsupported_text_glyph_command_blob warnings
@@ -325,6 +562,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(str_contains($derivedTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'derived-text-glyph-svg-emitted');
     $assert(str_contains($derivedTextGlyphHtml, 'aria-label="A B"'), 'derived-text-glyph-svg-label');
     $assert(str_contains($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-path');
+    $assert(2 === substr_count($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-preserves-drawable-path-count');
     $assert(str_contains($derivedTextGlyphHtml, 'transform="translate(2 3) scale(10 -10)"'), 'derived-text-glyph-svg-position');
     $assert(str_contains($derivedTextGlyphHtml, 'transform="translate(10 20) scale(10 -10)"'), 'derived-text-glyph-svg-advance-through-space');
     $assert(! str_contains($derivedTextGlyphHtml, 'transform="translate(5 20) scale(10 -10)"'), 'derived-text-glyph-svg-skips-space-path');
@@ -715,6 +953,41 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $startAlignedFlexLabelCss = $fileContent($startAlignedFlexLabelResult, 'style.css');
     $assert(str_contains($startAlignedFlexLabelCss, '.figma-node-text-start-flex-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'non-centered-flex-label-keeps-measured-height');
+
+    $atomicMetadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Atomic Metadata Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'atomic:row',
+                'type'     => 'FRAME',
+                'name'     => 'Post metadata row',
+                'width'    => 376,
+                'height'   => 21,
+                'layout'   => array('display' => 'flex', 'flex_direction' => 'row'),
+                'children' => array(
+                    array(
+                        'id'                      => 'atomic:date',
+                        'type'                    => 'TEXT',
+                        'name'                    => 'Supporting text',
+                        'characters'              => 'Dec 9, 2023',
+                        'width'                   => 89,
+                        'height'                  => 21,
+                        'fontSize'                => 14,
+                        'fontWeight'              => 800,
+                        'lineHeightPx'            => 21,
+                        'layout'                  => array('sizing_horizontal' => 'HUG'),
+                        'derivedTextData'         => array(
+                            'layoutSize' => array('x' => 88.8125, 'y' => 21),
+                            'baselines'  => array(array('firstCharacter' => 0, 'endCharacter' => 11, 'lineHeight' => 21, 'position' => array('x' => 0, 'y' => 16))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $atomicMetadataCss = $fileContent($atomicMetadataResult, 'style.css');
+    $assert(str_contains($atomicMetadataCss, '.figma-node-atomic-date-supporting-text{width:88.812px;height:21px;font-size:14px;font-weight:800;line-height:21px;white-space:nowrap'), 'atomic-single-line-metadata-nowrap');
+
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void
@@ -927,6 +1200,7 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
                         'height'                           => 90,
                         // Uniform value is intentionally wrong; per-corner must override it.
                         'cornerRadius'                     => 99,
+                        'rectangleCornerRadiiIndependent'  => true,
                         'rectangleTopLeftCornerRadius'     => 8,
                         'rectangleTopRightCornerRadius'    => 8,
                         'rectangleBottomRightCornerRadius' => 0,
@@ -1014,6 +1288,18 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
                             'paragraphSpacing'  => 24,
                         ),
                     ),
+                    array(
+                        'id'                              => 'tc:8',
+                        'type'                            => 'TEXT',
+                        'name'                            => 'Mixed case instance override text',
+                        'characters'                      => 'Comprehensive News Coverage',
+                        '_figma_instance_override_applied' => true,
+                        'style'                           => array(
+                            'fontFamily' => 'Example Sans',
+                            'fontSize'   => 18,
+                            'textCase'   => 'UPPER',
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -1021,6 +1307,35 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $kiwiRadiusCss = $fileContent($kiwiRadiusResult, 'style.css');
     $assert(str_contains($kiwiRadiusCss, '.figma-node-5-2-kiwi-corner-radius{width:160px;height:90px;border-top-left-radius:8px;border-top-right-radius:8px;border-bottom-right-radius:0px;border-bottom-left-radius:0px}'), 'kiwi-per-corner-radius-style');
     $assert(! str_contains($kiwiRadiusCss, 'border-radius:99px'), 'kiwi-per-corner-radius-overrides-uniform');
+    $kiwiRadiusNormalized = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer() )->normalize(array(
+        'name'  => 'Kiwi radius normalization',
+        'nodes' => array(
+            array(
+                'id'                              => '5:2',
+                'type'                            => 'RECTANGLE',
+                'name'                            => 'Kiwi corner radius',
+                'rectangleCornerRadiiIndependent' => true,
+                'rectangleTopLeftCornerRadius'    => 8,
+            ),
+        ),
+    ));
+    $kiwiRadiusBox = $kiwiRadiusNormalized['nodes'][0]['figma_box'] ?? array();
+    $assert(true === ($kiwiRadiusBox['corner_radii_independent'] ?? null), 'kiwi-corner-radii-independent-normalizes');
+    $kiwiRadiusOverrideResolver = new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver();
+    $kiwiRadiusOverrideDiagnostics = array();
+    $kiwiRadiusOverrides = $kiwiRadiusOverrideResolver->normalizeInstanceOverrides(array(
+        'id'         => '5:instance',
+        'symbolData' => array(
+            'symbolOverrides' => array(
+                array(
+                    'nodeId'                          => '5:2',
+                    'rectangleCornerRadiiIndependent' => true,
+                    'rectangleTopLeftCornerRadius'    => 8,
+                ),
+            ),
+        ),
+    ), '5:instance', $kiwiRadiusOverrideDiagnostics);
+    $assert(true === ($kiwiRadiusOverrides['5:2']['rectangleCornerRadiiIndependent'] ?? null), 'kiwi-corner-radii-independent-override-preserved');
     
     $textCaseCss = $fileContent($textCaseResult, 'style.css');
     $textCaseDiagnosticCodes = array_map(
@@ -1031,6 +1346,7 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $assert(str_contains($textCaseCss, 'text-transform:lowercase'), 'text-case-lower-text-transform');
     $assert(str_contains($textCaseCss, 'text-transform:capitalize'), 'text-case-title-text-transform');
     $assert(str_contains($textCaseCss, '.figma-node-tc-5-small-caps-forced-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;text-transform:uppercase;font-variant:small-caps}'), 'text-case-small-caps-forced');
+    $assert(1 !== preg_match('/\.figma-node-tc-8-mixed-case-instance-override-text\{[^}]*text-transform:uppercase/s', $textCaseCss), 'text-case-mixed-case-instance-override-drops-inherited-uppercase');
     // ORIGINAL text case emits no text-transform. With paragraphSpacing now applied
     // by splitting (no white-space:pre-line), tc:7's box style matches tc:6's, so the
     // emitter dedupes them into one shared rule — assert on the un-transformed
@@ -1056,6 +1372,57 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $textCaseHtml = $fileContent($textCaseResult, 'index.html');
     $assert(str_contains($textCaseHtml, '<span style="display:block;margin-bottom:24px">First paragraph.</span><span style="display:block">Second paragraph.</span>'), 'paragraph-spacing-split-into-margin-boxes');
     $assert(! str_contains($textCaseCss, 'white-space:pre-line'), 'paragraph-spacing-split-drops-pre-line');
+
+    $textCaseInstanceOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Text Case Instance Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'tcio:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'children' => array(
+                    array(
+                        'id'         => 'tcio:instance',
+                        'type'       => 'INSTANCE',
+                        'name'       => 'Text instance',
+                        'componentId' => 'tcio:component',
+                        'symbolData' => array(
+                            'symbolOverrides' => array(
+                                array(
+                                    'nodeId'     => 'tcio:source-text',
+                                    'characters' => 'Mixed Case Override',
+                                    'textCase'   => 'ORIGINAL',
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'          => 'tcio:component',
+                'type'        => 'COMPONENT',
+                'name'        => 'Text component',
+                'componentId' => 'tcio:component',
+                'children'    => array(
+                    array(
+                        'id'         => 'tcio:source-text',
+                        'type'       => 'TEXT',
+                        'name'       => 'Source text',
+                        'characters' => 'SOURCE TEXT',
+                        'style'      => array(
+                            'fontFamily' => 'Example Sans',
+                            'fontSize'   => 18,
+                            'textCase'   => 'UPPER',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('frame_id' => 'tcio:page'));
+    $textCaseInstanceOverrideCss = $fileContent($textCaseInstanceOverrideResult, 'style.css');
+    $assert(str_contains($textCaseInstanceOverrideCss, '.figma-node-tcio-instance-tcio-source-text-source-text{'), 'text-case-instance-override-rule-emitted');
+    $assert(str_contains($textCaseInstanceOverrideCss, 'text-transform:none'), 'text-case-instance-original-cancels-component-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-tcio-instance-tcio-source-text-source-text\{[^}]*text-transform:uppercase/s', $textCaseInstanceOverrideCss), 'text-case-instance-original-no-stale-uppercase');
 }
 
 function blocks_engine_figma_transformer_run_inline_text_style_contract(callable $assert, callable $fileContent): void
@@ -1142,7 +1509,80 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     
     // Mixed-weight: only "Bold" differs in font-weight — it gets a font-weight span.
     $assert(str_contains($inlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'inline-style-mixed-weight-spans');
-    
+
+    // Some decoded .fig/Yotako text segment payloads carry only Unicode start/end
+    // offsets plus style metadata. The normalizer hydrates those ranges from the
+    // node/TextData characters so the emitter does not drop the styled text runs.
+    $offsetOnlySegmentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Offset Only Segment Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'seg:offset-node',
+                'type'               => 'TEXT',
+                'name'               => 'Offset segment text',
+                'characters'         => 'Alpha Beta',
+                'fontSize'           => 16,
+                'styledTextSegments' => array(
+                    array('start' => 0, 'end' => 6, 'style' => array('fontWeight' => 400)),
+                    array('start' => 6, 'end' => 10, 'style' => array('fontWeight' => 700)),
+                ),
+            ),
+            array(
+                'id'       => 'seg:kiwi-textdata-node',
+                'type'     => 'TEXT',
+                'name'     => 'Kiwi TextData segment text',
+                'fontSize' => 16,
+                'textData' => array(
+                    'characters' => 'Café Blue',
+                    'segments'   => array(
+                        array('start' => 0, 'end' => 5),
+                        array('start' => 5, 'end' => 9, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $offsetOnlySegmentHtml = $fileContent($offsetOnlySegmentResult, 'index.html');
+    $offsetOnlySegmentNormalized = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer() )->normalize(array(
+        'name'  => 'Offset Only Segment Normalization Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'seg:offset-node',
+                'type'               => 'TEXT',
+                'characters'         => 'Alpha Beta',
+                'styledTextSegments' => array(
+                    array('start' => 0, 'end' => 6, 'style' => array('fontWeight' => 400)),
+                    array('start' => 6, 'end' => 10, 'style' => array('fontWeight' => 700)),
+                ),
+            ),
+            array(
+                'id'       => 'seg:kiwi-textdata-node',
+                'type'     => 'TEXT',
+                'textData' => array(
+                    'characters' => 'Café Blue',
+                    'segments'   => array(
+                        array('start' => 0, 'end' => 5),
+                        array('start' => 5, 'end' => 9, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $offsetOnlySegmentNormalizedById = array();
+    foreach ( $offsetOnlySegmentNormalized['nodes'] ?? array() as $normalizedNode ) {
+        if ( is_array($normalizedNode) && isset($normalizedNode['id']) ) {
+            $offsetOnlySegmentNormalizedById[(string) $normalizedNode['id']] = $normalizedNode;
+        }
+    }
+    $normalizedOffsetNode = $offsetOnlySegmentNormalizedById['seg:offset-node']['figma_text']['segments'] ?? array();
+    $normalizedKiwiTextDataNode = $offsetOnlySegmentNormalizedById['seg:kiwi-textdata-node']['figma_text']['segments'] ?? array();
+    $assert('Alpha ' === ($normalizedOffsetNode[0]['characters'] ?? null), 'offset-only-segment-normalizes-first-run-text');
+    $assert('Beta' === ($normalizedOffsetNode[1]['characters'] ?? null), 'offset-only-segment-normalizes-second-run-text');
+    $assert('Café ' === ($normalizedKiwiTextDataNode[0]['characters'] ?? null), 'kiwi-textdata-offset-segment-normalizes-unicode-first-run');
+    $assert('Blue' === ($normalizedKiwiTextDataNode[1]['characters'] ?? null), 'kiwi-textdata-offset-segment-normalizes-unicode-second-run');
+    $assert(str_contains($offsetOnlySegmentHtml, '<span style="font-weight:400">Alpha </span><span style="font-weight:700">Beta</span>'), 'offset-only-segment-emits-hydrated-spans');
+    $assert(str_contains($offsetOnlySegmentHtml, 'Café <span style="color:#0000ff">Blue</span>'), 'kiwi-textdata-offset-segment-emits-hydrated-color-span');
+
     // Paragraph splitting must preserve inline override spans inside the correct
     // paragraph, and single-paragraph nodes must not gain a wrapper (#318 follow-up).
     //
@@ -1312,6 +1752,61 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     // entry's bold `fontName` — and " plain text" stays unwrapped.
     $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
 
+    $tokenOnlyFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(array(
+        'name'  => 'Token Only Font Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'tok:system',
+                'type'     => 'FRAME',
+                'name'     => 'Typography tokens',
+                'children' => array(
+                    array(
+                        'id'         => 'tok:display',
+                        'type'       => 'TEXT',
+                        'name'       => 'Display token',
+                        'figma_text' => array(
+                            'characters' => 'Display',
+                            'style'      => array('font_family' => 'Token Only Sans', 'font_size' => 48, 'font_weight' => 700),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'       => 'tok:page',
+                'type'     => 'FRAME',
+                'name'     => 'Rendered page',
+                'children' => array(),
+            ),
+        ),
+    ), array(array('frame_id' => 'tok:page', 'name' => 'Rendered page', 'path' => 'index.html', 'entrypoint' => true)));
+    $tokenOnlyFontCss = $fileContent($tokenOnlyFontResult, 'style.css');
+    $tokenOnlyFontDiagnostics = $tokenOnlyFontResult['source_report']['transform_diagnostics'] ?? array();
+    $assert(str_contains($tokenOnlyFontCss, 'font-family:"Token Only Sans", sans-serif'), 'token-only-font-family-css-emitted');
+    $assert(array() === ($tokenOnlyFontDiagnostics['fonts']['missing_css'] ?? null), 'token-only-font-family-not-missing-css-diagnostic');
+    $assert(array('Token Only Sans') === array_column($tokenOnlyFontResult['source_report']['font_usage'] ?? array(), 'family'), 'token-only-font-family-usage-materialized');
+
+    $inlineRunFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+        'name'  => 'Inline Run Font Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'run:1',
+                'type'       => 'TEXT',
+                'name'       => 'Inline run family text',
+                'figma_text' => array(
+                    'segments' => array(
+                        array('characters' => 'Base ', 'style' => null),
+                        array('characters' => 'custom', 'style' => array('font_family' => 'Run Only Sans', 'font_weight' => 600)),
+                    ),
+                    'style'    => array('font_family' => 'Inter', 'font_size' => 16, 'font_weight' => 400),
+                ),
+            ),
+        ),
+    ));
+    $inlineRunFontHtml = $fileContent($inlineRunFontResult, 'index.html');
+    $inlineRunFontDiagnostics = $inlineRunFontResult['source_report']['transform_diagnostics'] ?? array();
+    $assert(str_contains($inlineRunFontHtml, '<span style="font-family:&quot;Run Only Sans&quot;, sans-serif;font-weight:600">custom</span>'), 'inline-run-font-family-span-emitted');
+    $assert(in_array('Run Only Sans', $inlineRunFontDiagnostics['fonts']['missing_css'] ?? array(), true), 'inline-run-font-family-missing-css-diagnostic');
+
     // Kiwi derived rich text spans: production .fig payloads can put the character
     // range IDs and NodeChange-shaped override table under `derivedTextData` while
     // the root text node still carries stale uppercase/heading-sized styling from a
@@ -1428,10 +1923,14 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
         ),
     ));
     $kiwiDerivedRichTextHtml = $fileContent($kiwiDerivedRichTextResult, 'index.html');
+    $kiwiDerivedRichTextCss = $fileContent($kiwiDerivedRichTextResult, 'style.css');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<ul'), 'kiwi-derived-rich-text-list-container');
     $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $kiwiDerivedRichTextHtml, 'ul', 1, 'kiwi-derived-rich-text-single-semantic-list');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $kiwiDerivedRichTextCss, '.figma-node-krt-list-apart-list', array('list-style:disc', 'padding-left:1.5em'), 'kiwi-derived-rich-text-list-restores-marker-css');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
     $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-krt-text-1-movement-item\{[^}]*text-transform:uppercase/s', $kiwiDerivedRichTextCss), 'kiwi-derived-rich-text-root-uppercase-not-emitted');
 
     // Visual ordered-list rows often split the marker ("1.") and rich text body
     // into sibling text nodes. The marker should select <ol> semantics without
@@ -1508,13 +2007,117 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
         ),
     ));
     $kiwiOrderedMarkerRichTextHtml = $fileContent($kiwiOrderedMarkerRichTextResult, 'index.html');
+    $kiwiOrderedMarkerRichTextCss = $fileContent($kiwiOrderedMarkerRichTextResult, 'style.css');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<ol'), 'kiwi-ordered-marker-rich-text-list-container');
     $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $kiwiOrderedMarkerRichTextHtml, 'ol', 1, 'kiwi-ordered-marker-rich-text-single-semantic-list');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $kiwiOrderedMarkerRichTextCss, '.figma-node-kom-list-ordered-apart-list', array('list-style:decimal', 'padding-left:1.5em'), 'kiwi-ordered-marker-rich-text-list-markers-preserved');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '<h3 class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-not-heading');
-     
+
+    $semanticListBodyTypographyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+        'name'  => 'Semantic List Body Typography Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'slt:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'slt:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Numbered benefits list',
+                        'width'    => 720,
+                        'height'   => 360,
+                        'children' => array(
+                            array(
+                                'id'       => 'slt:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-1', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '1.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-1',
+                                        'type'       => 'TEXT',
+                                        'name'       => 'Paragraph',
+                                        'figma_text' => array(
+                                            'characters' => 'Comprehensive News Coverage: Stay in the know with the latest updates and events.',
+                                            'style'      => array('font_family' => 'Plus Jakarta Sans', 'font_size' => 40, 'font_weight' => 500, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'slt:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-2', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '2.', 'fontSize' => 32),
+                                    array('id' => 'slt:text-2', 'type' => 'TEXT', 'name' => 'Paragraph', 'characters' => 'In-depth reviews help readers make informed decisions.', 'fontSize' => 16),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'slt:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-3', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '3.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-3',
+                                        'type'       => 'TEXT',
+                                        'name'       => 'Explicit Upper Paragraph',
+                                        'textCase'   => 'UPPER',
+                                        'figma_text' => array(
+                                            'characters' => 'Helpful guides support every skill level.',
+                                            'style'      => array('font_size' => 16, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'slt:item-4',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-4', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '4.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-wrapper',
+                                        'type'       => 'INSTANCE',
+                                        'name'       => 'Paragraph',
+                                        'figma_text' => array(
+                                            'characters' => 'Wrapped body text should keep sentence casing.',
+                                            'style'      => array('font_family' => 'Plus Jakarta Sans', 'font_size' => 18, 'font_weight' => 500, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $semanticListBodyTypographyHtml = $fileContent($semanticListBodyTypographyResult, 'index.html');
+    $semanticListBodyTypographyCss = $fileContent($semanticListBodyTypographyResult, 'style.css');
+    $assert(str_contains($semanticListBodyTypographyHtml, '<p class="figma-node-slt-text-1-paragraph"'), 'semantic-list-body-heading-sized-text-stays-paragraph');
+    $assert(1 !== preg_match('/<h[1-6] class="figma-node-slt-text-1-paragraph"/', $semanticListBodyTypographyHtml), 'semantic-list-body-no-heading-tag');
+    $assert(1 !== preg_match('/\.figma-node-slt-text-1-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-drops-unproven-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-slt-text-wrapper-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-wrapper-drops-unproven-uppercase');
+    $assert(1 === preg_match('/\.figma-node-slt-text-3-explicit-upper-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-keeps-explicit-uppercase');
+    $assert(str_contains($semanticListBodyTypographyCss, 'font-size:40px'), 'semantic-list-body-keeps-source-font-size');
+
     // Kiwi text style references: production .fig payloads can carry stale inline
     // `fontName` data on a text node while `styleIdForText` points at the canonical
     // text style and `derivedTextData.fontMetaData` matches that style. Prefer the
@@ -1536,6 +2139,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
                         'name'      => 'Desktop/Headings/H2',
                         'fontName'  => array('family' => 'Barlow Condensed', 'style' => 'Bold'),
                         'fontSize'  => 48,
+                        'textCase'  => 'UPPER',
                         'lineHeight' => array('units' => 'PERCENT', 'value' => 120),
                         'textData'  => array('characters' => 'Rag 123'),
                     ),
@@ -1547,6 +2151,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
                         'height'         => 48,
                         'fontName'       => array('family' => 'Helvetica Neue', 'style' => 'Bold', 'postscript' => 'HelveticaNeue-Bold'),
                         'fontSize'       => 24,
+                        'textCase'       => 'ORIGINAL',
                         'styleIdForText' => array('guid' => array('sessionID' => 4166, 'localID' => 11869)),
                         'textData'       => array('characters' => 'Get the newsletter!'),
                     ),
@@ -1559,6 +2164,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-family:"Barlow Condensed", sans-serif'), 'kiwi-text-style-reference-font-family');
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-size:48px'), 'kiwi-text-style-reference-font-size');
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-weight:700'), 'kiwi-text-style-reference-font-weight');
+    $assert(str_contains($kiwiTextStyleReferenceCss, 'text-transform:none'), 'kiwi-text-style-reference-original-cancels-uppercase-style-ref');
     $assert(! str_contains($kiwiTextStyleReferenceCss, 'font-family:"Helvetica Neue", Helvetica, Arial, sans-serif'), 'kiwi-text-style-reference-stale-inline-font-not-emitted');
     
     // Kiwi text can carry the rendered font through derivedTextData.fontMetaData.

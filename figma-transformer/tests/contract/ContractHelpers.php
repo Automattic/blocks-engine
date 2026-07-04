@@ -112,6 +112,53 @@ function blocks_engine_figma_transformer_contract_assert_diagnostic_summary_enve
 }
 
 /**
+ * @param array<string, mixed> $diagnostics
+ * @param array<int, string|int> $path
+ * @return mixed|null
+ */
+function blocks_engine_figma_transformer_contract_diagnostic_value(array $diagnostics, array $path)
+{
+    $value = $diagnostics;
+    foreach ( $path as $segment ) {
+        if ( ! is_array($value) || ! array_key_exists($segment, $value) ) {
+            return null;
+        }
+        $value = $value[$segment];
+    }
+
+    return $value;
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $diagnostics
+ * @param array<int, string|int> $path
+ * @param mixed $expected
+ */
+function blocks_engine_figma_transformer_contract_assert_diagnostic_value(callable $assert, array $diagnostics, array $path, $expected, string $message): void
+{
+    $assert($expected === blocks_engine_figma_transformer_contract_diagnostic_value($diagnostics, $path), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $result
+ */
+function blocks_engine_figma_transformer_contract_assert_quality_signal(callable $assert, array $result, string $code, string $message): void
+{
+    $assert(in_array($code, blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($result), true), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $result
+ */
+function blocks_engine_figma_transformer_contract_assert_no_quality_signal(callable $assert, array $result, string $code, string $message): void
+{
+    $assert(! in_array($code, blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($result), true), $message);
+}
+
+/**
  * @param array<string, mixed> $payload
  */
 function blocks_engine_figma_transformer_contract_json_fixture(string $prefix, array $payload): string
@@ -195,4 +242,67 @@ function blocks_engine_figma_transformer_contract_find_named_field(array $fields
 function blocks_engine_figma_transformer_contract_assert_node_rect(callable $assert, ?array $node, array $expectedRect, string $message): void
 {
     $assert($expectedRect === ($node['rect'] ?? null), $message);
+}
+
+function blocks_engine_figma_transformer_contract_css_rule(string $css, string $selector): string
+{
+    if ( 1 > preg_match_all('/' . preg_quote($selector, '/') . '\{([^}]*)\}/', $css, $matches) ) {
+        return '';
+    }
+
+    return implode(';', array_map('strval', $matches[1]));
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_exists(callable $assert, string $css, string $selector, string $message): void
+{
+    $assert('' !== blocks_engine_figma_transformer_contract_css_rule($css, $selector), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_absent(callable $assert, string $css, string $selector, string $message): void
+{
+    $assert('' === blocks_engine_figma_transformer_contract_css_rule($css, $selector), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<int, string> $declarations
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_contains(callable $assert, string $css, string $selector, array $declarations, string $messagePrefix): void
+{
+    $rule = blocks_engine_figma_transformer_contract_css_rule($css, $selector);
+    $assert('' !== $rule, $messagePrefix . '-rule-exists');
+    foreach ( $declarations as $declaration ) {
+        $assert(str_contains($rule, $declaration), $messagePrefix . '-' . str_replace(array(':', ';'), '-', $declaration));
+    }
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<int, string> $declarations
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_omits(callable $assert, string $css, string $selector, array $declarations, string $messagePrefix): void
+{
+    $rule = blocks_engine_figma_transformer_contract_css_rule($css, $selector);
+    foreach ( $declarations as $declaration ) {
+        $assert(! str_contains($rule, $declaration), $messagePrefix . '-omits-' . str_replace(array(':', ';'), '-', $declaration));
+    }
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_tag_count(callable $assert, string $html, string $tag, int $expected, string $message): void
+{
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+
+    $assert($expected === $dom->getElementsByTagName($tag)->length, $message);
 }

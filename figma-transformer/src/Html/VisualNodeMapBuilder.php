@@ -11,14 +11,18 @@ final class VisualNodeMapBuilder
 {
     private readonly LayoutIntentClassifier $layoutIntentClassifier;
 
+    private readonly VisualGeometryResolver $visualGeometryResolver;
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
     public function __construct(
         private readonly array $assetsById = array(),
-        private readonly bool $renderTextGlyphPaths = false
+        private readonly bool $renderTextGlyphPaths = false,
+        private readonly array $emittedNodeMetadata = array()
     ) {
         $this->layoutIntentClassifier = new LayoutIntentClassifier($assetsById);
+        $this->visualGeometryResolver = new VisualGeometryResolver($this->layoutIntentClassifier);
     }
 
     /**
@@ -92,6 +96,12 @@ final class VisualNodeMapBuilder
                 // Figma Dev Mode status (#280) surfaced for the diagnostics map.
                 'dev_status' => isset($node['dev_status']) && is_string($node['dev_status']) ? $node['dev_status'] : null,
             );
+            $emittedMetadata = $this->emittedMetadataForNode((string) ($node['id'] ?? ''));
+            if ( ! empty($emittedMetadata) ) {
+                $entry['emitted_class'] = $emittedMetadata['class'] ?? null;
+                $entry['emitted_tag'] = $emittedMetadata['tag'] ?? null;
+                $entry['page_path'] = $emittedMetadata['page_path'] ?? null;
+            }
             if ( null !== $visibleRect && $visibleRect !== $nodeRect ) {
                 $entry['visible_rect'] = $visibleRect;
                 $entry['clip'] = array('source' => 'parent_clips_content');
@@ -164,6 +174,18 @@ final class VisualNodeMapBuilder
                 $this->appendVisualNodeMap($child, $map, $childX + $position['cross'], $childY + $position['main'], $node, $childClipRect, $nodeTransform ?? $parentTransform);
             }
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emittedMetadataForNode(string $nodeId): array
+    {
+        if ( '' === $nodeId || ! isset($this->emittedNodeMetadata[$nodeId]) || ! is_array($this->emittedNodeMetadata[$nodeId]) ) {
+            return array();
+        }
+
+        return $this->emittedNodeMetadata[$nodeId];
     }
 
     private function visualFlexChildPositions(array $children, array $layout, bool $isFlex, bool $isRow, string $mainAxis, string $crossAxis, ?float $contentMainSize, ?float $contentCrossSize, float $gap): array
@@ -303,23 +325,7 @@ final class VisualNodeMapBuilder
 
     private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
     {
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( true !== ($parentLayout['clips_content'] ?? false) || ! $this->isClippableDecorativeVisualNode($node) ) {
-            return false;
-        }
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
-            return false;
-        }
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
-        if ( null === $left || null === $top ) {
-            return false;
-        }
-        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
-        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
-        return null === $this->rectIntersection($parentRect, $childRect);
+        return $this->visualGeometryResolver->isFullyClippedDecorativeChild($node, $parentNode);
     }
 
     private function isFullyTransparentVisualNode(array $node): bool
@@ -331,32 +337,12 @@ final class VisualNodeMapBuilder
 
     private function rectIntersection(array $rect, array $clipRect): ?array
     {
-        $left = max($rect['x'], $clipRect['x']);
-        $top = max($rect['y'], $clipRect['y']);
-        $right = min($rect['x'] + $rect['width'], $clipRect['x'] + $clipRect['width']);
-        $bottom = min($rect['y'] + $rect['height'], $clipRect['y'] + $clipRect['height']);
-        if ( $right <= $left || $bottom <= $top ) {
-            return null;
-        }
-        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
+        return $this->visualGeometryResolver->rectIntersection($rect, $clipRect);
     }
 
     private function transformedVisualRect(float $width, float $height, array $matrix): array
     {
-        [$a, $b, $c, $d, $e, $f] = $matrix;
-        $points = array(array(0.0, 0.0), array($width, 0.0), array(0.0, $height), array($width, $height));
-        $xs = array();
-        $ys = array();
-        foreach ( $points as $point ) {
-            [$localX, $localY] = $point;
-            $xs[] = ($a * $localX) + ($c * $localY) + $e;
-            $ys[] = ($b * $localX) + ($d * $localY) + $f;
-        }
-        $left = min($xs);
-        $top = min($ys);
-        $right = max($xs);
-        $bottom = max($ys);
-        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
+        return $this->visualGeometryResolver->transformedRect($width, $height, $matrix);
     }
 
     private function visualTransformMatrix(array $parentTransform, float $x, float $y, float $width, float $height, array $node): array
@@ -431,10 +417,7 @@ final class VisualNodeMapBuilder
 
     private function firstImagePaint(array $node): ?array
     {
-        foreach ( $this->nodeImagePaints($node) as $paint ) {
-            return $paint;
-        }
-        return null;
+        return VisualLayerEvidence::firstImagePaint($node);
     }
 
     private function visualImageMetadata(array $paint): array
@@ -599,24 +582,7 @@ final class VisualNodeMapBuilder
 
     private function nodeImagePaints(array $node): array
     {
-        $imagePaints = array();
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
-            }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-            foreach ( $paintCollections as $paints ) {
-                foreach ( $paints as $paint ) {
-                    if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
-                        $imagePaints[] = $paint;
-                    }
-                }
-            }
-        }
-        return $imagePaints;
+        return VisualLayerEvidence::imagePaints($node);
     }
 
     private function imagePaintTransformMatrix(array $paint): ?array
@@ -670,7 +636,7 @@ final class VisualNodeMapBuilder
     private function isUnresolvedComponentPlaceholderText(array $node, string $characters): bool
     {
         $placeholder = strtolower(trim($characters));
-        if ( ! in_array($placeholder, array('button label'), true) ) {
+        if ( ! in_array($placeholder, array('button label', 'label'), true) ) {
             return false;
         }
         $id = (string) ($node['id'] ?? '');
@@ -710,25 +676,7 @@ final class VisualNodeMapBuilder
 
     private function cssTransformMatrixValues(?array $transform): ?array
     {
-        if ( null === $transform ) {
-            return null;
-        }
-        if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
-            if ( 0.00001 > abs((float) $transform['m00'] - 1.0) && 0.00001 > abs((float) $transform['m01']) && 0.00001 > abs((float) $transform['m10']) && 0.00001 > abs((float) $transform['m11'] - 1.0) ) {
-                return null;
-            }
-            $values = array($transform['m00'], $transform['m10'], $transform['m01'], $transform['m11'], 0, 0);
-        } elseif ( 2 === count($transform) && is_array($transform[0] ?? null) && is_array($transform[1] ?? null) ) {
-            $values = array($transform[0][0] ?? null, $transform[1][0] ?? null, $transform[0][1] ?? null, $transform[1][1] ?? null, $transform[0][2] ?? null, $transform[1][2] ?? null);
-        } else {
-            return null;
-        }
-        foreach ( $values as $value ) {
-            if ( ! is_numeric($value) ) {
-                return null;
-            }
-        }
-        return array_map(static fn (mixed $value): float => (float) $value, $values);
+        return $this->visualGeometryResolver->cssTransformMatrixValues($transform);
     }
 
     private function nodeList(array $container): array

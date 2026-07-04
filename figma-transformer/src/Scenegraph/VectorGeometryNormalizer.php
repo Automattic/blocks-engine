@@ -81,9 +81,10 @@ final class VectorGeometryNormalizer
                     'node_ids' => array(),
                     'blob_refs' => array(),
                     'blob_ref_seen' => array(),
+                    'risk_node_seen' => array(),
                 );
 
-                foreach ( array('geometry', 'blob_ref', 'byte_length', 'signature_hex', 'network_counts', 'single_region_loop_candidate', 'candidate_layout', 'candidate_vertex_points_sample', 'candidate_decoder_requirement') as $contextKey ) {
+                foreach ( array('geometry', 'blob_ref', 'byte_length', 'signature_hex', 'network_counts', 'vector_network_blob_kind', 'decoder_blocker', 'render_risk', 'single_region_loop_candidate', 'candidate_layout', 'candidate_vertex_points_sample', 'candidate_decoder_requirement') as $contextKey ) {
                     if ( array_key_exists($contextKey, $context) ) {
                         $groups[$key]['context'][$contextKey] = $context[$contextKey];
                     }
@@ -94,6 +95,19 @@ final class VectorGeometryNormalizer
             $nodeId = isset($context['node_id']) && is_scalar($context['node_id']) ? (string) $context['node_id'] : '';
             if ( '' !== $nodeId ) {
                 $groups[$key]['node_ids'][$nodeId] = true;
+            }
+            if ( isset($context['render_risk']) && is_scalar($context['render_risk']) ) {
+                $currentRisk = isset($groups[$key]['context']['render_risk']) && is_scalar($groups[$key]['context']['render_risk']) ? (string) $groups[$key]['context']['render_risk'] : 'low';
+                $nextRisk = (string) $context['render_risk'];
+                $rank = array('low' => 0, 'medium' => 1, 'high' => 2);
+                if ( ($rank[$nextRisk] ?? 0) > ($rank[$currentRisk] ?? 0) ) {
+                    $groups[$key]['context']['render_risk'] = $nextRisk;
+                }
+            }
+            $riskNodeId = is_array($context['render_risk_node'] ?? null) && isset($context['render_risk_node']['node_id']) && is_scalar($context['render_risk_node']['node_id']) ? (string) $context['render_risk_node']['node_id'] : '';
+            if ( '' !== $riskNodeId && ! isset($groups[$key]['risk_node_seen'][$riskNodeId]) && count($groups[$key]['context']['sample_render_risk_nodes'] ?? array()) < 10 ) {
+                $groups[$key]['context']['sample_render_risk_nodes'][] = $context['render_risk_node'];
+                $groups[$key]['risk_node_seen'][$riskNodeId] = true;
             }
             $blobRef = isset($context['blob_ref']) && is_scalar($context['blob_ref']) ? (string) $context['blob_ref'] : '';
             if ( '' !== $blobRef && ! isset($groups[$key]['blob_ref_seen'][$blobRef]) ) {
@@ -590,7 +604,7 @@ final class VectorGeometryNormalizer
             'severity' => 'warning',
             'code'     => 'unsupported_vector_network_blob',
             'message'  => 'Unsupported Figma vector network blob was omitted from SVG output.',
-            'context'  => array('node_id' => $nodeId, 'geometry' => 'vectorData.vectorNetworkBlob') + $this->vectorNetworkBlobDiagnosticContext($blobReference, $bytes),
+            'context'  => array('node_id' => $nodeId, 'geometry' => 'vectorData.vectorNetworkBlob') + $this->vectorNetworkBlobDiagnosticContext($blobReference, $bytes, $node),
         );
         return null;
     }
@@ -1051,7 +1065,7 @@ final class VectorGeometryNormalizer
     /**
      * @return array<string, mixed>
      */
-    private function vectorNetworkBlobDiagnosticContext(mixed $blobReference, string $bytes): array
+    private function vectorNetworkBlobDiagnosticContext(mixed $blobReference, string $bytes, ?array $node = null): array
     {
         $context = array(
             'blob_ref'      => is_scalar($blobReference) ? (string) $blobReference : null,
@@ -1062,10 +1076,156 @@ final class VectorGeometryNormalizer
         $counts = $this->vectorNetworkCounts($bytes);
         if ( null !== $counts ) {
             $context['network_counts'] = $counts;
+            $context['vector_network_blob_kind'] = $this->classifyVectorNetworkBlobKind($bytes, $counts);
+            $decoderBlocker = $this->vectorNetworkBlobDecoderBlocker($bytes, $counts);
+            if ( null !== $decoderBlocker ) {
+                $context['decoder_blocker'] = $decoderBlocker;
+            }
             $context += $this->vectorNetworkSingleRegionCandidateContext($bytes, $counts);
+        } else {
+            $context['vector_network_blob_kind'] = 'unknown_binary_blob';
+            $context['decoder_blocker'] = 'missing_vector_network_counts';
+        }
+
+        if ( null !== $node ) {
+            $context['render_risk'] = $this->unsupportedVectorNetworkRenderRisk($node);
+            $context['render_risk_node'] = $this->unsupportedVectorNetworkRenderRiskNode($node);
         }
 
         return $context;
+    }
+
+    /**
+     * @param array{0:int,1:int,2:int} $counts
+     */
+    private function classifyVectorNetworkBlobKind(string $bytes, array $counts): string
+    {
+        [$vertexCount, $segmentCount, $regionCount] = $counts;
+        $length = strlen($bytes);
+        if ( $vertexCount < 1 || $segmentCount < 0 || $regionCount < 0 ) {
+            return 'invalid_counts';
+        }
+        if ( $vertexCount === $segmentCount && 1 === $regionCount && $length === 24 + ( $vertexCount * 44 ) ) {
+            return 'single_region_equal_count_44_byte_loop';
+        }
+        if ( $length === 12 + ( $vertexCount * 20 ) + ( $segmentCount * 8 ) + ( $regionCount * 12 ) + ( $segmentCount * 8 ) ) {
+            return 'compact_segment_network';
+        }
+        if ( $length === 12 + ( $vertexCount * 20 ) + ( $segmentCount * 24 ) + ( $regionCount * 12 ) + ( $segmentCount * 8 ) ) {
+            return 'tangent_segment_network';
+        }
+        if ( 0 === $regionCount ) {
+            return 'regionless_network';
+        }
+
+        return 'unclassified_vector_network_blob';
+    }
+
+    /**
+     * @param array{0:int,1:int,2:int} $counts
+     */
+    private function vectorNetworkBlobDecoderBlocker(string $bytes, array $counts): ?string
+    {
+        [$vertexCount, $segmentCount, $regionCount] = $counts;
+        if ( $vertexCount < 2 || $segmentCount < 1 || $regionCount < 1 ) {
+            return 'insufficient_network_topology';
+        }
+
+        $vertexBytes = $vertexCount * 20;
+        if ( strlen($bytes) < 12 + $vertexBytes ) {
+            return 'truncated_vertex_table';
+        }
+
+        $segmentOffset = 12 + $vertexBytes;
+        foreach ( array(24, 16, 8) as $stride ) {
+            $regionOffset = $segmentOffset + ( $segmentCount * $stride );
+            if ( strlen($bytes) < $regionOffset ) {
+                continue;
+            }
+            $validSegmentTable = true;
+            for ( $index = 0; $index < $segmentCount; $index++ ) {
+                $base = $segmentOffset + ( $index * $stride );
+                $start = $this->readUint32($bytes, $base);
+                $end = $this->readUint32($bytes, 24 === $stride ? $base + 12 : $base + 4);
+                if ( null === $start || null === $end || $start < 0 || $start >= $vertexCount || $end < 0 || $end >= $vertexCount || $start === $end ) {
+                    $validSegmentTable = false;
+                    break;
+                }
+            }
+            if ( ! $validSegmentTable ) {
+                continue;
+            }
+
+            $entryCount = $this->readUint32($bytes, $regionOffset);
+            $rule = $this->readUint32($bytes, $regionOffset + 4);
+            if ( null === $entryCount || null === $rule || $entryCount < 1 || $entryCount > $segmentCount || ( 0 !== $rule && 1 !== $rule ) ) {
+                return 'region_header_not_valid_for_known_layout';
+            }
+
+            return 'region_entries_do_not_form_closed_loop';
+        }
+
+        return 'segment_endpoints_not_valid_for_known_layout';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function unsupportedVectorNetworkRenderRisk(array $node): string
+    {
+        $width = $this->rawNodeDimension($node, 'width');
+        $height = $this->rawNodeDimension($node, 'height');
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return 'low';
+        }
+        if ( ! empty($node['children']) && is_array($node['children']) ) {
+            return 'medium';
+        }
+
+        return $this->nodeHasVisiblePaint($node) ? 'high' : 'medium';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function unsupportedVectorNetworkRenderRiskNode(array $node): array
+    {
+        return array(
+            'node_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '',
+            'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '',
+            'type' => isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : '',
+            'width' => $this->rawNodeDimension($node, 'width'),
+            'height' => $this->rawNodeDimension($node, 'height'),
+            'painted' => $this->nodeHasVisiblePaint($node),
+            'has_children' => ! empty($node['children']) && is_array($node['children']),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeHasVisiblePaint(array $node): bool
+    {
+        foreach ( array('fillPaints', 'fills', 'strokePaints', 'strokes') as $paintKey ) {
+            if ( ! is_array($node[$paintKey] ?? null) ) {
+                continue;
+            }
+            foreach ( $node[$paintKey] as $paint ) {
+                if ( ! is_array($paint) ) {
+                    continue;
+                }
+                if ( false === ($paint['visible'] ?? true) ) {
+                    continue;
+                }
+                $opacity = isset($paint['opacity']) && is_numeric($paint['opacity']) ? (float) $paint['opacity'] : 1.0;
+                if ( $opacity > 0.0 ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

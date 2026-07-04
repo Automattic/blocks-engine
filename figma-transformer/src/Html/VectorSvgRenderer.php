@@ -13,6 +13,8 @@ final class VectorSvgRenderer
 {
     private const MAX_RAW_SVG_PATH_DATA_BYTES = 20000;
     private const MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES = 4194304;
+    private const VECTOR_PRIMITIVE_TYPES = array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'ROUNDED_RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON');
+    private const VECTOR_CONTAINER_TYPES = array('GROUP', 'FRAME', 'COMPONENT', 'INSTANCE');
 
     private Closure $nodeList;
     private Closure $number;
@@ -49,7 +51,7 @@ final class VectorSvgRenderer
             return $this->composedVectorGroupSvg($node, $type);
         }
 
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+        if ( ! in_array($type, self::VECTOR_PRIMITIVE_TYPES, true) ) {
             return null;
         }
 
@@ -60,18 +62,24 @@ final class VectorSvgRenderer
             }
         }
 
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
-        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
-        $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
-        if ( $width <= 0 || ( $height <= 0 && null === $zeroHeightVectorFallbackHeight ) ) {
+        $box = $this->vectorRenderBox($node, $type);
+        if ( $box['width'] <= 0.0 || null === $box['render_height'] ) {
             return null;
         }
-        $renderHeight = $height <= 0 && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : $height;
+        $width = $box['width'];
+        $height = $box['height'];
+        $renderHeight = $box['render_height'];
 
-        $elements = $this->vectorPathElements($node);
-        if ( empty($elements) && $height <= 0 && null !== $zeroHeightVectorFallbackHeight ) {
+        if ( ! $this->hasExplicitVectorSource($node) && ! empty($this->nodeImagePaints($node)) ) {
+            return null;
+        }
+
+        $elements = array();
+        if ( $height <= 0.0 ) {
             $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
+        if ( empty($elements) ) {
+            $elements = $this->vectorPathElements($node);
         }
         if ( empty($elements) ) {
             $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight, $parentNode);
@@ -82,8 +90,13 @@ final class VectorSvgRenderer
 
         $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $renderHeight);
         $pathBounds = $this->vectorPathBounds($node);
+        $allowSvgOverflow = false;
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
-            $viewBox = $pathBounds;
+            if ( $this->hasComponentCloneGeometry($node) && $this->pathBoundsFitVectorBox($pathBounds, $width, $renderHeight) ) {
+                $allowSvgOverflow = true;
+            } else {
+                $viewBox = $pathBounds;
+            }
         } elseif ( null !== $pathBounds && $this->vectorMayClipStrokeAtViewBoxEdge($node) && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
             $padding = 0.5;
             $viewBox = array(
@@ -103,6 +116,9 @@ final class VectorSvgRenderer
             'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $type)) . '"',
             'data-figma-vector="true"',
         );
+        if ( $allowSvgOverflow ) {
+            $attributes[] = 'overflow="visible"';
+        }
 
         $body = implode('', $elements);
         $scale = is_array($node['figma_vector_scale'] ?? null) ? $node['figma_vector_scale'] : array();
@@ -179,10 +195,10 @@ final class VectorSvgRenderer
                 continue;
             }
             $type = strtoupper((string) ($child['type'] ?? ''));
-            if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            if ( in_array($type, self::VECTOR_PRIMITIVE_TYPES, true) ) {
                 continue;
             }
-            if ( 'GROUP' === $type && $this->isVectorOnlyContainer($child) ) {
+            if ( in_array($type, self::VECTOR_CONTAINER_TYPES, true) && $this->isVectorOnlyContainer($child) ) {
                 continue;
             }
 
@@ -204,7 +220,7 @@ final class VectorSvgRenderer
             }
 
             $childType = strtoupper((string) ($child['type'] ?? ''));
-            if ( 'GROUP' === $childType ) {
+            if ( in_array($childType, self::VECTOR_CONTAINER_TYPES, true) ) {
                 $body .= $this->composedVectorGroupBody(array_values(array_filter($this->nodeList($child), 'is_array')), $originX, $originY);
                 continue;
             }
@@ -241,17 +257,20 @@ final class VectorSvgRenderer
             }
         }
 
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
-        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
-        $renderHeight = $height <= 0.0 ? $this->zeroHeightVectorFallbackHeight($node, $type) : $height;
-        if ( $width <= 0.0 || null === $renderHeight || $renderHeight <= 0.0 ) {
+        $box = $this->vectorRenderBox($node, $type);
+        if ( $box['width'] <= 0.0 || null === $box['render_height'] || $box['render_height'] <= 0.0 ) {
             return array();
         }
+        $width = $box['width'];
+        $height = $box['height'];
+        $renderHeight = $box['render_height'];
 
-        $elements = $this->vectorPathElements($node);
-        if ( empty($elements) && $height <= 0.0 ) {
+        $elements = array();
+        if ( $height <= 0.0 ) {
             $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
+        if ( empty($elements) ) {
+            $elements = $this->vectorPathElements($node);
         }
         if ( empty($elements) ) {
             $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight);
@@ -266,15 +285,15 @@ final class VectorSvgRenderer
      */
     public function vectorPlaceholderDiagnostic(array $node, string $type, ?array $parentNode = null): array
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
-        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        $box = $this->vectorRenderBox($node, $type);
+        $width = $box['width'];
+        $height = $box['height'];
         $sourceFields = $this->vectorSourceFieldNames($node);
         $rejectedPathSources = $this->rejectedVectorPathSourceDiagnostics($node);
         $missingFields = array();
         $reason = 'missing_vector_geometry';
 
-        if ( $width <= 0.0 || ( $height <= 0.0 && null === $this->zeroHeightVectorFallbackHeight($node, $type) ) ) {
+        if ( $width <= 0.0 || null === $box['render_height'] ) {
             $reason = 'missing_dimensions';
             if ( $width <= 0.0 ) {
                 $missingFields[] = 'box.width';
@@ -339,11 +358,28 @@ final class VectorSvgRenderer
         }
 
         $paint = $this->svgPaintAttributes($node);
-        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) ) {
+        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) || $this->hasVisibleCssVectorPaint($node) ) {
             return max(1.0, $this->strokeWeight($node));
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{width: float, height: float, render_height: float|null}
+     */
+    private function vectorRenderBox(array $node, string $type): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+
+        return array(
+            'width' => $width,
+            'height' => $height,
+            'render_height' => $height > 0.0 ? $height : $this->zeroHeightVectorFallbackHeight($node, $type),
+        );
     }
 
     /**
@@ -377,6 +413,33 @@ final class VectorSvgRenderer
     }
 
     /**
+     * @param array{x: float, y: float, width: float, height: float} $pathBounds
+     */
+    private function pathBoundsFitVectorBox(array $pathBounds, float $width, float $height): bool
+    {
+        return $pathBounds['width'] <= $width + 0.001 && $pathBounds['height'] <= $height + 0.001;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasComponentCloneGeometry(array $node): bool
+    {
+        if ( true === ($node['_component_source_clone_geometry'] ?? false) ) {
+            return true;
+        }
+
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( 'component_source_clone' === ($box['geometry_semantics'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function vectorMayClipStrokeAtViewBoxEdge(array $node): bool
@@ -390,28 +453,12 @@ final class VectorSvgRenderer
      */
     private function vectorPathBounds(array $node): ?array
     {
-        $paths = array();
-        if ( is_array($node['figma_vector_paths'] ?? null) ) {
-            $paths = array_merge($paths, $node['figma_vector_paths']);
-        }
-        foreach ( array('vectorPaths', 'paths') as $key ) {
-            if ( is_array($node[$key] ?? null) ) {
-                $paths = array_merge($paths, $node[$key]);
-            }
-        }
-        foreach ( array('pathData', 'path', 'd') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
-                $paths[] = array('data' => (string) $node[$key]);
-            }
-        }
-
         $minX = null;
         $minY = null;
         $maxX = null;
         $maxY = null;
-        foreach ( $paths as $rawPath ) {
-            $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
-            $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
+        foreach ( $this->rawVectorPathSources($node) as $rawPath ) {
+            $path = $this->safeSvgPathData($rawPath['data'], $this->svgPathDataByteLimit($rawPath['value']));
             if ( null === $path || ! preg_match_all('/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i', $path, $matches) ) {
                 continue;
             }
@@ -482,45 +529,30 @@ final class VectorSvgRenderer
      */
     private function nodeVectorPathData(array $node): array
     {
-        $rawPaths = array();
-        if ( is_array($node['figma_vector_paths'] ?? null) ) {
-            $rawPaths = array_merge($rawPaths, $node['figma_vector_paths']);
-        }
-        foreach ( array('vectorPaths', 'paths') as $key ) {
-            if ( is_array($node[$key] ?? null) ) {
-                $rawPaths = array_merge($rawPaths, $node[$key]);
-            }
-        }
-        foreach ( array('pathData', 'path', 'd') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
-                $rawPaths[] = array('data' => (string) $node[$key]);
-            }
-        }
-
         $paths = array();
-        foreach ( $rawPaths as $rawPath ) {
-            $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
-            $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
+        foreach ( $this->rawVectorPathSources($node) as $rawPath ) {
+            $path = $this->safeSvgPathData($rawPath['data'], $this->svgPathDataByteLimit($rawPath['value']));
             if ( null === $path ) {
                 continue;
             }
 
             $rule = null;
-            if ( is_array($rawPath) && isset($rawPath['windingRule']) && is_scalar($rawPath['windingRule']) ) {
-                $candidate = strtolower((string) $rawPath['windingRule']);
+            $value = $rawPath['value'];
+            if ( is_array($value) && isset($value['windingRule']) && is_scalar($value['windingRule']) ) {
+                $candidate = strtolower((string) $value['windingRule']);
                 if ( in_array($candidate, array('evenodd', 'nonzero'), true) ) {
                     $rule = $candidate;
                 }
             }
 
             $styleId = null;
-            if ( is_array($rawPath) && isset($rawPath['styleID']) && is_scalar($rawPath['styleID']) && '' !== trim((string) $rawPath['styleID']) ) {
-                $styleId = (string) $rawPath['styleID'];
+            if ( is_array($value) && isset($value['styleID']) && is_scalar($value['styleID']) && '' !== trim((string) $value['styleID']) ) {
+                $styleId = (string) $value['styleID'];
             }
 
             $source = null;
-            if ( is_array($rawPath) && isset($rawPath['source']) && is_scalar($rawPath['source']) && '' !== trim((string) $rawPath['source']) ) {
-                $source = (string) $rawPath['source'];
+            if ( is_array($value) && isset($value['source']) && is_scalar($value['source']) && '' !== trim((string) $value['source']) ) {
+                $source = (string) $value['source'];
             }
 
             $paths[] = array('d' => $path, 'windingRule' => $rule, 'styleID' => $styleId, 'source' => $source);
@@ -737,6 +769,21 @@ final class VectorSvgRenderer
             }
             return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
+        if ( in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE'), true) ) {
+            $roundedRectPath = $this->primitiveRoundedRectPath($node, $width, $height);
+            if ( null !== $roundedRectPath ) {
+                return array('<path d="' . $this->sanitizeAttribute($roundedRectPath) . '" ' . implode(' ', $paint) . '/>');
+            }
+
+            $attributes = array('x="0"', 'y="0"', 'width="' . $this->number($width) . '"', 'height="' . $this->number($height) . '"');
+            $radius = $this->cornerRadius($node, $width, $height);
+            if ( $radius > 0.0 ) {
+                $attributes[] = 'rx="' . $this->number($radius) . '"';
+                $attributes[] = 'ry="' . $this->number($radius) . '"';
+            }
+
+            return array('<rect ' . implode(' ', array_merge($attributes, $paint)) . '/>');
+        }
         if ( 'STAR' === $type ) {
             $path = $this->primitiveStarPath($width, $height);
             return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
@@ -776,11 +823,11 @@ final class VectorSvgRenderer
             return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
 
-        if ( 'LINE' === $type ) {
+        if ( 'LINE' === $type || $this->hasVisibleCssVectorPaint($node, 'strokes') ) {
             return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" fill="none" stroke="currentColor" stroke-width="' . $this->number($height) . '"/>');
         }
 
-        if ( $this->hasSvgFill($paint) ) {
+        if ( $this->hasSvgFill($paint) || $this->hasVisibleCssVectorPaint($node, 'fills') ) {
             return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
         }
 
@@ -912,32 +959,13 @@ final class VectorSvgRenderer
      */
     private function rejectedVectorPathSourceDiagnostics(array $node): array
     {
-        $rawPaths = array();
-        if ( is_array($node['figma_vector_paths'] ?? null) ) {
-            foreach ( $node['figma_vector_paths'] as $rawPath ) {
-                $rawPaths[] = array('field' => 'figma_vector_paths', 'value' => $rawPath);
-            }
-        }
-        foreach ( array('vectorPaths', 'paths') as $key ) {
-            if ( is_array($node[$key] ?? null) ) {
-                foreach ( $node[$key] as $rawPath ) {
-                    $rawPaths[] = array('field' => $key, 'value' => $rawPath);
-                }
-            }
-        }
-        foreach ( array('pathData', 'path', 'd') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
-                $rawPaths[] = array('field' => $key, 'value' => array('data' => (string) $node[$key]));
-            }
-        }
-
         $rejected = array();
-        foreach ( $rawPaths as $rawPath ) {
-            $value = $rawPath['value'];
-            $path = is_array($value) ? (string) ($value['data'] ?? $value['pathData'] ?? $value['path'] ?? $value['d'] ?? '') : (string) $value;
+        foreach ( $this->rawVectorPathSources($node) as $rawPath ) {
+            $path = $rawPath['data'];
             if ( '' === trim($path) ) {
                 continue;
             }
+            $value = $rawPath['value'];
             $limit = $this->svgPathDataByteLimit($value);
             if ( null !== $this->safeSvgPathData($path, $limit) ) {
                 continue;
@@ -958,6 +986,47 @@ final class VectorSvgRenderer
     }
 
     /**
+     * @param array<string, mixed> $node
+     * @return array<int, array{field: string, value: mixed, data: string}>
+     */
+    private function rawVectorPathSources(array $node): array
+    {
+        $rawPaths = array();
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
+            if ( ! is_array($node[$key] ?? null) ) {
+                continue;
+            }
+            foreach ( $node[$key] as $rawPath ) {
+                $value = is_array($rawPath) ? $rawPath : array('data' => $rawPath);
+                if ( in_array($key, array('fillGeometry', 'strokeGeometry'), true) && ! isset($value['source']) ) {
+                    $value['source'] = $key;
+                }
+                $rawPaths[] = array(
+                    'field' => $key,
+                    'value' => $value,
+                    'data' => $this->rawVectorPathData($value),
+                );
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $rawPaths[] = array(
+                    'field' => $key,
+                    'value' => array('data' => (string) $node[$key]),
+                    'data' => (string) $node[$key],
+                );
+            }
+        }
+
+        return $rawPaths;
+    }
+
+    private function rawVectorPathData(mixed $rawPath): string
+    {
+        return is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $rejectedPathSources
      */
     private function hasOversizedRejectedVectorPath(array $rejectedPathSources): bool
@@ -969,6 +1038,33 @@ final class VectorSvgRenderer
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function cornerRadius(array $node, float $width, float $height): float
+    {
+        foreach ( array('cornerRadius', 'radius') as $key ) {
+            if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+                return max(0.0, min((float) $node[$key], $width / 2, $height / 2));
+            }
+        }
+
+        $radii = is_array($node['rectangleCornerRadii'] ?? null) ? $node['rectangleCornerRadii'] : null;
+        if ( null === $radii ) {
+            $radii = is_array($node['cornerRadii'] ?? null) ? $node['cornerRadii'] : null;
+        }
+        if ( null === $radii ) {
+            return 0.0;
+        }
+
+        $numeric = array_values(array_filter($radii, 'is_numeric'));
+        if ( empty($numeric) ) {
+            return 0.0;
+        }
+
+        return max(0.0, min((float) min($numeric), $width / 2, $height / 2));
     }
 
     private function primitiveStarPath(float $width, float $height): string
@@ -1018,6 +1114,64 @@ final class VectorSvgRenderer
         }
 
         return 3;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function primitiveRoundedRectPath(array $node, float $width, float $height): ?string
+    {
+        $radii = is_array($node['rectangleCornerRadii'] ?? null) ? $node['rectangleCornerRadii'] : null;
+        if ( null === $radii ) {
+            $radii = is_array($node['cornerRadii'] ?? null) ? $node['cornerRadii'] : null;
+        }
+        if ( null === $radii ) {
+            $sourceRadii = array(
+                $node['topLeftRadius'] ?? $node['rectangleTopLeftCornerRadius'] ?? null,
+                $node['topRightRadius'] ?? $node['rectangleTopRightCornerRadius'] ?? null,
+                $node['bottomRightRadius'] ?? $node['rectangleBottomRightCornerRadius'] ?? null,
+                $node['bottomLeftRadius'] ?? $node['rectangleBottomLeftCornerRadius'] ?? null,
+            );
+            if ( array_filter($sourceRadii, 'is_numeric') ) {
+                $uniformRadius = isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ? (float) $node['cornerRadius'] : 0.0;
+                $radii = array_map(
+                    static fn (mixed $value): mixed => is_numeric($value) ? $value : $uniformRadius,
+                    $sourceRadii
+                );
+            }
+        }
+        if ( null === $radii ) {
+            return null;
+        }
+
+        $radii = array_values($radii);
+        if ( count($radii) < 4 ) {
+            return null;
+        }
+
+        $maxRadius = min($width / 2, $height / 2);
+        $topLeft = $this->cornerRadiusValue($radii[0], $maxRadius);
+        $topRight = $this->cornerRadiusValue($radii[1], $maxRadius);
+        $bottomRight = $this->cornerRadiusValue($radii[2], $maxRadius);
+        $bottomLeft = $this->cornerRadiusValue($radii[3], $maxRadius);
+        if ( abs($topLeft - $topRight) < 0.0001 && abs($topLeft - $bottomRight) < 0.0001 && abs($topLeft - $bottomLeft) < 0.0001 ) {
+            return null;
+        }
+
+        return 'M ' . $this->number($topLeft) . ' 0'
+            . ' L ' . $this->number($width - $topRight) . ' 0'
+            . ' Q ' . $this->number($width) . ' 0 ' . $this->number($width) . ' ' . $this->number($topRight)
+            . ' L ' . $this->number($width) . ' ' . $this->number($height - $bottomRight)
+            . ' Q ' . $this->number($width) . ' ' . $this->number($height) . ' ' . $this->number($width - $bottomRight) . ' ' . $this->number($height)
+            . ' L ' . $this->number($bottomLeft) . ' ' . $this->number($height)
+            . ' Q 0 ' . $this->number($height) . ' 0 ' . $this->number($height - $bottomLeft)
+            . ' L 0 ' . $this->number($topLeft)
+            . ' Q 0 0 ' . $this->number($topLeft) . ' 0 Z';
+    }
+
+    private function cornerRadiusValue(mixed $value, float $maxRadius): float
+    {
+        return is_numeric($value) ? max(0.0, min((float) $value, $maxRadius)) : 0.0;
     }
 
     private function safeSvgPathData(string $path, int $maxBytes = self::MAX_RAW_SVG_PATH_DATA_BYTES): ?string
@@ -1197,6 +1351,30 @@ final class VectorSvgRenderer
         foreach ( $attributes as $attribute ) {
             if ( str_starts_with($attribute, 'fill=') && 'fill="none"' !== $attribute ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasVisibleCssVectorPaint(array $node, ?string $collection = null): bool
+    {
+        $collections = null === $collection ? array('fills', 'strokes') : array($collection);
+        foreach ( $collections as $paintKey ) {
+            $paints = is_array($node['figma_paints'][$paintKey] ?? null) ? $node['figma_paints'][$paintKey] : array();
+            foreach ( $paints as $paint ) {
+                if ( ! is_array($paint) || false === ($paint['visible'] ?? true) ) {
+                    continue;
+                }
+                if ( isset($paint['opacity']) && is_numeric($paint['opacity']) && (float) $paint['opacity'] <= 0.0 ) {
+                    continue;
+                }
+                if ( in_array(($paint['type'] ?? null), array('SOLID', 'GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
+                    return true;
+                }
             }
         }
 

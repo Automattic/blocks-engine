@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
+use Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 /**
  * @param callable(bool, string): void $assert
@@ -52,8 +56,187 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualitySignalCodes = $artifactQualitySignalCodes($qualityDiagnosticsResult);
     $assert(! in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width-retired');
     $qualityCss = $fileContent($qualityDiagnosticsResult, 'style.css');
-    $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;height:1200px;'), 'quality-diagnostics-root-renders-fluid-full-bleed');
-    $assert(! str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-avoids-letterbox-max-width');
+    $qualityRootRule = blocks_engine_figma_transformer_contract_css_rule($qualityCss, '.figma-node-quality-root-desktop-fixed-root');
+    $assert(str_contains($qualityRootRule, 'width:100%') && ! str_contains($qualityRootRule, 'max-width:1440px'), 'quality-diagnostics-root-fills-viewport-without-implicit-canvas-cap');
+
+    $socialIconResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Social Icon Fixture',
+        'assets' => array(
+            'social-mask-image' => array('mime_type' => 'image/png', 'content' => 'social icon'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'social:page',
+                'type'     => 'FRAME',
+                'name'     => 'Home',
+                'width'    => 1440,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'       => 'social:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer',
+                        'width'    => 1440,
+                        'height'   => 160,
+                        'children' => array(
+                            array(
+                                'id'       => 'social:icons',
+                                'type'     => 'FRAME',
+                                'name'     => 'Social',
+                                'x'        => 1200,
+                                'y'        => 64,
+                                'width'    => 54,
+                                'height'   => 24,
+                                'children' => array(
+                                    array(
+                                        'id'       => 'social:facebook-object',
+                                        'type'     => 'FRAME',
+                                        'name'     => 'Object',
+                                        'width'    => 24,
+                                        'height'   => 24,
+                                        'children' => array(
+                                            array('id' => 'social:facebook-image', 'type' => 'RECTANGLE', 'name' => '001-facebook-logo', 'width' => 24, 'height' => 24, 'asset_id' => 'social-mask-image'),
+                                            array('id' => 'social:facebook-color', 'type' => 'RECTANGLE', 'name' => '001-facebook-logo', 'width' => 24, 'height' => 24, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $socialIconHtml = $fileContent($socialIconResult, 'index.html');
+    $socialIconCss = $fileContent($socialIconResult, 'style.css');
+    $assert(! str_contains($socialIconHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-social-facebook-image-001-facebook-logo'), 'social-icon-logo-name-does-not-create-implicit-home-route');
+    $assert(str_contains($socialIconCss, '.figma-node-social-facebook-color-001-facebook-logo{width:24px;height:24px;') && str_contains($socialIconCss, 'background:#ffffff') && str_contains($socialIconCss, 'mask-image:url("assets/social-mask-image'), 'social-icon-solid-overlay-uses-image-mask');
+
+    $zeroAreaScaffoldResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Area Scaffold Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'zero-scaffold:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array(
+                        'id'      => 'zero-scaffold:helper',
+                        'type'    => 'FRAME',
+                        'name'    => 'Invisible crop helper',
+                        'width'   => 120,
+                        'height'  => 0.0002,
+                        'opacity' => 0,
+                    ),
+                    array(
+                        'id'      => 'zero-scaffold:line',
+                        'type'    => 'VECTOR',
+                        'name'    => 'Vector separator',
+                        'width'   => 120,
+                        'height'  => 0,
+                        'pathData' => 'M0 0H120',
+                        'strokes' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $zeroAreaScaffoldHtml = $fileContent($zeroAreaScaffoldResult, 'index.html');
+    $zeroAreaScaffoldCss = $fileContent($zeroAreaScaffoldResult, 'style.css');
+    $assert(! str_contains($zeroAreaScaffoldHtml, 'data-figma-node-id="zero-scaffold:helper"'), 'invisible-zero-area-scaffold-suppressed-from-html');
+    $assert(! str_contains($zeroAreaScaffoldCss, '.figma-node-zero-scaffold-helper-invisible-crop-helper'), 'invisible-zero-area-scaffold-suppressed-from-css');
+    $assert(str_contains($zeroAreaScaffoldHtml, 'data-figma-node-id="zero-scaffold:line"'), 'zero-height-vector-line-still-renders');
+
+    $normalizer = new ScenegraphNormalizer();
+    $localVectorStack = $normalizer->normalize(array(
+        'nodes' => array(
+            array(
+                'id'       => 'local-vector-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'                 => 'local-vector-stack:timeline',
+                        'type'               => 'GROUP',
+                        'name'               => 'Timeline dots',
+                        'x'                  => 120,
+                        'y'                  => 64,
+                        'width'              => 20,
+                        'height'             => 120,
+                        'stackReverseZIndex' => true,
+                        'children'           => array(
+                            array('id' => 'local-vector-stack:track', 'type' => 'RECTANGLE', 'name' => 'Track', 'x' => 8, 'y' => 0, 'width' => 4, 'height' => 120),
+                            array('id' => 'local-vector-stack:dot', 'type' => 'ELLIPSE', 'name' => 'Dot', 'x' => 5, 'y' => 8, 'width' => 10, 'height' => 10),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $localTrackLayout = $localVectorStack['node_map']['local-vector-stack:track']['layout'] ?? array();
+    $localDotLayout = $localVectorStack['node_map']['local-vector-stack:dot']['layout'] ?? array();
+    $assert(! isset($localTrackLayout['z_index'], $localDotLayout['z_index']), 'local-vector-stack-reverse-z-index-does-not-override-freeform-source-order');
+
+    $layoutIntent = new LayoutIntentClassifier();
+    $trackNode = array(
+        'id'   => 'local-vector-stack:track',
+        'type' => 'ROUNDED_RECTANGLE',
+        'name' => 'Track',
+        'box'  => array('x' => 0, 'y' => 0, 'width' => 17, 'height' => 920, 'coordinate_space' => 'local'),
+        'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+    );
+    $dotNode = array(
+        'id'   => 'local-vector-stack:dot',
+        'type' => 'ELLIPSE',
+        'name' => 'Dot',
+        'box'  => array('x' => 4, 'y' => 7, 'width' => 10, 'height' => 10, 'coordinate_space' => 'local'),
+        'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0.8, 'g' => 0.88, 'b' => 0.53, 'a' => 1)))),
+    );
+    $localTimelineParent = array(
+        'id'       => 'local-vector-stack:timeline',
+        'type'     => 'GROUP',
+        'name'     => 'Timeline dots',
+        'box'      => array('x' => 177, 'y' => 1168, 'width' => 17, 'height' => 923, 'coordinate_space' => 'local'),
+        'children' => array($trackNode, $dotNode),
+    );
+    $trackStackPlan = $layoutIntent->stackingContextPlan($trackNode, $localTimelineParent);
+    $dotStackPlan = $layoutIntent->stackingContextPlan($dotNode, $localTimelineParent);
+    $assert(LayoutIntentClassifier::LAYER_ROLE_UNDERLAY === ($trackStackPlan['sibling_role'] ?? null), 'local-vector-track-classifies-as-decorative-underlay');
+    $assert(($dotStackPlan['z_index'] ?? null) > ($trackStackPlan['z_index'] ?? null), 'local-vector-marker-layers-above-track');
+
+    $autoLayoutStack = $normalizer->normalize(array(
+        'nodes' => array(
+            array(
+                'id'       => 'auto-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'                 => 'auto-stack:row',
+                        'type'               => 'FRAME',
+                        'name'               => 'Auto row',
+                        'width'              => 120,
+                        'height'             => 40,
+                        'layoutMode'         => 'HORIZONTAL',
+                        'stackReverseZIndex' => true,
+                        'children'           => array(
+                            array('id' => 'auto-stack:first', 'type' => 'RECTANGLE', 'name' => 'First', 'width' => 40, 'height' => 40),
+                            array('id' => 'auto-stack:second', 'type' => 'RECTANGLE', 'name' => 'Second', 'width' => 40, 'height' => 40),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $firstLayout = $autoLayoutStack['node_map']['auto-stack:first']['layout'] ?? array();
+    $secondLayout = $autoLayoutStack['node_map']['auto-stack:second']['layout'] ?? array();
+    $assert(2 === ($firstLayout['z_index'] ?? null) && 1 === ($secondLayout['z_index'] ?? null), 'auto-layout-stack-reverse-z-index-still-applies');
 
     $explicitMaxWidthResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Explicit Root Max Width Fixture',
@@ -109,9 +292,89 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fullWidthBandCss = $fileContent($fullWidthBandResult, 'style.css');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band{width:100%;height:520px;'), 'quality-diagnostics-full-width-band-renders-fluid');
-    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100%;height:520px;position:absolute;left:0px;top:0px'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-stays-full-width');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100vw;height:520px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-breaks-out-to-viewport');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
+
+    $responsiveFullBleedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Full Bleed Band Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-band:desktop',
+                'type'     => 'FRAME',
+                'name'     => 'Services Desktop',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'responsive-band:desktop-band', 'type' => 'RECTANGLE', 'name' => 'Section background band', 'x' => 0, 'y' => 320, 'width' => 1443, 'height' => 149, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'responsive-band:desktop-title', 'type' => 'TEXT', 'name' => 'Page title', 'characters' => 'Services', 'x' => 120, 'y' => 360, 'width' => 280, 'height' => 48, 'fontSize' => 36),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-band:mobile',
+                'type'     => 'FRAME',
+                'name'     => 'Services Mobile',
+                'width'    => 390,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'responsive-band:mobile-band', 'type' => 'RECTANGLE', 'name' => 'Section background band', 'x' => 0, 'y' => 260, 'width' => 390, 'height' => 149, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'responsive-band:mobile-title', 'type' => 'TEXT', 'name' => 'Page title', 'characters' => 'Services', 'x' => 24, 'y' => 300, 'width' => 180, 'height' => 42, 'fontSize' => 32),
+                ),
+            ),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-band:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'responsive-band:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsiveFullBleedBandCss = $fileContent($responsiveFullBleedBandResult, 'style.css');
+    $responsiveFullBleedBandMobileBlock = substr($responsiveFullBleedBandCss, strpos($responsiveFullBleedBandCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveFullBleedBandCss, '.figma-node-responsive-band-desktop-band-section-background-band', array('width:100vw', 'left:50%', 'margin-left:-50vw'), 'responsive-full-bleed-band-base-uses-viewport-breakout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveFullBleedBandMobileBlock, '.figma-node-responsive-band-desktop-band-section-background-band', array('width:100%', 'width:390px', 'left:0px', 'margin-left:0px'), 'responsive-full-bleed-band-mobile-keeps-viewport-breakout');
+
+    $responsiveShellResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Centered Shell Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-shell:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'layoutSizingHorizontal' => 'FILL',
+                'children' => array(
+                    array(
+                        'id'       => 'responsive-shell:band',
+                        'type'     => 'FRAME',
+                        'name'     => 'Full bleed band',
+                        'width'    => 1440,
+                        'height'   => 520,
+                        'layoutSizingHorizontal' => 'FILL',
+                        'layoutMode' => 'VERTICAL',
+                        'paddingLeft' => 135,
+                        'paddingRight' => 135,
+                        'children' => array(
+                            array('id' => 'responsive-shell:centered', 'type' => 'FRAME', 'name' => 'Centered content shell', 'x' => 135, 'y' => 16, 'width' => 1170, 'height' => 48),
+                            array('id' => 'responsive-shell:padded', 'type' => 'FRAME', 'name' => 'Padded content shell', 'x' => 0, 'y' => 88, 'width' => 1170, 'height' => 48),
+                            array('id' => 'responsive-shell:off-center', 'type' => 'FRAME', 'name' => 'Off center card', 'x' => 64, 'y' => 88, 'width' => 420, 'height' => 48),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $responsiveShellCss = $fileContent($responsiveShellResult, 'style.css');
+    $responsiveRootRule = blocks_engine_figma_transformer_contract_css_rule($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page');
+    $assert(str_contains($responsiveRootRule, 'width:100%') && ! str_contains($responsiveRootRule, 'max-width:1440px'), 'quality-diagnostics-responsive-shell-root-fills-viewport-without-implicit-canvas-cap');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;min-height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, 'padding-right:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-right-gutter');
+    $assert(str_contains($responsiveShellCss, 'padding-left:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-left-gutter');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-centered-centered-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-centered-flow-shell-renders-responsive-width');
+    $assert(str_contains($responsiveShellCss, 'margin-left:auto;margin-right:auto'), 'quality-diagnostics-centered-flow-shell-centers-with-auto-margins');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
 
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',
@@ -141,7 +404,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fluidManagedStackCss = $fileContent($fluidManagedStackResult, 'style.css');
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-managed-stack-renders-full-width');
-    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100%;height:195px;position:absolute;left:0px;top:-64px'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-stays-full-width');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100vw;height:195px;position:absolute;top:-64px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-breaks-out-to-viewport');
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-card-centered-card{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-managed-stack-centered-child-uses-canvas-center');
 
     $fluidInstanceStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -172,7 +435,266 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fluidInstanceStackCss = $fileContent($fluidInstanceStackResult, 'style.css');
     $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-instance-stack-renders-full-width');
-    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;min-height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
+
+    $sharedFooterComponent = array(
+        'id'       => 'shared-footer:component',
+        'type'     => 'COMPONENT',
+        'name'     => 'Footer',
+        'width'    => 1440,
+        'height'   => 483,
+        'children' => array(
+            array('id' => 'shared-footer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter Signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE'),
+            array('id' => 'shared-footer:bottom', 'type' => 'FRAME', 'name' => 'Frame 19', 'x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                array('id' => 'shared-footer:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Proudly powered by WordPress.com', 'width' => 281, 'height' => 26, 'fontSize' => 16),
+            )),
+        ),
+    );
+    $sharedFooterSemanticResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Shared Footer Semantic Fixture',
+        'nodes' => array(
+            $sharedFooterComponent,
+            array('id' => 'shared-footer:page-a', 'type' => 'FRAME', 'name' => 'Article Page Desktop', 'width' => 1440, 'height' => 900, 'layoutMode' => 'VERTICAL', 'children' => array(
+                array('id' => 'shared-footer:a-copy', 'type' => 'TEXT', 'name' => 'Body copy', 'characters' => 'Small body copy', 'width' => 320, 'height' => 20, 'fontSize' => 14),
+                array('id' => 'shared-footer:a-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'shared-footer:page-b', 'type' => 'FRAME', 'name' => 'Archive Page Desktop', 'width' => 1440, 'height' => 900, 'layoutMode' => 'VERTICAL', 'children' => array(
+                array('id' => 'shared-footer:b-copy', 'type' => 'TEXT', 'name' => 'Body copy', 'characters' => 'Regular body copy', 'width' => 320, 'height' => 24, 'fontSize' => 16),
+                array('id' => 'shared-footer:b-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('shared-footer:page-a', 'shared-footer:page-b')));
+    $sharedFooterHtml = $fileContent($sharedFooterSemanticResult, 'index.html') . $fileContent($sharedFooterSemanticResult, 'archive-page-desktop.html');
+    $assert(str_contains($sharedFooterHtml, '<p class="figma-node-shared-footer-a-footer-shared-footer-legal-footer-text'), 'shared-footer-legal-copy-page-a-stays-paragraph');
+    $assert(str_contains($sharedFooterHtml, '<p class="figma-node-shared-footer-b-footer-shared-footer-legal-footer-text'), 'shared-footer-legal-copy-page-b-stays-paragraph');
+    $assert(! str_contains($sharedFooterHtml, '<h6 class="figma-node-shared-footer-a-footer-shared-footer-legal-footer-text"') && ! str_contains($sharedFooterHtml, '<h6 class="figma-node-shared-footer-b-footer-shared-footer-legal-footer-text"'), 'shared-footer-legal-copy-not-page-relative-heading');
+
+    $responsiveFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Footer Shell Fixture',
+        'nodes' => array(
+            $sharedFooterComponent,
+            array('id' => 'responsive-footer:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'responsive-footer:desktop-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'responsive-footer:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'responsive-footer:mobile-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 390, 'height' => 483),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-footer:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'responsive-footer:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $responsiveFooterCss = $fileContent($responsiveFooterResult, 'style.css');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-footer{height:auto}'), 'responsive-footer-shell-safety-uses-component-structure');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:342px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{height:auto;position:relative;left:auto;top:auto;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
+
+    $geometryFooterComponent = array(
+        'id'       => 'geometry-footer:component',
+        'type'     => 'COMPONENT',
+        'name'     => 'Footer',
+        'width'    => 1440,
+        'height'   => 483,
+        'children' => array(
+            array('id' => 'geometry-footer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter Signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352),
+            array('id' => 'geometry-footer:bottom', 'type' => 'FRAME', 'name' => 'Frame 19', 'x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131, 'children' => array(
+                array('id' => 'geometry-footer:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+            )),
+        ),
+    );
+    $geometryResponsiveFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Geometry Responsive Footer Shell Fixture',
+        'nodes' => array(
+            $geometryFooterComponent,
+            array('id' => 'geometry-footer:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'geometry-footer:desktop-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'geometry-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'geometry-footer:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'geometry-footer:mobile-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'geometry-footer:component', 'width' => 390, 'height' => 483),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'geometry-footer:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'geometry-footer:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $geometryResponsiveFooterCss = $fileContent($geometryResponsiveFooterResult, 'style.css');
+    $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{width:100%;height:483px;min-height:483px;position:relative}'), 'geometry-responsive-footer-shell-preserves-freeform-reserved-height');
+    $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{height:auto}'), 'geometry-responsive-footer-shell-safety-uses-freeform-children');
+
+    $responsiveHeaderChromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Header Chrome Fixture',
+        'nodes' => array(
+            array('id' => 'chrome-header:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-header:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 127, 'children' => array(
+                    array('id' => 'chrome-header:desktop-row', 'type' => 'FRAME', 'name' => 'Header row', 'x' => 112, 'y' => 24, 'width' => 1216, 'height' => 79, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-header:desktop-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'width' => 96, 'height' => 24, 'fontSize' => 20),
+                        array('id' => 'chrome-header:desktop-nav', 'type' => 'FRAME', 'name' => 'Primary nav', 'width' => 420, 'height' => 24, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                            array('id' => 'chrome-header:desktop-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                            array('id' => 'chrome-header:desktop-nav-contact', 'type' => 'TEXT', 'name' => 'Contact link', 'characters' => 'Contact', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                        )),
+                    )),
+                )),
+            )),
+            array('id' => 'chrome-header:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-header:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 160, 'children' => array(
+                    array('id' => 'chrome-header:mobile-row', 'type' => 'FRAME', 'name' => 'Header row', 'x' => 24, 'y' => 24, 'width' => 342, 'height' => 112, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-header:mobile-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'width' => 96, 'height' => 24, 'fontSize' => 20),
+                        array('id' => 'chrome-header:mobile-nav', 'type' => 'FRAME', 'name' => 'Primary nav', 'width' => 210, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                            array('id' => 'chrome-header:mobile-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                            array('id' => 'chrome-header:mobile-nav-contact', 'type' => 'TEXT', 'name' => 'Contact link', 'characters' => 'Contact', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                        )),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'chrome-header:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'chrome-header:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $responsiveHeaderChromeCss = $fileContent($responsiveHeaderChromeResult, 'style.css');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{max-width:100%;height:auto;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;min-height:160px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row', array('left:24px', 'top:24px'), 'responsive-header-inner-preserves-matched-variant-geometry');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row', array('position:relative', 'left:auto', 'top:auto'), 'responsive-header-inner-skips-generic-flow-safety-with-matched-variant');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
+
+    $responsiveHeaderDuplicateKeyResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Header Duplicate Key Fixture',
+        'nodes' => array(
+            array('id' => 'chrome-leak:desktop', 'type' => 'FRAME', 'name' => 'Clinic Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-leak:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 112, 'children' => array(
+                    array('id' => 'chrome-leak:desktop-actions', 'source_id' => 'component:header-actions', 'type' => 'FRAME', 'name' => 'Actions', 'x' => 760, 'y' => 32, 'width' => 500, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-leak:desktop-actions-label', 'type' => 'TEXT', 'name' => 'Actions label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+            array('id' => 'chrome-leak:mobile', 'type' => 'FRAME', 'name' => 'Clinic Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'chrome-leak:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 144, 'children' => array(
+                    array('id' => 'chrome-leak:mobile-actions', 'type' => 'FRAME', 'name' => 'Actions', 'x' => 24, 'y' => 48, 'width' => 342, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'chrome-leak:mobile-actions-label', 'type' => 'TEXT', 'name' => 'Actions label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'chrome-leak:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'chrome-leak:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Clinic Page',
+    ));
+    $responsiveHeaderDuplicateKeyCss = $fileContent($responsiveHeaderDuplicateKeyResult, 'style.css');
+    $responsiveHeaderDuplicateKeyMobileBlock = substr($responsiveHeaderDuplicateKeyCss, strpos($responsiveHeaderDuplicateKeyCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveHeaderDuplicateKeyMobileBlock, '.figma-node-chrome-leak-desktop-actions-actions', array('width:calc(100% - 48px)', 'left:24px', 'top:48px'), 'responsive-header-duplicate-key-actions-preserves-matched-geometry');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveHeaderDuplicateKeyMobileBlock, '.figma-node-chrome-leak-desktop-actions-actions', array('position:relative', 'left:auto', 'top:auto', 'padding-top:24px'), 'responsive-header-duplicate-key-actions-skips-unmatched-source-flow-safety');
+
+    $responsiveMixedHeaderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Mixed Header Chrome Fixture',
+        'nodes' => array(
+            array('id' => 'mixed-header:desktop', 'type' => 'FRAME', 'name' => 'Clinic Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'mixed-header:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 112, 'children' => array(
+                    array('id' => 'mixed-header:desktop-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'x' => 112, 'y' => 32, 'width' => 120, 'height' => 24, 'fontSize' => 20),
+                    array('id' => 'mixed-header:desktop-nav', 'type' => 'FRAME', 'name' => 'Primary Navigation', 'x' => 760, 'y' => 32, 'width' => 420, 'height' => 24, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'mixed-header:desktop-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                        array('id' => 'mixed-header:desktop-nav-services', 'type' => 'TEXT', 'name' => 'Services link', 'characters' => 'Services', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                    array('id' => 'mixed-header:desktop-cta', 'type' => 'FRAME', 'name' => 'Book CTA', 'x' => 1210, 'y' => 22, 'width' => 118, 'height' => 44, 'children' => array(
+                        array('id' => 'mixed-header:desktop-cta-label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+            array('id' => 'mixed-header:mobile', 'type' => 'FRAME', 'name' => 'Clinic Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'mixed-header:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 196, 'children' => array(
+                    array('id' => 'mixed-header:mobile-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'x' => 24, 'y' => 24, 'width' => 120, 'height' => 24, 'fontSize' => 20),
+                    array('id' => 'mixed-header:mobile-nav', 'type' => 'FRAME', 'name' => 'Primary Navigation', 'x' => 24, 'y' => 72, 'width' => 342, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'mixed-header:mobile-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                        array('id' => 'mixed-header:mobile-nav-services', 'type' => 'TEXT', 'name' => 'Services link', 'characters' => 'Services', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                    array('id' => 'mixed-header:mobile-cta', 'type' => 'FRAME', 'name' => 'Book CTA', 'x' => 24, 'y' => 144, 'width' => 118, 'height' => 44, 'children' => array(
+                        array('id' => 'mixed-header:mobile-cta-label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'mixed-header:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'mixed-header:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Clinic Page',
+    ));
+    $responsiveMixedHeaderCss = $fileContent($responsiveMixedHeaderResult, 'style.css');
+    $responsiveMixedHeaderMobileBlock = substr($responsiveMixedHeaderCss, strpos($responsiveMixedHeaderCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-header-site-header', array('height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:196px'), 'responsive-header-mixed-absolute-flow-parent-becomes-flow-shell');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-logo-logo', array('left:24px', 'top:24px'), 'responsive-header-mixed-logo-preserves-matched-variant-position');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-nav-primary-navigation', array('left:24px', 'top:72px'), 'responsive-header-mixed-nav-preserves-matched-variant-position');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-cta-book-cta', array('left:24px', 'top:144px'), 'responsive-header-mixed-cta-preserves-matched-variant-position');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-logo-logo', array('position:relative', 'left:auto', 'right:auto', 'top:auto'), 'responsive-header-mixed-logo-skips-generic-flow-safety-with-matched-variant');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-nav-primary-navigation', array('position:relative', 'left:auto', 'top:auto'), 'responsive-header-mixed-nav-skips-generic-flow-safety-with-matched-variant');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-cta-book-cta', array('position:relative', 'left:auto', 'right:auto', 'top:auto'), 'responsive-header-mixed-cta-skips-generic-flow-safety-with-matched-variant');
+    $mixedHeaderNavMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-nav-primary-navigation');
+    $mixedHeaderCtaMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-cta-book-cta');
+    $assert(! str_contains($mixedHeaderNavMobileRule, 'left:760px') && ! str_contains($mixedHeaderCtaMobileRule, 'left:1210px'), 'responsive-header-mixed-no-desktop-left-overflow-at-mobile');
+
+    $rootAbsoluteChromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Root Absolute Chrome Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'root-chrome:page',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 1200,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array('id' => 'root-chrome:header', 'type' => 'FRAME', 'name' => 'Site header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 96, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'root-chrome:hero', 'type' => 'GROUP', 'name' => 'Clipped hero group', 'x' => 0, 'y' => 96, 'width' => 1440, 'height' => 640, 'layoutPositioning' => 'ABSOLUTE', 'clipsContent' => true),
+                ),
+            ),
+        ),
+    ));
+    $rootAbsoluteChromeCss = $fileContent($rootAbsoluteChromeResult, 'style.css');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-header-site-header{width:100vw;height:96px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-header-breaks-out-to-viewport');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-hero-clipped-hero-group{width:100vw;height:640px;overflow:hidden;position:absolute;top:96px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-clipped-hero-breaks-out-to-viewport');
+
+    $fixedSocialFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fixed Social Footer Breakpoint Fixture',
+        'nodes' => array(
+            array('id' => 'fixed-social:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'fixed-social:desktop-footer', 'type' => 'FRAME', 'name' => 'Footer', 'x' => 0, 'y' => 650, 'width' => 1440, 'height' => 251, 'children' => array(
+                    array('id' => 'fixed-social:desktop-social', 'type' => 'FRAME', 'name' => 'Social', 'x' => 1345, 'y' => 91, 'width' => 54, 'height' => 23, 'children' => array(
+                        array('id' => 'fixed-social:desktop-facebook', 'type' => 'RECTANGLE', 'name' => 'Facebook logo', 'x' => 0, 'y' => 0, 'width' => 23, 'height' => 23),
+                        array('id' => 'fixed-social:desktop-instagram', 'type' => 'RECTANGLE', 'name' => 'Instagram logo', 'x' => 31, 'y' => 0, 'width' => 23, 'height' => 23),
+                    )),
+                )),
+            )),
+            array('id' => 'fixed-social:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'fixed-social:mobile-footer', 'type' => 'FRAME', 'name' => 'Footer', 'x' => 0, 'y' => 430, 'width' => 390, 'height' => 469, 'children' => array(
+                    array('id' => 'fixed-social:mobile-social', 'type' => 'FRAME', 'name' => 'Social', 'x' => 24, 'y' => 312, 'width' => 54, 'height' => 23, 'children' => array(
+                        array('id' => 'fixed-social:mobile-facebook', 'type' => 'RECTANGLE', 'name' => 'Facebook logo', 'x' => 0, 'y' => 0, 'width' => 23, 'height' => 23),
+                        array('id' => 'fixed-social:mobile-instagram', 'type' => 'RECTANGLE', 'name' => 'Instagram logo', 'x' => 31, 'y' => 0, 'width' => 23, 'height' => 23),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'fixed-social:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'fixed-social:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $fixedSocialFooterCss = $fileContent($fixedSocialFooterResult, 'style.css');
+    $assert(str_contains($fixedSocialFooterCss, '.figma-node-fixed-social-desktop-social-social{left:24px;top:312px}'), 'fixed-social-footer-breakpoint-moves-fixed-width-icon-row');
+    $assert(! str_contains($fixedSocialFooterCss, '.figma-node-fixed-social-desktop-social-social{width:calc(100% - 336px)'), 'fixed-social-footer-breakpoint-keeps-fixed-icon-row-width');
 
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
@@ -193,6 +715,41 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('figma-node-quality-offcanvas-off-canvas-promo' === ($visualOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-class');
     $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
     $assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
+    $artifactAnalyzer = new ReflectionMethod(StaticHtmlEmitter::class, 'htmlArtifactDiagnostics');
+    $sparseCanvasHtml = '<!doctype html><html><body>' . str_repeat('<div class="figma-node-layer"></div>', 90) . '<svg viewBox="0 0 1 1">' . str_repeat('<path d="M0 0L1 1"/>', 3000) . '</svg></body></html>';
+    $responsiveLeakCss = '.figma-node-card{position:absolute;left:1200px;top:0px;width:1440px}@media (max-width:390px){.figma-node-card{position:relative;left:auto;top:auto;width:1440px}.figma-node-shell{max-width:1440px}}';
+    $htmlArtifactDiagnostics = $artifactAnalyzer->invoke(new StaticHtmlEmitter(), $sparseCanvasHtml, $responsiveLeakCss);
+    $assert(true === ($htmlArtifactDiagnostics['canvas_like_dom'] ?? null), 'quality-diagnostics-html-canvas-like-dom');
+    $assert(true === ($htmlArtifactDiagnostics['semantic_sparsity'] ?? null), 'quality-diagnostics-html-semantic-sparsity');
+    $assert(true === ($htmlArtifactDiagnostics['overlarge_inline_svg_ratio'] ?? null), 'quality-diagnostics-html-overlarge-inline-svg-ratio');
+    $assert(2 === ($htmlArtifactDiagnostics['breakpoint_override_leak_count'] ?? null), 'quality-diagnostics-html-breakpoint-override-leaks');
+    $assert(1 === ($htmlArtifactDiagnostics['absolute_to_flow_conversion_count'] ?? null), 'quality-diagnostics-html-absolute-to-flow-conversion');
+    $htmlArtifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), $htmlArtifactDiagnostics, array(
+        'samples' => array(
+            array(
+                'class' => 'figma-node-card',
+                'reason_code' => 'responsive_generic_mobile_safety',
+                'node_id' => 'quality:card',
+                'evidence' => array(
+                    'source' => 'class_safety_fallback',
+                    'matched_breakpoint_geometry' => false,
+                    'absolute_to_flow_conversion' => true,
+                ),
+                'count' => 1,
+            ),
+        ),
+    ));
+    $htmlArtifactSignalCodes = array_values(array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $htmlArtifactQuality['signals'] ?? array()));
+    $assert(in_array('canvas_like_dom', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-canvas-like-signal');
+    $assert(in_array('semantic_sparsity', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-semantic-sparsity-signal');
+    $assert(in_array('overlarge_inline_svg_ratio', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-inline-svg-ratio-signal');
+    $assert(in_array('breakpoint_override_leak', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-breakpoint-leak-signal');
+    $assert(in_array('suspicious_absolute_to_flow_conversion', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-absolute-to-flow-signal');
+    $absoluteToFlowSignal = $artifactQualitySignal(array('source_reports' => array('figma' => array('html' => array('transform_diagnostics' => array('artifact_quality' => $htmlArtifactQuality))))), 'suspicious_absolute_to_flow_conversion');
+    $assert(1 === ($absoluteToFlowSignal['decision_trace_source_counts']['class_safety_fallback'] ?? null), 'quality-diagnostics-html-absolute-to-flow-source-count');
+    $assert('class_safety_fallback' === ($absoluteToFlowSignal['sample_rules'][0]['decision_trace']['source'] ?? null), 'quality-diagnostics-html-absolute-to-flow-sample-source');
+    $assert(false === ($absoluteToFlowSignal['sample_rules'][0]['decision_trace']['matched_breakpoint_geometry'] ?? null), 'quality-diagnostics-html-absolute-to-flow-sample-matched-geometry');
+    $assert('warn' === ($htmlArtifactQuality['quality_status'] ?? null), 'quality-diagnostics-html-quality-status-warn');
     $qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
     $excessiveImageSignal = null;
     foreach ( is_array($qualitySignals) ? $qualitySignals : array() as $signal ) {
@@ -745,7 +1302,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'height'   => 320,
                 'children' => array(
                     array('id' => 'incomplete:image', 'type' => 'RECTANGLE', 'name' => 'Missing hero asset', 'width' => 320, 'height' => 180, 'asset_id' => 'missing-hero'),
-                    array('id' => 'incomplete:vector', 'type' => 'VECTOR', 'name' => 'Unsupported logo mark'),
+                    array('id' => 'incomplete:vector', 'type' => 'VECTOR', 'name' => 'Unsupported logo mark', 'width' => 24, 'height' => 24),
                 ),
             ),
         ),
@@ -815,7 +1372,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
     $assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
     $assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'offset-page-root-shell-is-fluid');
-    $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;height:900px;position:relative}'), 'offset-page-root-renders-fluid-full-bleed');
+    $offsetPageRule = blocks_engine_figma_transformer_contract_css_rule($offsetPageCss, '.figma-node-frame-selected-selected-website-page');
+    $assert(str_contains($offsetPageRule, 'width:100%') && ! str_contains($offsetPageRule, 'max-width:1440px'), 'offset-page-root-fills-viewport-without-implicit-canvas-cap');
     $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
     $assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');
 }
@@ -955,11 +1513,19 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     };
     $responsiveHomePage = $responsivePageByFrame($responsivePagePlan, 'frame:home-desktop');
     $responsiveAboutPage = $responsivePageByFrame($responsivePagePlan, 'frame:about-desktop');
+    $responsiveSourceFrameEvidence = is_array($responsivePagePlan['source_frame_evidence'] ?? null) ? $responsivePagePlan['source_frame_evidence'] : array();
     $assert(4 === ($responsivePagePlan['candidate_count'] ?? null), 'page-plan-responsive-candidate-count');
     $assert(2 === ($responsivePagePlan['page_count'] ?? null), 'page-plan-responsive-collapses-to-two-pages');
+    $assert('blocks-engine/figma-transformer/source-frame-evidence/v1' === ($responsiveSourceFrameEvidence['schema'] ?? null), 'page-plan-source-frame-evidence-schema');
+    $responsiveEvidencePrimaryIds = is_array($responsiveSourceFrameEvidence['emitted_primary_frame_ids'] ?? null) ? $responsiveSourceFrameEvidence['emitted_primary_frame_ids'] : array();
+    sort($responsiveEvidencePrimaryIds);
+    $assert(array('frame:about-desktop', 'frame:home-desktop') === $responsiveEvidencePrimaryIds, 'page-plan-source-frame-evidence-primary-ids');
     $assert(null !== $responsiveHomePage, 'page-plan-responsive-home-primary-is-desktop');
     $assert(true === ($responsiveHomePage['responsive'] ?? null), 'page-plan-responsive-home-flagged-responsive');
     $assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
+    $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['selected_frame_id'] ?? null), 'page-plan-source-frame-identity-selected-frame');
+    $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['primary_frame_id'] ?? null), 'page-plan-source-frame-identity-primary-frame');
+    $assert(array('frame:home-tablet', 'frame:home-mobile') === ($responsiveHomePage['source_frame_identity']['variant_sibling_frame_ids'] ?? null), 'page-plan-source-frame-identity-variant-siblings');
     // A responsive page's slug reflects the PAGE, not its widest variant: the
     // breakpoint token ("Desktop") is stripped so desktop+mobile collapse to one
     // stable slug.
@@ -973,6 +1539,10 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         && false === ($responsiveHomePage['variants'][2]['primary'] ?? null), 'page-plan-responsive-only-widest-is-primary');
     $assert(1440.0 === ($responsiveHomePage['variants'][0]['viewport_width'] ?? null)
         && 390.0 === ($responsiveHomePage['variants'][2]['viewport_width'] ?? null), 'page-plan-responsive-variant-viewport-widths');
+    $assert(array('home-page', 'home-page', 'home-page')
+        === array_map(static fn (array $variant): string => (string) ($variant['responsive_identity'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variant-identity-evidence-strips-breakpoint-qualifiers');
+    $assert(array('section:responsive:home-page', 'section:responsive:home-page', 'section:responsive:home-page')
+        === array_map(static fn (array $variant): string => (string) ($variant['sibling_group_key'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variant-sibling-group-evidence');
     $assert(null !== $responsiveAboutPage, 'page-plan-responsive-about-stays-its-own-page');
     $assert(false === ($responsiveAboutPage['responsive'] ?? null) && 1 === ($responsiveAboutPage['breakpoint_count'] ?? null), 'page-plan-non-responsive-frame-single-variant');
     $assert(1 === count($responsiveAboutPage['variants'] ?? array()) && 'frame:about-desktop' === ($responsiveAboutPage['variants'][0]['frame_id'] ?? null), 'page-plan-non-responsive-frame-self-variant');
@@ -1003,17 +1573,47 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
             'background' => $background,
         );
     };
+    $responsiveEmitCardFrame = static function (string $id, string $name, float $width, float $height, string $label): array {
+        return array(
+            'id'       => $id,
+            'type'     => 'FRAME',
+            'name'     => $name,
+            'box'      => array('width' => $width, 'height' => $height),
+            'layout'   => array('display' => 'flex', 'flex_direction' => 'column', 'item_spacing' => 12.0),
+            'children' => array(
+                array('id' => $id . ':image', 'type' => 'RECTANGLE', 'name' => 'Card image', 'box' => array('width' => max(1.0, $width - 32.0), 'height' => 180.0), 'background' => '#d2d3d4'),
+                array('id' => $id . ':copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => $label, 'box' => array('width' => max(1.0, $width - 32.0), 'height' => 24.0), 'fontSize' => 16),
+            ),
+        );
+    };
+    $responsiveEmitCardRow = static function (string $id, string $name, float $width, float $height, string $direction) use ($responsiveEmitCardFrame): array {
+        return array(
+            'id'       => $id,
+            'type'     => 'FRAME',
+            'name'     => $name,
+            'box'      => array('width' => $width, 'height' => $height),
+            'layout'   => array('display' => 'flex', 'flex_direction' => $direction, 'item_spacing' => 20.0),
+            'children' => array(
+                $responsiveEmitCardFrame($id . ':card-a', 'Article card', 'row' === $direction ? 360.0 : $width, 'row' === $direction ? 280.0 : 360.0, 'First responsive card'),
+                $responsiveEmitCardFrame($id . ':card-b', 'Article card', 'row' === $direction ? 360.0 : $width, 'row' === $direction ? 280.0 : 360.0, 'Second responsive card'),
+                array('id' => $id . ':decor', 'type' => 'RECTANGLE', 'name' => 'Absolute decorative rail', 'box' => array('x' => 0.0, 'y' => 0.0, 'width' => 24.0, 'height' => $height), 'layout' => array('positioning' => 'absolute'), 'background' => '#ffcf00'),
+            ),
+        );
+    };
     $responsiveEmitScenegraph = array(
         'name'  => 'Responsive Emission Site',
         'nodes' => array(
             $responsiveEmitFrame('frame:home-desktop', 'Home Desktop', 1440.0, 3000.0, array(
                 $responsiveEmitCard('card:desktop', 'Hero Card', 1200.0, 400.0, '#ff0000'),
+                $responsiveEmitCardRow('cards:desktop', 'Article cards', 760.0, 320.0, 'row'),
             )),
             $responsiveEmitFrame('frame:home-tablet', 'Home Tablet', 834.0, 3000.0, array(
                 $responsiveEmitCard('card:tablet', 'Hero Card', 700.0, 400.0, '#ff0000'),
+                $responsiveEmitCardRow('cards:tablet', 'Article cards', 700.0, 320.0, 'row'),
             )),
             $responsiveEmitFrame('frame:home-mobile', 'Home Mobile', 390.0, 3200.0, array(
                 $responsiveEmitCard('card:mobile', 'Hero Card', 350.0, 500.0, '#00ff00'),
+                $responsiveEmitCardRow('cards:mobile', 'Article cards', 350.0, 900.0, 'column'),
             )),
             $responsiveEmitFrame('frame:about', 'About', 1440.0, 2000.0, array(
                 $responsiveEmitCard('card:about', 'About Card', 1100.0, 300.0, '#0000ff'),
@@ -1074,12 +1674,288 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(strpos($responsiveEmitCss, '@media (max-width:1137px)') < strpos($responsiveEmitCss, '@media (max-width:612px)'), 'responsive-emit-cascade-widest-first');
     // Media blocks override on the BASE class names, carrying only changed props.
     $responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:1137px)'), strpos($responsiveEmitCss, '@media (max-width:612px)') - strpos($responsiveEmitCss, '@media (max-width:1137px)'));
-    $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:700px}'), 'responsive-emit-tablet-card-width-diff-only');
+    $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 134px);max-width:1200px}'), 'responsive-emit-tablet-card-width-diff-only');
     $assert(! str_contains($responsiveEmitTabletBlock, 'background:'), 'responsive-emit-tablet-omits-unchanged-background');
     $responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:612px)'));
-    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{height:3200px}'), 'responsive-emit-mobile-root-keeps-fluid-width');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 40px);max-width:1200px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;margin-left:auto;margin-right:auto;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height-centered');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-article-card{width:100%;height:auto}'), 'responsive-emit-mobile-card-frame-fluid-auto-height');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-image-card-image{width:calc(100% - 32px);max-width:328px;left:16px;right:auto}'), 'responsive-emit-mobile-card-image-fluid-width');
+    $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
+    $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
+    $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
     // The single-variant About page contributes NO media override for its nodes.
     $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
+
+    $responsiveMismatchScenegraph = array(
+        'name'  => 'Responsive Mismatched Mobile Site',
+        'nodes' => array(
+            $responsiveEmitFrame('mismatch:desktop', 'Mismatch Desktop', 1440.0, 1800.0, array(
+                array(
+                    'id'       => 'mismatch:desktop:shell',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content shell',
+                    'box'      => array('width' => 1180.0, 'height' => 420.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'item_spacing' => 24.0, 'padding' => array('top' => 48.0, 'right' => 48.0, 'bottom' => 48.0, 'left' => 48.0)),
+                    'children' => array(
+                        array('id' => 'mismatch:desktop:card-a', 'type' => 'FRAME', 'name' => 'Feature card A', 'box' => array('width' => 360.0, 'height' => 260.0), 'children' => array(
+                            array('id' => 'mismatch:desktop:card-a-copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => 'Desktop card A', 'box' => array('width' => 260.0, 'height' => 24.0), 'fontSize' => 16),
+                        )),
+                        array('id' => 'mismatch:desktop:card-b', 'type' => 'FRAME', 'name' => 'Feature card B', 'box' => array('width' => 360.0, 'height' => 260.0), 'children' => array(
+                            array('id' => 'mismatch:desktop:card-b-copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => 'Desktop card B', 'box' => array('width' => 260.0, 'height' => 24.0), 'fontSize' => 16),
+                        )),
+                    ),
+                ),
+                array(
+                    'id'       => 'mismatch:desktop:absolute-card',
+                    'type'     => 'FRAME',
+                    'name'     => 'Floating promo card',
+                    'box'      => array('x' => 112.0, 'y' => 520.0, 'width' => 980.0, 'height' => 240.0),
+                    'layout'   => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row'),
+                    'children' => array(
+                        array('id' => 'mismatch:desktop:absolute-inner', 'type' => 'FRAME', 'name' => 'Promo inner', 'box' => array('width' => 420.0, 'height' => 120.0)),
+                    ),
+                ),
+            )),
+            $responsiveEmitFrame('mismatch:mobile', 'Mismatch Mobile', 390.0, 2200.0, array(
+                array(
+                    'id'       => 'mismatch:mobile:renamed-stack',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile stack',
+                    'box'      => array('width' => 342.0, 'height' => 720.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'column', 'item_spacing' => 20.0, 'padding' => array('top' => 24.0, 'right' => 24.0, 'bottom' => 24.0, 'left' => 24.0)),
+                    'children' => array(
+                        array('id' => 'mismatch:mobile:renamed-card-one', 'type' => 'FRAME', 'name' => 'Mobile feature one', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                        array('id' => 'mismatch:mobile:renamed-card-two', 'type' => 'FRAME', 'name' => 'Mobile feature two', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                    ),
+                ),
+                array(
+                    'id'       => 'mismatch:mobile:renamed-promo',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile promo',
+                    'box'      => array('x' => 24.0, 'y' => 780.0, 'width' => 342.0, 'height' => 280.0),
+                    'layout'   => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'column'),
+                    'children' => array(
+                        array('id' => 'mismatch:mobile:promo-inner', 'type' => 'FRAME', 'name' => 'Promo inner mobile', 'box' => array('width' => 294.0, 'height' => 180.0)),
+                    ),
+                ),
+            )),
+        ),
+    );
+    $responsiveMismatchResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveMismatchScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'mismatch:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'mismatch:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+                    array('frame_id' => 'mismatch:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false, 'order' => 1),
+                ),
+            ),
+        ),
+    ));
+    $responsiveMismatchCss = '';
+    foreach ( $responsiveMismatchResult['files'] ?? array() as $responsiveMismatchFile ) {
+        if ( is_array($responsiveMismatchFile) && 'style.css' === ($responsiveMismatchFile['path'] ?? null) ) {
+            $responsiveMismatchCss = (string) ($responsiveMismatchFile['content'] ?? '');
+        }
+    }
+    $responsiveMismatchMobileBlock = substr($responsiveMismatchCss, strpos($responsiveMismatchCss, '@media'));
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-shell-content-shell{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px}'), 'responsive-emit-mobile-generic-mismatched-row-stacks-and-clamps-padding');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
+    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
+
+    $responsiveHeroGeometryScenegraph = array(
+        'name'  => 'Responsive Hero Geometry Site',
+        'nodes' => array(
+            $responsiveEmitFrame('dr-geometry:desktop', 'Dr Aarti Desktop', 1440.0, 900.0, array(
+                array(
+                    'id'     => 'dr-geometry:desktop-headline',
+                    'type'   => 'TEXT',
+                    'name'   => 'Hero headline',
+                    'box'    => array('x' => 165.0, 'y' => 176.0, 'width' => 563.0, 'height' => 168.0),
+                    'layout' => array('positioning' => 'absolute', 'constraints' => array('horizontal' => 'CENTER')),
+                    'characters' => 'Doctor-led skin treatments tailored to you',
+                    'fontSize' => 56,
+                ),
+            )),
+            $responsiveEmitFrame('dr-geometry:mobile', 'Dr Aarti Mobile', 390.0, 960.0, array(
+                array(
+                    'id'     => 'dr-geometry:mobile-headline',
+                    'type'   => 'TEXT',
+                    'name'   => 'Hero headline',
+                    'box'    => array('x' => 24.0, 'y' => 144.0, 'width' => 342.0, 'height' => 132.0),
+                    'layout' => array('positioning' => 'absolute'),
+                    'characters' => 'Doctor-led skin treatments tailored to you',
+                    'fontSize' => 38,
+                ),
+            )),
+        ),
+    );
+    $responsiveHeroGeometryResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveHeroGeometryScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'dr-geometry:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'dr-geometry:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'dr-geometry:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveHeroGeometryCss = '';
+    foreach ( $responsiveHeroGeometryResult['files'] ?? array() as $responsiveHeroGeometryFile ) {
+        if ( is_array($responsiveHeroGeometryFile) && 'style.css' === ($responsiveHeroGeometryFile['path'] ?? null) ) {
+            $responsiveHeroGeometryCss = (string) ($responsiveHeroGeometryFile['content'] ?? '');
+        }
+    }
+    $responsiveHeroGeometryBaseRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroGeometryCss, '.figma-node-dr-geometry-desktop-headline-hero-headline');
+    $responsiveHeroGeometryMobileBlock = substr($responsiveHeroGeometryCss, strpos($responsiveHeroGeometryCss, '@media'));
+    $responsiveHeroGeometryMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroGeometryMobileBlock, '.figma-node-dr-geometry-desktop-headline-hero-headline');
+    $assert(str_contains($responsiveHeroGeometryBaseRule, 'left:calc(50% - 555px)'), 'responsive-emit-hero-text-base-keeps-desktop-centered-canvas-left');
+    $assert(str_contains($responsiveHeroGeometryMobileRule, 'width:calc(100% - 48px)') && str_contains($responsiveHeroGeometryMobileRule, 'left:24px'), 'responsive-emit-hero-text-mobile-matched-geometry-safe');
+    $responsiveHeroGeometryComputedMobileX = str_contains($responsiveHeroGeometryMobileRule, 'left:24px') ? 24.0 : -360.0;
+    $assert($responsiveHeroGeometryComputedMobileX >= 0.0, 'responsive-emit-hero-text-mobile-computed-x-non-negative');
+
+    $responsiveHeroFallbackScenegraph = array(
+        'name'  => 'Responsive Hero Fallback Site',
+        'nodes' => array(
+            $responsiveEmitFrame('hero-fallback:desktop', 'Hero Fallback Desktop', 1440.0, 900.0, array(
+                array('id' => 'hero-fallback:desktop-headline', 'type' => 'TEXT', 'name' => 'Hero headline', 'box' => array('x' => 165.0, 'y' => 176.0, 'width' => 563.0, 'height' => 168.0), 'layout' => array('positioning' => 'absolute', 'constraints' => array('horizontal' => 'CENTER')), 'characters' => 'Desktop centered headline', 'fontSize' => 56),
+            )),
+            $responsiveEmitFrame('hero-fallback:mobile', 'Hero Fallback Mobile', 390.0, 960.0, array(
+                array('id' => 'hero-fallback:mobile-card', 'type' => 'FRAME', 'name' => 'Hero card', 'box' => array('x' => 24.0, 'y' => 144.0, 'width' => 342.0, 'height' => 220.0), 'layout' => array('positioning' => 'absolute')),
+            )),
+        ),
+    );
+    $responsiveHeroFallbackResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveHeroFallbackScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'hero-fallback:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'hero-fallback:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'hero-fallback:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveHeroFallbackCss = '';
+    foreach ( $responsiveHeroFallbackResult['files'] ?? array() as $responsiveHeroFallbackFile ) {
+        if ( is_array($responsiveHeroFallbackFile) && 'style.css' === ($responsiveHeroFallbackFile['path'] ?? null) ) {
+            $responsiveHeroFallbackCss = (string) ($responsiveHeroFallbackFile['content'] ?? '');
+        }
+    }
+    $responsiveHeroFallbackMobileBlock = substr($responsiveHeroFallbackCss, strpos($responsiveHeroFallbackCss, '@media'));
+    $responsiveHeroFallbackMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveHeroFallbackMobileBlock, '.figma-node-hero-fallback-desktop-headline-hero-headline');
+    $assert(str_contains($responsiveHeroFallbackMobileRule, 'width:calc(100% - 48px)') && str_contains($responsiveHeroFallbackMobileRule, 'left:24px') && str_contains($responsiveHeroFallbackMobileRule, 'right:auto'), 'responsive-emit-hero-text-mobile-fallback-clamps-offcanvas-centered-left');
+
+    $reflectedFullBleedScenegraph = array(
+        'name'  => 'Reflected Full Bleed Geometry Site',
+        'nodes' => array(
+            $responsiveEmitFrame('reflected:root', 'Reflected Root', 1440.0, 900.0, array(
+                array(
+                    'id'        => 'reflected:hero-image',
+                    'type'      => 'RECTANGLE',
+                    'name'      => 'Hero image',
+                    'box'       => array('x' => 1440.0, 'y' => 0.0, 'width' => 1440.0, 'height' => 620.0),
+                    'figma_box' => array('transform' => array(array(-1.0, 0.0, 0.0), array(0.0, 1.0, 0.0))),
+                    'layout'    => array('positioning' => 'absolute'),
+                    'background' => '#d8e7ef',
+                ),
+            )),
+        ),
+    );
+    $reflectedFullBleedResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($reflectedFullBleedScenegraph, array(
+        'pages' => array(array('frame_id' => 'reflected:root', 'path' => 'index.html', 'entrypoint' => true)),
+    ));
+    $reflectedFullBleedCss = '';
+    foreach ( $reflectedFullBleedResult['files'] ?? array() as $reflectedFullBleedFile ) {
+        if ( is_array($reflectedFullBleedFile) && 'style.css' === ($reflectedFullBleedFile['path'] ?? null) ) {
+            $reflectedFullBleedCss = (string) ($reflectedFullBleedFile['content'] ?? '');
+        }
+    }
+    $reflectedFullBleedRule = blocks_engine_figma_transformer_contract_css_rule($reflectedFullBleedCss, '.figma-node-reflected-hero-image-hero-image');
+    $assert(str_contains($reflectedFullBleedRule, 'left:0px') && str_contains($reflectedFullBleedRule, 'transform:matrix(-1,0,0,1,0,0)') && 1 === substr_count($reflectedFullBleedRule, 'left:'), 'responsive-emit-reflected-full-bleed-source-position-preserves-visual-viewport-x');
+
+    $responsiveChromeScenegraph = array(
+        'name'  => 'Responsive Top Chrome Site',
+        'nodes' => array(
+            $responsiveEmitFrame('chrome:desktop', 'Chrome Desktop', 1440.0, 900.0, array(
+                array(
+                    'id'       => 'chrome:desktop:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'box'      => array('width' => 1440.0, 'height' => 96.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'center', 'align_items' => 'center'),
+                    'children' => array(
+                        array(
+                            'id'       => 'chrome:desktop:header-row',
+                            'type'     => 'FRAME',
+                            'name'     => 'Primary chrome row',
+                            'box'      => array('width' => 1200.0, 'height' => 48.0),
+                            'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center', 'item_spacing' => 32.0),
+                            'children' => array(
+                                array('id' => 'chrome:desktop:logo', 'type' => 'TEXT', 'name' => 'Brand logo', 'characters' => 'Dr Aarti', 'box' => array('width' => 140.0, 'height' => 24.0), 'fontSize' => 20),
+                                array(
+                                    'id'       => 'chrome:desktop:navigation',
+                                    'type'     => 'FRAME',
+                                    'name'     => 'Primary navigation',
+                                    'box'      => array('width' => 420.0, 'height' => 24.0),
+                                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'item_spacing' => 28.0),
+                                    'children' => array(
+                                        array('id' => 'chrome:desktop:nav-home', 'type' => 'TEXT', 'name' => 'Menu item', 'characters' => 'Home', 'box' => array('width' => 48.0, 'height' => 20.0), 'figma_link' => array('url' => '/')),
+                                        array('id' => 'chrome:desktop:nav-services', 'type' => 'TEXT', 'name' => 'Menu item', 'characters' => 'Services', 'box' => array('width' => 72.0, 'height' => 20.0), 'figma_link' => array('url' => '/services')),
+                                    ),
+                                ),
+                                array('id' => 'chrome:desktop:cta', 'type' => 'FRAME', 'name' => 'Book now CTA', 'box' => array('width' => 132.0, 'height' => 44.0), 'children' => array(
+                                    array('id' => 'chrome:desktop:cta-label', 'type' => 'TEXT', 'name' => 'Button label', 'characters' => 'Book now', 'box' => array('width' => 72.0, 'height' => 20.0)),
+                                )),
+                            ),
+                        ),
+                    ),
+                ),
+                array('id' => 'chrome:desktop:hero', 'type' => 'FRAME', 'name' => 'Hero', 'box' => array('width' => 1440.0, 'height' => 600.0)),
+            )),
+            $responsiveEmitFrame('chrome:mobile', 'Chrome Mobile', 390.0, 1000.0, array(
+                array('id' => 'chrome:mobile:header', 'type' => 'FRAME', 'name' => 'Mobile header', 'box' => array('width' => 390.0, 'height' => 156.0)),
+                array('id' => 'chrome:mobile:hero', 'type' => 'FRAME', 'name' => 'Hero', 'box' => array('width' => 390.0, 'height' => 620.0)),
+            )),
+        ),
+    );
+    $responsiveChromeResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveChromeScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'chrome:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'chrome:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+                    array('frame_id' => 'chrome:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false, 'order' => 1),
+                ),
+            ),
+        ),
+    ));
+    $responsiveChromeCss = '';
+    foreach ( $responsiveChromeResult['files'] ?? array() as $responsiveChromeFile ) {
+        if ( is_array($responsiveChromeFile) && 'style.css' === ($responsiveChromeFile['path'] ?? null) ) {
+            $responsiveChromeCss = (string) ($responsiveChromeFile['content'] ?? '');
+        }
+    }
+    $responsiveChromeMobileBlock = substr($responsiveChromeCss, strpos($responsiveChromeCss, '@media'));
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;flex-direction:column;align-items:stretch;justify-content:flex-start;min-height:156px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
+    $assert(preg_match('/\.figma-node-chrome-desktop-header-row-primary-chrome-row\{[^}]*height:auto[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*justify-content:flex-start[^}]*flex-wrap:wrap[^}]*gap:16px[^}]*padding-top:24px[^}]*padding-right:24px[^}]*padding-bottom:24px[^}]*padding-left:24px/s', $responsiveChromeMobileBlock) === 1, 'responsive-emit-mobile-top-chrome-inner-row-wraps-with-normal-gutters');
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-navigation-primary-navigation{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px}'), 'responsive-emit-mobile-top-chrome-navigation-wraps');
+    $assert(! str_contains($responsiveChromeMobileBlock, 'padding-top:72px'), 'responsive-emit-mobile-top-chrome-no-instance-specific-header-offset');
 
     $responsiveIdentityScenegraph = array(
         'name'  => 'Responsive Source Identity Site',
@@ -1122,6 +1998,83 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:19px;height:2px}'), 'responsive-emit-source-identity-keeps-reordered-part-b-geometry');
     $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:19px;height:2px}'), 'responsive-emit-source-identity-avoids-ordinal-part-a-mismatch');
     $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:72px;height:72px}'), 'responsive-emit-source-identity-avoids-ordinal-part-b-mismatch');
+
+    $responsiveDuplicateIdentityScenegraph = array(
+        'name'  => 'Responsive Duplicate Source Identity Site',
+        'nodes' => array(
+            $responsiveEmitFrame('duplicate-identity:desktop', 'Duplicate Identity Desktop', 1440.0, 420.0, array(
+                array('id' => 'duplicate-identity:group:desktop', 'type' => 'FRAME', 'name' => 'Repeated cards', 'box' => array('width' => 960.0, 'height' => 240.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                    array('id' => 'duplicate-identity:a:desktop', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-a', 'box' => array('width' => 460.0, 'height' => 220.0)),
+                    array('id' => 'duplicate-identity:b:desktop', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-b', 'box' => array('width' => 220.0, 'height' => 120.0)),
+                )),
+            )),
+            $responsiveEmitFrame('duplicate-identity:mobile', 'Duplicate Identity Mobile', 390.0, 620.0, array(
+                array('id' => 'duplicate-identity:group:mobile', 'type' => 'FRAME', 'name' => 'Repeated cards', 'box' => array('width' => 342.0, 'height' => 500.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array(
+                    array('id' => 'duplicate-identity:b:mobile', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-b', 'box' => array('width' => 198.0, 'height' => 88.0)),
+                    array('id' => 'duplicate-identity:a:mobile', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-a', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                )),
+            )),
+        ),
+    );
+    $responsiveDuplicateIdentityResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveDuplicateIdentityScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'duplicate-identity:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'duplicate-identity:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'duplicate-identity:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveDuplicateIdentityCss = '';
+    foreach ( $responsiveDuplicateIdentityResult['files'] ?? array() as $responsiveDuplicateIdentityFile ) {
+        if ( is_array($responsiveDuplicateIdentityFile) && 'style.css' === ($responsiveDuplicateIdentityFile['path'] ?? null) ) {
+            $responsiveDuplicateIdentityCss = (string) ($responsiveDuplicateIdentityFile['content'] ?? '');
+        }
+    }
+    $assert(preg_match('/\.figma-node-duplicate-identity-a-desktop-card\{[^}]*width:100%/s', $responsiveDuplicateIdentityCss) === 1, 'responsive-emit-duplicate-source-identity-keeps-card-a-mobile-width');
+    $assert(str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-b-desktop-card{width:calc(100% - 144px);max-width:220px;height:88px}'), 'responsive-emit-duplicate-source-identity-keeps-card-b-mobile-width');
+    $assert(! str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-a-desktop-card{width:198px;height:88px}'), 'responsive-emit-duplicate-source-identity-avoids-ordinal-card-a-mispatch');
+    $assert(! str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-b-desktop-card{width:100%;height:auto}'), 'responsive-emit-duplicate-source-identity-avoids-ordinal-card-b-mispatch');
+
+    $responsiveCenteredGridScenegraph = array(
+        'name'  => 'Responsive Centered Grid Safety Site',
+        'nodes' => array(
+            array('id' => 'centered-grid:desktop', 'type' => 'FRAME', 'name' => 'Centered Grid Desktop', 'box' => array('width' => 1440.0, 'height' => 900.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array(
+                array('id' => 'centered-grid:shell:desktop', 'type' => 'FRAME', 'name' => 'Cards grid', 'box' => array('x' => 130.0, 'width' => 1180.0, 'height' => 360.0), 'layout' => array('display' => 'grid'), 'children' => array(
+                    array('id' => 'centered-grid:card-a:desktop', 'type' => 'FRAME', 'name' => 'Card', 'box' => array('width' => 360.0, 'height' => 280.0)),
+                    array('id' => 'centered-grid:card-b:desktop', 'type' => 'FRAME', 'name' => 'Card', 'box' => array('width' => 360.0, 'height' => 280.0)),
+                )),
+            )),
+            array('id' => 'centered-grid:mobile', 'type' => 'FRAME', 'name' => 'Centered Grid Mobile', 'box' => array('width' => 390.0, 'height' => 980.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array()),
+        ),
+    );
+    $responsiveCenteredGridResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveCenteredGridScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'centered-grid:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'centered-grid:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'centered-grid:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveCenteredGridCss = '';
+    foreach ( $responsiveCenteredGridResult['files'] ?? array() as $responsiveCenteredGridFile ) {
+        if ( is_array($responsiveCenteredGridFile) && 'style.css' === ($responsiveCenteredGridFile['path'] ?? null) ) {
+            $responsiveCenteredGridCss = (string) ($responsiveCenteredGridFile['content'] ?? '');
+        }
+    }
+    $assert(preg_match('/\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*margin-left:auto[^}]*margin-right:auto/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-base-centered');
+    $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*width:calc\(100% - 48px\)[^}]*grid-template-columns:1fr/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-keeps-centered-fluid-role');
 
     // SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
     // SAME CSS as today — zero `@media` queries.
@@ -1167,10 +2120,10 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(in_array('device_hint_diversity', $responsiveGroupDiagnostic['reasons'] ?? array(), true), 'page-plan-responsive-group-rationale-device-diversity');
     $assert('frame:home-desktop' === ($responsiveGroupDiagnostic['primary_frame_id'] ?? null), 'page-plan-responsive-group-rationale-primary');
     
-    // (a) FALSE-POSITIVE GUARD: four same-name, same-device-hint (desktop),
-    // same-width (1440) frames differing only in height are duplicate/iteration
-    // drafts (the real "For Hosts" data finding), NOT responsive breakpoints. They
-    // must stay as separate pages and surface a duplicate_draft_frames diagnostic.
+    // (a) FALSE-POSITIVE GUARD: same-name, same-device-hint (desktop),
+    // same-size frames are duplicate/iteration drafts, NOT responsive
+    // breakpoints. Site generation emits only the canonical route and surfaces
+    // a duplicate_draft_frames diagnostic for the rejected draft.
     $duplicateDraftSource = array(
         'nodes' => array(
             array(
@@ -1201,22 +2154,6 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                                 'height'   => 8613,
                                 'children' => array(array('id' => 'text:hosts-b', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
                             ),
-                            array(
-                                'id'       => 'frame:hosts-c',
-                                'type'     => 'FRAME',
-                                'name'     => 'For Hosts',
-                                'width'    => 1440,
-                                'height'   => 9188,
-                                'children' => array(array('id' => 'text:hosts-c', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
-                            ),
-                            array(
-                                'id'       => 'frame:hosts-d',
-                                'type'     => 'FRAME',
-                                'name'     => 'For Hosts',
-                                'width'    => 1440,
-                                'height'   => 9000,
-                                'children' => array(array('id' => 'text:hosts-d', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
-                            ),
                         ),
                     ),
                 ),
@@ -1224,7 +2161,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         ),
     );
     $duplicateDraftPlan = ( new ScenegraphPagePlanner() )->plan($duplicateDraftSource, array('include_all_pages' => true));
-    $assert(4 === ($duplicateDraftPlan['page_count'] ?? null), 'page-plan-duplicate-drafts-stay-separate-pages');
+    $assert(1 === ($duplicateDraftPlan['page_count'] ?? null), 'page-plan-duplicate-drafts-emit-canonical-page-only');
     $duplicateDraftResponsive = false;
     foreach ( $duplicateDraftPlan['pages'] ?? array() as $duplicatePage ) {
         if ( is_array($duplicatePage) && true === ($duplicatePage['responsive'] ?? null) ) {
@@ -1235,9 +2172,123 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $duplicateDraftDiagnostic = $planDiagnosticByCode($duplicateDraftPlan, 'duplicate_draft_frames');
     $assert(null !== $duplicateDraftDiagnostic, 'page-plan-duplicate-drafts-diagnostic-emitted');
     $assert('desktop' === ($duplicateDraftDiagnostic['device_hint'] ?? null), 'page-plan-duplicate-drafts-diagnostic-device-hint');
-    $assert(4 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
+    $assert(2 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
+    $assert(array('frame:hosts-b') === ($duplicateDraftDiagnostic['draft_frame_ids'] ?? null), 'page-plan-duplicate-drafts-diagnostic-draft-ids');
     $assert(null === $planDiagnosticByCode($duplicateDraftPlan, 'responsive_group_formed'), 'page-plan-duplicate-drafts-not-grouped');
-    
+
+    $utilityFrameSource = array(
+        'nodes' => array(
+            array(
+                'id'       => 'page:site',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+                    array(
+                        'id'       => 'section:web',
+                        'type'     => 'SECTION',
+                        'name'     => 'Responsive Pages',
+                        'children' => array(
+                            array(
+                                'id'       => 'frame:home-desktop',
+                                'type'     => 'FRAME',
+                                'name'     => 'Home',
+                                'width'    => 1440,
+                                'height'   => 1800,
+                                'children' => array(array('id' => 'text:home-desktop', 'type' => 'TEXT', 'name' => 'Home', 'characters' => 'Home')),
+                            ),
+                            array(
+                                'id'       => 'frame:home-mobile',
+                                'type'     => 'FRAME',
+                                'name'     => 'Home',
+                                'width'    => 390,
+                                'height'   => 1800,
+                                'children' => array(array('id' => 'text:home-mobile', 'type' => 'TEXT', 'name' => 'Home', 'characters' => 'Home')),
+                            ),
+                            array(
+                                'id'       => 'frame:desktop-mockup',
+                                'type'     => 'FRAME',
+                                'name'     => 'Desktop - 1440px',
+                                'width'    => 1440,
+                                'height'   => 1400,
+                                'children' => array(array('id' => 'text:desktop-mockup', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Desktop')),
+                            ),
+                            array(
+                                'id'       => 'frame:mobile-mockup',
+                                'type'     => 'FRAME',
+                                'name'     => 'Mobile - 375px',
+                                'width'    => 375,
+                                'height'   => 812,
+                                'children' => array(array('id' => 'text:mobile-mockup', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Mobile')),
+                            ),
+                            array(
+                                'id'       => 'frame:presentation-cover',
+                                'type'     => 'FRAME',
+                                'name'     => 'Presentation Cover',
+                                'width'    => 1440,
+                                'height'   => 1024,
+                                'children' => array(array('id' => 'text:presentation-cover', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Cover')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $utilityFramePlan = ( new ScenegraphPagePlanner() )->plan($utilityFrameSource, array('include_all_pages' => true));
+    $assert(1 === ($utilityFramePlan['page_count'] ?? null), 'page-plan-utility-route-frames-filtered');
+    $assert('frame:home-desktop' === ($utilityFramePlan['pages'][0]['frame_id'] ?? null), 'page-plan-utility-route-keeps-responsive-page');
+    $utilityFilterDiagnostic = $planDiagnosticByCode($utilityFramePlan, 'low_confidence_route_frame_filtered');
+    $assert(null !== $utilityFilterDiagnostic, 'page-plan-utility-route-filter-diagnostic-emitted');
+    $utilityFilteredReasons = array_map(
+        static fn (array $evidence): string => (string) ($evidence['reason'] ?? ''),
+        is_array($utilityFramePlan['source_frame_evidence']['filtered_candidates'] ?? null) ? $utilityFramePlan['source_frame_evidence']['filtered_candidates'] : array()
+    );
+    $assert(in_array('low_confidence_route_frame', $utilityFilteredReasons, true), 'page-plan-source-frame-evidence-filtered-utility-route');
+
+    $frontPageUtilityNameSource = array(
+        'name'  => 'Landing Utility Name Site',
+        'nodes' => array(
+            array(
+                'id'       => 'canvas:landing-utility',
+                'type'     => 'CANVAS',
+                'name'     => 'Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'frame:landing-desktop',
+                        'type'     => 'FRAME',
+                        'name'     => 'Landing page V1 / desktop / 1920px',
+                        'width'    => 1920,
+                        'height'   => 3200,
+                        'children' => array(array('id' => 'text:landing-desktop', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Landing page hero')),
+                    ),
+                    array(
+                        'id'       => 'frame:landing-tablet',
+                        'type'     => 'FRAME',
+                        'name'     => 'Landing page V1 / Tablet / 768px',
+                        'width'    => 768,
+                        'height'   => 3400,
+                        'children' => array(array('id' => 'text:landing-tablet', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Landing page hero')),
+                    ),
+                    array(
+                        'id'       => 'frame:desktop-mockup-only',
+                        'type'     => 'FRAME',
+                        'name'     => 'Desktop - 1440px',
+                        'width'    => 1440,
+                        'height'   => 1400,
+                        'children' => array(array('id' => 'text:desktop-mockup-only', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Desktop mockup')),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $frontPageUtilityNamePlan = ( new ScenegraphPagePlanner() )->plan($frontPageUtilityNameSource, array('include_all_pages' => true));
+    $frontPageUtilityNameFrameIds = array_map(
+        static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+        is_array($frontPageUtilityNamePlan['pages'] ?? null) ? $frontPageUtilityNamePlan['pages'] : array()
+    );
+    $assert(in_array('frame:landing-desktop', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-keeps-front-page-device-name');
+    $assert(! in_array('frame:desktop-mockup-only', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-still-filters-non-front-page-device-name');
+
     // (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
     // candidates, not total node count. The `responsive_detection_bounded`
     // diagnostic only fires in pathological cases (here forced via a frame-limit of
@@ -1429,6 +2480,16 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         'multi_page' => true,
         'frame_ids' => array('frame:home', 'frame:about'),
         'entry_frame_id' => 'frame:home',
+        'site_url' => 'https://example.com/site',
+        'site_metadata' => array(
+            'favicon_href' => '/favicon.svg',
+            'og_image' => 'https://example.com/social.png',
+            'twitter_card' => 'summary_large_image',
+        ),
+        'page_metadata' => array(
+            'index.html' => array('description' => 'Explicit home description from source metadata.', 'og_title' => 'Explicit Home Social Title'),
+            'about.html' => array('description' => 'Explicit about description from source metadata.'),
+        ),
         'font_css' => '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}',
         'generated_render_evidence' => array(
             'schema' => 'homeboy/static-artifact-render-evidence/v1',
@@ -1458,7 +2519,15 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($multiPageAbout, 'About Hero'), 'multi-page-about-renders-second-frame');
     $assert(1 === preg_match('/<a class="figma-link" href="about\.html" data-figma-link-type="node"><p class="[^"]*figma-node-button-home-one-button[^"]*"/', $multiPageIndex), 'multi-page-descendant-prototype-link-resolves-to-page');
     $assert(! str_contains($multiPageIndex, 'href="#" data-figma-link-type="node"'), 'multi-page-prototype-link-not-placeholder');
-    $assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
+    $assert(str_contains($multiPageIndex, '<meta name="description" content="Explicit home description from source metadata.">'), 'multi-page-index-description-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<link rel="canonical" href="https://example.com/site/">'), 'multi-page-index-canonical-from-site-url');
+    $assert(str_contains($multiPageAbout, '<link rel="canonical" href="https://example.com/site/about.html">'), 'multi-page-about-canonical-from-site-url');
+    $assert(str_contains($multiPageIndex, '<link rel="icon" href="/favicon.svg">'), 'multi-page-index-favicon-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta property="og:title" content="Explicit Home Social Title">'), 'multi-page-index-social-title-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta property="og:image" content="https://example.com/social.png">'), 'multi-page-index-social-image-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta name="twitter:card" content="summary_large_image">'), 'multi-page-index-twitter-card-from-explicit-metadata');
+    $assert(! str_contains($multiPageIndex, '<style data-figma-transformer-css="true">'), 'multi-page-index-links-shared-css-without-inline-duplication');
+    $assert(str_contains($multiPageIndex, '<img class="figma-vector-asset"') && str_contains($multiPageIndex, ' width="10" height="10" decoding="async" data-figma-vector="true"'), 'multi-page-external-vector-image-has-dimensions');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');
     preg_match_all('/\.button-[0-9a-f]{8}\{/', $multiPageStyle, $multiPageButtonSharedClasses);
@@ -1491,6 +2560,62 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(($multiPageTransformDiagnostics['generated_svg_assets']['path_data_bytes'] ?? 0) > 65536, 'multi-page-transform-diagnostics-generated-svg-path-data-bytes');
     $assert(1 === ($multiPageTransformDiagnostics['generated_svg_assets']['unique_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-unique-path-data-count');
     $assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['duplicate_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-duplicate-path-data-count');
+
+    $multiPageTokenScopeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Multi Page Token Scope Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'token-scope:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'token-scope:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array(
+                                'id'       => 'token-scope:home:tokens',
+                                'type'     => 'FRAME',
+                                'name'     => 'Typography',
+                                'width'    => 320,
+                                'height'   => 160,
+                                'children' => array(
+                                    array('id' => 'token-scope:home:display', 'type' => 'TEXT', 'name' => 'Display', 'characters' => 'Display', 'fontSize' => 72, 'fontWeight' => 700),
+                                    array('id' => 'token-scope:home:body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body', 'fontSize' => 18, 'fontWeight' => 400),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'token-scope:about',
+                        'type'     => 'FRAME',
+                        'name'     => 'About',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array(
+                                'id'       => 'token-scope:about:tokens',
+                                'type'     => 'FRAME',
+                                'name'     => 'Typography',
+                                'width'    => 320,
+                                'height'   => 160,
+                                'children' => array(
+                                    array('id' => 'token-scope:about:display', 'type' => 'TEXT', 'name' => 'Display', 'characters' => 'Display', 'fontSize' => 36, 'fontWeight' => 700),
+                                    array('id' => 'token-scope:about:body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body', 'fontSize' => 14, 'fontWeight' => 400),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('token-scope:home', 'token-scope:about'), 'entry_frame_id' => 'token-scope:home'));
+    $multiPageTokenScopeCss = $fileContent($multiPageTokenScopeResult, 'style.css');
+    $assert(! str_contains($multiPageTokenScopeCss, ':root{--'), 'multi-page-design-tokens-not-global-root');
+    $assert(str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-home-home{--') && str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-about-about{--'), 'multi-page-design-tokens-scoped-to-page-roots');
     $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
     $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
     $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');
@@ -1499,6 +2624,120 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(1 === ($multiPageTransformDiagnostics['layout']['render_style']['summary']['font_mismatch_count'] ?? null), 'multi-page-render-style-font-count-aggregated');
     $assert(in_array('render_style_mismatch', array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $multiPageTransformDiagnostics['artifact_quality']['signals'] ?? array()), true), 'multi-page-render-style-artifact-quality-signal');
     $assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
+
+    $semanticRoutesResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(array(
+        'name'  => 'Semantic Route Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'semantic:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+            array(
+                'id'       => 'semantic:home',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page - Desktop',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array('id' => 'semantic:logo', 'type' => 'FRAME', 'name' => 'Logo', 'width' => 160, 'height' => 40),
+                    array('id' => 'semantic:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 360, 'height' => 40, 'children' => array(
+                        array('id' => 'semantic:nav:news', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:news:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'News', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:nav:about', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:about:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'About', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:nav:reviews', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:reviews:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Reviews', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:reviews-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Reviews', 'fontSize' => 48),
+                    array('id' => 'semantic:card-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Review Title', 'fontSize' => 36),
+                    array('id' => 'semantic:pagination', 'type' => 'FRAME', 'name' => 'Pagination', 'width' => 360, 'height' => 48, 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                        array('id' => 'semantic:pagination:previous', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'layout' => array('grow' => 1), 'children' => array(
+                            array('id' => 'semantic:pagination:previous:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Previous', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:pagination:one', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '1', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:two', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '2', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:three', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '3', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:next', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'layout' => array('grow' => 1), 'children' => array(
+                            array('id' => 'semantic:pagination:next:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:search-form', 'type' => 'FRAME', 'name' => 'Search form', 'width' => 320, 'height' => 56, 'children' => array(
+                        array('id' => 'semantic:search-field', 'type' => 'FRAME', 'name' => 'Search field', 'width' => 240, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:search-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Search for...', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:newsletter-form', 'type' => 'FRAME', 'name' => 'Newsletter form', 'width' => 420, 'height' => 56, 'children' => array(
+                        array('id' => 'semantic:email-field', 'type' => 'FRAME', 'name' => 'Email input', 'width' => 240, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:email-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Email address', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:newsletter-submit', 'type' => 'FRAME', 'name' => 'Button', 'width' => 128, 'height' => 44, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:newsletter-submit:text', 'type' => 'TEXT', 'name' => 'Subscribe', 'characters' => 'Subscribe', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:footer-links', 'type' => 'FRAME', 'name' => 'Frame 29', 'width' => 300, 'height' => 32, 'children' => array(
+                        array('id' => 'semantic:footer:about', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'About', 'fontSize' => 16, 'width' => 80, 'height' => 20),
+                        array('id' => 'semantic:footer:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Contact', 'fontSize' => 16, 'width' => 80, 'height' => 20),
+                        array('id' => 'semantic:footer:privacy', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Privacy Policy', 'fontSize' => 16, 'width' => 120, 'height' => 20),
+                    )),
+                ),
+            ),
+            array(
+                'id'       => 'semantic:archive',
+                'type'     => 'FRAME',
+                'name'     => 'Archive - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:archive:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'News', 'fontSize' => 96)),
+            ),
+            array(
+                'id'       => 'semantic:about',
+                'type'     => 'FRAME',
+                'name'     => 'Page - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:about:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'About Us', 'fontSize' => 96)),
+            ),
+            array(
+                'id'       => 'semantic:single',
+                'type'     => 'FRAME',
+                'name'     => 'Blog Post - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:single:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Review Title', 'fontSize' => 96)),
+            ),
+                ),
+            ),
+        ),
+    ), array(
+        'pages' => array(
+            array('frame_id' => 'semantic:home', 'name' => 'Home Page - Desktop', 'path' => 'index.html', 'entrypoint' => true, 'page_type' => 'front_page'),
+            array('frame_id' => 'semantic:archive', 'name' => 'Archive - Desktop', 'path' => 'archive.html', 'entrypoint' => false, 'page_type' => 'archive'),
+            array('frame_id' => 'semantic:about', 'name' => 'Page - Desktop', 'path' => 'page.html', 'entrypoint' => false, 'page_type' => 'page'),
+            array('frame_id' => 'semantic:single', 'name' => 'Blog Post - Desktop', 'path' => 'blog-post.html', 'entrypoint' => false, 'page_type' => 'single'),
+        ),
+    ));
+    $semanticHome = $fileContent($semanticRoutesResult, 'index.html');
+    $semanticArchive = $fileContent($semanticRoutesResult, 'archive.html');
+    $semanticAbout = $fileContent($semanticRoutesResult, 'page.html');
+    $assert(str_contains($semanticHome, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-semantic-logo-logo"'), 'semantic-route-logo-links-entrypoint');
+    $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>News</span>'), 'semantic-route-nav-news-links-archive');
+    $assert(str_contains($semanticHome, 'href="page.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>About</span>'), 'semantic-route-nav-about-links-page-heading');
+    $assert(str_contains($semanticHome, 'href="#reviews" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Reviews</span>'), 'semantic-route-nav-current-page-section-links-heading-anchor');
+    $assert(str_contains($semanticHome, 'href="blog-post.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Review Title</h'), 'semantic-route-card-heading-links-single-title');
+    $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Next</span>'), 'semantic-route-pagination-next-links-archive');
+    $assert(! str_contains($semanticHome, '<a class="figma-link button" href="archive.html" data-figma-link-type="implicit-route"><button'), 'semantic-route-linked-pagination-button-does-not-wrap-button-element');
+    $assert(! preg_match('/<a\b[^>]*><div\b[^>]*><a\b/s', $semanticHome), 'semantic-route-menu-items-do-not-emit-nested-anchors');
+    $assert(! preg_match('/<a\b[^>]*><li\b/s', $semanticHome), 'semantic-route-list-items-keep-anchor-inside-li');
+    $assert(! str_contains($semanticArchive, 'href="archive.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-archive-title-not-self-linked');
+    $assert(! str_contains($semanticAbout, 'href="page.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-page-title-not-self-linked');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="get" action="index.html" role="search"'), 'semantic-route-search-form-action');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post" action="index.html"'), 'semantic-route-newsletter-form-action');
+    $assert(str_contains($semanticHome, 'type="search" name="s"'), 'semantic-route-search-input-name');
+    $assert(str_contains($semanticHome, 'type="email" name="email"'), 'semantic-route-email-input-name');
     
     // RESPONSIVE PAGE ASSEMBLY — LIVE WIRING (#247): a source whose section holds
     // "Home – Desktop" + "Home – Mobile" sibling frames must (1) PAIR into ONE

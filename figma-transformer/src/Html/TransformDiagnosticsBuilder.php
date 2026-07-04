@@ -21,9 +21,12 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $components
      * @param array<string, mixed> $effects
      * @param array<string, mixed> $maskEffectClipping
+     * @param array<string, mixed> $css
+     * @param array<string, mixed> $htmlArtifact
+     * @param array<string, mixed> $decisionTraces
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array(), array $decisionTraces = array()): array
     {
         $signals = array();
 
@@ -32,6 +35,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'missing_render_assets',
                 'count' => count($image['missing_assets']),
+                'sample_nodes' => array_slice(is_array($image['missing_assets'] ?? null) ? $image['missing_assets'] : array(), 0, 10),
             );
         }
         if ( ! empty($vectors['placeholders']) ) {
@@ -63,6 +67,14 @@ final class TransformDiagnosticsBuilder
                 'code' => 'large_css_offsets',
                 'count' => (int) $layout['large_css_offset_count'],
                 'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['invalid_css_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_tokens',
+                'count' => (int) $layout['invalid_css_count'],
+                'sample_tokens' => array_slice(is_array($layout['invalid_css_tokens'] ?? null) ? $layout['invalid_css_tokens'] : array(), 0, 10),
             );
         }
         if ( ! empty($layout['off_canvas_visual_node_count']) ) {
@@ -154,6 +166,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'component_clone_not_emitted',
                 'count' => (int) $components['missing_emitted_clone_node_count'],
+                'omission_reason_counts' => is_array($components['omission_reason_counts'] ?? null) ? $components['omission_reason_counts'] : array(),
                 'sample_nodes' => array_slice(is_array($components['missing_emitted_clone_nodes'] ?? null) ? $components['missing_emitted_clone_nodes'] : array(), 0, 10),
             );
         }
@@ -162,6 +175,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'effect_node_not_emitted',
                 'count' => (int) $effects['missing_emitted_effect_node_count'],
+                'omission_reason_counts' => is_array($effects['omission_reason_counts'] ?? null) ? $effects['omission_reason_counts'] : array(),
                 'sample_nodes' => array_slice(is_array($effects['missing_emitted_effect_nodes'] ?? null) ? $effects['missing_emitted_effect_nodes'] : array(), 0, 10),
             );
         }
@@ -173,8 +187,94 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($vectors['child_composition']['sample_nodes'] ?? null) ? $vectors['child_composition']['sample_nodes'] : array(), 0, 10),
             );
         }
+        if ( ! empty($css['invalid_numeric_token_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_css_numeric_token',
+                'count' => (int) $css['invalid_numeric_token_count'],
+                'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['canvas_like_dom']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'canvas_like_dom',
+                'element_count' => (int) ($htmlArtifact['element_count'] ?? 0),
+                'div_ratio' => (float) ($htmlArtifact['div_ratio'] ?? 0.0),
+                'semantic_density' => (float) ($htmlArtifact['semantic_density'] ?? 0.0),
+            );
+        }
+        if ( ! empty($htmlArtifact['semantic_sparsity']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'semantic_sparsity',
+                'element_count' => (int) ($htmlArtifact['element_count'] ?? 0),
+                'semantic_element_count' => (int) ($htmlArtifact['semantic_element_count'] ?? 0),
+                'semantic_density' => (float) ($htmlArtifact['semantic_density'] ?? 0.0),
+            );
+        }
+        if ( ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'desktop_canvas_without_responsive_breakpoints',
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
+            );
+        }
+        if ( ! empty($htmlArtifact['overlarge_inline_svg_ratio']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'overlarge_inline_svg_ratio',
+                'inline_svg_bytes' => (int) ($htmlArtifact['inline_svg_bytes'] ?? 0),
+                'html_bytes' => (int) ($htmlArtifact['html_bytes'] ?? 0),
+                'inline_svg_byte_ratio' => (float) ($htmlArtifact['inline_svg_byte_ratio'] ?? 0.0),
+                'inline_svg_count' => (int) ($htmlArtifact['inline_svg_count'] ?? 0),
+            );
+        }
+        if ( ! empty($htmlArtifact['breakpoint_override_leak_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'breakpoint_override_leak',
+                'count' => (int) $htmlArtifact['breakpoint_override_leak_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['breakpoint_override_leaks'] ?? null) ? $htmlArtifact['breakpoint_override_leaks'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['absolute_to_flow_conversion_count']) ) {
+            $absoluteToFlowEvidence = $this->absoluteToFlowDecisionEvidence(
+                is_array($htmlArtifact['absolute_to_flow_conversions'] ?? null) ? $htmlArtifact['absolute_to_flow_conversions'] : array(),
+                $decisionTraces
+            );
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'suspicious_absolute_to_flow_conversion',
+                'count' => (int) $htmlArtifact['absolute_to_flow_conversion_count'],
+                'sample_rules' => $absoluteToFlowEvidence['sample_rules'],
+            ) + $absoluteToFlowEvidence['summary'];
+        }
 
-        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping);
+        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'source_loss_coverage_gap',
+                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
+                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'domains' => $sourceLossCoverage['domains'],
+            );
+        }
+
+        $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
+        $signals = array_map(
+            static function (array $signal): array {
+                if ( ! isset($signal['reason_code']) && isset($signal['code']) ) {
+                    $signal['reason_code'] = (string) $signal['code'];
+                }
+
+                return $signal;
+            },
+            $signals
+        );
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
         $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
@@ -190,6 +290,8 @@ final class TransformDiagnosticsBuilder
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
                 'image_block_count' => $imageBlockCount,
+                'asset_node_refs' => (int) ($image['node_refs'] ?? 0),
+                'asset_node_reason_categories' => is_array($image['asset_node_reason_categories'] ?? null) ? $image['asset_node_reason_categories'] : array(),
                 'image_node_density' => round($imageNodeDensity, 3),
                 'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
@@ -204,14 +306,22 @@ final class TransformDiagnosticsBuilder
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
+                'invalid_css_count' => (int) ($layout['invalid_css_count'] ?? 0),
                 'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
                 'clipped_visual_node_count' => (int) ($layout['clipped_visual_node_count'] ?? 0),
                 'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'suppressed_large_absolute_offset_count' => (int) ($layout['suppressed_large_absolute_offset_count'] ?? 0),
+                'suppressed_large_absolute_offset_reason_counts' => is_array($layout['suppressed_large_absolute_offset_reason_counts'] ?? null) ? $layout['suppressed_large_absolute_offset_reason_counts'] : array(),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
                 'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
+                'intentionally_suppressed_text_nodes' => (int) ($text['intentionally_suppressed_text_node_count'] ?? 0),
+                'text_intentional_suppression_reason_counts' => is_array($text['intentional_suppression_reason_counts'] ?? null) ? $text['intentional_suppression_reason_counts'] : array(),
                 'empty_decoded_text_nodes' => (int) ($text['empty_decoded_text_node_count'] ?? 0),
                 'missing_emitted_text_nodes' => (int) ($text['missing_emitted_text_node_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
@@ -222,19 +332,142 @@ final class TransformDiagnosticsBuilder
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
                 'component_clone_source_nodes' => (int) ($components['clone_source_node_count'] ?? 0),
                 'component_clone_nodes_emitted' => (int) ($components['emitted_clone_node_count'] ?? 0),
+                'component_clone_omission_reason_counts' => is_array($components['omission_reason_counts'] ?? null) ? $components['omission_reason_counts'] : array(),
+                'component_clone_intentionally_suppressed_nodes' => (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0),
+                'component_clone_intentional_suppression_reason_counts' => is_array($components['intentional_suppression_reason_counts'] ?? null) ? $components['intentional_suppression_reason_counts'] : array(),
                 'component_override_candidates' => (int) ($components['override_candidate_node_count'] ?? 0),
                 'component_overrides_applied' => (int) ($components['override_applied_node_count'] ?? 0),
                 'effect_source_nodes' => (int) ($effects['source_effect_node_count'] ?? 0),
                 'effect_nodes_emitted' => (int) ($effects['emitted_effect_node_count'] ?? 0),
+                'effect_intentionally_suppressed_nodes' => (int) ($effects['intentionally_suppressed_effect_node_count'] ?? 0),
+                'effect_intentional_suppression_reason_counts' => is_array($effects['intentional_suppression_reason_counts'] ?? null) ? $effects['intentional_suppression_reason_counts'] : array(),
                 'effect_field_coverage' => is_array($effects['field_coverage'] ?? null) ? $effects['field_coverage'] : array(),
                 'mask_nodes' => (int) ($maskEffectClipping['mask_node_count'] ?? 0),
                 'mask_metadata_nodes' => (int) ($maskEffectClipping['mask_metadata_node_count'] ?? 0),
+                'emitted_mask_source_nodes' => (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0),
+                'suppressed_mask_source_nodes' => (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0),
                 'clips_content_nodes' => (int) ($maskEffectClipping['clips_content_node_count'] ?? 0),
                 'clipped_effect_nodes' => (int) ($maskEffectClipping['clipped_effect_node_count'] ?? 0),
                 'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),
                 'uncomposed_vector_child_nodes' => (int) ($vectors['child_composition']['uncomposed_vector_child_node_count'] ?? 0),
+                'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
+                'html_artifact' => $htmlArtifact,
+                'source_loss_coverage' => $sourceLossCoverage,
             ),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rules
+     * @param array<string, mixed>             $decisionTraces
+     * @return array{sample_rules: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    private function absoluteToFlowDecisionEvidence(array $rules, array $decisionTraces): array
+    {
+        $tracesByClass = array();
+        $samples = array_is_list($decisionTraces)
+            ? $decisionTraces
+            : (is_array($decisionTraces['samples'] ?? null) ? $decisionTraces['samples'] : array());
+        foreach ( $samples as $sample ) {
+            if ( ! is_array($sample) || true !== ($sample['evidence']['absolute_to_flow_conversion'] ?? null) ) {
+                continue;
+            }
+
+            $class = isset($sample['class']) && is_scalar($sample['class']) ? (string) $sample['class'] : '';
+            if ( '' === $class ) {
+                continue;
+            }
+
+            $tracesByClass[$class][] = $sample;
+        }
+
+        $sourceCounts = array();
+        $matchedGeometryCounts = array('matched' => 0, 'fallback' => 0);
+        $sampleRules = array();
+        foreach ( array_slice($rules, 0, 10) as $rule ) {
+            if ( ! is_array($rule) ) {
+                continue;
+            }
+
+            $class = isset($rule['class']) && is_scalar($rule['class']) ? (string) $rule['class'] : '';
+            $trace = '' !== $class && isset($tracesByClass[$class][0]) ? $tracesByClass[$class][0] : null;
+            if ( is_array($trace) ) {
+                $source = isset($trace['evidence']['source']) && is_scalar($trace['evidence']['source']) ? (string) $trace['evidence']['source'] : 'unknown';
+                $sourceCounts[$source] = (int) ($sourceCounts[$source] ?? 0) + 1;
+                if ( true === ($trace['evidence']['matched_breakpoint_geometry'] ?? null) ) {
+                    ++$matchedGeometryCounts['matched'];
+                } else {
+                    ++$matchedGeometryCounts['fallback'];
+                }
+
+                $rule['decision_trace'] = array_filter(array(
+                    'source' => $source,
+                    'matched_breakpoint_geometry' => true === ($trace['evidence']['matched_breakpoint_geometry'] ?? null),
+                    'reason_code' => isset($trace['reason_code']) && is_scalar($trace['reason_code']) ? (string) $trace['reason_code'] : null,
+                    'node_id' => isset($trace['node_id']) && is_scalar($trace['node_id']) ? (string) $trace['node_id'] : null,
+                    'variant_node_id' => isset($trace['evidence']['variant_node_id']) && is_scalar($trace['evidence']['variant_node_id']) ? (string) $trace['evidence']['variant_node_id'] : null,
+                    'trace_count' => isset($trace['count']) && is_numeric($trace['count']) ? (int) $trace['count'] : null,
+                ), static fn (mixed $value): bool => null !== $value && ! (is_string($value) && '' === $value));
+            }
+
+            $sampleRules[] = $rule;
+        }
+
+        ksort($sourceCounts);
+
+        $summary = array();
+        if ( ! empty($sourceCounts) ) {
+            $summary['decision_trace_source_counts'] = $sourceCounts;
+            $summary['matched_breakpoint_geometry_counts'] = array_filter($matchedGeometryCounts, static fn (int $count): bool => $count > 0);
+        }
+
+        return array(
+            'sample_rules' => $sampleRules,
+            'summary' => $summary,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $text
+     * @param array<string, mixed> $components
+     * @param array<string, mixed> $effects
+     * @param array<string, mixed> $maskEffectClipping
+     * @return array<string, mixed>
+     */
+    private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping): array
+    {
+        $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
+        $domains = array(
+            'images' => $sourceLossCoverageBuilder->imageDomain($image),
+            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
+            'text' => $sourceLossCoverageBuilder->domain(
+                (int) ($text['decoded_text_node_count'] ?? 0),
+                (int) ($text['emitted_text_node_count'] ?? 0),
+                (int) ($text['missing_emitted_text_node_count'] ?? 0),
+                (int) ($text['intentionally_suppressed_text_node_count'] ?? 0)
+            ),
+            'components' => $sourceLossCoverageBuilder->domain(
+                (int) ($components['clone_source_node_count'] ?? 0),
+                (int) ($components['emitted_clone_node_count'] ?? 0),
+                (int) ($components['missing_emitted_clone_node_count'] ?? 0),
+                (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0)
+            ),
+            'effects' => $sourceLossCoverageBuilder->domain(
+                (int) ($effects['source_effect_node_count'] ?? 0),
+                (int) ($effects['emitted_effect_node_count'] ?? 0),
+                (int) ($effects['missing_emitted_effect_node_count'] ?? 0),
+                (int) ($effects['intentionally_suppressed_effect_node_count'] ?? 0)
+            ),
+            'masks' => $sourceLossCoverageBuilder->domain(
+                (int) ($maskEffectClipping['mask_node_count'] ?? 0),
+                (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0) + (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0),
+                0
+            ),
+        );
+
+        return $sourceLossCoverageBuilder->aggregate($domains);
     }
 
     /**

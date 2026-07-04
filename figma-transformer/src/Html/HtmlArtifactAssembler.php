@@ -62,9 +62,62 @@ final class HtmlArtifactAssembler
         return $css;
     }
 
-    public function htmlDocument(string $title, string $stylesheetHref, string $body): string
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function htmlDocument(string $title, string $stylesheetHref, string $body, array $metadata = array()): string
     {
-        return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
+        $head = array(
+            '<meta charset="utf-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1">',
+            '<title>' . $title . '</title>',
+        );
+
+        $description = $this->metadataValue($metadata, 'description');
+        if ( null !== $description ) {
+            $head[] = '<meta name="description" content="' . $this->sanitizeAttribute($description) . '">';
+        }
+
+        $canonicalUrl = $this->metadataValue($metadata, 'canonical_url');
+        if ( null !== $canonicalUrl ) {
+            $head[] = '<link rel="canonical" href="' . $this->sanitizeAttribute($canonicalUrl) . '">';
+        }
+
+        $faviconHref = $this->metadataValue($metadata, 'favicon_href');
+        if ( null !== $faviconHref ) {
+            $head[] = '<link rel="icon" href="' . $this->sanitizeAttribute($faviconHref) . '">';
+        }
+
+        foreach ( array(
+            'og_title' => array('property', 'og:title'),
+            'og_description' => array('property', 'og:description'),
+            'og_image' => array('property', 'og:image'),
+            'twitter_card' => array('name', 'twitter:card'),
+            'twitter_title' => array('name', 'twitter:title'),
+            'twitter_description' => array('name', 'twitter:description'),
+            'twitter_image' => array('name', 'twitter:image'),
+        ) as $key => $tag ) {
+            $value = $this->metadataValue($metadata, $key);
+            if ( null !== $value ) {
+                $head[] = '<meta ' . $tag[0] . '="' . $tag[1] . '" content="' . $this->sanitizeAttribute($value) . '">';
+            }
+        }
+
+        $head[] = '<link rel="stylesheet" href="' . $this->sanitizeAttribute($stylesheetHref) . '">';
+
+        $mainAttributes = array(
+            'class="figma-root"',
+            'data-figma-root="true"',
+            'data-page-title="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
+            'aria-label="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
+        );
+
+        $pagePath = $this->metadataValue($metadata, 'page_path');
+        if ( null !== $pagePath ) {
+            $mainAttributes[] = 'data-page-path="' . $this->sanitizeAttribute($pagePath) . '"';
+        }
+
+        return "<!doctype html>\n<html lang=\"en\">\n<head>\n" . implode("\n", $head) . "\n</head>\n<body>\n<main " . implode(' ', $mainAttributes) . ">\n" . $body . "</main>\n</body>\n</html>\n";
     }
 
     /**
@@ -86,5 +139,18 @@ final class HtmlArtifactAssembler
     {
         $sanitizeAttribute = $this->attributeSanitizer;
         return $sanitizeAttribute($value);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    private function metadataValue(array $metadata, string $key): ?string
+    {
+        if ( ! isset($metadata[$key]) || ! is_scalar($metadata[$key]) ) {
+            return null;
+        }
+
+        $value = trim((string) $metadata[$key]);
+        return '' === $value ? null : $value;
     }
 }

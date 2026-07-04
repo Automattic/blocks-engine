@@ -16,10 +16,15 @@ if ( is_readable($autoload) ) {
 } else {
     require_once __DIR__ . '/../figma-transformer.php';
 }
+require_once __DIR__ . '/figma-script-utils.php';
 
 $options = blocks_engine_figma_parser_parity_options($argv);
 if ( true === ($options['help'] ?? false) ) {
     blocks_engine_figma_parser_parity_usage(STDOUT);
+    exit(0);
+}
+if ( blocks_engine_figma_script_bool_option($options['self_check'] ?? false) ) {
+    blocks_engine_figma_script_self_check();
     exit(0);
 }
 
@@ -28,11 +33,16 @@ if ( '' === ($options['input'] ?? '') ) {
     exit(1);
 }
 
-$input = (string) $options['input'];
+try {
+    $input = blocks_engine_figma_script_require_input_path((string) $options['input']);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
+}
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
 $zstdCommand = is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null;
-$limit = max(1, (int) ($options['limit'] ?? 20));
-$sampleLimit = max(1, (int) ($options['sample_limit'] ?? 5));
+$limit = blocks_engine_figma_script_int_option($options['limit'] ?? null, 20, 1, 500);
+$sampleLimit = blocks_engine_figma_script_int_option($options['sample_limit'] ?? null, 5, 1, 100);
+$summaryLimit = blocks_engine_figma_script_int_option($options['summary_limit'] ?? null, 20, 0, 500);
 $maxNodes = isset($options['max_nodes']) ? (int) $options['max_nodes'] : null;
 $archiveOptions = blocks_engine_figma_parser_parity_archive_options($options);
 
@@ -56,21 +66,14 @@ $normalized = $normalizer->normalize($transformScenegraph, $transformOptions);
 unset($transformScenegraph);
 $result = blocks_engine_figma_parser_parity_emit_result($normalized, $transformOptions);
 
-$report = blocks_engine_figma_parser_parity_report($input, $source, $archive, $scenegraph, $normalized, $result, $transformOptions, $archiveOptions, $limit, $sampleLimit, $zstdCommand);
-$json = blocks_engine_figma_parser_parity_json_encode($report) . "\n";
+$report = blocks_engine_figma_parser_parity_report($input, $source, $archive, $scenegraph, $normalized, $result, $transformOptions, $archiveOptions, $limit, $sampleLimit, $summaryLimit, $zstdCommand);
 
-if ( isset($options['output']) && '' !== (string) $options['output'] ) {
-    $output = (string) $options['output'];
-    $directory = dirname($output);
-    if ( ! is_dir($directory) && ! mkdir($directory, 0777, true) && ! is_dir($directory) ) {
-        fwrite(STDERR, "Unable to create output directory: {$directory}\n");
-        exit(1);
-    }
-    file_put_contents($output, $json);
+try {
+    blocks_engine_figma_script_output_json($report, isset($options['output']) ? (string) $options['output'] : null, $report['summary'] ?? array());
+    exit(0);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
 }
-
-fwrite(STDOUT, $json);
-exit(0);
 
 /**
  * @return array<string, mixed>
@@ -97,7 +100,7 @@ function blocks_engine_figma_parser_parity_options(array $argv): array
 
 function blocks_engine_figma_parser_parity_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--max-kiwi-message-decode-bytes=1] [--include-asset-content=0] [--limit=20] [--sample-limit=5] [--output=/tmp/parity.json]\n");
+    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--max-kiwi-message-decode-bytes=1] [--max-kiwi-selective-message-decode-bytes=33554432] [--include-asset-content=0] [--limit=20] [--sample-limit=5] [--summary-limit=20] [--output=/tmp/parity.json] [--self-check]\n");
 }
 
 /**
@@ -107,7 +110,8 @@ function blocks_engine_figma_parser_parity_archive_options(array $options): arra
 {
     return array(
         'include_asset_content' => blocks_engine_figma_parser_parity_bool_option($options['include_asset_content'] ?? false),
-        'max_kiwi_message_decode_bytes' => max(1, (int) ($options['max_kiwi_message_decode_bytes'] ?? 1)),
+        'max_kiwi_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_message_decode_bytes'] ?? null, 1, 1, 104857600),
+        'max_kiwi_selective_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_selective_message_decode_bytes'] ?? null, 33554432, 0, 104857600),
     );
 }
 
@@ -118,7 +122,7 @@ function blocks_engine_figma_parser_parity_bool_option(mixed $value): bool
     }
 
     $normalized = strtolower((string) $value);
-    return in_array($normalized, array('1', 'true', 'yes', 'on'), true);
+    return blocks_engine_figma_script_bool_option($normalized);
 }
 
 /**
@@ -270,7 +274,7 @@ function blocks_engine_figma_parser_parity_scenegraph_score(array $payload, stri
  * @param array<string, mixed>|null $archive
  * @return array<string, mixed>
  */
-function blocks_engine_figma_parser_parity_report(string $input, array $source, ?array $archive, array $scenegraph, array $normalized, array $result, array $transformOptions, array $archiveOptions, int $limit, int $sampleLimit, ?string $zstdCommand): array
+function blocks_engine_figma_parser_parity_report(string $input, array $source, ?array $archive, array $scenegraph, array $normalized, array $result, array $transformOptions, array $archiveOptions, int $limit, int $sampleLimit, int $summaryLimit, ?string $zstdCommand): array
 {
     $rawNodes = blocks_engine_figma_parser_parity_flat_node_map($scenegraph);
     $normalizedNodes = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
@@ -304,6 +308,14 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'zstd_command' => $zstdCommand,
         ), static fn (mixed $value): bool => null !== $value),
         'options' => $transformOptions,
+        'summary' => array(
+            'schema' => 'blocks-engine/figma-transformer/parser-parity-summary/v1',
+            'input' => array('path' => $input, 'shape' => $source['shape'] ?? null),
+            'raw_node_count' => count($rawNodes),
+            'normalized_node_count' => count($normalizedNodes),
+            'emitted_visual_node_count' => count($visualNodeIds),
+            'top_missing_field_path_count' => count($rawFieldReport['top_missing_field_paths']),
+        ),
         'raw' => array(
             'node_count' => count($rawNodes),
             'field_path_count' => count($rawFieldReport['raw_field_paths']),
@@ -346,7 +358,7 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'raw_component_props_to_normalized' => blocks_engine_figma_parser_parity_id_coverage($rawComponentPropNodeIds, array_keys($normalizedNodes), $sampleLimit),
             'normalized_component_clone_to_emitted' => blocks_engine_figma_parser_parity_id_coverage($normalizedCloneNodeIds, $emittedNodeIdList, $sampleLimit, true),
         ),
-        'transform_diagnostics' => blocks_engine_figma_parser_parity_transform_diagnostics_summary($htmlReport),
+        'transform_diagnostics' => blocks_engine_figma_parser_parity_transform_diagnostics_summary($htmlReport, $summaryLimit),
         'top_missing_field_paths' => $rawFieldReport['top_missing_field_paths'],
         'diagnostics' => array(
             'normalized_sample' => array_slice(is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array(), 0, $limit),
@@ -404,20 +416,20 @@ function blocks_engine_figma_parser_parity_variable_field_counts(array $rawNodes
 /**
  * @return array<string, mixed>
  */
-function blocks_engine_figma_parser_parity_transform_diagnostics_summary(array $htmlReport): array
+function blocks_engine_figma_parser_parity_transform_diagnostics_summary(array $htmlReport, int $limit = 20): array
 {
     $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
     $artifactQuality = is_array($diagnostics['artifact_quality'] ?? null) ? $diagnostics['artifact_quality'] : array();
 
     return array(
         'schema' => 'blocks-engine/figma-transformer/parser-parity-transform-diagnostics/v1',
-        'artifact_quality_summary' => is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
-        'text' => is_array($diagnostics['text'] ?? null) ? $diagnostics['text'] : array(),
-        'components' => is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(),
-        'effects' => is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(),
-        'mask_effect_clipping' => is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(),
-        'vector_child_composition' => is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(),
-        'stacking_order' => is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(),
+        'artifact_quality_summary' => blocks_engine_figma_script_bounded_summary_map(is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(), $limit),
+        'text' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['text'] ?? null) ? $diagnostics['text'] : array(), $limit),
+        'components' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(), $limit),
+        'effects' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(), $limit),
+        'mask_effect_clipping' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(), $limit),
+        'vector_child_composition' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(), $limit),
+        'stacking_order' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(), $limit),
     );
 }
 
@@ -704,7 +716,7 @@ function blocks_engine_figma_parser_parity_raw_asset_reference_node_ids(array $n
         if ( ! is_array($node) ) {
             continue;
         }
-        $encoded = json_encode($node, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        $encoded = blocks_engine_figma_script_json_encode($node);
         if ( is_string($encoded) && preg_match('/("asset_id"|"imageRef"|"imageHash"|"hash"|"ref")/', $encoded) ) {
             $ids[] = (string) $id;
         }
@@ -859,5 +871,5 @@ function blocks_engine_figma_parser_parity_file_content(array $result, string $p
 
 function blocks_engine_figma_parser_parity_json_encode(array $value): string
 {
-    return json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '{}';
+    return blocks_engine_figma_script_json_encode($value);
 }

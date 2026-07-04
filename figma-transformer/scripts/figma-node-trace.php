@@ -17,10 +17,15 @@ if ( is_readable($autoload) ) {
 } else {
     require_once __DIR__ . '/../figma-transformer.php';
 }
+require_once __DIR__ . '/figma-script-utils.php';
 
 $options = blocks_engine_figma_trace_options($argv);
 if ( true === ($options['help'] ?? false) ) {
     blocks_engine_figma_trace_usage(STDOUT);
+    exit(0);
+}
+if ( blocks_engine_figma_script_bool_option($options['self_check'] ?? false) ) {
+    blocks_engine_figma_script_self_check();
     exit(0);
 }
 
@@ -29,11 +34,16 @@ if ( '' === ($options['input'] ?? '') || '' === ($options['frame_id'] ?? '') || 
     exit(1);
 }
 
-$input = (string) $options['input'];
+try {
+    $input = blocks_engine_figma_script_require_input_path((string) $options['input']);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
+}
 $frameId = (string) $options['frame_id'];
 $nodeIds = $options['node_ids'];
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
-$diagnosticLimit = (int) ($options['diagnostic_limit'] ?? 20);
+$diagnosticLimit = blocks_engine_figma_script_int_option($options['diagnostic_limit'] ?? null, 20, 0, 500);
+$summaryLimit = blocks_engine_figma_script_int_option($options['summary_limit'] ?? null, 20, 0, 500);
 $maxNodes = isset($options['max_nodes']) ? (int) $options['max_nodes'] : null;
 $archiveOptions = blocks_engine_figma_trace_archive_options($options);
 
@@ -71,7 +81,7 @@ $trace = array(
     'frame_id' => $frameId,
     'node_ids' => $nodeIds,
     'nodes' => array(),
-    'transform_diagnostics' => blocks_engine_figma_trace_transform_diagnostics_summary($htmlReport),
+    'transform_diagnostics' => blocks_engine_figma_trace_transform_diagnostics_summary($htmlReport, $summaryLimit),
     'diagnostics_sample' => blocks_engine_figma_trace_diagnostics_sample($result, $htmlReport, $diagnosticLimit),
     'metrics' => $result['metrics'] ?? array(),
 );
@@ -82,11 +92,13 @@ foreach ( $nodeIds as $nodeId ) {
     $sourceId = blocks_engine_figma_trace_component_source_id($normalizedNode);
     $style = blocks_engine_figma_trace_style_diagnostic($htmlReport, $nodeId);
     $className = is_array($style) ? (string) ($style['node']['class'] ?? '') : '';
+    $visualNode = blocks_engine_figma_trace_visual_node($htmlReport, $nodeId);
     $trace['nodes'][] = array(
         'id' => $nodeId,
         'raw' => blocks_engine_figma_trace_node_summary($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), array(), isset($rawNodes[$nodeId]['id']) && is_scalar($rawNodes[$nodeId]['id']) ? (string) $rawNodes[$nodeId]['id'] : ($sourceId ?? $nodeId)),
         'source' => null !== $sourceId ? blocks_engine_figma_trace_node_summary($rawNodes[$sourceId] ?? ($normalizedNodes[$sourceId] ?? null), $normalized, $sourceId) : null,
         'normalized' => blocks_engine_figma_trace_node_summary($normalizedNode, $normalized, $nodeId),
+        'ancestry' => blocks_engine_figma_trace_normalized_ancestry($normalizedNode, $normalizedNodes, $htmlReport),
         'field_coverage' => blocks_engine_figma_trace_field_coverage($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), $normalizedNode),
         'emitted' => array_filter(array(
             'class' => '' !== $className ? $className : null,
@@ -96,12 +108,17 @@ foreach ( $nodeIds as $nodeId ) {
             'style_diagnostic' => $style,
         ), static fn (mixed $value): bool => null !== $value && array() !== $value),
         'transform_diagnostics' => blocks_engine_figma_trace_node_transform_diagnostics($htmlReport, $nodeId),
-        'visual' => blocks_engine_figma_trace_visual_node($htmlReport, $nodeId),
+        'visual' => $visualNode,
+        'geometry_trace' => blocks_engine_figma_trace_geometry_context($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), $normalizedNode, $visualNode, $htmlReport, $style),
     );
 }
 
-fwrite(STDOUT, blocks_engine_figma_trace_json_encode($trace) . "\n");
-exit(0);
+try {
+    blocks_engine_figma_script_output_json($trace, isset($options['output']) ? (string) $options['output'] : null, blocks_engine_figma_trace_summary($trace));
+    exit(0);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
+}
 
 /**
  * @return array<string, mixed>
@@ -147,7 +164,7 @@ function blocks_engine_figma_trace_options(array $argv): array
 
 function blocks_engine_figma_trace_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-kiwi-message-decode-bytes=1] [--max-nodes=5000] [--diagnostic-limit=20]\n");
+    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-kiwi-message-decode-bytes=1] [--max-nodes=5000] [--diagnostic-limit=20] [--summary-limit=20] [--output=/tmp/trace.json] [--self-check]\n");
 }
 
 /**
@@ -157,7 +174,7 @@ function blocks_engine_figma_trace_archive_options(array $options): array
 {
     return array(
         'include_asset_content' => false,
-        'max_kiwi_message_decode_bytes' => max(1, (int) ($options['max_kiwi_message_decode_bytes'] ?? 1)),
+        'max_kiwi_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_message_decode_bytes'] ?? null, 1, 1, 104857600),
     );
 }
 
@@ -221,19 +238,19 @@ function blocks_engine_figma_trace_emit_result(array $normalized, array $transfo
 /**
  * @return array<string, mixed>
  */
-function blocks_engine_figma_trace_transform_diagnostics_summary(array $htmlReport): array
+function blocks_engine_figma_trace_transform_diagnostics_summary(array $htmlReport, int $limit = 20): array
 {
     $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
     $artifactQuality = is_array($diagnostics['artifact_quality'] ?? null) ? $diagnostics['artifact_quality'] : array();
 
     return array(
         'schema' => 'blocks-engine/figma-transformer/node-trace-transform-diagnostics/v1',
-        'artifact_quality_summary' => is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
-        'components' => is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(),
-        'effects' => is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(),
-        'mask_effect_clipping' => is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(),
-        'vector_child_composition' => is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(),
-        'stacking_order' => is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(),
+        'artifact_quality_summary' => blocks_engine_figma_script_bounded_summary_map(is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(), $limit),
+        'components' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(), $limit),
+        'effects' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(), $limit),
+        'mask_effect_clipping' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(), $limit),
+        'vector_child_composition' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(), $limit),
+        'stacking_order' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(), $limit),
     );
 }
 
@@ -480,10 +497,99 @@ function blocks_engine_figma_trace_node_summary(mixed $node, array $index, strin
         'parent_id' => is_scalar($index['parent_index'][$nodeId] ?? null) ? (string) $index['parent_index'][$nodeId] : null,
         'child_ids' => is_array($index['children_index'][$nodeId] ?? null) ? array_values($index['children_index'][$nodeId]) : array(),
         'box' => ! empty($box) ? $box : blocks_engine_figma_trace_raw_box($node),
+        'figma_box' => is_array($node['figma_box'] ?? null) ? $node['figma_box'] : null,
+        'transform' => blocks_engine_figma_trace_transform_summary($node),
         'layout' => ! empty($layout) ? $layout : blocks_engine_figma_trace_raw_layout($node),
         'mask' => blocks_engine_figma_trace_mask_summary($node),
         'text' => blocks_engine_figma_trace_text_summary($node),
         'paints' => blocks_engine_figma_trace_paint_summary($node),
+    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+}
+
+function blocks_engine_figma_trace_transform_summary(array $node): array
+{
+    $summary = array();
+    foreach ( array('transform', 'relativeTransform', 'absoluteTransform') as $key ) {
+        if ( is_array($node[$key] ?? null) ) {
+            $summary[$key] = $node[$key];
+        }
+    }
+    if ( is_array($node['figma_box']['transform'] ?? null) ) {
+        $summary['figma_box_transform'] = $node['figma_box']['transform'];
+    }
+    if ( is_array($node['box']['transform'] ?? null) ) {
+        $summary['box_transform'] = $node['box']['transform'];
+    }
+    return $summary;
+}
+
+/**
+ * @param array<string, array<string, mixed>> $normalizedNodes
+ * @return array<int, array<string, mixed>>
+ */
+function blocks_engine_figma_trace_normalized_ancestry(?array $node, array $normalizedNodes, array $htmlReport): array
+{
+    if ( ! is_array($node) ) {
+        return array();
+    }
+
+    $ancestors = array();
+    $seen = array();
+    $parentId = isset($node['parent_id']) && is_scalar($node['parent_id']) ? (string) $node['parent_id'] : '';
+    while ( '' !== $parentId && ! isset($seen[$parentId]) && is_array($normalizedNodes[$parentId] ?? null) ) {
+        $seen[$parentId] = true;
+        $parent = $normalizedNodes[$parentId];
+        $visual = blocks_engine_figma_trace_visual_node($htmlReport, $parentId);
+        $ancestors[] = array_filter(array(
+            'id' => $parentId,
+            'name' => isset($parent['name']) && is_scalar($parent['name']) ? (string) $parent['name'] : null,
+            'type' => isset($parent['type']) && is_scalar($parent['type']) ? strtoupper((string) $parent['type']) : null,
+            'box' => is_array($parent['box'] ?? null) ? $parent['box'] : null,
+            'layout' => is_array($parent['layout'] ?? null) ? $parent['layout'] : null,
+            'mask' => blocks_engine_figma_trace_mask_summary($parent),
+            'visual_rect' => is_array($visual['rect'] ?? null) ? $visual['rect'] : null,
+            'visible_rect' => is_array($visual['visible_rect'] ?? null) ? $visual['visible_rect'] : null,
+            'clip' => is_array($visual['clip'] ?? null) ? $visual['clip'] : null,
+        ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+        $parentId = isset($parent['parent_id']) && is_scalar($parent['parent_id']) ? (string) $parent['parent_id'] : '';
+    }
+
+    return $ancestors;
+}
+
+function blocks_engine_figma_trace_geometry_context(mixed $rawNode, mixed $normalizedNode, mixed $visualNode, array $htmlReport, ?array $style): array
+{
+    $parentVisual = null;
+    if ( is_array($visualNode) && isset($visualNode['parent_id']) && is_scalar($visualNode['parent_id']) ) {
+        $parentVisual = blocks_engine_figma_trace_visual_node($htmlReport, (string) $visualNode['parent_id']);
+    }
+
+    return array_filter(array(
+        'raw_box' => is_array($rawNode) ? blocks_engine_figma_trace_raw_box($rawNode) : null,
+        'raw_transform' => is_array($rawNode) ? blocks_engine_figma_trace_transform_summary($rawNode) : null,
+        'normalized_box' => is_array($normalizedNode['box'] ?? null) ? $normalizedNode['box'] : null,
+        'normalized_figma_box' => is_array($normalizedNode['figma_box'] ?? null) ? $normalizedNode['figma_box'] : null,
+        'component_source_clone' => is_array($normalizedNode) ? blocks_engine_figma_trace_component_source_clone_summary($normalizedNode) : null,
+        'normalized_transform' => is_array($normalizedNode) ? blocks_engine_figma_trace_transform_summary($normalizedNode) : null,
+        'visual_rect' => is_array($visualNode['rect'] ?? null) ? $visualNode['rect'] : null,
+        'visible_rect' => is_array($visualNode['visible_rect'] ?? null) ? $visualNode['visible_rect'] : null,
+        'clip' => is_array($visualNode['clip'] ?? null) ? $visualNode['clip'] : null,
+        'parent_visual_rect' => is_array($parentVisual['rect'] ?? null) ? $parentVisual['rect'] : null,
+        'parent_visible_rect' => is_array($parentVisual['visible_rect'] ?? null) ? $parentVisual['visible_rect'] : null,
+        'emitted_geometry' => is_array($style['emitted'] ?? null) ? $style['emitted'] : null,
+        'expected_geometry' => is_array($style['expected'] ?? null) ? $style['expected'] : null,
+        'style_mismatches' => is_array($style['mismatches'] ?? null) ? $style['mismatches'] : null,
+    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+}
+
+function blocks_engine_figma_trace_component_source_clone_summary(array $node): array
+{
+    return array_filter(array(
+        'source_id' => isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : null,
+        'is_clone_geometry' => true === ($node['_component_source_clone_geometry'] ?? false) ? true : null,
+        'source_box' => is_array($node['_component_source_clone_source_box'] ?? null) ? $node['_component_source_clone_source_box'] : null,
+        'scale' => is_array($node['_component_source_clone_scale'] ?? null) ? $node['_component_source_clone_scale'] : null,
+        'geometry_decision' => is_array($node['_component_source_clone_geometry_decision'] ?? null) ? $node['_component_source_clone_geometry_decision'] : null,
     ), static fn (mixed $value): bool => null !== $value && array() !== $value);
 }
 
@@ -619,8 +725,13 @@ function blocks_engine_figma_trace_interesting_fields(array $node): array
         'absoluteBoundingBox', 'absoluteRenderBounds', 'size', 'x', 'y', 'width', 'height', 'rotation', 'fills', 'fillPaints',
         'strokes', 'strokePaints', 'styles', 'styleIdForFill', 'styleIdForStroke', 'boundVariables', 'variableConsumptionMap',
         'componentId', 'componentProperties', 'componentPropertyDefinitions', 'overrides', 'overrideTable', 'overrideMap',
+        'overrideKey', 'proportionsConstrained', 'targetAspectRatio', 'derivedSymbolDataLayoutVersion', 'figma_component',
+        'symbolData', 'derivedSymbolData', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs', 'guidPath',
+        'componentKey', 'key', 'variantPropSpecs', 'isStateGroup', 'stateGroupPropertyValueOrders',
         'characters', 'text', 'figma_text', 'style', 'textStyleOverrides', 'lineTypes', 'lineIndentations', 'vectorNetwork',
         'vectorPaths', 'vectorPath', 'arcData', 'cornerRadius', 'rectangleCornerRadii', 'figma_component_source_id',
+        '_component_source_clone_geometry', '_component_source_clone_source_box', '_component_source_clone_scale',
+        '_component_source_clone_geometry_decision', '_figma_instance_override_applied',
     );
     $summary = array();
     foreach ( $interesting as $field ) {
@@ -718,11 +829,22 @@ function blocks_engine_figma_trace_diagnostics_sample(array $result, array $html
     $transformDiagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
     return array(
         'top_level' => array_slice($diagnostics, 0, max(0, $limit)),
-        'transform' => $transformDiagnostics,
+        'transform' => blocks_engine_figma_script_bounded_summary_map($transformDiagnostics, $limit),
     );
 }
 
 function blocks_engine_figma_trace_json_encode(array $value): string
 {
-    return json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '{}';
+    return blocks_engine_figma_script_json_encode($value);
+}
+
+function blocks_engine_figma_trace_summary(array $trace): array
+{
+    return array(
+        'schema' => 'blocks-engine/figma-transformer/node-trace-summary/v1',
+        'input' => $trace['input'] ?? array(),
+        'frame_id' => $trace['frame_id'] ?? null,
+        'node_count' => count(is_array($trace['nodes'] ?? null) ? $trace['nodes'] : array()),
+        'metric_summary' => $trace['metrics'] ?? array(),
+    );
 }

@@ -216,6 +216,8 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
     blocks_engine_figma_transformer_contract_assert_diagnostic_summary_envelope($assert, $transformDiagnostics, 'blocks-engine/figma-transformer/parser-parity-transform-diagnostics/v1', 'parser-parity-transform-diagnostics');
     $assert(1 <= ($transformDiagnostics['effects']['source_effect_node_count'] ?? 0), 'parser-parity-effect-source-count');
     $assert(1 <= ($transformDiagnostics['mask_effect_clipping']['mask_node_count'] ?? 0), 'parser-parity-mask-count');
+    $assert(0 === ($transformDiagnostics['mask_effect_clipping']['emitted_mask_source_node_count'] ?? null), 'parser-parity-emitted-mask-source-count');
+    $assert(1 <= ($transformDiagnostics['mask_effect_clipping']['suppressed_mask_source_node_count'] ?? 0), 'parser-parity-suppressed-mask-source-count');
     $assert(1 <= ($transformDiagnostics['mask_effect_clipping']['clipped_effect_node_count'] ?? 0), 'parser-parity-clipped-effect-count');
     $assert(1 <= ($transformDiagnostics['vector_child_composition']['vector_child_node_count'] ?? 0), 'parser-parity-vector-child-composition-count');
     $assert(1 <= ($transformDiagnostics['stacking_order']['mixed_positioning_parent_count'] ?? 0), 'parser-parity-stacking-order-count');

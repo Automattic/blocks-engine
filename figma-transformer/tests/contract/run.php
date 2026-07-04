@@ -5,20 +5,25 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/ContractHelpers.php';
+require_once __DIR__ . '/ComponentCloneEmissionContract.php';
 require_once __DIR__ . '/DiagnosticsEvidenceContract.php';
 require_once __DIR__ . '/EffectsContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/FormControlContract.php';
 require_once __DIR__ . '/GeometryBoxContract.php';
+require_once __DIR__ . '/HtmlValidityContract.php';
 require_once __DIR__ . '/ImagePaintContract.php';
 require_once __DIR__ . '/KiwiSkippedFieldInventoryContract.php';
 require_once __DIR__ . '/KiwiParserContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
+require_once __DIR__ . '/LayoutFrameRoleContract.php';
 require_once __DIR__ . '/NodeTraceContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/ParserParityContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
+require_once __DIR__ . '/SemanticAccessibilityContract.php';
 require_once __DIR__ . '/SiteGenerationContract.php';
+require_once __DIR__ . '/StackingContextPolicyContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 require_once __DIR__ . '/TextLayoutContract.php';
 require_once __DIR__ . '/VectorCommandBlobContract.php';
@@ -29,6 +34,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
@@ -183,12 +189,21 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$heroSectionRule = blocks_engine_figma_transformer_contract_css_rule($css, '.figma-node-1-1-hero-section');
+$assert(str_contains($heroSectionRule, 'width:100%') && ! str_contains($heroSectionRule, 'max-width:1200px') && str_contains($heroSectionRule, 'min-height:600px') && str_contains($heroSectionRule, 'background:#ffffff') && str_contains($heroSectionRule, 'display:flex') && str_contains($heroSectionRule, 'gap:24px'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
 
+blocks_engine_figma_transformer_run_layout_frame_role_contract($assert);
+
 blocks_engine_figma_transformer_run_form_control_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_html_validity_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_semantic_accessibility_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_stacking_context_policy_contract($assert);
 
 blocks_engine_figma_transformer_run_vector_command_blob_contract($assert, $oversizedCommandBlob, $longStrokeCommandBlob);
 
@@ -262,7 +277,7 @@ $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
 $assert(str_contains($css, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'width:max-content'), 'css-static-page-root-shell-not-fixed-canvas');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px;'), 'css-page-root-frame-is-fluid-full-bleed');
+$assert(str_contains($heroSectionRule, 'width:100%') && ! str_contains($heroSectionRule, 'max-width:1200px') && str_contains($heroSectionRule, 'min-height:600px'), 'css-page-root-frame-fills-viewport-without-implicit-canvas-cap');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
@@ -409,6 +424,152 @@ $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-b
 $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
 $assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
 
+$freeformDecorativeOverlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Freeform Decorative Overlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'freeform-overlay:section',
+            'type'     => 'FRAME',
+            'name'     => 'Services hero',
+            'width'    => 1200,
+            'height'   => 520,
+            'children' => array(
+                array(
+                    'id'           => 'freeform-overlay:band',
+                    'type'         => 'RECTANGLE',
+                    'name'         => 'Diagonal decorative band',
+                    'x'            => -120,
+                    'y'            => 20,
+                    'width'        => 1440,
+                    'height'       => 360,
+                    'rotation'     => -8,
+                    'fill'         => array('r' => 0.90, 'g' => 0.94, 'b' => 0.98),
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'       => 'freeform-overlay:copy',
+                    'type'     => 'TEXT',
+                    'name'     => 'Hero headline',
+                    'x'        => 80,
+                    'y'        => 120,
+                    'width'    => 620,
+                    'height'   => 120,
+                    'text'     => 'Services content stays above decorative bands',
+                    'fontSize' => 48,
+                ),
+                array(
+                    'id'       => 'freeform-overlay:button',
+                    'type'     => 'TEXT',
+                    'name'     => 'Hero CTA',
+                    'x'        => 80,
+                    'y'        => 280,
+                    'width'    => 180,
+                    'height'   => 42,
+                    'text'     => 'Book a visit',
+                    'fontSize' => 18,
+                ),
+            ),
+        ),
+    ),
+));
+$freeformDecorativeOverlayCss = $fileContent($freeformDecorativeOverlayResult, 'style.css');
+$freeformDecorativeOverlayUnderlays = $freeformDecorativeOverlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-section-services-hero', array('position:relative', 'isolation:isolate'), 'freeform-decorative-overlay-parent-isolated');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-band-diagonal-decorative-band', array('position:absolute', 'left:-120px', 'top:20px', 'z-index:1', 'pointer-events:none'), 'freeform-decorative-overlay-band-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-copy-hero-headline', array('position:absolute', 'left:80px', 'top:120px', 'z-index:2'), 'freeform-decorative-overlay-text-above');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-button-hero-cta', array('position:absolute', 'left:80px', 'top:280px', 'z-index:3'), 'freeform-decorative-overlay-cta-above');
+$assert(1 === ($freeformDecorativeOverlayUnderlays['count'] ?? null), 'freeform-decorative-overlay-underlay-diagnostic-count');
+
+$timelineScaffoldUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Timeline Scaffold Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'timeline-scaffold:section',
+            'type'     => 'FRAME',
+            'name'     => 'Treatment timeline',
+            'width'    => 900,
+            'height'   => 680,
+            'children' => array(
+                array(
+                    'id'       => 'timeline-scaffold:rail',
+                    'type'     => 'GROUP',
+                    'name'     => 'Vertical line and dots',
+                    'x'        => 88,
+                    'y'        => 40,
+                    'width'    => 32,
+                    'height'   => 560,
+                    'children' => array(
+                        array(
+                            'id'           => 'timeline-scaffold:line',
+                            'type'         => 'RECTANGLE',
+                            'name'         => 'Timeline vertical line',
+                            'x'            => 15,
+                            'y'            => 0,
+                            'width'        => 2,
+                            'height'       => 560,
+                            'fill'         => array('r' => 0.78, 'g' => 0.82, 'b' => 0.88),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                        array(
+                            'id'           => 'timeline-scaffold:dot-1',
+                            'type'         => 'ELLIPSE',
+                            'name'         => 'Timeline dot 1',
+                            'x'            => 0,
+                            'y'            => 70,
+                            'width'        => 32,
+                            'height'       => 32,
+                            'fill'         => array('r' => 0.20, 'g' => 0.40, 'b' => 0.68),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                        array(
+                            'id'           => 'timeline-scaffold:dot-2',
+                            'type'         => 'ELLIPSE',
+                            'name'         => 'Timeline dot 2',
+                            'x'            => 0,
+                            'y'            => 300,
+                            'width'        => 32,
+                            'height'       => 32,
+                            'fill'         => array('r' => 0.20, 'g' => 0.40, 'b' => 0.68),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'timeline-scaffold:step-1',
+                    'type'     => 'TEXT',
+                    'name'     => 'Consultation step',
+                    'x'        => 80,
+                    'y'        => 84,
+                    'width'    => 640,
+                    'height'   => 80,
+                    'text'     => 'Consultation and treatment plan',
+                    'fontSize' => 24,
+                ),
+                array(
+                    'id'       => 'timeline-scaffold:step-2',
+                    'type'     => 'TEXT',
+                    'name'     => 'Follow up step',
+                    'x'        => 80,
+                    'y'        => 314,
+                    'width'    => 640,
+                    'height'   => 80,
+                    'text'     => 'Follow up and maintenance',
+                    'fontSize' => 24,
+                ),
+            ),
+        ),
+    ),
+));
+$timelineScaffoldUnderlayCss = $fileContent($timelineScaffoldUnderlayResult, 'style.css');
+$timelineScaffoldUnderlays = $timelineScaffoldUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-section-treatment-timeline', array('position:relative', 'isolation:isolate'), 'timeline-scaffold-parent-isolated');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-rail-vertical-line-and-dots', array('position:absolute', 'left:88px', 'top:40px', 'z-index:1', 'pointer-events:none'), 'timeline-scaffold-rail-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-1-consultation-step', array('position:absolute', 'left:80px', 'top:84px', 'z-index:2'), 'timeline-scaffold-step-1-above');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-2-follow-up-step', array('position:absolute', 'left:80px', 'top:314px', 'z-index:3'), 'timeline-scaffold-step-2-above');
+$assert(1 === ($timelineScaffoldUnderlays['count'] ?? null), 'timeline-scaffold-underlay-diagnostic-count');
+
 $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'FSE Footer Underlay Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),
@@ -471,11 +632,57 @@ $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
 $fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;height:131px;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
+$fseFooterRowRule = blocks_engine_figma_transformer_contract_css_rule($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19');
+$assert(str_contains($fseFooterRowRule, 'width:100%') && ! str_contains($fseFooterRowRule, 'max-width:1440px') && str_contains($fseFooterRowRule, 'height:131px') && str_contains($fseFooterRowRule, 'position:relative') && str_contains($fseFooterRowRule, 'padding-right:max(0px,calc((100% - 1216px) / 2))') && str_contains($fseFooterRowRule, 'padding-left:max(0px,calc((100% - 1216px) / 2))'), 'fse-footer-row-relative');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
 $assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
+
+$newsletterFooterStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Newsletter Footer Stack Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'newsletter-stack:footer',
+            'type'     => 'FRAME',
+            'name'     => 'Footer',
+            'width'    => 1440,
+            'height'   => 483,
+            'children' => array(
+                array(
+                    'id'       => 'newsletter-stack:card',
+                    'type'     => 'FRAME',
+                    'name'     => 'Newsletter Signup',
+                    'x'        => 112,
+                    'y'        => 0,
+                    'width'    => 1216,
+                    'height'   => 352,
+                    'children' => array(
+                        array('id' => 'newsletter-stack:headline', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Join the dispatch', 'fontSize' => 40),
+                    ),
+                ),
+                array(
+                    'id'         => 'newsletter-stack:row',
+                    'type'       => 'FRAME',
+                    'name'       => 'Footer Links',
+                    'x'          => 0,
+                    'y'          => 352,
+                    'width'      => 1440,
+                    'height'     => 131,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'newsletter-stack:bg', 'type' => 'RECTANGLE', 'name' => 'Rectangle 3', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE', 'fill' => array('r' => 1, 'g' => 0.811764717, 'b' => 0)),
+                        array('id' => 'newsletter-stack:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'fontSize' => 16),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$newsletterFooterStackCss = $fileContent($newsletterFooterStackResult, 'style.css');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-card-newsletter-signup', array('position:absolute', 'z-index:2'), 'newsletter-footer-card-stacks-above-protruding-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-row-footer-links', array('position:absolute', 'z-index:1'), 'newsletter-footer-row-underlay-stack-contained');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-bg-rectangle-3', array('top:-64px', 'z-index:0', 'pointer-events:none'), 'newsletter-footer-protruding-underlay-protected');
 
 $yellowForegroundOverlapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Yellow Foreground Overlap Fixture',
@@ -755,6 +962,36 @@ $assert(array('x' => -20.0, 'y' => 20.0, 'width' => 60.0, 'height' => 30.0) === 
 $assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['visible_rect'] ?? null), 'partly-clipped-decorative-node-visible-rect-intersection');
 $assert(array('x' => -10.0, 'y' => 70.0, 'width' => 140.0, 'height' => 20.0) === ($clippedVisibleCopy['rect'] ?? null), 'clipped-content-node-keeps-source-rect');
 $assert(0 === ($clippedDecorativeDiagnostics['large_absolute_offset_count'] ?? null), 'fully-clipped-decorative-node-not-counted-as-large-offset');
+
+$rootOffCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Root Off Canvas Alternate Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'root-offcanvas:root',
+            'type'     => 'FRAME',
+            'name'     => 'Page root',
+            'width'    => 640,
+            'height'   => 480,
+            'children' => array(
+                array('id' => 'root-offcanvas:image', 'type' => 'RECTANGLE', 'name' => 'Alternate image', 'x' => 0, 'y' => -720, 'width' => 640, 'height' => 240),
+                array('id' => 'root-offcanvas:title', 'type' => 'TEXT', 'name' => 'Alternate title', 'characters' => 'Alternate hero', 'x' => 64, 'y' => -360, 'width' => 320, 'height' => 48, 'fontSize' => 24),
+                array('id' => 'root-offcanvas:visible', 'type' => 'TEXT', 'name' => 'Visible title', 'characters' => 'Visible hero', 'x' => 64, 'y' => 120, 'width' => 320, 'height' => 48, 'fontSize' => 24),
+            ),
+        ),
+    ),
+));
+$rootOffCanvasHtml = $fileContent($rootOffCanvasResult, 'index.html');
+$rootOffCanvasCss = $fileContent($rootOffCanvasResult, 'style.css');
+$rootOffCanvasDiagnostics = $rootOffCanvasResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(! str_contains($rootOffCanvasHtml, 'Alternate hero') && ! str_contains($rootOffCanvasCss, 'figma-node-root-offcanvas-image'), 'root-off-canvas-unpositioned-children-not-emitted');
+$assert(str_contains($rootOffCanvasHtml, 'Visible hero'), 'root-off-canvas-visible-child-emitted');
+$assert(2 === ($rootOffCanvasDiagnostics['decision_traces']['reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'root-off-canvas-decision-trace-count');
+$assert(0 === ($rootOffCanvasDiagnostics['layout']['off_canvas_visual_node_count'] ?? null), 'root-off-canvas-suppressed-not-visual-warning');
+$assert(0 === ($rootOffCanvasDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'root-off-canvas-suppressed-not-large-offset-warning');
+$assert(2 === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_count'] ?? null), 'root-off-canvas-suppressed-large-offset-count');
+$assert(2 === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'root-off-canvas-suppressed-large-offset-reason-count');
+$assert('root_off_canvas_child_suppressed' === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_nodes'][0]['suppression_reason'] ?? null), 'root-off-canvas-suppressed-large-offset-sample-reason');
+$assert(! in_array('large_absolute_offsets', $artifactQualitySignalCodes($rootOffCanvasResult), true), 'root-off-canvas-suppressed-no-large-offset-quality-signal');
 
 $gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Games Control Layout Guard Fixture',
@@ -1520,7 +1757,8 @@ $fixedRootFlexResult = blocks_engine_figma_transformer_transform_scenegraph(arra
     ),
 ));
 $fixedRootFlexCss = $fileContent($fixedRootFlexResult, 'style.css');
-$assert(str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:100%;height:100px;display:flex;flex-direction:column}'), 'fixed-root-flex-emits-fixed-height');
+$fixedRootFlexRule = blocks_engine_figma_transformer_contract_css_rule($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex');
+$assert(str_contains($fixedRootFlexRule, 'width:100%') && ! str_contains($fixedRootFlexRule, 'max-width:1280px') && str_contains($fixedRootFlexRule, 'height:100px') && str_contains($fixedRootFlexRule, 'display:flex') && str_contains($fixedRootFlexRule, 'flex-direction:column'), 'fixed-root-flex-emits-fixed-height');
 $assert(! str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;min-height:100px'), 'fixed-root-flex-does-not-emit-min-height');
 
 $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -1544,7 +1782,8 @@ $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fixedPaddingClampCss = $fileContent($fixedPaddingClampResult, 'style.css');
 $fixedPaddingClampCopy = $findVisualNode($fixedPaddingClampResult, 'padding:copy');
-$assert(str_contains($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding{width:100%;height:100px;display:flex;flex-direction:column;padding-top:50px;padding-bottom:50px}'), 'fixed-padding-clamped-css');
+$fixedPaddingRule = blocks_engine_figma_transformer_contract_css_rule($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding');
+$assert(str_contains($fixedPaddingRule, 'width:100%') && ! str_contains($fixedPaddingRule, 'max-width:1280px') && str_contains($fixedPaddingRule, 'height:100px') && str_contains($fixedPaddingRule, 'display:flex') && str_contains($fixedPaddingRule, 'padding-top:50px') && str_contains($fixedPaddingRule, 'padding-bottom:50px'), 'fixed-padding-clamped-css');
 $assert(50.0 === ($fixedPaddingClampCopy['rect']['y'] ?? null), 'fixed-padding-clamped-visual-map');
 
 $stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -1994,6 +2233,37 @@ $assert(false === ($barlowVariantsCoverage['Barlow Condensed']['needs_operator_f
 $assert(false === ($barlowVariantsCoverage['Barlow Semi Condensed']['needs_operator_font'] ?? null), 'barlow-semi-condensed-no-operator-font-needed');
 $assert(array() === ($barlowVariantsFonts['missing_css'] ?? null), 'barlow-variants-all-resolved');
 
+$multiPageGoogleFontsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multi Page Google Fonts Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'mpgf:home',
+            'type'     => 'FRAME',
+            'name'     => 'Home Desktop',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                array('id' => 'mpgf:home-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Home', 'fontName' => array('family' => 'Barlow Condensed', 'style' => 'Bold'), 'fontSize' => 48),
+                array('id' => 'mpgf:home-body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Home body', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Medium'), 'fontSize' => 18),
+            ),
+        ),
+        array(
+            'id'       => 'mpgf:about',
+            'type'     => 'FRAME',
+            'name'     => 'About Desktop',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                array('id' => 'mpgf:about-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'About', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Bold'), 'fontSize' => 40),
+                array('id' => 'mpgf:about-body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'About body', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Medium'), 'fontSize' => 18),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('mpgf:home', 'mpgf:about'), 'entry_frame_id' => 'mpgf:home'));
+$multiPageGoogleFontsCss = $fileContent($multiPageGoogleFontsResult, 'style.css');
+$assert(str_contains($multiPageGoogleFontsCss, "@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Plus+Jakarta+Sans:wght@500;700&display=swap');"), 'multi-page-google-fonts-import-keeps-semicolon-weights');
+$assert(! str_contains($multiPageGoogleFontsCss, "family=Plus+Jakarta+Sans:wght@500\n700"), 'multi-page-google-fonts-import-not-split-at-weight-semicolon');
+
 // Syne: a Google Fonts family that resolves via CDN.
 // Cabinet Grotesk: a Fontshare-only font not present in the Google Fonts metadata
 // endpoint — it appears as unresolved (needs_operator_font: true) when no operator
@@ -2042,7 +2312,10 @@ $systemFontResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'children' => array(
                 array('id' => 'sf:2', 'type' => 'TEXT', 'name' => 'Helvetica Neue heading', 'characters' => 'Helvetica Neue heading', 'fontName' => array('family' => 'Helvetica Neue', 'style' => 'Bold'), 'fontSize' => 40),
                 array('id' => 'sf:3', 'type' => 'TEXT', 'name' => 'Segoe UI body', 'characters' => 'Segoe UI body copy', 'fontName' => array('family' => 'Segoe UI', 'style' => 'Regular'), 'fontSize' => 16),
-                array('id' => 'sf:4', 'type' => 'TEXT', 'name' => 'Brand heading', 'characters' => 'Brand heading', 'fontName' => array('family' => 'Acme Brand Sans', 'style' => 'Regular'), 'fontSize' => 24),
+                array('id' => 'sf:4', 'type' => 'TEXT', 'name' => 'SF Mono code', 'characters' => 'SF Mono code', 'fontName' => array('family' => 'SF Mono', 'style' => 'Regular'), 'fontSize' => 14),
+                array('id' => 'sf:5', 'type' => 'TEXT', 'name' => 'SF Pro Text label', 'characters' => 'SF Pro Text label', 'fontName' => array('family' => 'SF Pro Text', 'style' => 'Semibold'), 'fontSize' => 14),
+                array('id' => 'sf:6', 'type' => 'TEXT', 'name' => 'SF UI Text label', 'characters' => 'SF UI Text label', 'fontName' => array('family' => 'SF UI Text', 'style' => 'Regular'), 'fontSize' => 14),
+                array('id' => 'sf:7', 'type' => 'TEXT', 'name' => 'Brand heading', 'characters' => 'Brand heading', 'fontName' => array('family' => 'Acme Brand Sans', 'style' => 'Regular'), 'fontSize' => 24),
             ),
         ),
     ),
@@ -2060,8 +2333,17 @@ $assert('"Helvetica Neue", Helvetica, Arial, sans-serif' === ($systemFontCoverag
 $assert('web_safe' === ($systemFontCoverage['Segoe UI']['resolution'] ?? null), 'segoe-ui-resolves-web-safe');
 $assert(false === ($systemFontCoverage['Segoe UI']['needs_operator_font'] ?? null), 'segoe-ui-no-operator-font-needed');
 $assert('"Segoe UI", Tahoma, Geneva, Verdana, sans-serif' === ($systemFontCoverage['Segoe UI']['fallback_stack'] ?? null), 'segoe-ui-system-fallback-stack');
-$assert(! in_array('Helvetica Neue', $systemFontFonts['missing_css'] ?? array(), true) && ! in_array('Segoe UI', $systemFontFonts['missing_css'] ?? array(), true), 'system-fonts-not-in-missing-css');
-$assert(! str_contains($systemFontCss, 'Helvetica+Neue') && ! str_contains($systemFontCss, 'Segoe+UI') && ! str_contains($systemFontCss, 'fonts.googleapis.com'), 'system-fonts-emit-no-cdn-import');
+$assert('web_safe' === ($systemFontCoverage['SF Mono']['resolution'] ?? null), 'sf-mono-resolves-web-safe');
+$assert(false === ($systemFontCoverage['SF Mono']['needs_operator_font'] ?? null), 'sf-mono-no-operator-font-needed');
+$assert('"SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace' === ($systemFontCoverage['SF Mono']['fallback_stack'] ?? null), 'sf-mono-system-fallback-stack');
+$assert('web_safe' === ($systemFontCoverage['SF Pro Text']['resolution'] ?? null), 'sf-pro-text-resolves-web-safe');
+$assert(false === ($systemFontCoverage['SF Pro Text']['needs_operator_font'] ?? null), 'sf-pro-text-no-operator-font-needed');
+$assert('"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' === ($systemFontCoverage['SF Pro Text']['fallback_stack'] ?? null), 'sf-pro-text-system-fallback-stack');
+$assert('web_safe' === ($systemFontCoverage['SF UI Text']['resolution'] ?? null), 'sf-ui-text-resolves-web-safe');
+$assert(false === ($systemFontCoverage['SF UI Text']['needs_operator_font'] ?? null), 'sf-ui-text-no-operator-font-needed');
+$assert('"SF UI Text", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' === ($systemFontCoverage['SF UI Text']['fallback_stack'] ?? null), 'sf-ui-text-system-fallback-stack');
+$assert(array() === array_values(array_intersect(array('Helvetica Neue', 'Segoe UI', 'SF Mono', 'SF Pro Text', 'SF UI Text'), $systemFontFonts['missing_css'] ?? array())), 'system-fonts-not-in-missing-css');
+$assert(! str_contains($systemFontCss, 'Helvetica+Neue') && ! str_contains($systemFontCss, 'Segoe+UI') && ! str_contains($systemFontCss, 'SF+Mono') && ! str_contains($systemFontCss, 'SF+Pro+Text') && ! str_contains($systemFontCss, 'SF+UI+Text') && ! str_contains($systemFontCss, 'fonts.googleapis.com'), 'system-fonts-emit-no-cdn-import');
 // Boundary: a genuinely-unknown custom typeface stays unresolved and keeps the diagnostic.
 $assert('unresolved' === ($systemFontCoverage['Acme Brand Sans']['resolution'] ?? null), 'custom-font-stays-unresolved');
 $assert(true === ($systemFontCoverage['Acme Brand Sans']['needs_operator_font'] ?? null), 'custom-font-needs-operator-font');
@@ -2329,7 +2611,7 @@ $layoutFidelityFrameVisual = $findVisualNode($layoutFidelityResult, '5:1');
 $layoutFidelityFillVisual = $findVisualNode($layoutFidelityResult, '5:4');
 $layoutFidelityAbsoluteVisual = $findVisualNode($layoutFidelityResult, '5:5');
 
-$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
@@ -2369,6 +2651,7 @@ $hugOverflowCss = $fileContent($hugOverflowResult, 'style.css');
 $assert(str_contains($hugOverflowCss, '.figma-node-hug-overflow-button-hug-overflow-button{width:max-content;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;padding-right:6px;padding-left:6px;gap:8px}'), 'layout-hug-flex-main-axis-expands-to-intrinsic-span');
 
 blocks_engine_figma_transformer_run_visual_node_map_contract($assert);
+blocks_engine_figma_transformer_run_component_clone_emission_contract($assert);
 blocks_engine_figma_transformer_run_diagnostics_evidence_contract($assert);
 
 $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -2643,7 +2926,7 @@ $nestedMissingOriginCss = $fileContent($nestedMissingOriginResult, 'style.css');
 $nestedMissingOriginLabel = $findVisualNode($nestedMissingOriginResult, 'missing-origin:label');
 $nestedMissingOriginIcon = $findVisualNode($nestedMissingOriginResult, 'missing-origin:icon');
 $nestedMissingOriginRounded = $findVisualNode($nestedMissingOriginResult, 'missing-origin:rounded');
-$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-button-shell-button-shell{width:220px;height:64px;position:relative}'), 'nested-missing-origin-parent-becomes-freeform');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-button-shell-button-shell{width:220px;height:64px;position:relative;isolation:isolate}'), 'nested-missing-origin-parent-becomes-freeform');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-label-button-label{width:96px;height:22px;position:absolute;left:34px;top:21px'), 'nested-missing-origin-text-keeps-authored-x');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-icon-button-icon{width:16px;height:16px;position:absolute;left:34px;top:8px'), 'nested-missing-origin-icon-keeps-authored-x');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-rounded-decorative-rounded-plate{width:220px;height:64px;position:absolute;left:0px;top:-80px'), 'nested-missing-origin-rounded-keeps-negative-y');
@@ -4529,6 +4812,96 @@ $assert($documentModeHomeLogoLeftPx >= 0.0 && $documentModeHomeLogoLeftPx < 1440
 $assert($documentModeAboutLogoLeftPx >= 0.0 && $documentModeAboutLogoLeftPx < 1440.0, 'document-mode-multi-page-overridden-instance-child-localizes-about-x');
 $assert(! str_contains($documentModeCss, 'left:12120px') && ! str_contains($documentModeCss, 'left:24150px'), 'document-mode-multi-page-css-omits-canvas-global-lefts');
 
+$documentModeLimitedChildren = static function (string $prefix): array {
+    $children = array();
+    for ( $i = 0; $i < 4; $i++ ) {
+        $children[] = array(
+            'id'         => $prefix . ':text:' . $i,
+            'type'       => 'TEXT',
+            'name'       => 'Text ' . $i,
+            'characters' => strtoupper($prefix) . ' text ' . $i,
+        );
+    }
+
+    return $children;
+};
+$documentModeLimitedNormalized = $documentModeNormalizer->normalize(array(
+    'name'  => 'Document Mode Limited Multi-Root Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'dml:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array(
+                    'id'       => 'dml:home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 1200,
+                    'children' => $documentModeLimitedChildren('dml:home'),
+                ),
+                array(
+                    'id'       => 'dml:about',
+                    'type'     => 'FRAME',
+                    'name'     => 'About',
+                    'width'    => 1440,
+                    'height'   => 1200,
+                    'children' => $documentModeLimitedChildren('dml:about'),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'render_document' => true,
+    'document_frame_ids' => array('dml:home', 'dml:about'),
+    'max_nodes' => 3,
+));
+$documentModeLimitedNodeMap = is_array($documentModeLimitedNormalized['node_map'] ?? null) ? $documentModeLimitedNormalized['node_map'] : array();
+$assert(isset($documentModeLimitedNodeMap['dml:home:text:1']), 'document-mode-limit-keeps-home-selected-subtree');
+$assert(isset($documentModeLimitedNodeMap['dml:about:text:1']), 'document-mode-limit-keeps-about-selected-subtree');
+$documentModeLimitedLimitDiagnostic = null;
+foreach ( is_array($documentModeLimitedNormalized['diagnostics'] ?? null) ? $documentModeLimitedNormalized['diagnostics'] : array() as $diagnostic ) {
+    if ( is_array($diagnostic) && 'scenegraph_node_limit_applied' === ($diagnostic['code'] ?? null) ) {
+        $documentModeLimitedLimitDiagnostic = $diagnostic;
+        break;
+    }
+}
+$documentModeLimitedPreferredRoots = is_array($documentModeLimitedLimitDiagnostic['context']['preferred_root_ids'] ?? null)
+    ? $documentModeLimitedLimitDiagnostic['context']['preferred_root_ids']
+    : array();
+$assert(in_array('dml:home', $documentModeLimitedPreferredRoots, true) && in_array('dml:about', $documentModeLimitedPreferredRoots, true), 'document-mode-limit-reports-all-preferred-roots');
+
+$componentPlaceholderLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Placeholder Label Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'placeholder:instance',
+            'type'     => 'FRAME',
+            'name'     => 'Heading instance',
+            'width'    => 320,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'         => 'placeholder:instance/label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Label',
+                    'characters' => 'Label',
+                ),
+                array(
+                    'id'         => 'placeholder:instance/title',
+                    'type'       => 'TEXT',
+                    'name'       => 'Title',
+                    'characters' => 'Actual section title',
+                ),
+            ),
+        ),
+    ),
+));
+$componentPlaceholderLabelHtml = $fileContent($componentPlaceholderLabelResult, 'index.html');
+$assert(! str_contains($componentPlaceholderLabelHtml, '>Label<'), 'component-placeholder-label-text-suppressed');
+$assert(str_contains($componentPlaceholderLabelHtml, 'Actual section title'), 'component-placeholder-label-keeps-real-text');
+
 // Real anchor tags: a TEXT node carrying a URL hyperlink emits a real <a href>.
 $urlLinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Url Link Fixture',
@@ -4651,7 +5024,7 @@ $descendantTargetLinks = $descendantTargetResult['source_reports']['figma']['htm
 $assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html#about-us" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
 $assert(0 === ($descendantTargetLinks['unresolved'] ?? null) && ($descendantTargetLinks['node_links'] ?? 0) >= 1, 'descendant-prototype-target-link-coverage-resolved');
 
-// Real anchor tags: an unresolved NODE link is counted in the diagnostic and emitted as a placeholder anchor.
+// Real anchor tags: an unresolved NODE link is counted in the diagnostic without inventing href="#".
 $unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Unresolved Link Fixture',
     'nodes' => array(
@@ -4680,8 +5053,9 @@ $unresolvedDiagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $unresolvedResult['diagnostics'] ?? array()
 );
-$assert(str_contains($unresolvedHtml, '<a class="figma-link" href="#" data-figma-link-type="node">'), 'unresolved-node-link-emits-placeholder-anchor');
-$assert(1 === ($unresolvedLinks['unresolved'] ?? null) && 1 === ($unresolvedLinks['node_links'] ?? null), 'unresolved-link-counted-in-coverage');
+$assert(! str_contains($unresolvedHtml, 'href="#" data-figma-link-type="node"'), 'unresolved-node-link-does-not-emit-placeholder-anchor');
+$assert(str_contains($unresolvedHtml, 'data-figma-node-id="dead:2"'), 'unresolved-node-link-preserves-source-element');
+$assert(1 === ($unresolvedLinks['unresolved'] ?? null) && 1 === ($unresolvedLinks['node_links'] ?? null) && 0 === ($unresolvedLinks['anchors_emitted'] ?? null), 'unresolved-link-counted-in-coverage-without-anchor');
 $assert('does:not:exist' === ($unresolvedLinks['unresolved_targets'][0]['target_node_id'] ?? null), 'unresolved-link-records-target-node-id');
 $assert(in_array('link_target_unresolved', $unresolvedSignalCodes, true), 'unresolved-link-artifact-quality-signal');
 $assert(in_array('link_target_unresolved', $unresolvedDiagnosticCodes, true), 'unresolved-link-diagnostic-code');
@@ -5209,6 +5583,44 @@ $classificationDiagnosticCodes = array_map(
 );
 $assert(in_array('figma_frame_classification_coverage', $classificationDiagnosticCodes, true), 'classification-coverage-diagnostic-emitted');
 
+$scopedHomeSource = array(
+    'name'  => 'Scoped Home Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:scoped-home',
+            'type'     => 'CANVAS',
+            'name'     => 'Design System Resources',
+            'children' => array(
+                array(
+                    'id'       => 'frame:scoped-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 2400,
+                    'children' => array(
+                        array('id' => 'scoped-home:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Marketing home page'),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:scoped-button',
+                    'type'     => 'FRAME',
+                    'name'     => 'Button',
+                    'width'    => 320,
+                    'height'   => 900,
+                    'children' => array(
+                        array('id' => 'scoped-button:text', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Button'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$scopedHomePlan = ( new ScenegraphPagePlanner() )->plan($scopedHomeSource, array('include_all_pages' => true));
+$scopedHomePages = is_array($scopedHomePlan['pages'] ?? null) ? $scopedHomePlan['pages'] : array();
+$scopedHomeFrameIds = array_map(static fn (array $page): string => (string) ($page['frame_id'] ?? ''), $scopedHomePages);
+$assert(in_array('frame:scoped-home', $scopedHomeFrameIds, true), 'classification-scoped-home-page-intent-overrides-design-system-scope');
+$assert(! in_array('frame:scoped-button', $scopedHomeFrameIds, true), 'classification-scoped-generic-component-remains-design-system');
+
 // CONTENT-SHAPE: classification is generic — a design-system frame with a
 // GENERIC name still classifies as design_system from a swatch grid, and an
 // unnamed list-of-cards page classifies as archive from its repeating structure.
@@ -5271,6 +5683,54 @@ $contentShapeCoverage = is_array($contentShapePlan['classification_coverage'] ??
 $assert(in_array('frame:palette', $contentShapeCoverage['excluded_design_system_frame_ids'] ?? array(), true), 'classification-content-swatch-grid-design-system');
 $assert(ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE === ($contentShapeByFrame['frame:list']['page_type'] ?? null), 'classification-content-card-list-archive');
 $assert(in_array('content:card_list', $contentShapeByFrame['frame:list']['classification_signals'] ?? array(), true), 'classification-content-card-list-signal');
+
+$internalOnlySource = array(
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:public',
+            'type'     => 'CANVAS',
+            'name'     => 'Design',
+            'children' => array(
+                array(
+                    'id'       => 'frame:public-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 1600,
+                    'children' => array(array('id' => 'home:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome')),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:internal',
+            'type'     => 'CANVAS',
+            'name'     => 'Internal Only Canvas',
+            'children' => array(
+                array(
+                    'id'       => 'frame:internal-button',
+                    'type'     => 'FRAME',
+                    'name'     => 'Button',
+                    'width'    => 918,
+                    'height'   => 2507,
+                    'children' => array(array('id' => 'button:text', 'type' => 'TEXT', 'name' => 'Spec', 'characters' => 'Button state notes')),
+                ),
+            ),
+        ),
+    ),
+);
+$internalOnlyPlan = ( new ScenegraphPagePlanner() )->plan($internalOnlySource, array('include_all_pages' => true));
+$internalOnlyFrameIds = array_map(
+    static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+    is_array($internalOnlyPlan['pages'] ?? null) ? $internalOnlyPlan['pages'] : array()
+);
+$assert(in_array('frame:public-home', $internalOnlyFrameIds, true), 'page-plan-internal-only-keeps-public-page');
+$assert(! in_array('frame:internal-button', $internalOnlyFrameIds, true), 'page-plan-internal-only-canvas-filtered');
+$internalOnlyFiltered = array_values(array_filter(
+    is_array($internalOnlyPlan['source_frame_evidence']['filtered_candidates'] ?? null) ? $internalOnlyPlan['source_frame_evidence']['filtered_candidates'] : array(),
+    static fn (array $evidence): bool => 'frame:internal-button' === ($evidence['frame_id'] ?? null)
+));
+$assert('internal_only_scope' === ($internalOnlyFiltered[0]['reason'] ?? null), 'page-plan-internal-only-source-frame-evidence-reason');
+$assert('Internal Only Canvas' === ($internalOnlyFiltered[0]['scope_name'] ?? null), 'page-plan-internal-only-source-frame-evidence-scope');
 
 // MULTI-PAGE SELECTION (#280/#242 FSE Pilot acceptance): `--multi-page` (no
 // `frame_ids`) selects the TOP-LEVEL page frames on a canvas, groups each
@@ -5547,6 +6007,85 @@ $assert(isset($mobileOnlyByFrame['frame:mob-home']), 'mobile-only-home-selected'
 $assert(isset($mobileOnlyByFrame['frame:mob-menu']), 'mobile-only-menu-page-not-excluded');
 $assert(2 === ($mobileOnlyPlan['page_count'] ?? null), 'mobile-only-two-pages-selected');
 
+// CROSS-CANVAS EXPLORATION FILTER: files commonly retain full-page drafts in
+// revision canvases (Design, Design v2, Design v3) plus wireframes/dev-reference
+// canvases. Same normalized page identity + device + width across canvases is an
+// alternate draft of one page, not separate site routes. Unique reference-only
+// pages still survive because there is no design duplicate to supersede them.
+$crossCanvasSource = array(
+    'name'  => 'Cross Canvas Exploration Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:wireframes',
+            'type'     => 'CANVAS',
+            'name'     => 'Wireframes',
+            'children' => array(
+                array('id' => 'frame:w-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 1900, 'children' => array(
+                    array('id' => 'w-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+                array('id' => 'frame:w-about', 'type' => 'FRAME', 'name' => 'About', 'width' => 1440, 'height' => 1500, 'children' => array(
+                    array('id' => 'w-about:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'About'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:design-v2',
+            'type'     => 'CANVAS',
+            'name'     => 'Design v2',
+            'children' => array(
+                array('id' => 'frame:v2-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2050, 'children' => array(
+                    array('id' => 'v2-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:design-v3',
+            'type'     => 'CANVAS',
+            'name'     => 'Design v3',
+            'children' => array(
+                array('id' => 'frame:v3-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2200, 'children' => array(
+                    array('id' => 'v3-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+                array('id' => 'frame:v3-course-mobile', 'type' => 'FRAME', 'name' => 'Course - Mobile', 'width' => 390, 'height' => 2600, 'children' => array(
+                    array('id' => 'v3-course-mobile:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:backgrounds',
+            'type'     => 'CANVAS',
+            'name'     => 'Backgrounds - for dev',
+            'children' => array(
+                array('id' => 'frame:bg-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2100, 'children' => array(
+                    array('id' => 'bg-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course background'),
+                )),
+            ),
+        ),
+    ),
+);
+$crossCanvasPlan = ( new ScenegraphPagePlanner() )->plan($crossCanvasSource, array('multi_page' => true, 'max_pages' => 20));
+$crossCanvasByFrame = array();
+foreach ( $crossCanvasPlan['pages'] ?? array() as $crossCanvasPage ) {
+    if ( is_array($crossCanvasPage) && isset($crossCanvasPage['frame_id']) ) {
+        $crossCanvasByFrame[(string) $crossCanvasPage['frame_id']] = $crossCanvasPage;
+    }
+}
+$crossCanvasFrameIds = array_keys($crossCanvasByFrame);
+$assert(isset($crossCanvasByFrame['frame:v3-course']), 'cross-canvas-keeps-latest-design-frame');
+$assert(isset($crossCanvasByFrame['frame:w-about']), 'cross-canvas-keeps-unique-wireframe-only-page');
+$assert(isset($crossCanvasByFrame['frame:v3-course']['variants']) && array('frame:v3-course', 'frame:v3-course-mobile') === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $crossCanvasByFrame['frame:v3-course']['variants']), 'cross-canvas-preserves-responsive-variants');
+$assert(! in_array('frame:w-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-wireframe-duplicate');
+$assert(! in_array('frame:v2-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-older-design-duplicate');
+$assert(! in_array('frame:bg-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-dev-reference-duplicate');
+$crossCanvasFilteredReasons = array();
+foreach ( $crossCanvasPlan['source_frame_evidence']['filtered_candidates'] ?? array() as $evidence ) {
+    if ( is_array($evidence) ) {
+        $crossCanvasFilteredReasons[(string) ($evidence['frame_id'] ?? '')] = (string) ($evidence['reason'] ?? '');
+    }
+}
+$assert('cross_canvas_exploration_frame' === ($crossCanvasFilteredReasons['frame:w-course'] ?? null), 'cross-canvas-source-frame-evidence-wireframe-reason');
+$assert('cross_canvas_exploration_frame' === ($crossCanvasFilteredReasons['frame:v2-course'] ?? null), 'cross-canvas-source-frame-evidence-older-design-reason');
+
 // Semantic HTML5 elements: a generically-named page structure maps to landmarks
 // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated
 // sibling cards map to <ul>/<li>, and a button-like control maps to <button>.
@@ -5657,9 +6196,10 @@ $semanticElementsResult = blocks_engine_figma_transformer_transform_scenegraph(a
     ),
 ));
 $semanticHtml = $fileContent($semanticElementsResult, 'index.html');
+$semanticCss = $fileContent($semanticElementsResult, 'style.css');
 $assert('success' === ($semanticElementsResult['status'] ?? null), 'semantic-elements-transform-success');
 // The page shell already provides <main>; assert it wraps the rendered body.
-$assert(str_contains($semanticHtml, '<main class="figma-root" data-figma-root="true">'), 'semantic-main-landmark');
+$assert(1 === preg_match('/<main\b[^>]*class="figma-root"[^>]*data-figma-root="true"/', $semanticHtml), 'semantic-main-landmark');
 $assert(str_contains($semanticHtml, '<header class="figma-node-region-top-top-bar"'), 'semantic-top-region-emits-header');
 $assert(str_contains($semanticHtml, '<nav class="figma-node-top-menu-primary-links"'), 'semantic-link-cluster-emits-nav');
 $assert(str_contains($semanticHtml, '<footer class="figma-node-region-bottom-bottom-bar"'), 'semantic-bottom-region-emits-footer');
@@ -5667,7 +6207,9 @@ $assert(str_contains($semanticHtml, '<h1 class="figma-node-body-h1-hero"'), 'sem
 $assert(str_contains($semanticHtml, '<h2 class="figma-node-body-h2-subhead"'), 'semantic-second-text-emits-h2');
 $assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'semantic-body-copy-emits-paragraph');
 $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
-$assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one"'), 'semantic-repeated-item-emits-list-item');
+$assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one'), 'semantic-repeated-item-emits-list-item');
+$assert(str_contains($semanticCss, 'position:relative') && ! str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-positioning-context');
+$assert(! str_contains($semanticCss, '.figma-node-card-1-card-one::before'), 'semantic-repeated-card-list-avoids-implicit-marker-pseudo');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
 // The middle content band (not a header/nav/footer landmark) is the genuine
@@ -5675,6 +6217,401 @@ $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar
 // card/cta frames inside it do NOT each become their own <section>.
 $assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
 $assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
+
+$fluidParagraphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fluid Paragraph Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'fluid-copy:page',
+            'type'       => 'FRAME',
+            'name'       => 'Article Page',
+            'width'      => 1200,
+            'height'     => 600,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'       => 'fluid-copy:paragraph',
+                    'type'     => 'TEXT',
+                    'name'     => 'Paragraph',
+                    'width'    => 640,
+                    'height'   => 116,
+                    'fontSize' => 18,
+                    'characters' => 'Responsive prose should keep source words intact and wrap in CSS instead of baking desktop soft line breaks.',
+                    'figma_text' => array(
+                        'characters'     => 'Responsive prose should keep source words intact and wrap in CSS instead of baking desktop soft line breaks.',
+                        'derived_layout' => array(
+                            'lines' => array(
+                                array('start' => 0, 'end' => 27),
+                                array('start' => 27, 'end' => 59),
+                                array('start' => 59, 'end' => 101),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$fluidParagraphHtml = $fileContent($fluidParagraphResult, 'index.html');
+$fluidParagraphCss = $fileContent($fluidParagraphResult, 'style.css');
+$fluidParagraphRule = blocks_engine_figma_transformer_contract_css_rule($fluidParagraphCss, '.figma-node-fluid-copy-paragraph-paragraph');
+$assert(str_contains($fluidParagraphRule, 'width:100%') && str_contains($fluidParagraphRule, 'max-width:640px') && ! str_contains($fluidParagraphRule, 'height:116px') && ! str_contains($fluidParagraphRule, 'white-space:'), 'fluid-paragraph-uses-intrinsic-max-width');
+$assert(str_contains($fluidParagraphRule, 'flex-shrink:1') && str_contains($fluidParagraphRule, 'min-width:0'), 'fluid-paragraph-can-shrink-in-flex-flow');
+$assert(str_contains($fluidParagraphHtml, 'source words intact') && ! str_contains($fluidParagraphHtml, "source\nwords"), 'fluid-paragraph-avoids-derived-soft-wrap-content');
+
+$frameInspector = new ScenegraphFrameInspector();
+$assert('6-blog' === $frameInspector->normalizedPageName('6_Blog_1440') && '6-blog' === $frameInspector->normalizedPageName('6_Blog_375'), 'responsive-name-normalizes-underscore-width-suffixes');
+
+$centeredCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Centered Canvas Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'centered:root',
+            'type'     => 'FRAME',
+            'name'     => 'Landing Page 1440',
+            'width'    => 1440,
+            'height'   => 900,
+            'layoutMode' => 'VERTICAL',
+            'counterAxisAlignItems' => 'CENTER',
+            'children' => array(
+                array(
+                    'id'       => 'centered:band',
+                    'type'     => 'FRAME',
+                    'name'     => 'Hero Band',
+                    'width'    => 1440,
+                    'height'   => 480,
+                    'children' => array(
+                        array('id' => 'centered:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Centered canvas', 'fontSize' => 56),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$centeredCanvasHtml = $fileContent($centeredCanvasResult, 'index.html');
+$centeredCanvasCss = $fileContent($centeredCanvasResult, 'style.css');
+$centeredCanvasRule = blocks_engine_figma_transformer_contract_css_rule($centeredCanvasCss, '.figma-node-centered-root-landing-page-1440');
+$assert(str_contains($centeredCanvasRule, 'width:100%') && ! str_contains($centeredCanvasRule, 'max-width:1440px') && ! str_contains($centeredCanvasRule, 'margin-left:auto') && ! str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-fills-viewport-without-implicit-canvas-cap');
+$assert(! str_contains($centeredCanvasHtml, '<nav class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<header class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<footer class="figma-node-centered-root-landing-page-1440"'), 'centered-canvas-root-not-landmark');
+
+$landmarkGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Landmark Guard Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'landmark:root',
+            'type'     => 'FRAME',
+            'name'     => 'Marketing Page',
+            'width'    => 1200,
+            'height'   => 900,
+            'children' => array(
+                array(
+                    'id'       => 'landmark:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'x'        => 0,
+                    'y'        => 0,
+                    'width'    => 1200,
+                    'height'   => 96,
+                    'children' => array(
+                        array('id' => 'landmark:logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Agency', 'fontSize' => 24),
+                        array('id' => 'landmark:about', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'About', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/about')),
+                        array('id' => 'landmark:blog', 'type' => 'TEXT', 'name' => 'NewMenuItem', 'characters' => 'Blog', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/blog')),
+                    ),
+                ),
+                array(
+                    'id'       => 'landmark:content-list',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content List',
+                    'x'        => 150,
+                    'y'        => 220,
+                    'width'    => 900,
+                    'height'   => 300,
+                    'children' => array(
+                        array('id' => 'landmark:item-a', 'type' => 'TEXT', 'name' => 'List item one', 'characters' => 'Strategy', 'fontSize' => 24),
+                        array('id' => 'landmark:item-b', 'type' => 'TEXT', 'name' => 'List item two', 'characters' => 'Design', 'fontSize' => 24),
+                        array('id' => 'landmark:item-c', 'type' => 'TEXT', 'name' => 'List item three', 'characters' => 'Build', 'fontSize' => 24),
+                    ),
+                ),
+                array(
+                    'id'       => 'landmark:footer',
+                    'type'     => 'FRAME',
+                    'name'     => 'Footer Legal',
+                    'x'        => 0,
+                    'y'        => 780,
+                    'width'    => 1200,
+                    'height'   => 120,
+                    'children' => array(
+                        array('id' => 'landmark:legal', 'type' => 'TEXT', 'name' => 'Legal', 'characters' => 'All rights reserved.', 'fontSize' => 14),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$landmarkGuardHtml = $fileContent($landmarkGuardResult, 'index.html');
+$assert(str_contains($landmarkGuardHtml, '<header class="figma-node-landmark-header-header"'), 'landmark-explicit-header-still-header');
+$assert(str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-footer-footer-legal"'), 'landmark-explicit-bottom-footer-still-footer');
+$assert(! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-about-menu-item"') && ! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-blog-newmenuitem"'), 'landmark-menu-items-not-nav');
+$assert(! str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-content-list-content-list"'), 'landmark-content-list-not-footer');
+
+$lateHeaderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Late Header Landmark Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'late-header:root',
+            'type'     => 'FRAME',
+            'name'     => 'Home Page',
+            'width'    => 1200,
+            'height'   => 1600,
+            'children' => array(
+                array(
+                    'id'       => 'late-header:decorative-bleed',
+                    'type'     => 'FRAME',
+                    'name'     => 'Hero Bleed',
+                    'x'        => 0,
+                    'y'        => -24,
+                    'width'    => 1200,
+                    'height'   => 220,
+                    'children' => array(
+                        array('id' => 'late-header:decorative-fill', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 1200, 'height' => 220),
+                    ),
+                ),
+                array(
+                    'id'       => 'late-header:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'x'        => 0,
+                    'y'        => 0,
+                    'width'    => 1200,
+                    'height'   => 144,
+                    'children' => array(
+                        array('id' => 'late-header:logo', 'type' => 'TEXT', 'name' => 'Client Logo or Text', 'characters' => 'Treating The Whole Child', 'fontSize' => 28),
+                        array('id' => 'late-header:nav-run', 'type' => 'TEXT', 'name' => 'Main Nav Link', 'characters' => 'News Handouts About Services Reviews FAQ Contact', 'fontSize' => 16),
+                        array('id' => 'late-header:cta', 'type' => 'FRAME', 'name' => 'Button One', 'width' => 190, 'height' => 48, 'children' => array(
+                            array('id' => 'late-header:cta-label', 'type' => 'TEXT', 'name' => 'Button One', 'characters' => 'Book an Appointment', 'fontSize' => 16),
+                        )),
+                    ),
+                ),
+                array(
+                    'id'       => 'late-header:body',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content',
+                    'x'        => 0,
+                    'y'        => 220,
+                    'width'    => 1200,
+                    'height'   => 1100,
+                    'children' => array(
+                        array('id' => 'late-header:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Welcome', 'fontSize' => 48),
+                        array('id' => 'late-header:copy', 'type' => 'TEXT', 'name' => 'Copy', 'characters' => 'A content band starts below the site chrome.', 'fontSize' => 18),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$lateHeaderHtml = $fileContent($lateHeaderResult, 'index.html');
+$assert(str_contains($lateHeaderHtml, '<header class="figma-node-late-header-header-header"'), 'semantic-top-anchored-explicit-header-emits-header');
+$assert(! str_contains($lateHeaderHtml, '<div class="figma-node-late-header-header-header"'), 'semantic-top-anchored-explicit-header-not-div');
+
+$linkedContentCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Linked Content Cards Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'linked-cards:root',
+            'type'     => 'FRAME',
+            'name'     => 'Featured Content',
+            'width'    => 1200,
+            'height'   => 360,
+            'children' => array(
+                array('id' => 'linked-cards:item-1', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/one'), 'children' => array(
+                    array('id' => 'linked-cards:title-1', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'First story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-1', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the first story.', 'fontSize' => 16),
+                )),
+                array('id' => 'linked-cards:item-2', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/two'), 'children' => array(
+                    array('id' => 'linked-cards:title-2', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Second story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-2', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the second story.', 'fontSize' => 16),
+                )),
+                array('id' => 'linked-cards:item-3', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/three'), 'children' => array(
+                    array('id' => 'linked-cards:title-3', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Third story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-3', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the third story.', 'fontSize' => 16),
+                )),
+            ),
+        ),
+    ),
+));
+$linkedContentCardsHtml = $fileContent($linkedContentCardsResult, 'index.html');
+$assert(str_contains($linkedContentCardsHtml, '<ul class="figma-node-linked-cards-root-featured-content"'), 'semantic-linked-content-cards-emit-list');
+$assert(3 === substr_count($linkedContentCardsHtml, '<li class="figma-node-linked-cards-item-'), 'semantic-linked-content-card-items');
+
+$navMenuItemsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Navigation Menu Items Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'nav-menu:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 900,
+            'height'   => 240,
+            'children' => array(
+                array(
+                    'id'       => 'nav-menu:nav',
+                    'type'     => 'FRAME',
+                    'name'     => 'Navigation',
+                    'width'    => 520,
+                    'height'   => 48,
+                    'children' => array(
+                        array('id' => 'nav-menu:item-1', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 90, 'height' => 26, 'children' => array(
+                            array('id' => 'nav-menu:text-1', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'News', 'fontSize' => 24, 'fontWeight' => 700),
+                        )),
+                        array('id' => 'nav-menu:item-2', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 110, 'height' => 26, 'children' => array(
+                            array('id' => 'nav-menu:text-2', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Reviews', 'fontSize' => 24, 'fontWeight' => 700),
+                        )),
+                    ),
+                ),
+                array('id' => 'nav-menu:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Actual Page Heading', 'fontSize' => 48, 'fontWeight' => 700),
+                array('id' => 'nav-menu:copy', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body copy establishes the page text scale.', 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$navMenuItemsHtml = $fileContent($navMenuItemsResult, 'index.html');
+$assert(1 === substr_count($navMenuItemsHtml, '<nav class="figma-node-nav-menu-nav-navigation"'), 'semantic-nav-menu-items-single-nav-container');
+$assert(! str_contains($navMenuItemsHtml, '<nav class="figma-node-nav-menu-item-1-menu-item"'), 'semantic-nav-menu-item-not-nested-nav');
+$assert(str_contains($navMenuItemsHtml, '<div class="figma-node-nav-menu-item-1-menu-item"'), 'semantic-nav-menu-item-stays-structural');
+$assert(str_contains($navMenuItemsHtml, '<span class="figma-node-nav-menu-text-1-text'), 'semantic-nav-label-text-inline');
+$assert(! str_contains($navMenuItemsHtml, '<h2 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h3 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h4 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h5 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h6 class="figma-node-nav-menu-text-1-text"'), 'semantic-nav-label-text-not-heading');
+
+$directTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Direct Text List Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'direct-list:root',
+            'type'     => 'FRAME',
+            'name'     => 'Footer Shell',
+            'width'    => 600,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'       => 'direct-list:links',
+                    'type'     => 'FRAME',
+                    'name'     => 'Frame 29',
+                    'width'    => 265,
+                    'height'   => 26,
+                    'children' => array(
+                        array('id' => 'direct-list:about', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'About', 'width' => 48, 'height' => 26, 'fontSize' => 16),
+                        array('id' => 'direct-list:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Contact', 'width' => 64, 'height' => 26, 'fontSize' => 16),
+                        array('id' => 'direct-list:privacy', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Privacy Policy', 'width' => 105, 'height' => 26, 'fontSize' => 16),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$directTextListHtml = $fileContent($directTextListResult, 'index.html');
+$assert(str_contains($directTextListHtml, '<ul class="figma-node-direct-list-links-frame-29"'), 'semantic-direct-text-list-container');
+$assert(3 === substr_count($directTextListHtml, '<li class="figma-node-direct-list-'), 'semantic-direct-text-list-items');
+$assert(! preg_match('/<ul class="figma-node-direct-list-links-frame-29"[\s\S]*<(p|h[1-6]) class="figma-node-direct-list-/', $directTextListHtml), 'semantic-direct-text-list-avoids-block-text-children');
+
+$paginationControlResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Flexible Pagination Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'pager:row',
+            'type'     => 'FRAME',
+            'name'     => 'Pagination',
+            'width'    => 1216,
+            'height'   => 40,
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems'  => 'SPACE_BETWEEN',
+            'counterAxisAlignItems'  => 'CENTER',
+            'children' => array(
+                array('id' => 'pager:prev', 'type' => 'FRAME', 'name' => 'Previous', 'width' => 462, 'height' => 20, 'layoutGrow' => 1, 'children' => array(
+                    array('id' => 'pager:prev-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Previous', 'fontSize' => 16),
+                )),
+                array('id' => 'pager:numbers', 'type' => 'FRAME', 'name' => 'Pagination Numbers', 'width' => 292, 'height' => 40, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                    array('id' => 'pager:n1', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '1', 'fontSize' => 16),
+                    array('id' => 'pager:n2', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '2', 'fontSize' => 16),
+                    array('id' => 'pager:ellipsis', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '...', 'fontSize' => 16),
+                )),
+                array('id' => 'pager:next', 'type' => 'FRAME', 'name' => 'Next', 'width' => 462, 'height' => 20, 'layoutGrow' => 1, 'children' => array(
+                    array('id' => 'pager:next-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'fontSize' => 16),
+                )),
+            ),
+        ),
+    ),
+));
+$paginationControlHtml = $fileContent($paginationControlResult, 'index.html');
+$paginationControlCss = $fileContent($paginationControlResult, 'style.css');
+$assert(str_contains($paginationControlCss, 'width:auto;height:20px;flex-grow:1'), 'pagination-flex-control-width-auto');
+$assert(! str_contains($paginationControlCss, 'width:462px'), 'pagination-flex-control-drops-fixed-edge-widths');
+$assert(str_contains($paginationControlHtml, '<span class="figma-node-pager-ellipsis-number'), 'pagination-ellipsis-not-heading');
+
+$freeformFlowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Content Freeform Flow Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'freeform-flow:root',
+            'type'     => 'FRAME',
+            'name'     => 'Featured Posts',
+            'width'    => 800,
+            'height'   => 360,
+            'layout'   => array('freeform' => true),
+            'children' => array(
+                array('id' => 'freeform-flow:heading', 'type' => 'FRAME', 'name' => 'Heading With Separator', 'x' => 0, 'y' => 0, 'width' => 800, 'height' => 48, 'children' => array(
+                    array('id' => 'freeform-flow:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Trending', 'fontSize' => 36),
+                )),
+                array('id' => 'freeform-flow:content', 'type' => 'FRAME', 'name' => 'Post Cards', 'x' => 0, 'y' => 0, 'width' => 800, 'height' => 312, 'children' => array(
+                    array('id' => 'freeform-flow:card-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Post title', 'fontSize' => 24),
+                )),
+            ),
+        ),
+    ),
+));
+$freeformFlowCss = $fileContent($freeformFlowResult, 'style.css');
+$assert(! preg_match('/\.figma-node-freeform-flow-heading-heading-with-separator\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-heading-flows');
+$assert(! preg_match('/\.figma-node-freeform-flow-content-post-cards\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-content-flows');
+
+$fluidClonedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fluid Cloned Band Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'fluid-band:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 1440,
+            'height'   => 160,
+            'children' => array(
+                array(
+                    'id'        => 'fluid-band:header',
+                    'type'      => 'INSTANCE',
+                    'name'      => 'Header',
+                    'source_id' => 'component:header',
+                    'width'     => 1440,
+                    'height'    => 92,
+                    'layout'    => array('freeform' => true),
+                    'children'  => array(
+                        array(
+                            'id'       => 'fluid-band:nav-row',
+                            'type'     => 'FRAME',
+                            'name'     => 'Nav Row',
+                            'x'        => 404,
+                            'y'        => 24,
+                            'width'    => 924,
+                            'height'   => 44,
+                            'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'grow' => 1),
+                            'children' => array(
+                                array('id' => 'fluid-band:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 559, 'height' => 26, 'layout' => array('display' => 'flex', 'flex_direction' => 'row')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$fluidClonedBandCss = $fileContent($fluidClonedBandResult, 'style.css');
+$assert(str_contains($fluidClonedBandCss, '.figma-node-fluid-band-header-header{width:100%;height:92px;position:relative'), 'fluid-cloned-freeform-band-renders-full-width');
+$assert(str_contains($fluidClonedBandCss, '.figma-node-fluid-band-nav-row-nav-row{width:auto;height:44px;position:absolute;left:404px;right:112px'), 'fluid-absolute-grow-child-uses-left-right-gutters');
 
 // Section refinement (#247 / #288 follow-up): a page with a few genuine
 // top-level bands wrapped around many deeply-nested containers (rows, columns,
@@ -6097,10 +7034,11 @@ $assert(str_contains($designSystemCss, '--color-accent:#e64d33'), 'design-system
 // Typography becomes custom properties plus a reusable type-scale class set.
 $assert(str_contains($designSystemCss, '--font-size-heading-1:48px'), 'design-system-heading-font-size-token');
 $assert(str_contains($designSystemCss, '--font-size-body:16px'), 'design-system-body-font-size-token');
-$assert(str_contains($designSystemCss, '.type-heading-1{'), 'design-system-heading-type-class');
-$assert(str_contains($designSystemCss, '.type-body{'), 'design-system-body-type-class');
+$assert(str_contains($designSystemCss, '.type-heading-1,.figma-node-ds-type-heading-heading{'), 'design-system-heading-type-class');
+$assert(str_contains($designSystemCss, '.type-body,.figma-node-ds-type-body-body{'), 'design-system-body-type-class');
 $assert(str_contains($designSystemCss, 'font-size:var(--font-size-heading-1)'), 'design-system-type-class-references-token');
 $assert(str_contains($designSystemCss, 'line-height:56px'), 'design-system-type-class-carries-line-height');
+$assert(1 === preg_match('/\.figma-node-ds-type-heading-heading\{[^}]*font-size:var\(--font-size-heading-1\)/', $designSystemCss), 'design-system-node-css-materializes-heading-token');
 
 // Consistent spacing becomes a spacing token.
 $assert(str_contains($designSystemCss, '--space-1:32px'), 'design-system-spacing-token');
@@ -6119,6 +7057,9 @@ $assert(1 === ($designSystemCoverage['frame_count'] ?? 0), 'design-system-covera
 $assert(2 === ($designSystemCoverage['color_tokens'] ?? 0), 'design-system-coverage-color-count');
 $assert(2 === ($designSystemCoverage['type_tokens'] ?? 0), 'design-system-coverage-type-count');
 $assert(($designSystemCoverage['spacing_tokens'] ?? 0) >= 1, 'design-system-coverage-spacing-count');
+$assert(2 === ($designSystemCoverage['materialized_type_nodes'] ?? 0), 'design-system-coverage-materialized-node-count');
+$assert(in_array('figma-node-ds-type-heading-heading', $designSystemReport['materialized_node_classes'] ?? array(), true), 'design-system-report-materialized-node-class');
+$assert(! empty($designSystemReport['type_token_map'] ?? array()), 'design-system-report-type-token-map');
 
 // A matching coverage diagnostic is surfaced for operators.
 $designSystemDiagnostic = null;
@@ -6130,6 +7071,7 @@ foreach ( (is_array($designSystemResult['diagnostics'] ?? null) ? $designSystemR
 }
 $assert(null !== $designSystemDiagnostic, 'design-system-coverage-diagnostic-emitted');
 $assert(null !== $designSystemDiagnostic && 2 === ($designSystemDiagnostic['color_tokens'] ?? 0), 'design-system-diagnostic-color-count');
+$assert(null !== $designSystemDiagnostic && 2 === ($designSystemDiagnostic['materialized_type_nodes'] ?? 0), 'design-system-diagnostic-materialized-node-count');
 
 // A plain site without a style-guide frame extracts no design system, so the
 // `:root` token block never pollutes ordinary pages.
@@ -6459,6 +7401,165 @@ $assert(str_contains($ulResetSiteCss, 'ul,ol{margin:0;padding:0;list-style:none}
 // PARITY FIX 3 — Responsive breakpoint keyed at midpoint, not variant width.
 // Two-variant case: desktop=1440, mobile=390 → midpoint = 915 (not 390).
 // ──────────────────────────────────────────────────────────────────────────────
+$breakpointDimensionPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'));
+$responsiveNodeMatcher = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveNodeMatcher(fn (string $value): string => strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value, '-')) ?? $value));
+$assert('header' === $responsiveNodeMatcher->responsiveIdentity('Header Desktop 1440'), 'responsive-node-matcher-strips-desktop-width-qualifiers');
+$assert('hero-card' === $responsiveNodeMatcher->responsiveIdentity('Hero Card / Mobile 390 x 844'), 'responsive-node-matcher-strips-mobile-viewport-size');
+$responsiveNodeMatcherDesktopCounts = $responsiveNodeMatcher->siblingSignatureCounts(array(array('type' => 'FRAME', 'name' => 'Header Desktop')));
+$responsiveNodeMatcherMobileCounts = $responsiveNodeMatcher->siblingSignatureCounts(array(array('type' => 'FRAME', 'name' => 'Header Mobile')));
+$assert(
+    $responsiveNodeMatcher->childKeys(array('type' => 'FRAME', 'name' => 'Header Desktop'), 0, $responsiveNodeMatcherDesktopCounts)
+        === $responsiveNodeMatcher->childKeys(array('type' => 'FRAME', 'name' => 'Header Mobile'), 0, $responsiveNodeMatcherMobileCounts),
+    'responsive-node-matcher-structural-keys-ignore-breakpoint-qualifiers'
+);
+$assert(
+    array('reason_code' => 'root_fill', 'declarations' => array('width:100%')) === $breakpointDimensionPolicy->breakpointWidthDecision(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        null,
+        null
+    ),
+    'breakpoint-dimension-policy-root-fill-decision-evidence'
+);
+$assert(
+    array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:96px') === $breakpointDimensionPolicy->headerChromeDeclarations(96.0),
+    'breakpoint-dimension-policy-header-fluid-min-height-pairing'
+);
+$responsiveBreakpointSafetyPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
+    static fn (array $node): array => is_array($node['children'] ?? null) ? $node['children'] : array(),
+    fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'),
+    $breakpointDimensionPolicy,
+    new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
+);
+$assert(
+    array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),
+        null,
+        array('height' => '96px'),
+        null,
+        'top bar',
+        '',
+        true,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER,
+        null
+    ),
+    'responsive-breakpoint-safety-policy-header-chrome-decision-seam'
+);
+$assert(
+    array('reason_code' => '', 'declarations' => array()) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:header:cta', 'type' => 'INSTANCE', 'name' => 'Button One', 'box' => array('height' => 48)),
+        array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Header', 'box' => array('height' => 145)),
+        array('position' => 'absolute', 'left' => '1180px', 'top' => '72px'),
+        array('id' => 'policy:header-mobile:cta', 'type' => 'INSTANCE', 'name' => 'Button One', 'box' => array('height' => 48)),
+        'button one',
+        'header',
+        true,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER
+    ),
+    'responsive-breakpoint-safety-policy-header-child-preserves-matched-variant-geometry'
+);
+$assert(
+    array('reason_code' => 'responsive_footer_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:469px')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('height' => 251)),
+        null,
+        array('height' => '251px'),
+        array('id' => 'policy:footer-mobile', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('height' => 469)),
+        'footer',
+        '',
+        true,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER,
+        null
+    ),
+    'responsive-breakpoint-safety-policy-footer-chrome-decision-seam'
+);
+$assert(
+    array('reason_code' => 'responsive_footer_child_chrome_safety', 'declarations' => array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%', 'margin-left:0')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer-link', 'type' => 'TEXT', 'name' => 'Footer Link'),
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer'),
+        array('position' => 'absolute', 'left' => '435px', 'top' => '91px'),
+        null,
+        'footer link',
+        'footer',
+        false,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER
+    ),
+    'responsive-breakpoint-safety-policy-footer-child-chrome-decision-seam'
+);
+$assert(
+    array('reason_code' => '', 'declarations' => array()) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer-underlay', 'type' => 'RECTANGLE', 'name' => 'Rectangle'),
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer'),
+        array('position' => 'absolute', 'pointer-events' => 'none', 'background' => '#198097'),
+        null,
+        'rectangle',
+        'footer',
+        false,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER
+    ),
+    'responsive-breakpoint-safety-policy-footer-underlay-preserved-seam'
+);
+$assert(
+    array('width:calc(100% - 48px)', 'max-width:342px', 'left:24px', 'right:auto') === $responsiveBreakpointSafetyPolicy->mobileCenteredTextFallbackDecision(
+        array('id' => 'policy:text', 'type' => 'TEXT', 'name' => 'Hero Title'),
+        array('id' => 'policy:parent', 'type' => 'FRAME'),
+        array('left' => 'calc(50% - 360px)'),
+        390.0,
+        'TEXT',
+        899.0,
+        'absolute',
+        null
+    ),
+    'responsive-breakpoint-safety-policy-centered-text-fallback-seam'
+);
+$assert(
+    array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        null,
+        null
+    ),
+    'breakpoint-dimension-policy-root-fills-viewport'
+);
+$assert(
+    array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-parent-fill-uses-percent'
+);
+$assert(
+    array('width:calc(100% - 48px)', 'max-width:1216px', 'margin-left:auto', 'margin-right:auto') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '342px',
+        array('display' => 'flex'),
+        array('box' => array('width' => 1216)),
+        array('type' => 'INSTANCE', 'box' => array('width' => 342)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-source-max-centered-gutters'
+);
+$assert(
+    array('width:calc(100% - 106px)', 'max-width:899px', 'left:53px', 'right:auto') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '284px',
+        array('position' => 'absolute'),
+        array('box' => array('width' => 899)),
+        array('type' => 'TEXT', 'box' => array('width' => 284)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-absolute-source-max-centered-gutters'
+);
 $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
         'name'   => 'Midpoint Breakpoint Fixture',
@@ -6468,6 +7569,7 @@ $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\
                 'id' => 'bp:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
                 'box' => array('width' => 1440, 'height' => 900),
                 'children' => array(
+                    array('id' => 'bp:band', 'type' => 'RECTANGLE', 'name' => 'Band', 'box' => array('x' => -2, 'y' => 0, 'width' => 1444, 'height' => 120), 'layout' => array('positioning' => 'absolute'), 'background' => '#00ff00'),
                     array('id' => 'bp:card', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 1200, 'height' => 400), 'background' => '#ff0000'),
                 ),
             ),
@@ -6475,6 +7577,7 @@ $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\
                 'id' => 'bp:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
                 'box' => array('width' => 390, 'height' => 900),
                 'children' => array(
+                    array('id' => 'bp:band-m', 'type' => 'RECTANGLE', 'name' => 'Band', 'box' => array('x' => -2, 'y' => 0, 'width' => 394, 'height' => 96), 'layout' => array('positioning' => 'absolute'), 'background' => '#00ff00'),
                     array('id' => 'bp:card-m', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 350, 'height' => 400), 'background' => '#ff0000'),
                 ),
             ),
@@ -6506,6 +7609,61 @@ $assert('success' === ($midpointBreakpointResult['status'] ?? null), 'midpoint-b
 $assert(str_contains($midpointBreakpointCss, '@media (max-width:915px){'), 'midpoint-breakpoint-keyed-at-midpoint');
 // The narrow variant's own width (390) must NOT be the breakpoint.
 $assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'midpoint-breakpoint-not-variant-own-width');
+$assert(str_contains($midpointBreakpointCss, '.figma-node-bp-band-band{width:100vw;height:120px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'responsive-full-bleed-base-uses-viewport-breakout');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-bp-band-band\{[^}]*\b(?:width:100%|left:0px|margin-left:0px)/', $midpointBreakpointCss), 'responsive-full-bleed-media-preserves-viewport-breakout');
+
+$mobileSafetyBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Mobile Safety Breakpoint Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'ms:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
+                'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'ms:promo', 'type' => 'FRAME', 'name' => 'Floating Promo',
+                        'box' => array('x' => 260, 'y' => 120, 'width' => 900, 'height' => 220),
+                        'layout' => array('positioning' => 'absolute'),
+                        'children' => array(
+                            array('id' => 'ms:promo-card', 'type' => 'RECTANGLE', 'name' => 'Promo Card', 'box' => array('width' => 860, 'height' => 180), 'background' => '#ff0000'),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'ms:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
+                'box' => array('width' => 390, 'height' => 900),
+                'children' => array(),
+            ),
+        ),
+    ),
+    array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'ms:desktop',
+                'name'       => 'Home',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'variants'   => array(
+                    array('frame_id' => 'ms:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'ms:mobile',  'viewport_width' => 390.0,  'primary' => false),
+                ),
+            ),
+        ),
+    )
+);
+$mobileSafetyBreakpointCss = '';
+foreach ( $mobileSafetyBreakpointResult['files'] ?? array() as $mobileSafetyBreakpointFile ) {
+    if ( is_array($mobileSafetyBreakpointFile) && 'style.css' === ($mobileSafetyBreakpointFile['path'] ?? null) ) {
+        $mobileSafetyBreakpointCss = (string) ($mobileSafetyBreakpointFile['content'] ?? '');
+    }
+}
+$assert('success' === ($mobileSafetyBreakpointResult['status'] ?? null), 'mobile-safety-breakpoint-transform-success');
+$assert(str_contains($mobileSafetyBreakpointCss, '@media (max-width:390px){'), 'mobile-safety-breakpoint-keyed-at-phone-width');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\)/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-leak-to-midpoint');
+$assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\);max-width:342px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-clamps-source-max-width-to-phone-content');
+$assert(! preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*max-width:900px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-emit-desktop-source-max-width');
 
 $paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Pagination Semantics Fixture',
@@ -6576,7 +7734,41 @@ $assert('success' === ($paginationSemanticsResult['status'] ?? null), 'paginatio
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<button[^>]*data-figma-node-id="pag:previous-base"/', $paginationSemanticsHtml), 'pagination-previous-avoids-nested-button');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
 $assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
+$paginationNumbersRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-numbers-pagination-numbers');
+$paginationNumberBaseRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base');
+$assert(! str_contains($paginationNumbersRule, 'list-style:disc') && ! str_contains($paginationNumbersRule, 'padding-left:1.5em'), 'pagination-numbers-avoid-content-list-marker-css');
+$assert(! str_contains($paginationNumberBaseRule, 'display:list-item') && ! str_contains($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base::before'), 'pagination-number-base-avoids-content-list-marker-display');
 $assert(str_contains($paginationSemanticsCss, '.figma-node-pag-separator-frame-frame-27{') && str_contains($paginationSemanticsCss, 'align-self:center') && str_contains($paginationSemanticsCss, 'margin-top:-4.8px'), 'heading-separator-line-box-offset');
+
+$paginationActiveUnderlayResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+    'schema' => 'blocks-engine/figma-transformer/scenegraph/v1',
+    'nodes'  => array(
+        array(
+            'id' => 'active:content', 'type' => 'FRAME', 'name' => 'Content',
+            'box' => array('width' => 40, 'height' => 40, 'coordinate_space' => 'local'),
+            'layout' => array(
+                'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'center', 'align_items' => 'center',
+            ),
+            'children' => array(
+                array(
+                    'id' => 'active:ellipse', 'type' => 'ELLIPSE', 'name' => 'Ellipse',
+                    'box' => array('x' => 2, 'y' => 2, 'width' => 36, 'height' => 36, 'coordinate_space' => 'local'),
+                    'layout' => array('positioning' => 'absolute'),
+                    'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)))),
+                ),
+                array(
+                    'id' => 'active:number', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '1',
+                    'box' => array('x' => 16.5, 'y' => 14, 'width' => 7, 'height' => 12, 'coordinate_space' => 'local'),
+                    'figma_text' => array('characters' => '1', 'style' => array('font_size' => 16, 'font_weight' => 700, 'color' => '#ffffff')),
+                ),
+            ),
+        ),
+    ),
+));
+$paginationActiveUnderlayCss = $fileContent($paginationActiveUnderlayResult, 'style.css');
+$assert('success' === ($paginationActiveUnderlayResult['status'] ?? null), 'pagination-active-underlay-transform-success');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-ellipse-ellipse{') && str_contains($paginationActiveUnderlayCss, 'z-index:1') && str_contains($paginationActiveUnderlayCss, 'pointer-events:none'), 'pagination-active-ellipse-underlay-z-index');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-number-number{') && str_contains($paginationActiveUnderlayCss, 'z-index:2'), 'pagination-active-number-above-underlay');
 
 $paginationResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
@@ -6635,6 +7827,220 @@ $assert('success' === ($paginationResponsiveResult['status'] ?? null), 'paginati
 $assert(str_contains($paginationResponsiveCss, '.figma-node-preserve-pagination-pagination{width:1216px;height:40px'), 'pagination-responsive-base-row-preserved');
 $assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*height:36px/', $paginationResponsiveCss), 'pagination-responsive-does-not-override-height');
 $assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*flex-wrap:wrap/', $paginationResponsiveCss), 'pagination-responsive-does-not-wrap');
+
+$componentResponsiveStructureResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Component Responsive Structure Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'struct:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array(
+                        'id' => 'struct:section', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:desktop-section', 'box' => array('width' => 1216, 'height' => 400),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'gap' => 44),
+                        'children' => array(
+                            array('id' => 'struct:lead', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:desktop-lead', 'box' => array('width' => 691, 'height' => 300)),
+                            array('id' => 'struct:list', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:desktop-list', 'box' => array('width' => 481, 'height' => 300)),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'struct:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'struct:section-mobile', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:mobile-section', 'box' => array('width' => 342, 'height' => 820),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column', 'gap' => 32),
+                        'children' => array(
+                            array('id' => 'struct:lead-mobile', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:mobile-lead', 'box' => array('width' => 342, 'height' => 420)),
+                            array('id' => 'struct:list-mobile', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:mobile-list', 'box' => array('width' => 342, 'height' => 360)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'struct:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'struct:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'struct:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$componentResponsiveStructureCss = '';
+foreach ( $componentResponsiveStructureResult['files'] ?? array() as $componentResponsiveStructureFile ) {
+    if ( is_array($componentResponsiveStructureFile) && 'style.css' === ($componentResponsiveStructureFile['path'] ?? null) ) {
+        $componentResponsiveStructureCss = (string) ($componentResponsiveStructureFile['content'] ?? '');
+    }
+}
+$assert('success' === ($componentResponsiveStructureResult['status'] ?? null), 'component-responsive-structure-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-section-feature-section\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*margin-left:auto[^}]*margin-right:auto[^}]*height:auto[^}]*flex-direction:column[^}]*gap:32px/s', $componentResponsiveStructureCss) === 1, 'component-responsive-section-fluid-column-centered');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $componentResponsiveStructureCss) === 1, 'component-responsive-structural-child-maps-across-source-ids');
+
+$reorderedResponsiveStructureResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Reordered Component Responsive Structure Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'reorder:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array(
+                        'id' => 'reorder:section', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:desktop-section', 'box' => array('width' => 1216, 'height' => 400),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'gap' => 44),
+                        'children' => array(
+                            array('id' => 'reorder:lead', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:desktop-lead', 'box' => array('width' => 691, 'height' => 300)),
+                            array('id' => 'reorder:list', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:desktop-list', 'box' => array('width' => 481, 'height' => 300)),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'reorder:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'reorder:section-mobile', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:mobile-section', 'box' => array('width' => 342, 'height' => 820),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column', 'gap' => 32),
+                        'children' => array(
+                            array('id' => 'reorder:list-mobile', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:mobile-list', 'box' => array('width' => 342, 'height' => 360)),
+                            array('id' => 'reorder:lead-mobile', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:mobile-lead', 'box' => array('width' => 342, 'height' => 420)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'reorder:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'reorder:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'reorder:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$reorderedResponsiveStructureCss = '';
+foreach ( $reorderedResponsiveStructureResult['files'] ?? array() as $reorderedResponsiveStructureFile ) {
+    if ( is_array($reorderedResponsiveStructureFile) && 'style.css' === ($reorderedResponsiveStructureFile['path'] ?? null) ) {
+        $reorderedResponsiveStructureCss = (string) ($reorderedResponsiveStructureFile['content'] ?? '');
+    }
+}
+$assert('success' === ($reorderedResponsiveStructureResult['status'] ?? null), 'reordered-responsive-structure-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-reorder-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $reorderedResponsiveStructureCss) === 1, 'reordered-responsive-unique-structural-child-maps-across-source-ids');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-reorder-lead-lead-card\{[^}]*height:360px/s', $reorderedResponsiveStructureCss), 'reordered-responsive-unique-structural-child-avoids-ordinal-mismatch');
+
+$absoluteComponentResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Absolute Component Responsive Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'abs:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abs:newsletter', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-desktop', 'box' => array('x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352), 'layout' => array('positioning' => 'absolute')),
+                ),
+            ),
+            array(
+                'id' => 'abs:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abs:newsletter-mobile', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-mobile', 'box' => array('x' => 24, 'y' => 0, 'width' => 342, 'height' => 420), 'layout' => array('positioning' => 'absolute')),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'abs:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'abs:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'abs:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$absoluteComponentResponsiveCss = '';
+foreach ( $absoluteComponentResponsiveResult['files'] ?? array() as $absoluteComponentResponsiveFile ) {
+    if ( is_array($absoluteComponentResponsiveFile) && 'style.css' === ($absoluteComponentResponsiveFile['path'] ?? null) ) {
+        $absoluteComponentResponsiveCss = (string) ($absoluteComponentResponsiveFile['content'] ?? '');
+    }
+}
+$assert('success' === ($absoluteComponentResponsiveResult['status'] ?? null), 'absolute-component-responsive-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abs-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px[^}]*right:auto[^}]*height:420px/s', $absoluteComponentResponsiveCss) === 1, 'absolute-component-responsive-width-follows-breakpoint');
+
+$absoluteTextResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Absolute Text Responsive Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'abstext:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abstext:copy', 'type' => 'TEXT', 'name' => 'Footer copy', 'box' => array('x' => 435, 'y' => 91, 'width' => 899, 'height' => 25), 'layout' => array('positioning' => 'absolute'), 'figma_text' => array('characters' => 'Footer copy')),
+                ),
+            ),
+            array(
+                'id' => 'abstext:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abstext:copy-mobile', 'type' => 'TEXT', 'name' => 'Footer copy', 'box' => array('x' => 175, 'y' => 113, 'width' => 284, 'height' => 288), 'layout' => array('positioning' => 'absolute'), 'figma_text' => array('characters' => 'Footer copy')),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'abstext:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'abstext:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'abstext:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$absoluteTextResponsiveCss = '';
+foreach ( $absoluteTextResponsiveResult['files'] ?? array() as $absoluteTextResponsiveFile ) {
+    if ( is_array($absoluteTextResponsiveFile) && 'style.css' === ($absoluteTextResponsiveFile['path'] ?? null) ) {
+        $absoluteTextResponsiveCss = (string) ($absoluteTextResponsiveFile['content'] ?? '');
+    }
+}
+$assert('success' === ($absoluteTextResponsiveResult['status'] ?? null), 'absolute-text-responsive-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abstext-copy-footer-copy\{[^}]*width:calc\(100% - 106px\)[^}]*max-width:899px[^}]*left:53px[^}]*right:auto/s', $absoluteTextResponsiveCss) === 1, 'absolute-text-responsive-position-centered-gutter');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abstext-copy-footer-copy\{[^}]*left:175px/s', $absoluteTextResponsiveCss), 'absolute-text-responsive-suppresses-raw-variant-left');
+
+$responsiveSafetyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Responsive Safety Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'safety:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'safety:header', 'type' => 'FRAME', 'name' => 'Header', 'box' => array('width' => 1440, 'height' => 92),
+                        'children' => array(
+                            array('id' => 'safety:logo', 'type' => 'FRAME', 'name' => 'Logo', 'box' => array('x' => 112, 'y' => 28, 'width' => 228, 'height' => 35), 'layout' => array('positioning' => 'absolute')),
+                            array(
+                                'id' => 'safety:header-actions', 'type' => 'FRAME', 'name' => 'Frame 21', 'box' => array('x' => 404, 'y' => 24, 'width' => 924, 'height' => 44),
+                                'layout' => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'flex-end', 'align_items' => 'baseline', 'gap' => 48),
+                                'children' => array(
+                                    array('id' => 'safety:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'box' => array('width' => 559, 'height' => 26), 'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'flex-end', 'align_items' => 'center', 'gap' => 32)),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id' => 'safety:footer', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 1440, 'height' => 483),
+                        'children' => array(
+                            array('id' => 'safety:newsletter', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-desktop', 'box' => array('x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352), 'layout' => array('positioning' => 'absolute')),
+                            array('id' => 'safety:footer-row', 'type' => 'FRAME', 'name' => 'Frame 19', 'box' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131), 'layout' => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center')),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'safety:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array('id' => 'safety:mobile-shell', 'type' => 'FRAME', 'name' => 'Mobile-only shell', 'box' => array('width' => 342, 'height' => 900)),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'safety:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'safety:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'safety:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$responsiveSafetyCss = '';
+foreach ( $responsiveSafetyResult['files'] ?? array() as $responsiveSafetyFile ) {
+    if ( is_array($responsiveSafetyFile) && 'style.css' === ($responsiveSafetyFile['path'] ?? null) ) {
+        $responsiveSafetyCss = (string) ($responsiveSafetyFile['content'] ?? '');
+    }
+}
+$assert('success' === ($responsiveSafetyResult['status'] ?? null), 'responsive-safety-transform-success');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-header-actions-frame-21\{[^}]*width:100%[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-header-actions-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:342px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)/s', $responsiveSafetyCss), 'responsive-safety-fallbacks-do-not-leak-to-midpoint');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
