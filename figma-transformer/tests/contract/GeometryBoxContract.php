@@ -291,6 +291,8 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
         'name'  => 'Non-positive Geometry Fixture',
         'nodes' => array(
             array('id' => 'geometry:zero-width', 'type' => 'RECTANGLE', 'name' => 'Zero width', 'width' => 0, 'height' => 10),
+            array('id' => 'geometry:negative-zero-size', 'type' => 'RECTANGLE', 'name' => 'Negative zero size', 'width' => -0.00000000001, 'height' => -0.0),
+            array('id' => 'geometry:non-finite-size', 'type' => 'RECTANGLE', 'name' => 'Non-finite size', 'width' => NAN, 'height' => INF),
             array('id' => 'geometry:negative-height', 'type' => 'RECTANGLE', 'name' => 'Negative height', 'width' => 10, 'height' => -5),
         ),
     ));
@@ -300,4 +302,28 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     );
     $assert(in_array('figma_node_zero_dimension', $nonPositiveCodes, true), 'geometry-box-zero-dimension-diagnostic');
     $assert(in_array('figma_node_negative_dimension', $nonPositiveCodes, true), 'geometry-box-negative-dimension-diagnostic');
+
+    $negativeZeroNode = $nonPositiveDimensionResult['node_map']['geometry:negative-zero-size'] ?? array();
+    $assert(0.0 === ($negativeZeroNode['box']['width'] ?? null) && 0.0 === ($negativeZeroNode['box']['height'] ?? null), 'geometry-box-negative-zero-dimensions-clamped');
+    $negativeZeroCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        array_values(array_filter(
+            $nonPositiveDimensionResult['diagnostics'] ?? array(),
+            static fn (array $diagnostic): bool => 'geometry:negative-zero-size' === ($diagnostic['context']['node_id'] ?? null)
+        ))
+    );
+    $assert(! in_array('figma_node_negative_dimension', $negativeZeroCodes, true), 'geometry-box-negative-zero-does-not-warn');
+    $assert(2 === count(array_filter($negativeZeroCodes, static fn (string $code): bool => 'figma_node_zero_dimension' === $code)), 'geometry-box-negative-zero-zero-diagnostics');
+
+    $nonFiniteNode = $nonPositiveDimensionResult['node_map']['geometry:non-finite-size'] ?? array();
+    $assert(0.0 === ($nonFiniteNode['box']['width'] ?? null) && 0.0 === ($nonFiniteNode['box']['height'] ?? null), 'geometry-box-non-finite-dimensions-clamped');
+    $nonFiniteCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        array_values(array_filter(
+            $nonPositiveDimensionResult['diagnostics'] ?? array(),
+            static fn (array $diagnostic): bool => 'geometry:non-finite-size' === ($diagnostic['context']['node_id'] ?? null)
+        ))
+    );
+    $assert(! in_array('figma_node_negative_dimension', $nonFiniteCodes, true), 'geometry-box-non-finite-does-not-warn');
+    $assert(2 === count(array_filter($nonFiniteCodes, static fn (string $code): bool => 'figma_node_zero_dimension' === $code)), 'geometry-box-non-finite-zero-diagnostics');
 }

@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class ScenegraphLayoutNormalizer
 {
+    private const DIMENSION_ZERO_EPSILON = 0.000001;
+
     /**
      * @param array<string, mixed> $node
      * @return array<string, mixed>
@@ -25,7 +27,7 @@ final class ScenegraphLayoutNormalizer
 
             foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
                 if ( ! array_key_exists($dimension, $box) && isset($node[$boundsKey][$dimension]) && is_numeric($node[$boundsKey][$dimension]) ) {
-                    $box[$dimension] = (float) $node[$boundsKey][$dimension];
+                    $box[$dimension] = $this->normalizeBoxNumber((float) $node[$boundsKey][$dimension], $dimension);
                 }
             }
 
@@ -37,7 +39,7 @@ final class ScenegraphLayoutNormalizer
         if ( is_array($node['relativeTransformBounds'] ?? null) ) {
             foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
                 if ( ! array_key_exists($dimension, $box) && isset($node['relativeTransformBounds'][$dimension]) && is_numeric($node['relativeTransformBounds'][$dimension]) ) {
-                    $box[$dimension] = (float) $node['relativeTransformBounds'][$dimension];
+                    $box[$dimension] = $this->normalizeBoxNumber((float) $node['relativeTransformBounds'][$dimension], $dimension);
                 }
             }
 
@@ -48,7 +50,7 @@ final class ScenegraphLayoutNormalizer
 
         foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
             if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
-                $box[$dimension] = (float) $node[$dimension];
+                $box[$dimension] = $this->normalizeBoxNumber((float) $node[$dimension], $dimension);
                 if ( 'x' === $dimension || 'y' === $dimension ) {
                     $sourceKind = isset($node[GeometryBox::PROVENANCE_KEY]) && is_scalar($node[GeometryBox::PROVENANCE_KEY])
                         ? (string) $node[GeometryBox::PROVENANCE_KEY]
@@ -60,7 +62,7 @@ final class ScenegraphLayoutNormalizer
         if ( is_array($node['size'] ?? null) ) {
             foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
                 if ( ! array_key_exists($target, $box) && isset($node['size'][$source]) && is_numeric($node['size'][$source]) ) {
-                    $box[$target] = (float) $node['size'][$source];
+                    $box[$target] = $this->normalizeBoxNumber((float) $node['size'][$source], $target);
                     $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
                 }
             }
@@ -68,7 +70,7 @@ final class ScenegraphLayoutNormalizer
 
         foreach ( array('stackWidth' => 'width', 'stackHeight' => 'height') as $source => $target ) {
             if ( ! array_key_exists($target, $box) && isset($node[$source]) && is_numeric($node[$source]) ) {
-                $box[$target] = (float) $node[$source];
+                $box[$target] = $this->normalizeBoxNumber((float) $node[$source], $target);
                 $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
             }
         }
@@ -116,6 +118,19 @@ final class ScenegraphLayoutNormalizer
         }
 
         return array();
+    }
+
+    private function normalizeBoxNumber(float $value, string $dimension): float
+    {
+        if ( ! in_array($dimension, array('width', 'height'), true) ) {
+            return $value;
+        }
+
+        if ( ! is_finite($value) || abs($value) <= self::DIMENSION_ZERO_EPSILON ) {
+            return 0.0;
+        }
+
+        return $value;
     }
 
     /**

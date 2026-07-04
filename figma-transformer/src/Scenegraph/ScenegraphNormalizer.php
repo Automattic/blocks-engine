@@ -11,6 +11,8 @@ final class ScenegraphNormalizer
 {
     private const GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE = 'component_source_clone';
 
+    private const DIMENSION_ZERO_EPSILON = 0.000001;
+
     private readonly TextNormalizer $textNormalizer;
 
     private readonly InstanceResolver $instanceResolver;
@@ -547,16 +549,19 @@ final class ScenegraphNormalizer
                 continue;
             }
 
+            $value = (float) $box[$dimension];
+            $isZero = ! is_finite($value) || abs($value) <= self::DIMENSION_ZERO_EPSILON;
+
             $diagnostics[] = array(
-                'severity' => 0.0 === (float) $box[$dimension] ? 'info' : 'warning',
-                'code'     => 0.0 === (float) $box[$dimension] ? 'figma_node_zero_dimension' : 'figma_node_negative_dimension',
+                'severity' => $isZero ? 'info' : 'warning',
+                'code'     => $isZero ? 'figma_node_zero_dimension' : 'figma_node_negative_dimension',
                 'message'  => 'Figma node normalized with a non-positive layout dimension.',
                 'context'  => array(
                     'node_id'   => $nodeId,
                     'node_name' => (string) ($node['name'] ?? ''),
                     'node_type' => strtoupper((string) ($node['type'] ?? '')),
                     'dimension' => $dimension,
-                    'value'     => (float) $box[$dimension],
+                    'value'     => $isZero ? 0.0 : $value,
                     'source'    => (string) ($box['coordinate_space'] ?? 'unknown'),
                 ),
             );
