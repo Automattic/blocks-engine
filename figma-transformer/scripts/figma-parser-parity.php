@@ -100,7 +100,7 @@ function blocks_engine_figma_parser_parity_options(array $argv): array
 
 function blocks_engine_figma_parser_parity_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--max-kiwi-message-decode-bytes=1] [--include-asset-content=0] [--limit=20] [--sample-limit=5] [--summary-limit=20] [--output=/tmp/parity.json] [--self-check]\n");
+    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--max-kiwi-message-decode-bytes=1] [--max-kiwi-selective-message-decode-bytes=33554432] [--include-asset-content=0] [--limit=20] [--sample-limit=5] [--summary-limit=20] [--output=/tmp/parity.json] [--self-check]\n");
 }
 
 /**
@@ -111,6 +111,7 @@ function blocks_engine_figma_parser_parity_archive_options(array $options): arra
     return array(
         'include_asset_content' => blocks_engine_figma_parser_parity_bool_option($options['include_asset_content'] ?? false),
         'max_kiwi_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_message_decode_bytes'] ?? null, 1, 1, 104857600),
+        'max_kiwi_selective_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_selective_message_decode_bytes'] ?? null, 33554432, 0, 104857600),
     );
 }
 

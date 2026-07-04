@@ -347,6 +347,23 @@ final class ScenegraphPagePlanner
                 }
             }
 
+            $explorationResult = $this->filterCrossCanvasExplorationFrames($selectedIds, $pageCandidates, $nodes, $parentIndex, $detectionById, $responsiveGroups);
+            $selectedIds = $explorationResult['ids'];
+            foreach ( $explorationResult['diagnostics'] as $diagnostic ) {
+                $diagnostics[] = $diagnostic;
+                foreach ( is_array($diagnostic['draft_frame_ids'] ?? null) ? $diagnostic['draft_frame_ids'] : array() as $draftId ) {
+                    if ( is_string($draftId) && isset($pageCandidates[$draftId]) ) {
+                        $filteredCandidateEvidence[] = $this->candidateEvidenceRecord($draftId, $pageCandidates[$draftId], 'cross_canvas_exploration_frame', $classifications[$draftId] ?? null, array(
+                            'canonical_frame_id'      => $diagnostic['canonical_frame_id'] ?? null,
+                            'normalized_page_identity' => $diagnostic['normalized_page_identity'] ?? null,
+                            'device_hint'             => $diagnostic['device_hint'] ?? null,
+                            'canvas_name'             => $diagnostic['canvas_names'][$draftId] ?? null,
+                            'canonical_canvas_name'   => is_string($diagnostic['canonical_frame_id'] ?? null) ? ($diagnostic['canvas_names'][(string) $diagnostic['canonical_frame_id']] ?? null) : null,
+                        ));
+                    }
+                }
+            }
+
             if ( ! empty($responsiveGroups) ) {
                 $utilityResult = $this->filterLowConfidenceUtilityRouteFrames($selectedIds, $pageCandidates, $classifications);
                 $selectedIds = $utilityResult['ids'];
@@ -442,8 +459,10 @@ final class ScenegraphPagePlanner
             $page = $this->nearestAncestor($primaryId, array('CANVAS'), $nodes, $parentIndex);
             $section = $this->nearestAncestor($primaryId, array('SECTION'), $nodes, $parentIndex);
             $name = (string) ($node['name'] ?? $primaryId);
-            $slug = $this->dedupeSlug($this->pageSlug($primaryId, $name, $members, $slugMap), $slugs);
+            $slugEvidence = $this->dedupeSlugEvidence($this->pageSlug($primaryId, $name, $members, $slugMap), $slugs);
+            $slug = $slugEvidence['slug'];
             $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : $primaryId === $entrypointPrimaryId;
+            $path = $entrypoint ? 'index.html' : $slug . '.html';
             $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
             $classification = $classifications[$primaryId] ?? $this->classifyCandidate($primaryId, $candidate, $nodes, $childrenIndex, $parentIndex);
             $identity = $this->sourceFrameIdentityEvidence(
@@ -456,6 +475,10 @@ final class ScenegraphPagePlanner
                 $slug,
                 $entrypoint
             );
+            $identity['path'] = $path;
+            $identity['score'] = (int) ($candidate['score'] ?? 0);
+            $identity['base_slug'] = $slugEvidence['base_slug'];
+            $identity['slug_collision_index'] = $slugEvidence['collision_index'];
             $pageIdentityEvidence[] = $identity;
 
             $pages[] = array(
@@ -463,11 +486,14 @@ final class ScenegraphPagePlanner
                 'source_frame_identity' => $identity,
                 'name'                  => $name,
                 'slug'                  => $slug,
-                'path'                  => $entrypoint ? 'index.html' : $slug . '.html',
+                'base_slug'             => $slugEvidence['base_slug'],
+                'slug_collision_index'  => $slugEvidence['collision_index'],
+                'path'                  => $path,
                 'entrypoint'            => $entrypoint,
                 'role'                  => $classification['role'],
                 'page_type'             => $classification['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN,
                 'classification_signals' => $classification['signals'],
+                'score'                 => (int) ($candidate['score'] ?? 0),
                 'figma_page_id'         => $page['id'] ?? null,
                 'figma_page_name'       => $page['name'] ?? null,
                 'section_id'            => $section['id'] ?? null,
@@ -535,6 +561,15 @@ final class ScenegraphPagePlanner
                 'top_level_candidate_frame_ids' => array_values(array_map('strval', array_keys($candidates))),
                 'pages'                       => $pageIdentityEvidence,
                 'filtered_candidates'         => $filteredCandidateEvidence,
+                'candidate_decisions'         => $this->candidateDecisionEvidence(
+                    $candidates,
+                    $pageCandidates,
+                    $classifications,
+                    $filteredCandidateEvidence,
+                    $pageIdentityEvidence,
+                    $responsiveGroups,
+                    $detectionById
+                ),
             ),
             'dev_status_coverage'     => $devStatusCoverage,
             'classification_coverage' => $classificationCoverage,
@@ -877,6 +912,110 @@ final class ScenegraphPagePlanner
         }
 
         return $record;
+    }
+
+    /**
+     * Build one bounded decision row per top-level candidate frame so complex
+     * files can be audited without reverse-engineering planner internals.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @param array<string, array<string, mixed>> $classifications
+     * @param array<int, array<string, mixed>>    $filteredCandidateEvidence
+     * @param array<int, array<string, mixed>>    $pageIdentityEvidence
+     * @param array<string, array<int, string>>   $responsiveGroups
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<int, array<string, mixed>>
+     */
+    private function candidateDecisionEvidence(
+        array $candidates,
+        array $pageCandidates,
+        array $classifications,
+        array $filteredCandidateEvidence,
+        array $pageIdentityEvidence,
+        array $responsiveGroups,
+        array $detectionById
+    ): array {
+        $filteredById = array();
+        foreach ( $filteredCandidateEvidence as $evidence ) {
+            $frameId = isset($evidence['frame_id']) && is_scalar($evidence['frame_id']) ? (string) $evidence['frame_id'] : '';
+            if ( '' !== $frameId ) {
+                $filteredById[$frameId] = $evidence;
+            }
+        }
+
+        $emittedById = array();
+        foreach ( $pageIdentityEvidence as $page ) {
+            $primaryId = isset($page['primary_frame_id']) && is_scalar($page['primary_frame_id']) ? (string) $page['primary_frame_id'] : '';
+            $variantIds = is_array($page['variant_frame_ids'] ?? null) ? $page['variant_frame_ids'] : array();
+            foreach ( $variantIds as $variantId ) {
+                if ( ! is_scalar($variantId) ) {
+                    continue;
+                }
+                $variantId = (string) $variantId;
+                $emittedById[$variantId] = array(
+                    'decision'         => $variantId === $primaryId ? 'emitted_primary' : 'emitted_responsive_variant',
+                    'primary_frame_id' => $primaryId,
+                    'path'             => $page['path'] ?? null,
+                    'slug'             => $page['slug'] ?? null,
+                    'base_slug'        => $page['base_slug'] ?? null,
+                    'slug_collision_index' => $page['slug_collision_index'] ?? null,
+                );
+            }
+        }
+
+        $rows = array();
+        foreach ( $candidates as $id => $candidate ) {
+            $id = (string) $id;
+            $node = is_array($candidate['node'] ?? null) ? $candidate['node'] : array();
+            $dimensions = is_array($candidate['dimensions'] ?? null) ? $candidate['dimensions'] : array();
+            $classification = is_array($classifications[$id] ?? null) ? $classifications[$id] : array();
+            $detection = is_array($detectionById[$id] ?? null) ? $detectionById[$id] : array();
+            $group = is_array($responsiveGroups[$id] ?? null) ? array_values($responsiveGroups[$id]) : array();
+
+            $decision = array(
+                'frame_id' => $id,
+                'name'     => (string) ($node['name'] ?? $id),
+                'decision' => isset($pageCandidates[$id]) ? 'omitted_unselected' : 'omitted_candidate_filter',
+                'reason'   => isset($pageCandidates[$id]) ? 'not_selected_after_ranking_or_route_filters' : 'not_in_selectable_page_pool',
+                'score'    => (int) ($candidate['score'] ?? 0),
+                'width'    => $dimensions['width'] ?? null,
+                'height'   => $dimensions['height'] ?? null,
+                'route_identity' => $this->routeIdentity((string) ($node['name'] ?? $id)),
+                'device_hint' => (string) ($detection['device_hint'] ?? 'unknown'),
+                'sibling_group_key' => $detection['sibling_group_key'] ?? null,
+                'responsive_group_frame_ids' => $group,
+                'role'      => (string) ($classification['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE),
+                'page_type' => (string) ($classification['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN),
+                'classification_signals' => is_array($classification['signals'] ?? null) ? $classification['signals'] : array(),
+            );
+
+            if ( isset($filteredById[$id]) ) {
+                $decision['decision'] = 'omitted_filtered';
+                $decision['reason'] = $filteredById[$id]['reason'] ?? 'filtered';
+                foreach ( array('canonical_frame_id', 'route_identity', 'source') as $key ) {
+                    if ( array_key_exists($key, $filteredById[$id]) ) {
+                        $decision[$key] = $filteredById[$id][$key];
+                    }
+                }
+            }
+
+            if ( isset($emittedById[$id]) ) {
+                $decision = array_merge($decision, $emittedById[$id]);
+                $decision['reason'] = 'selected_for_emission';
+                unset($decision['canonical_frame_id'], $decision['source']);
+            }
+
+            $rows[] = array_filter($decision, static fn (mixed $value): bool => null !== $value);
+        }
+
+        usort(
+            $rows,
+            static fn (array $left, array $right): int => ((int) ($right['score'] ?? 0) <=> (int) ($left['score'] ?? 0))
+                ?: strcmp((string) ($left['frame_id'] ?? ''), (string) ($right['frame_id'] ?? ''))
+        );
+
+        return $rows;
     }
 
     /**
@@ -1447,6 +1586,154 @@ final class ScenegraphPagePlanner
     }
 
     /**
+     * Filter repeated exploration/reference frames across sibling canvases.
+     *
+     * Designers often keep full-page drafts in successive canvases named
+     * "Design", "Design v2", "Design v3", plus reference canvases like
+     * "Wireframes" or "Backgrounds - for dev". When several top-level frames
+     * have the same normalized page identity, device hint, and width on different
+     * canvases, they represent alternate drafts of the same page route rather
+     * than independent pages. Keep the highest-confidence design canvas version;
+     * preserve unique wireframe/reference pages that have no design duplicate.
+     *
+     * @param array<int, string>                  $selectedIds
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>          $parentIndex
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array{ids: array<int, string>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function filterCrossCanvasExplorationFrames(array $selectedIds, array $pageCandidates, array $nodes, array $parentIndex, array $detectionById): array
+    {
+        $buckets = array();
+        $canvasById = array();
+        foreach ( $selectedIds as $id ) {
+            if ( ! isset($pageCandidates[$id]) ) {
+                continue;
+            }
+
+            $candidate = $pageCandidates[$id];
+            $canvas = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+            if ( null === $canvas ) {
+                continue;
+            }
+
+            $width = (int) round((float) ($candidate['dimensions']['width'] ?? 0));
+            $deviceHint = (string) ($detectionById[$id]['device_hint'] ?? 'unknown');
+            $identity = $this->candidateRouteIdentity($candidate);
+            $bucket = $identity . ':' . $deviceHint . ':' . $width;
+            $buckets[$bucket][] = $id;
+            $canvasById[$id] = $canvas;
+        }
+
+        $rejectIds = array();
+        $diagnostics = array();
+        foreach ( $buckets as $bucket => $members ) {
+            if ( count($members) < 2 ) {
+                continue;
+            }
+
+            $canvasIds = array();
+            foreach ( $members as $memberId ) {
+                $canvasIds[(string) ($canvasById[$memberId]['id'] ?? '')] = true;
+            }
+            if ( count(array_filter(array_keys($canvasIds), static fn (string $id): bool => '' !== $id)) < 2 ) {
+                continue;
+            }
+
+            $canvasRanks = array();
+            foreach ( $members as $memberId ) {
+                $canvasRanks[] = $this->canvasExplorationRank((string) ($canvasById[$memberId]['name'] ?? ''));
+            }
+            if ( count(array_unique($canvasRanks)) < 2 ) {
+                continue;
+            }
+
+            $canonicalId = $this->canonicalExplorationFrameId($members, $pageCandidates, $canvasById);
+            $draftIds = array_values(array_filter($members, static fn (string $id): bool => $id !== $canonicalId));
+            foreach ( $draftIds as $draftId ) {
+                $rejectIds[$draftId] = true;
+            }
+
+            $canvasNames = array();
+            foreach ( $members as $memberId ) {
+                $canvasNames[$memberId] = (string) ($canvasById[$memberId]['name'] ?? '');
+            }
+
+            $parts = explode(':', $bucket);
+            $diagnostics[] = array(
+                'severity'                 => 'info',
+                'code'                     => 'cross_canvas_exploration_frames',
+                'message'                  => 'Frames share a normalized page identity, device hint, and width across different canvases; only the canonical design draft is emitted as a page.',
+                'canonical_frame_id'       => $canonicalId,
+                'draft_frame_ids'          => $draftIds,
+                'frame_ids'                => $members,
+                'normalized_page_identity' => $parts[0] ?? '',
+                'device_hint'              => $parts[1] ?? 'unknown',
+                'width'                    => (int) ($parts[2] ?? 0),
+                'canvas_names'             => $canvasNames,
+            );
+        }
+
+        if ( array() === $rejectIds ) {
+            return array('ids' => array_values($selectedIds), 'diagnostics' => $diagnostics);
+        }
+
+        return array(
+            'ids' => array_values(array_filter(
+                $selectedIds,
+                static fn (string $id): bool => ! isset($rejectIds[$id])
+            )),
+            'diagnostics' => $diagnostics,
+        );
+    }
+
+    /**
+     * @param array<int, string>                  $members
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array{id:string,name:string,type:string}> $canvasById
+     */
+    private function canonicalExplorationFrameId(array $members, array $candidates, array $canvasById): string
+    {
+        $canonical = $members[0];
+        foreach ( $members as $id ) {
+            $rank = $this->canvasExplorationRank((string) ($canvasById[$id]['name'] ?? ''));
+            $bestRank = $this->canvasExplorationRank((string) ($canvasById[$canonical]['name'] ?? ''));
+            $score = (int) ($candidates[$id]['score'] ?? 0);
+            $bestScore = (int) ($candidates[$canonical]['score'] ?? 0);
+
+            if ( $rank > $bestRank || ( $rank === $bestRank && ( $score > $bestScore || ( $score === $bestScore && strcmp($id, $canonical) < 0 ) ) ) ) {
+                $canonical = $id;
+            }
+        }
+
+        return $canonical;
+    }
+
+    private function canvasExplorationRank(string $canvasName): int
+    {
+        $name = strtolower(trim($canvasName));
+        $rank = 100;
+
+        if ( 1 === preg_match('/\bdesign\s*v?(\d+)\b/i', $canvasName, $matches) ) {
+            $rank = 1000 + (int) $matches[1];
+        } elseif ( 1 === preg_match('/\bdesign\b/i', $canvasName) ) {
+            $rank = 1000;
+        } elseif ( 1 === preg_match('/\b(wireframes?|lo\s*fi|sketch|draft)\b/i', $canvasName) ) {
+            $rank = 200;
+        }
+
+        if ( 1 === preg_match('/\b(shared|backgrounds?|for\s+dev|internal|reference|archive|components?|style\s*tiles?|presentation|template|search\s*bar)\b/i', $canvasName) ) {
+            $rank -= 100;
+        }
+        if ( str_contains($name, '💀') ) {
+            $rank -= 150;
+        }
+
+        return $rank;
+    }
+
+    /**
      * Decide whether an ordered sibling cluster is a genuine responsive group.
      *
      * A cluster qualifies when it has at least two distinct (non-unknown) device
@@ -1950,10 +2237,23 @@ final class ScenegraphPagePlanner
      */
     private function dedupeSlug(string $slug, array &$seen): string
     {
+        return $this->dedupeSlugEvidence($slug, $seen)['slug'];
+    }
+
+    /**
+     * @param array<string, int> $seen
+     * @return array{slug:string,base_slug:string,collision_index:int}
+     */
+    private function dedupeSlugEvidence(string $slug, array &$seen): array
+    {
         $base = '' === $slug ? 'page' : $slug;
         $seen[$base] = ($seen[$base] ?? 0) + 1;
 
-        return 1 === $seen[$base] ? $base : $base . '-' . $seen[$base];
+        return array(
+            'slug'            => 1 === $seen[$base] ? $base : $base . '-' . $seen[$base],
+            'base_slug'       => $base,
+            'collision_index' => $seen[$base],
+        );
     }
 
     /**

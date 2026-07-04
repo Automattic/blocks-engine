@@ -104,6 +104,19 @@ add_filter(
 
 No pure-PHP Zstandard decoder is bundled today. Unsupported runtimes report `figma_transformer_zstd_extension_missing` or adapter failure diagnostics and continue parsing the rest of the archive metadata.
 
+### Large `.fig` Memory Profiles
+
+Large production `.fig` exports should default to bounded inspection before full scenegraph materialization. Keep the library defaults conservative: the eager Kiwi message decode limit is 16 MB, the selective decode preflight limit is 32 MB, and the zstd inflated chunk limit is 64 MB. With those defaults, oversized modern Kiwi messages are reported with `figma_transformer_kiwi_message_decode_skipped_preflight` instead of risking a PHP fatal.
+
+Recommended operator profiles:
+
+- Archive/gate inspection: run with `--inspect-kiwi-gate`, `--omit-asset-content` when asset bytes are not needed, and a 512 MB PHP memory limit.
+- Skipped-field inventory: run `scripts/figma-kiwi-skipped-field-inventory.php` with an explicit `--zstd-command` when the host lacks `ext-zstd`; 512 MB is expected to be enough for bounded inventory scans.
+- Parser parity dry run: keep `--max-kiwi-message-decode-bytes=1` for the safe preflight/default path. Raise `--max-kiwi-selective-message-decode-bytes` only for an intentional selective decode experiment on a high-memory worker.
+- Full transform: do not raise `--max-kiwi-selective-message-decode-bytes` for untrusted or fatal-scale files unless the process budget has been measured against that file. `--max-nodes` limits normalized output size, but it does not avoid the current cost of decoding and indexing the source graph.
+
+When a real file exceeds the default selective decode ceiling, prefer `--inspect-kiwi-gate` and skipped-field inventory to identify the page/frame scope before allocating a larger transform worker. Treat memory budgets that finish within a few percent of the configured PHP limit as unsafe defaults; use them only for one-off operator runs.
+
 ## Output Contract
 
 Successful transforms produce a static website artifact:

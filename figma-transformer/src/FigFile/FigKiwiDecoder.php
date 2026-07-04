@@ -120,7 +120,7 @@ final class FigKiwiDecoder
      * @param array<string, mixed> $schema
      * @return array{message: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
      */
-    public function decodeMessageSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array()): array
+    public function decodeMessageSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array(), array $options = array()): array
     {
         try {
             $definitions = $this->schemaFields->definitionsByName($schema);
@@ -129,8 +129,23 @@ final class FigKiwiDecoder
             }
 
             $policy = empty($fieldPolicy) ? $this->decodePolicy->defaultScenegraphFieldPolicy() : $fieldPolicy;
-            $message = $this->decodeDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy);
-            return array('message' => is_array($message) ? $message : null, 'diagnostics' => array());
+            $gate = $this->decodeNodeGateOptions($options);
+            $message = $this->decodeDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy, $gate);
+            $diagnostics = array();
+            if ( null !== $gate ) {
+                $diagnostics[] = array(
+                    'code'    => 'figma_transformer_kiwi_message_gate_selective_decode_used',
+                    'message' => 'Kiwi message nodeChanges were filtered through a bounded gate plan during selective decode.',
+                    'source'  => 'FigKiwiDecoder',
+                    'context' => array(
+                        'selected_node_count' => count($gate['selected_node_ids']),
+                        'decoded_node_count'  => $gate['decoded_node_count'],
+                        'retained_node_count' => $gate['retained_node_count'],
+                        'skipped_node_count'  => $gate['skipped_node_count'],
+                    ),
+                );
+            }
+            return array('message' => is_array($message) ? $message : null, 'diagnostics' => $diagnostics);
         } catch ( \Throwable $throwable ) {
             return array(
                 'message'     => null,
@@ -189,9 +204,36 @@ final class FigKiwiDecoder
     {
         $policy = array(
             'Message' => array('type', 'nodeChanges'),
-            'NodeChange' => array('guid', 'type', 'name', 'parentIndex', 'sortPosition', 'visible'),
+            'NodeChange' => array(
+                'guid', 'type', 'name', 'parentIndex', 'sortPosition', 'visible',
+                'componentId', 'mainComponentId', 'symbolData', 'detachedSymbolId', 'detachedSymbolID', 'overriddenSymbolId', 'overriddenSymbolID', 'derivedSymbolData', 'derivedSymbolDataLayoutVersion',
+                'styleID', 'styleIdForText', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect',
+                'fillPaints', 'strokePaints', 'backgroundPaints', 'effects',
+                'variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableSetID',
+            ),
             'GUID' => array('sessionID', 'localID'),
             'ParentIndex' => array('guid', 'position'),
+            'SymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides'),
+            'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides'),
+            'SymbolOverride' => array('nodeId', 'node_id', 'nodeID', 'id', 'guid', 'nodeGuid', 'guidPath', 'styleID', 'styleIdForText', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'effects', 'variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues'),
+            'GUIDPath' => array('guids', 'guid'),
+            'SymbolId' => array('guid'),
+            'StyleId' => array('guid'),
+            'Paint' => array('type', 'colorVar', 'stops', 'stopsVar', 'image', 'imageThumbnail', 'assetRef', 'sourceImage', 'hash', 'publishID', 'sourceLibraryKey', 'libraryKey'),
+            'ColorStop' => array('colorVar'),
+            'Image' => array('hash', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey'),
+            'SourceImage' => array('hash', 'assetRef', 'publishID', 'sourceLibraryKey', 'libraryKey'),
+            'AssetRef' => array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey', 'guid'),
+            'Effect' => array('styleID'),
+            'VariableDataMap' => array('entries'),
+            'VariableDataMapEntry' => array('nodeField', 'variableData', 'variableField'),
+            'VariableData' => array('value', 'dataType', 'resolvedDataType'),
+            'VariableAnyValue' => array('alias', 'colorValue', 'symbolIdValue', 'textDataValue', 'vectorValue', 'linkValue', 'propRefValue'),
+            'VariableID' => array('guid', 'assetRef'),
+            'VariableOverrideId' => array('guid', 'assetRef'),
+            'VariableDataValues' => array('entries'),
+            'VariableDataValuesEntry' => array('modeID', 'variableData'),
+            'VariableSetID' => array('guid', 'assetRef'),
         );
         $messageResult = $this->decodeMessageSelective($payload, $schema, $rootType, $policy);
         if ( null === $messageResult['message'] ) {
@@ -246,6 +288,7 @@ final class FigKiwiDecoder
         }
 
         $selectedIds = $this->planGateNodeIds($nodes, $children, $pages, $options);
+        $dependencyGraph = $this->buildGateDependencyGraph($nodeChanges, $nodes, $selectedIds);
         $blockers = array();
         if ( $missingIds > 0 ) {
             $blockers[] = 'NodeChange.guid is missing on at least one node; stable filtering cannot preserve identities.';
@@ -288,11 +331,265 @@ final class FigKiwiDecoder
                 'gate_plan' => array(
                     'feasible' => empty($blockers) && count($nodes) > 0,
                     'selected_node_count' => count($selectedIds),
+                    'selected_node_ids' => $selectedIds,
                     'selected_node_ids_sample' => array_slice($selectedIds, 0, 50),
                     'blockers' => $blockers,
                 ),
+                'dependency_graph' => $dependencyGraph['graph'],
             ),
-            'diagnostics' => $messageResult['diagnostics'],
+            'diagnostics' => array_merge($messageResult['diagnostics'], $dependencyGraph['diagnostics']),
+        );
+    }
+
+    /**
+     * @param array<int, mixed>                   $nodeChanges
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<int, string>                  $selectedIds
+     * @return array{graph: array<string, mixed>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function buildGateDependencyGraph(array $nodeChanges, array $nodes, array $selectedIds): array
+    {
+        $selected = array_flip($selectedIds);
+        $references = array(
+            'component_node' => array(),
+            'symbol_node'    => array(),
+            'style'          => array(),
+            'asset'          => array(),
+            'variable'       => array(),
+        );
+        $derivedSymbolDataNodes = array();
+
+        foreach ( $nodeChanges as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $nodeId = $this->readGateNodeId($node);
+            if ( null === $nodeId || ! isset($selected[$nodeId]) ) {
+                continue;
+            }
+
+            if ( isset($node['derivedSymbolData']) ) {
+                $derivedSymbolDataNodes[$nodeId] = $nodeId;
+            }
+
+            $this->collectGateDependencyReferences($node, $nodeId, array(), $references);
+        }
+
+        $nodeDependencies = $this->gateNodeDependencyReport($references, $nodes, $selected);
+        $diagnostics = array();
+        if ( ! empty($nodeDependencies['external_to_gate']) ) {
+            $diagnostics[] = $this->diagnostic(
+                'figma_transformer_kiwi_gate_selected_subtree_missing_node_dependencies',
+                'Selected Kiwi gate subtree references component or symbol nodes outside the selected set.',
+                array(
+                    'external_reference_count' => count($nodeDependencies['external_to_gate']),
+                    'references_sample'        => array_slice($nodeDependencies['external_to_gate'], 0, 25),
+                )
+            );
+        }
+        foreach ( array('asset', 'style', 'variable') as $kind ) {
+            $ids = $this->uniqueGateDependencyReferenceIds($references[$kind]);
+            if ( empty($ids) ) {
+                continue;
+            }
+            $diagnostics[] = $this->diagnostic(
+                'figma_transformer_kiwi_gate_selected_subtree_external_' . $kind . '_references',
+                'Selected Kiwi gate subtree references external ' . $kind . ' dependencies that must be carried with the gated nodes.',
+                array(
+                    'reference_count' => count($references[$kind]),
+                    'unique_reference_count' => count($ids),
+                    'ids_sample' => array_slice($ids, 0, 25),
+                )
+            );
+        }
+
+        return array(
+            'graph' => array(
+                'schema' => 'blocks-engine/figma-transformer/kiwi-gate-dependency-graph/v1',
+                'selected_node_count' => count($selectedIds),
+                'reference_counts' => array(
+                    'component_node' => count($references['component_node']),
+                    'symbol_node' => count($references['symbol_node']),
+                    'style' => count($references['style']),
+                    'asset' => count($references['asset']),
+                    'variable' => count($references['variable']),
+                    'derived_symbol_data_node' => count($derivedSymbolDataNodes),
+                ),
+                'unique_reference_counts' => array(
+                    'component_node' => count($this->uniqueGateDependencyReferenceIds($references['component_node'])),
+                    'symbol_node' => count($this->uniqueGateDependencyReferenceIds($references['symbol_node'])),
+                    'style' => count($this->uniqueGateDependencyReferenceIds($references['style'])),
+                    'asset' => count($this->uniqueGateDependencyReferenceIds($references['asset'])),
+                    'variable' => count($this->uniqueGateDependencyReferenceIds($references['variable'])),
+                ),
+                'references_sample' => array(
+                    'component_node' => array_slice(array_values($references['component_node']), 0, 25),
+                    'symbol_node' => array_slice(array_values($references['symbol_node']), 0, 25),
+                    'style' => array_slice(array_values($references['style']), 0, 25),
+                    'asset' => array_slice(array_values($references['asset']), 0, 25),
+                    'variable' => array_slice(array_values($references['variable']), 0, 25),
+                    'derived_symbol_data_node_ids' => array_slice(array_values($derivedSymbolDataNodes), 0, 25),
+                ),
+                'node_dependencies' => $nodeDependencies,
+            ),
+            'diagnostics' => $diagnostics,
+        );
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $references
+     * @return array<int, string>
+     */
+    private function uniqueGateDependencyReferenceIds(array $references): array
+    {
+        $ids = array();
+        foreach ( $references as $reference ) {
+            $id = isset($reference['id']) && is_scalar($reference['id']) ? (string) $reference['id'] : '';
+            if ( '' !== $id ) {
+                $ids[$id] = $id;
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * @param array<int|string, mixed>            $value
+     * @param array<int, string>                  $path
+     * @param array<string, array<string, mixed>> $references
+     */
+    private function collectGateDependencyReferences(mixed $value, string $sourceNodeId, array $path, array &$references): void
+    {
+        if ( ! is_array($value) ) {
+            return;
+        }
+
+        foreach ( $value as $key => $child ) {
+            $field = is_string($key) ? $key : '';
+            $childPath = '' === $field ? $path : array_merge($path, array($field));
+            $kind = $this->gateDependencyKind($field, $childPath);
+            if ( null !== $kind ) {
+                $referenceId = $this->readGateDependencyReferenceId($child);
+                if ( null !== $referenceId ) {
+                    $this->recordGateDependencyReference($references, $kind, $referenceId, $sourceNodeId, implode('.', $childPath));
+                }
+            }
+
+            if ( is_array($child) ) {
+                $this->collectGateDependencyReferences($child, $sourceNodeId, $childPath, $references);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, string> $path
+     */
+    private function gateDependencyKind(string $field, array $path): ?string
+    {
+        $normalized = strtolower($field);
+        $pathText = strtolower(implode('.', $path));
+        if ( in_array($normalized, array('componentid', 'maincomponentid', 'component', 'maincomponent'), true) ) {
+            return 'component_node';
+        }
+        if ( in_array($normalized, array('symbolid', 'symbolidvalue', 'detachedsymbolid', 'overriddensymbolid'), true) ) {
+            return 'symbol_node';
+        }
+        if ( str_contains($normalized, 'styleid') || 'styleid' === $normalized ) {
+            return 'style';
+        }
+        if ( in_array($normalized, array('assetref', 'image', 'imagethumbnail', 'sourceimage', 'hash'), true) || str_contains($pathText, 'assetref') ) {
+            return 'asset';
+        }
+        if ( str_contains($normalized, 'variable') || str_contains($normalized, 'colorvar') || str_contains($normalized, 'stopsvar') || in_array($normalized, array('alias', 'variablesetid', 'modeid'), true) ) {
+            return 'variable';
+        }
+
+        return null;
+    }
+
+    private function readGateDependencyReferenceId(mixed $value): ?string
+    {
+        $guid = $this->readGateGuid($value);
+        if ( null !== $guid ) {
+            return $guid;
+        }
+        if ( is_array($value) ) {
+            foreach ( array('id', 'key', 'nodeID', 'nodeId', 'node_id', 'hash', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
+                if ( isset($value[$key]) && is_scalar($value[$key]) ) {
+                    $id = $this->normalizeGateDependencyScalarId($value[$key]);
+                    if ( null !== $id ) {
+                        return $id;
+                    }
+                }
+            }
+            foreach ( array('guid', 'assetRef', 'alias') as $key ) {
+                $nested = $this->readGateDependencyReferenceId($value[$key] ?? null);
+                if ( null !== $nested ) {
+                    return $nested;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeGateDependencyScalarId(mixed $value): ?string
+    {
+        if ( ! is_scalar($value) ) {
+            return null;
+        }
+
+        $id = (string) $value;
+        if ( '' === $id || ! preg_match('/\A[\x20-\x7e]+\z/', $id) ) {
+            return null;
+        }
+
+        return $id;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $references
+     */
+    private function recordGateDependencyReference(array &$references, string $kind, string $referenceId, string $sourceNodeId, string $path): void
+    {
+        $key = $kind . '|' . $referenceId . '|' . $sourceNodeId . '|' . $path;
+        $references[$kind][$key] = array(
+            'id' => $referenceId,
+            'source_node_id' => $sourceNodeId,
+            'path' => $path,
+        );
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $references
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, int>                  $selected
+     * @return array<string, mixed>
+     */
+    private function gateNodeDependencyReport(array $references, array $nodes, array $selected): array
+    {
+        $external = array();
+        foreach ( array('component_node', 'symbol_node') as $kind ) {
+            foreach ( $references[$kind] as $reference ) {
+                $id = (string) ($reference['id'] ?? '');
+                if ( '' === $id || isset($selected[$id]) ) {
+                    continue;
+                }
+                $external[] = array(
+                    'kind' => $kind,
+                    'id' => $id,
+                    'source_node_id' => (string) ($reference['source_node_id'] ?? ''),
+                    'path' => (string) ($reference['path'] ?? ''),
+                    'available_in_file' => isset($nodes[$id]),
+                    'referenced_node' => isset($nodes[$id]) ? $nodes[$id] : null,
+                );
+            }
+        }
+
+        return array(
+            'external_to_gate_count' => count($external),
+            'external_to_gate' => array_slice($external, 0, 100),
         );
     }
 
@@ -330,7 +627,7 @@ final class FigKiwiDecoder
      * @param array<string, array<string, mixed>> $definitions
      * @param array<string, array<int, string>>   $fieldPolicy
      */
-    private function decodeDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy): array
+    private function decodeDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy, ?array &$gate = null): array
     {
         $result = array();
         $typeName = (string) ($definition['name'] ?? '');
@@ -351,7 +648,7 @@ final class FigKiwiDecoder
                 $field = $fieldsByValue[$fieldValue];
                 $fieldName = $this->schemaFields->fieldName($field);
                 if ( isset($allowed[$fieldName]) ) {
-                    $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
+                    $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result, $typeName, $gate);
                 } else {
                     $this->skipField($reader, $field, $definitions);
                 }
@@ -361,7 +658,7 @@ final class FigKiwiDecoder
         foreach ( $this->schemaFields->fields($definition) as $field ) {
             $fieldName = $this->schemaFields->fieldName($field);
             if ( isset($allowed[$fieldName]) ) {
-                $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
+                $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result, $typeName, $gate);
             } else {
                 $this->skipField($reader, $field, $definitions);
             }
@@ -392,8 +689,9 @@ final class FigKiwiDecoder
      * @param array<string, array<int, string>>   $fieldPolicy
      * @param array<string, mixed>                $result
      */
-    private function decodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$result): void
+    private function decodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$result, string $parentType = '', ?array &$gate = null): void
     {
+        $fieldName = $this->schemaFields->fieldName($field);
         $type = $this->schemaFields->fieldType($field);
         if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
@@ -402,15 +700,18 @@ final class FigKiwiDecoder
                 $length = $reader->readVarUint();
                 $value = array();
                 for ( $i = 0; $i < $length; $i++ ) {
-                    $value[] = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy);
+                    $item = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy, $gate);
+                    if ( $this->shouldRetainDecodedArrayItem($parentType, $fieldName, $type, $item, $gate) ) {
+                        $value[] = $item;
+                    }
                 }
             }
         } else {
-            $value = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy);
+            $value = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy, $gate);
         }
 
         if ( ! $this->schemaFields->isDeprecatedField($field) && isset($field['name']) ) {
-            $result[$this->schemaFields->fieldName($field)] = $value;
+            $result[$fieldName] = $value;
         }
     }
 
@@ -418,7 +719,7 @@ final class FigKiwiDecoder
      * @param array<string, array<string, mixed>> $definitions
      * @param array<string, array<int, string>>   $fieldPolicy
      */
-    private function decodeValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy): mixed
+    private function decodeValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy, ?array &$gate = null): mixed
     {
         return match ( $type ) {
             'bool' => 0 !== $reader->readByte(),
@@ -429,7 +730,7 @@ final class FigKiwiDecoder
             'string' => $reader->readString(),
             'int64' => $reader->readVarInt64(),
             'uint64' => $reader->readVarUint64(),
-            default => $this->decodeNamedValueSelective($reader, $type, $definitions, $fieldPolicy),
+            default => $this->decodeNamedValueSelective($reader, $type, $definitions, $fieldPolicy, $gate),
         };
     }
 
@@ -437,7 +738,7 @@ final class FigKiwiDecoder
      * @param array<string, array<string, mixed>> $definitions
      * @param array<string, array<int, string>>   $fieldPolicy
      */
-    private function decodeNamedValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy): mixed
+    private function decodeNamedValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy, ?array &$gate = null): mixed
     {
         $definition = $definitions[$type] ?? null;
         if ( ! is_array($definition) ) {
@@ -454,7 +755,53 @@ final class FigKiwiDecoder
             return $value;
         }
 
-        return $this->decodeDefinitionSelective($reader, $definition, $definitions, $fieldPolicy);
+        return $this->decodeDefinitionSelective($reader, $definition, $definitions, $fieldPolicy, $gate);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array{selected_node_ids: array<string, true>, decoded_node_count: int, retained_node_count: int, skipped_node_count: int}|null
+     */
+    private function decodeNodeGateOptions(array $options): ?array
+    {
+        if ( ! is_array($options['selected_node_ids'] ?? null) ) {
+            return null;
+        }
+
+        $selected = array();
+        foreach ( $options['selected_node_ids'] as $id ) {
+            if ( is_scalar($id) && '' !== (string) $id ) {
+                $selected[(string) $id] = true;
+            }
+        }
+
+        if ( empty($selected) ) {
+            return null;
+        }
+
+        return array(
+            'selected_node_ids' => $selected,
+            'decoded_node_count' => 0,
+            'retained_node_count' => 0,
+            'skipped_node_count' => 0,
+        );
+    }
+
+    private function shouldRetainDecodedArrayItem(string $parentType, string $fieldName, string $type, mixed $item, ?array &$gate): bool
+    {
+        if ( null === $gate || 'Message' !== $parentType || 'nodeChanges' !== $fieldName || 'NodeChange' !== $type || ! is_array($item) ) {
+            return true;
+        }
+
+        $gate['decoded_node_count']++;
+        $nodeId = $this->readGateNodeId($item);
+        if ( null !== $nodeId && isset($gate['selected_node_ids'][$nodeId]) ) {
+            $gate['retained_node_count']++;
+            return true;
+        }
+
+        $gate['skipped_node_count']++;
+        return false;
     }
 
     /**
@@ -894,7 +1241,7 @@ final class FigKiwiDecoder
             return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
         }
 
-        return is_scalar($guid) && '' !== (string) $guid ? (string) $guid : null;
+        return is_scalar($guid) ? $this->normalizeGateDependencyScalarId($guid) : null;
     }
 
     /**
@@ -1035,9 +1382,9 @@ final class FigKiwiDecoder
     /**
      * @return array<string, mixed>
      */
-    private function diagnostic(string $code, string $message, string $error): array
+    private function diagnostic(string $code, string $message, mixed $error): array
     {
-        return array('code' => $code, 'message' => $message, 'source' => 'FigKiwiDecoder', 'context' => array('error' => $error));
+        return array('code' => $code, 'message' => $message, 'source' => 'FigKiwiDecoder', 'context' => is_array($error) ? $error : array('error' => (string) $error));
     }
 }
 

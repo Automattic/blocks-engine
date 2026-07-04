@@ -5879,6 +5879,85 @@ $assert(isset($mobileOnlyByFrame['frame:mob-home']), 'mobile-only-home-selected'
 $assert(isset($mobileOnlyByFrame['frame:mob-menu']), 'mobile-only-menu-page-not-excluded');
 $assert(2 === ($mobileOnlyPlan['page_count'] ?? null), 'mobile-only-two-pages-selected');
 
+// CROSS-CANVAS EXPLORATION FILTER: files commonly retain full-page drafts in
+// revision canvases (Design, Design v2, Design v3) plus wireframes/dev-reference
+// canvases. Same normalized page identity + device + width across canvases is an
+// alternate draft of one page, not separate site routes. Unique reference-only
+// pages still survive because there is no design duplicate to supersede them.
+$crossCanvasSource = array(
+    'name'  => 'Cross Canvas Exploration Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:wireframes',
+            'type'     => 'CANVAS',
+            'name'     => 'Wireframes',
+            'children' => array(
+                array('id' => 'frame:w-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 1900, 'children' => array(
+                    array('id' => 'w-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+                array('id' => 'frame:w-about', 'type' => 'FRAME', 'name' => 'About', 'width' => 1440, 'height' => 1500, 'children' => array(
+                    array('id' => 'w-about:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'About'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:design-v2',
+            'type'     => 'CANVAS',
+            'name'     => 'Design v2',
+            'children' => array(
+                array('id' => 'frame:v2-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2050, 'children' => array(
+                    array('id' => 'v2-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:design-v3',
+            'type'     => 'CANVAS',
+            'name'     => 'Design v3',
+            'children' => array(
+                array('id' => 'frame:v3-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2200, 'children' => array(
+                    array('id' => 'v3-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+                array('id' => 'frame:v3-course-mobile', 'type' => 'FRAME', 'name' => 'Course - Mobile', 'width' => 390, 'height' => 2600, 'children' => array(
+                    array('id' => 'v3-course-mobile:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course'),
+                )),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:backgrounds',
+            'type'     => 'CANVAS',
+            'name'     => 'Backgrounds - for dev',
+            'children' => array(
+                array('id' => 'frame:bg-course', 'type' => 'FRAME', 'name' => 'Course', 'width' => 1440, 'height' => 2100, 'children' => array(
+                    array('id' => 'bg-course:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Course background'),
+                )),
+            ),
+        ),
+    ),
+);
+$crossCanvasPlan = ( new ScenegraphPagePlanner() )->plan($crossCanvasSource, array('multi_page' => true, 'max_pages' => 20));
+$crossCanvasByFrame = array();
+foreach ( $crossCanvasPlan['pages'] ?? array() as $crossCanvasPage ) {
+    if ( is_array($crossCanvasPage) && isset($crossCanvasPage['frame_id']) ) {
+        $crossCanvasByFrame[(string) $crossCanvasPage['frame_id']] = $crossCanvasPage;
+    }
+}
+$crossCanvasFrameIds = array_keys($crossCanvasByFrame);
+$assert(isset($crossCanvasByFrame['frame:v3-course']), 'cross-canvas-keeps-latest-design-frame');
+$assert(isset($crossCanvasByFrame['frame:w-about']), 'cross-canvas-keeps-unique-wireframe-only-page');
+$assert(isset($crossCanvasByFrame['frame:v3-course']['variants']) && array('frame:v3-course', 'frame:v3-course-mobile') === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $crossCanvasByFrame['frame:v3-course']['variants']), 'cross-canvas-preserves-responsive-variants');
+$assert(! in_array('frame:w-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-wireframe-duplicate');
+$assert(! in_array('frame:v2-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-older-design-duplicate');
+$assert(! in_array('frame:bg-course', $crossCanvasFrameIds, true), 'cross-canvas-filters-dev-reference-duplicate');
+$crossCanvasFilteredReasons = array();
+foreach ( $crossCanvasPlan['source_frame_evidence']['filtered_candidates'] ?? array() as $evidence ) {
+    if ( is_array($evidence) ) {
+        $crossCanvasFilteredReasons[(string) ($evidence['frame_id'] ?? '')] = (string) ($evidence['reason'] ?? '');
+    }
+}
+$assert('cross_canvas_exploration_frame' === ($crossCanvasFilteredReasons['frame:w-course'] ?? null), 'cross-canvas-source-frame-evidence-wireframe-reason');
+$assert('cross_canvas_exploration_frame' === ($crossCanvasFilteredReasons['frame:v2-course'] ?? null), 'cross-canvas-source-frame-evidence-older-design-reason');
+
 // Semantic HTML5 elements: a generically-named page structure maps to landmarks
 // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated
 // sibling cards map to <ul>/<li>, and a button-like control maps to <button>.

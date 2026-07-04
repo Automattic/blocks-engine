@@ -239,8 +239,28 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(2 === ($gateReport['page_count'] ?? null), 'kiwi-node-gate-page-count');
     $assert(1 === ($gateReport['frame_count'] ?? null), 'kiwi-node-gate-frame-count');
     $assert(true === ($gateReport['gate_plan']['feasible'] ?? null), 'kiwi-node-gate-feasible');
+    $assert(array('1:1', '1:2') === ($gateReport['gate_plan']['selected_node_ids'] ?? null), 'kiwi-node-gate-selected-node-ids');
     $assert(array('1:1', '1:2') === ($gateReport['gate_plan']['selected_node_ids_sample'] ?? null), 'kiwi-node-gate-max-pages-max-nodes-plan');
     $assert(in_array('NodeChange.parentIndex.guid.sessionID', $gateReport['required_raw_fields'] ?? array(), true), 'kiwi-node-gate-raw-field-contract');
+
+    $gatedSelectiveCanvas = ( new FigKiwiParser() )->parse(
+        'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($gateSchemaBytes))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($gateMessageBytes)),
+        array('inspect_kiwi_gate' => true, 'max_pages' => 1, 'max_nodes' => 2, 'max_kiwi_message_decode_bytes' => 1, 'max_kiwi_selective_message_decode_bytes' => 1)
+    );
+    $gatedSelectivePayload = $gatedSelectiveCanvas['canvas']['chunks'][1]['payload'] ?? array();
+    $gatedSelectiveDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $gatedSelectiveCanvas['diagnostics'] ?? array()
+    );
+    $assert('kiwi_message' === ($gatedSelectivePayload['classification'] ?? null), 'kiwi-parser-gated-selective-classification');
+    $assert('gate_selective' === ($gatedSelectivePayload['kiwi_message_decode'] ?? null), 'kiwi-parser-gated-selective-mode');
+    $assert(2 === count($gatedSelectivePayload['kiwi_message']['nodeChanges'] ?? array()), 'kiwi-parser-gated-selective-node-count');
+    $assert('1:1' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($gatedSelectivePayload['kiwi_message']['nodeChanges'][0]['guid'] ?? null), 'kiwi-parser-gated-selective-first-node');
+    $assert('1:2' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($gatedSelectivePayload['kiwi_message']['nodeChanges'][1]['guid'] ?? null), 'kiwi-parser-gated-selective-second-node');
+    $assert(in_array('figma_transformer_kiwi_message_gate_selective_decode_used', $gatedSelectiveDiagnosticCodes, true), 'kiwi-parser-gated-selective-diagnostic');
 
     $schemaFields = new FigKiwiSchemaFields();
     $sameNameFirstFields = $schemaFields->fieldsByValue(array('name' => 'NodeChange', 'kind' => 'MESSAGE', 'fields' => array(array('name' => 'first', 'type' => 'string', 'value' => 1))));

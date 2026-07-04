@@ -203,7 +203,8 @@ final class FigKiwiParser
                 }
                 if ( $maxMessageDecodeBytes > 0 && strlen($payload) > $maxMessageDecodeBytes ) {
                     $maxSelectiveMessageDecodeBytes = (int) ($options['max_kiwi_selective_message_decode_bytes'] ?? self::DEFAULT_MAX_KIWI_SELECTIVE_MESSAGE_DECODE_BYTES);
-                    if ( $maxSelectiveMessageDecodeBytes > 0 && strlen($payload) > $maxSelectiveMessageDecodeBytes ) {
+                    $gateDecodeOptions = $this->gateDecodeOptions($nodeGate);
+                    if ( empty($gateDecodeOptions) && $maxSelectiveMessageDecodeBytes > 0 && strlen($payload) > $maxSelectiveMessageDecodeBytes ) {
                         $diagnostics[] = $this->diagnostic(
                             'figma_transformer_kiwi_message_decode_skipped_preflight',
                             'Kiwi message chunk exceeds the configured selective decode safety limit and was not decoded.',
@@ -223,15 +224,16 @@ final class FigKiwiParser
                     }
 
                     $fieldPolicy = true === ($options['render_text_glyph_paths'] ?? false) ? $this->kiwiDecoder->scenegraphFieldPolicyWithTextGlyphs() : array();
-                    $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema, 'Message', $fieldPolicy);
+                    $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema, 'Message', $fieldPolicy, $gateDecodeOptions);
                     $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
                     if ( null !== $messageResult['message'] ) {
                         $diagnostics[] = $this->diagnostic(
-                            'figma_transformer_kiwi_message_selective_decode_used',
-                            'Kiwi message chunk exceeded the eager decode byte limit and was selectively decoded for scenegraph fields.',
+                            empty($gateDecodeOptions) ? 'figma_transformer_kiwi_message_selective_decode_used' : 'figma_transformer_kiwi_message_gate_selective_decode_used',
+                            empty($gateDecodeOptions) ? 'Kiwi message chunk exceeded the eager decode byte limit and was selectively decoded for scenegraph fields.' : 'Kiwi message chunk exceeded the eager decode byte limit and was selectively decoded through a bounded gate plan.',
                             array(
-                                'bytes'            => strlen($payload),
-                                'max_decode_bytes' => $maxMessageDecodeBytes,
+                                'bytes'               => strlen($payload),
+                                'max_decode_bytes'    => $maxMessageDecodeBytes,
+                                'selected_node_count' => count($gateDecodeOptions['selected_node_ids'] ?? array()),
                             )
                         );
                         $metadata['classification'] = 'kiwi_message';
@@ -239,7 +241,7 @@ final class FigKiwiParser
                         if ( null !== $nodeGate ) {
                             $metadata['kiwi_node_gate'] = $nodeGate;
                         }
-                        $metadata['kiwi_message_decode'] = 'selective';
+                        $metadata['kiwi_message_decode'] = empty($gateDecodeOptions) ? 'selective' : 'gate_selective';
                         return $metadata;
                     }
 
@@ -304,6 +306,26 @@ final class FigKiwiParser
         $gateResult = $this->kiwiDecoder->inspectNodeGate($payload, $schema, 'Message', $options);
         $diagnostics = array_merge($diagnostics, $gateResult['diagnostics']);
         return $gateResult['gate'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function gateDecodeOptions(?array $nodeGate): array
+    {
+        if ( ! is_array($nodeGate['gate_plan'] ?? null) || true !== ($nodeGate['gate_plan']['feasible'] ?? null) ) {
+            return array();
+        }
+
+        $selected = is_array($nodeGate['gate_plan']['selected_node_ids'] ?? null)
+            ? $nodeGate['gate_plan']['selected_node_ids']
+            : array();
+
+        if ( empty($selected) ) {
+            return array();
+        }
+
+        return array('selected_node_ids' => $selected);
     }
 
     /**
