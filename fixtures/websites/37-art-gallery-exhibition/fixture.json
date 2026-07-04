@@ -1,5 +1,5 @@
 {
-  "class": "marketing/static",
+  "fixture_class": "marketing/static",
   "tags": [
     "art-gallery",
     "exhibition",

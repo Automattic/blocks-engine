@@ -1,5 +1,5 @@
 {
-  "class": "docs/blog",
+  "fixture_class": "docs/blog",
   "tags": [
     "magazine",
     "editorial",

@@ -1,5 +1,5 @@
 {
-  "class": "ecommerce/catalog",
+  "fixture_class": "ecommerce/catalog",
   "tags": [
     "ecommerce",
     "catalog",

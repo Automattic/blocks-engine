@@ -1,5 +1,5 @@
 {
-  "class": "app/dashboard",
+  "fixture_class": "app/dashboard",
   "tags": [
     "map",
     "explorer",
