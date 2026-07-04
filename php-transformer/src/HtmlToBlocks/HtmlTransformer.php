@@ -1642,8 +1642,18 @@ final class HtmlTransformer
             }
 
             if ( $this->formHasDataEntryControls($element) ) {
+                $controls = $this->formControls($element);
                 $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
+                    'form'             => $this->formMetadata($element),
+                    'controls'         => $controls,
+                    'control_count'    => count($controls),
+                    'events'           => $this->eventMetadata($element),
+                    'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+
+                return $this->htmlPreservationBlock($element);
             }
 
             $controls = $this->formControls($element);
@@ -5048,7 +5058,7 @@ final class HtmlTransformer
 
     private function htmlPreservationBlock(DOMElement $element): array
     {
-        return $this->blockFactory->create('core/html', array( 'content' => $this->outerHtml($element) ));
+        return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
     }
 
     private function recordRuntimeControlIsland(DOMElement $element): void

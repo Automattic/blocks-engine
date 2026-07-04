@@ -37,7 +37,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"features\",\"tagName\":\"section\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group feature-card reveal\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<svg viewBox=\"0 0 10 10\" aria-hidden=\"true\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<svg viewBox=\"0 0 10 10\" aria-hidden=\"true\" width=\"10\" height=\"10\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"\\u003csection" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "preservation_reason\":\"runtime_app_shell" }
   ]

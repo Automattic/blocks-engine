@@ -493,6 +493,9 @@ $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<butt
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
+$formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
+$assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
+$assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
