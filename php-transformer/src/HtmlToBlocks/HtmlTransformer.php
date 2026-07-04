@@ -4268,6 +4268,7 @@ final class HtmlTransformer
             return null;
         }
 
+        $html = $this->minifyInlineSvgForImage($html);
         $dataUri = 'data:image/svg+xml,' . rawurlencode($html);
         if ( strlen($dataUri) > self::MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES ) {
             return null;
@@ -4282,6 +4283,13 @@ final class HtmlTransformer
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function minifyInlineSvgForImage(string $html): string
+    {
+        $html = preg_replace('/<!--.*?-->/s', '', $html) ?? $html;
+        $html = preg_replace('/>\s+</', '><', $html) ?? $html;
+        return trim($html);
     }
 
     private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool

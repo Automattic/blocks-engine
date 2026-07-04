@@ -808,7 +808,7 @@ $assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'deco
 $assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
 $assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
 $assert(str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG uses a safe SVG data image source');
-$assert(str_contains($safeInlineSvgSerialized, 'width="16" height="16"'), 'decorative icon SVG keeps intrinsic viewBox dimensions on the image');
+$assert(str_contains($safeInlineSvgSerialized, 'style="width:16;height:16"'), 'decorative icon SVG keeps intrinsic viewBox dimensions through core/image save styles');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'

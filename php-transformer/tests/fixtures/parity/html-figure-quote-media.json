@@ -29,7 +29,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<blockquote class=\"wp-block-quote testimonial-card\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<cite><strong>Ada</strong>, Founder</cite></blockquote>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-pullquote alignwide\"><blockquote><p>Pull this.</p><cite>Editor</cite></blockquote></figure>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image aligncenter framed rounded is-resized size-large\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\"><img src=\"https://example.com/photo.jpg\" alt=\"Photo\" width=\"800\" height=\"600\" class=\"wp-image-42\"/><figcaption class=\"wp-element-caption\">Image <em>caption</em></figcaption></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image aligncenter framed rounded is-resized size-large\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\"><img src=\"https://example.com/photo.jpg\" alt=\"Photo\" class=\"wp-image-42\" style=\"width:800;height:600\"/><figcaption class=\"wp-element-caption\">Image <em>caption</em></figcaption></figure>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image alignwide\"><img src=\"wrapped.jpg\" alt=\"Wrapped media\"/><figcaption class=\"wp-element-caption\">Wrapped caption</figcaption></figure>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
