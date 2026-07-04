@@ -88,6 +88,8 @@ Status meanings:
 
 Arbitrary `.fig` files are not fully decoded by the PHP-native package yet. Current `.fig` support safely opens `.fig` files or wrapper ZIPs, identifies nested `.fig` entries, reports `fig-kiwi` prelude/version/chunk metadata, inventories embedded files/assets, and records compression diagnostics.
 
+The bounded Kiwi skipped-field inventory reports skipped fields in `fields`/`summary` and selected decoded paint-variable/interpolation diagnostics in `decoded_fields`/`decoded_summary`. Decoded paint diagnostics currently cover `Paint.colorVar`, `Paint.stopsVar`, color-stop variable bindings, and gradient interpolation/color-space fields so large real files can be audited without full visual rendering.
+
 Next decoder milestones are schema chunk parsing, Zstandard message decoding when supported by the runtime, mapping decoded Kiwi messages into normalized IR, and expanding layout/paint/text/component/asset coverage against external real-file evidence.
 
 ## Fixture Strategy

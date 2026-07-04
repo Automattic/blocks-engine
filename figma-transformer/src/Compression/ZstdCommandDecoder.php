@@ -68,6 +68,30 @@ final class ZstdCommandDecoder
         fclose($pipes[2]);
 
         $exitCode = proc_close($process);
+        $decodedBytes = 0 === $exitCode && is_readable($outputPath) ? filesize($outputPath) : false;
+        $maxDecodedBytes = isset($context['max_decoded_bytes']) && is_numeric($context['max_decoded_bytes']) ? max(0, (int) $context['max_decoded_bytes']) : 0;
+        if ( 0 === $exitCode && false !== $decodedBytes && $maxDecodedBytes > 0 && (int) $decodedBytes > $maxDecodedBytes ) {
+            @unlink($inputPath);
+            @unlink($outputPath);
+
+            return array(
+                'data'        => null,
+                'diagnostics' => array(
+                    $this->diagnostic(
+                        'figma_transformer_zstd_command_output_preflight_failed',
+                        'Configured Zstandard command output exceeds the safe read limit and was not loaded into memory.',
+                        array_merge(
+                            $context,
+                            array(
+                                'decoded_bytes'     => (int) $decodedBytes,
+                                'max_decoded_bytes' => $maxDecodedBytes,
+                            )
+                        )
+                    ),
+                ),
+            );
+        }
+
         $decoded = 0 === $exitCode && is_readable($outputPath) ? file_get_contents($outputPath) : false;
         @unlink($inputPath);
         @unlink($outputPath);

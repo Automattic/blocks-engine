@@ -74,12 +74,25 @@ final class SourceLossCoverageBuilder
                 ++$emitted;
                 continue;
             }
-            if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
+            if ( $this->isIntentionallySuppressedAssetNode($assetNode) ) {
                 ++$suppressed;
             }
         }
 
         return $this->domain($decoded, $emitted, $decoded - $emitted - $suppressed, $suppressed);
+    }
+
+    /**
+     * @param array<string, mixed> $assetNode
+     */
+    private function isIntentionallySuppressedAssetNode(array $assetNode): bool
+    {
+        if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
+            return true;
+        }
+
+        $reason = isset($assetNode['reason']) && is_scalar($assetNode['reason']) ? (string) $assetNode['reason'] : '';
+        return in_array($reason, array('hidden', 'hidden_parent', 'clipped_masked', 'zero_area'), true);
     }
 
     /**

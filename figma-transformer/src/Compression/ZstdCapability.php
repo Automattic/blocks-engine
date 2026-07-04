@@ -59,7 +59,7 @@ final class ZstdCapability
     /**
      * @return array{data: string|null, diagnostics: array<int, array<string, mixed>>}
      */
-    public function uncompress(string $payload, string $source, int $chunkIndex): array
+    public function uncompress(string $payload, string $source, int $chunkIndex, array $context = array()): array
     {
         $status = $this->status();
 
@@ -76,7 +76,7 @@ final class ZstdCapability
         }
 
         try {
-            $decoded = $decoder($payload, array('source' => $source, 'chunk_index' => $chunkIndex, 'status' => $status));
+            $decoded = $decoder($payload, array_merge($context, array('source' => $source, 'chunk_index' => $chunkIndex, 'status' => $status)));
         } catch ( \Throwable $throwable ) {
             return array(
                 'data'        => null,
@@ -101,6 +101,12 @@ final class ZstdCapability
         if ( is_array($decoded) ) {
             $diagnostics = array_merge($diagnostics, is_array($decoded['diagnostics'] ?? null) ? $decoded['diagnostics'] : array());
             $decoded = $decoded['data'] ?? null;
+            if ( ! is_string($decoded) ) {
+                return array(
+                    'data'        => null,
+                    'diagnostics' => $diagnostics,
+                );
+            }
         }
 
         if ( is_string($decoded) ) {

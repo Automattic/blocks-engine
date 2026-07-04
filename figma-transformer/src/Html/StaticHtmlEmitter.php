@@ -3648,7 +3648,8 @@ final class StaticHtmlEmitter
         $links = $this->linkState->diagnostics();
         $cssDiagnostics = $this->staticHtmlEmissionDiagnostics()->cssDiagnostics($css);
         $htmlArtifactDiagnostics = $this->staticHtmlEmissionDiagnostics()->htmlArtifactDiagnostics($html, $css);
-        $decisionTraces = $this->decisionTraceDiagnostics($this->breakpointMediaDiffBuilder()->decisionTraces());
+        $responsiveDecisionTraces = $this->breakpointMediaDiffBuilder()->decisionTraces();
+        $decisionTraces = $this->decisionTraceDiagnostics($responsiveDecisionTraces);
         $layout['positional_parity'] = $this->staticHtmlEmissionDiagnostics()->positionalParityDiagnostics($layout, $css, $decisionTraces);
 
         return array(
@@ -3669,7 +3670,7 @@ final class StaticHtmlEmitter
             'links' => $links,
             'css' => $cssDiagnostics,
             'html_artifact' => $htmlArtifactDiagnostics,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics),
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics, $responsiveDecisionTraces),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
@@ -4547,6 +4548,9 @@ final class StaticHtmlEmitter
         }
         if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
             return 'clipped_masked';
+        }
+        if ( null !== $parentNode && false === ($parentNode['visible'] ?? true) ) {
+            return 'hidden_parent';
         }
         if ( $this->nodeHasZeroArea($node) ) {
             return 'zero_area';

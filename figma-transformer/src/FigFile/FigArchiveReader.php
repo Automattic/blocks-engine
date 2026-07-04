@@ -11,6 +11,10 @@ use ZipArchive;
  */
 final class FigArchiveReader
 {
+    private const DEFAULT_MAX_CANVAS_BYTES = 67108864;
+    private const DEFAULT_MAX_NESTED_FIG_BYTES = 134217728;
+    private const DEFAULT_MAX_ARCHIVE_ASSET_CONTENT_BYTES = 134217728;
+
     public function __construct(
         private readonly FigKiwiParser $figKiwiParser = new FigKiwiParser()
     ) {
@@ -47,9 +51,37 @@ final class FigArchiveReader
         }
 
         $entries = $this->entries($zip);
+        $archiveMetrics = $this->archiveMetrics($zip, $entries);
         $figEntry = $this->findNestedFigEntry($entries);
 
         if ( null !== $figEntry ) {
+            $nestedStat = $zip->statName($figEntry);
+            $nestedBytes = is_array($nestedStat) ? (int) ($nestedStat['size'] ?? 0) : 0;
+            $maxNestedFigBytes = $this->optionBytes($options, 'max_nested_fig_bytes', self::DEFAULT_MAX_NESTED_FIG_BYTES);
+            if ( $maxNestedFigBytes > 0 && $nestedBytes > $maxNestedFigBytes ) {
+                $zip->close();
+                return array(
+                    'input'       => $input + array('nested_fig' => $figEntry),
+                    'archive'     => array(
+                        'entries' => $entries,
+                        'metrics' => $archiveMetrics,
+                    ),
+                    'meta'        => array(),
+                    'assets'      => array(),
+                    'diagnostics' => array($this->diagnostic(
+                        'figma_transformer_nested_fig_preflight_failed',
+                        'Nested .fig entry exceeds the configured safe read limit.',
+                        'FigArchiveReader',
+                        array(
+                            'entry'          => $figEntry,
+                            'bytes'          => $nestedBytes,
+                            'max_read_bytes' => $maxNestedFigBytes,
+                            'recommended_next_step' => 'Inspect the wrapper archive and raise max_nested_fig_bytes only when the PHP memory limit can safely hold the nested .fig bytes.',
+                        )
+                    )),
+                );
+            }
+
             $stream = $zip->getFromName($figEntry);
             $zip->close();
 
@@ -70,12 +102,13 @@ final class FigArchiveReader
         }
 
         $meta = $this->readMeta($zip);
-        $assets = $this->assetManifest($zip, $options);
+        $assetResult = $this->assetManifest($zip, $options);
+        $assets = $assetResult['assets'];
         $canvasResult = $this->readCanvas($zip, $options);
         $canvas = $canvasResult['canvas'];
         $zip->close();
 
-        $diagnostics = $canvasResult['diagnostics'];
+        $diagnostics = array_merge($assetResult['diagnostics'], $canvasResult['diagnostics']);
         if ( null === $canvas ) {
             $diagnostics[] = $this->diagnostic('figma_transformer_missing_canvas', 'Archive does not contain canvas.fig.', 'FigArchiveReader');
         }
@@ -84,6 +117,7 @@ final class FigArchiveReader
             'input'       => $input,
             'archive'     => array(
                 'entries' => $entries,
+                'metrics' => array_merge($archiveMetrics, $assetResult['metrics']),
                 'canvas'  => $canvas,
             ),
             'meta'        => $meta,
@@ -137,12 +171,33 @@ final class FigArchiveReader
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return array{assets: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, metrics: array<string, mixed>}
      */
     private function assetManifest(ZipArchive $zip, array $options = array()): array
     {
         $assets = array();
+        $diagnostics = array();
         $includeContent = false !== ($options['include_asset_content'] ?? true);
+        $assetStats = $this->assetStats($zip);
+        $maxAssetContentBytes = $this->optionBytes($options, 'max_archive_asset_content_bytes', self::DEFAULT_MAX_ARCHIVE_ASSET_CONTENT_BYTES);
+
+        if ( $includeContent && $maxAssetContentBytes > 0 && $assetStats['total_asset_bytes'] > $maxAssetContentBytes ) {
+            $includeContent = false;
+            $diagnostics[] = $this->diagnostic(
+                'figma_transformer_archive_asset_content_omitted_size',
+                'Embedded asset content exceeds the configured safe read limit; asset metadata was retained without loading all bytes into memory.',
+                'FigArchiveReader',
+                array(
+                    'asset_count'             => $assetStats['asset_count'],
+                    'total_asset_bytes'       => $assetStats['total_asset_bytes'],
+                    'largest_asset_bytes'     => $assetStats['largest_asset_bytes'],
+                    'largest_asset_path'      => $assetStats['largest_asset_path'],
+                    'max_asset_content_bytes' => $maxAssetContentBytes,
+                    'recommended_next_step'   => 'Run with --omit-asset-content for archive inspection, or raise max_archive_asset_content_bytes only when the PHP memory limit can safely hold embedded asset bytes.',
+                )
+            );
+        }
+
         for ( $index = 0; $index < $zip->numFiles; $index++ ) {
             $name = $zip->getNameIndex($index);
             if ( false === $name || ! str_starts_with($name, 'images/') || str_ends_with($name, '/') ) {
@@ -169,7 +224,14 @@ final class FigArchiveReader
             $assets[] = $asset;
         }
 
-        return $assets;
+        return array(
+            'assets'      => $assets,
+            'diagnostics' => $diagnostics,
+            'metrics'     => $assetStats + array(
+                'asset_content_included' => $includeContent,
+                'max_archive_asset_content_bytes' => $maxAssetContentBytes,
+            ),
+        );
     }
 
     private function mimeTypeForPath(string $path, string $content = ''): string
@@ -207,6 +269,32 @@ final class FigArchiveReader
      */
     private function readCanvas(ZipArchive $zip, array $options = array()): array
     {
+        $stat = $zip->statName('canvas.fig');
+        if ( is_array($stat) ) {
+            $canvasBytes = (int) ($stat['size'] ?? 0);
+            $maxCanvasBytes = $this->optionBytes($options, 'max_canvas_bytes', self::DEFAULT_MAX_CANVAS_BYTES);
+            if ( $maxCanvasBytes > 0 && $canvasBytes > $maxCanvasBytes ) {
+                return array(
+                    'canvas'      => array(
+                        'bytes'   => $canvasBytes,
+                        'skipped' => true,
+                        'reason'  => 'canvas_decode_preflight_size_limit',
+                        'stat'    => $this->zipStatReport($stat),
+                    ),
+                    'diagnostics' => array($this->diagnostic(
+                        'figma_transformer_canvas_decode_preflight_failed',
+                        'canvas.fig exceeds the configured safe decode read limit.',
+                        'FigArchiveReader',
+                        array(
+                            'bytes'          => $canvasBytes,
+                            'max_read_bytes' => $maxCanvasBytes,
+                            'recommended_next_step' => 'Raise max_canvas_bytes only when the PHP memory limit can safely hold canvas.fig and inflated decode chunks, or inspect the archive with a lower-scope fixture.',
+                        )
+                    )),
+                );
+            }
+        }
+
         $raw = $zip->getFromName('canvas.fig');
         if ( false === $raw ) {
             return array(
@@ -216,6 +304,83 @@ final class FigArchiveReader
         }
 
         return $this->figKiwiParser->parse($raw, $options);
+    }
+
+    /**
+     * @param array<int, string> $entries
+     * @return array<string, mixed>
+     */
+    private function archiveMetrics(ZipArchive $zip, array $entries): array
+    {
+        $assetStats = $this->assetStats($zip);
+        $canvasStat = $zip->statName('canvas.fig');
+
+        return array_merge(
+            array(
+                'entry_count' => count($entries),
+                'canvas'     => is_array($canvasStat) ? $this->zipStatReport($canvasStat) : null,
+            ),
+            $assetStats
+        );
+    }
+
+    /**
+     * @return array{asset_count: int, total_asset_bytes: int, largest_asset_bytes: int, largest_asset_path: string|null}
+     */
+    private function assetStats(ZipArchive $zip): array
+    {
+        $assetCount = 0;
+        $totalAssetBytes = 0;
+        $largestAssetBytes = 0;
+        $largestAssetPath = null;
+
+        for ( $index = 0; $index < $zip->numFiles; $index++ ) {
+            $name = $zip->getNameIndex($index);
+            if ( false === $name || ! str_starts_with($name, 'images/') || str_ends_with($name, '/') ) {
+                continue;
+            }
+
+            $stat = $zip->statIndex($index);
+            $bytes = is_array($stat) ? (int) ($stat['size'] ?? 0) : 0;
+            $assetCount++;
+            $totalAssetBytes += $bytes;
+            if ( $bytes > $largestAssetBytes ) {
+                $largestAssetBytes = $bytes;
+                $largestAssetPath = $name;
+            }
+        }
+
+        return array(
+            'asset_count'         => $assetCount,
+            'total_asset_bytes'   => $totalAssetBytes,
+            'largest_asset_bytes' => $largestAssetBytes,
+            'largest_asset_path'  => $largestAssetPath,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $stat
+     * @return array<string, int|string>
+     */
+    private function zipStatReport(array $stat): array
+    {
+        return array(
+            'name'             => (string) ($stat['name'] ?? ''),
+            'bytes'            => (int) ($stat['size'] ?? 0),
+            'compressed_bytes' => (int) ($stat['comp_size'] ?? 0),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function optionBytes(array $options, string $key, int $default): int
+    {
+        if ( isset($options[$key]) && is_numeric($options[$key]) ) {
+            return max(0, (int) $options[$key]);
+        }
+
+        return $default;
     }
 
     /**

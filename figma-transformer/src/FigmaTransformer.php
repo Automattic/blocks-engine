@@ -88,6 +88,49 @@ final class FigmaTransformer
     }
 
     /**
+     * Inspect minimal Kiwi node-gating metadata without materializing full nodes.
+     *
+     * @param array<string, mixed> $options Inspection options.
+     * @return array<string, mixed>
+     */
+    public function inspectKiwiGateFile(string $path, array $options = array()): array
+    {
+        $options['inspect_kiwi_gate'] = true;
+        $options['kiwi_gate_only'] = true;
+        $archive = $this->archiveReader->read($path, $options);
+        $chunks = is_array($archive['archive']['canvas']['chunks'] ?? null) ? $archive['archive']['canvas']['chunks'] : array();
+        $reports = array();
+
+        foreach ( $chunks as $chunk ) {
+            if ( ! is_array($chunk) ) {
+                continue;
+            }
+
+            $payload = $chunk['payload'] ?? array();
+            if ( ! is_array($payload) || ! is_array($payload['kiwi_node_gate'] ?? null) ) {
+                continue;
+            }
+
+            $reports[] = array(
+                'chunk_index' => (int) ($chunk['index'] ?? count($reports)),
+                'compressed_bytes' => (int) ($chunk['compressed_bytes'] ?? 0),
+                'inflated_bytes' => (int) ($chunk['inflated_bytes'] ?? 0),
+                'compression' => (string) ($chunk['compression'] ?? ''),
+                'kiwi_node_gate' => $payload['kiwi_node_gate'],
+            );
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/kiwi-gate-inspection/v1',
+            'status' => empty($archive['diagnostics']) ? 'success' : 'success_with_warnings',
+            'input' => $archive['input'] ?? array(),
+            'report_count' => count($reports),
+            'reports' => $reports,
+            'diagnostics' => is_array($archive['diagnostics'] ?? null) ? $archive['diagnostics'] : array(),
+        );
+    }
+
+    /**
      * Transform a .fig file or .fig wrapper archive into the canonical result envelope.
      *
      * @param array<string, mixed> $options Transformation options.
@@ -378,9 +421,11 @@ final class FigmaTransformer
             if ( in_array($code, array(
                 'figma_transformer_unreadable_file',
                 'figma_transformer_invalid_zip',
+                'figma_transformer_nested_fig_preflight_failed',
                 'figma_transformer_nested_fig_unreadable',
                 'figma_transformer_tempfile_failed',
                 'figma_transformer_missing_canvas',
+                'figma_transformer_canvas_decode_preflight_failed',
                 'figma_transformer_canvas_too_short',
                 'figma_transformer_kiwi_truncated_chunk_table',
                 'figma_transformer_kiwi_truncated_chunk',

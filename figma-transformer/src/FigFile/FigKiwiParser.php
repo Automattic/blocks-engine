@@ -19,6 +19,8 @@ final class FigKiwiParser
     private const WIRE_TYPE_FIXED32 = 5;
     private const WIRE_RECORD_LIMIT = 64;
     private const DEFAULT_MAX_KIWI_MESSAGE_DECODE_BYTES = 16777216;
+    private const DEFAULT_MAX_KIWI_SELECTIVE_MESSAGE_DECODE_BYTES = 33554432;
+    private const DEFAULT_MAX_ZSTD_INFLATED_BYTES = 67108864;
 
     public function __construct(
         private readonly ZstdCapability $zstdCapability = new ZstdCapability(),
@@ -103,7 +105,12 @@ final class FigKiwiParser
                     $chunk['payload'] = $this->classifyPayload($inflated, $kiwiSchema, $diagnostics, $options);
                 }
             } elseif ( 'zstd' === $chunk['compression'] ) {
-                $zstdResult = $this->zstdCapability->uncompress($payload, 'FigKiwiParser', $index);
+                $zstdResult = $this->zstdCapability->uncompress(
+                    $payload,
+                    'FigKiwiParser',
+                    $index,
+                    array('max_decoded_bytes' => $this->optionBytes($options, 'max_zstd_inflated_bytes', self::DEFAULT_MAX_ZSTD_INFLATED_BYTES))
+                );
                 $diagnostics = array_merge($diagnostics, $zstdResult['diagnostics']);
                 if ( null !== $zstdResult['data'] ) {
                     $chunk['inflated_bytes'] = strlen($zstdResult['data']);
@@ -132,6 +139,18 @@ final class FigKiwiParser
     {
         $value = unpack('V', $bytes);
         return is_array($value) ? (int) $value[1] : 0;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function optionBytes(array $options, string $key, int $default): int
+    {
+        if ( isset($options[$key]) && is_numeric($options[$key]) ) {
+            return max(0, (int) $options[$key]);
+        }
+
+        return $default;
     }
 
     private function detectCompression(string $payload): string
@@ -174,7 +193,35 @@ final class FigKiwiParser
                 }
             } else {
                 $maxMessageDecodeBytes = (int) ($options['max_kiwi_message_decode_bytes'] ?? self::DEFAULT_MAX_KIWI_MESSAGE_DECODE_BYTES);
+                $nodeGate = $this->inspectNodeGate($payload, $kiwiSchema, $diagnostics, $options);
+                if ( true === ($options['kiwi_gate_only'] ?? false) ) {
+                    $metadata['classification'] = null !== $nodeGate ? 'kiwi_message_gate' : 'kiwi_message_skipped';
+                    if ( null !== $nodeGate ) {
+                        $metadata['kiwi_node_gate'] = $nodeGate;
+                    }
+                    return $metadata;
+                }
                 if ( $maxMessageDecodeBytes > 0 && strlen($payload) > $maxMessageDecodeBytes ) {
+                    $maxSelectiveMessageDecodeBytes = (int) ($options['max_kiwi_selective_message_decode_bytes'] ?? self::DEFAULT_MAX_KIWI_SELECTIVE_MESSAGE_DECODE_BYTES);
+                    if ( $maxSelectiveMessageDecodeBytes > 0 && strlen($payload) > $maxSelectiveMessageDecodeBytes ) {
+                        $diagnostics[] = $this->diagnostic(
+                            'figma_transformer_kiwi_message_decode_skipped_preflight',
+                            'Kiwi message chunk exceeds the configured selective decode safety limit and was not decoded.',
+                            array(
+                                'bytes'                      => strlen($payload),
+                                'max_decode_bytes'           => $maxMessageDecodeBytes,
+                                'max_selective_decode_bytes' => $maxSelectiveMessageDecodeBytes,
+                                'recommended_next_step'      => 'Expand bounded selective Kiwi decoding before raising this limit; full decoded arrays can exceed PHP memory on fatal-scale files.',
+                            )
+                        );
+                        $metadata['classification'] = 'kiwi_message_skipped';
+                        if ( null !== $nodeGate ) {
+                            $metadata['kiwi_node_gate'] = $nodeGate;
+                        }
+                        $metadata['kiwi_message_decode'] = 'skipped_preflight';
+                        return $metadata;
+                    }
+
                     $fieldPolicy = true === ($options['render_text_glyph_paths'] ?? false) ? $this->kiwiDecoder->scenegraphFieldPolicyWithTextGlyphs() : array();
                     $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema, 'Message', $fieldPolicy);
                     $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
@@ -189,6 +236,9 @@ final class FigKiwiParser
                         );
                         $metadata['classification'] = 'kiwi_message';
                         $metadata['kiwi_message'] = $messageResult['message'];
+                        if ( null !== $nodeGate ) {
+                            $metadata['kiwi_node_gate'] = $nodeGate;
+                        }
                         $metadata['kiwi_message_decode'] = 'selective';
                         return $metadata;
                     }
@@ -211,6 +261,9 @@ final class FigKiwiParser
                 if ( null !== $messageResult['message'] ) {
                     $metadata['classification'] = 'kiwi_message';
                     $metadata['kiwi_message'] = $messageResult['message'];
+                    if ( null !== $nodeGate ) {
+                        $metadata['kiwi_node_gate'] = $nodeGate;
+                    }
                     return $metadata;
                 }
             }
@@ -235,6 +288,22 @@ final class FigKiwiParser
         }
 
         return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $schema
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<string, mixed> $options
+     */
+    private function inspectNodeGate(string $payload, array $schema, array &$diagnostics, array $options): ?array
+    {
+        if ( true !== ($options['inspect_kiwi_gate'] ?? false) ) {
+            return null;
+        }
+
+        $gateResult = $this->kiwiDecoder->inspectNodeGate($payload, $schema, 'Message', $options);
+        $diagnostics = array_merge($diagnostics, $gateResult['diagnostics']);
+        return $gateResult['gate'];
     }
 
     /**

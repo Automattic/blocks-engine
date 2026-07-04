@@ -13,6 +13,16 @@ final class FigKiwiDecoder
     private const INVENTORY_SAMPLE_LIMIT = 3;
     private const INVENTORY_SAMPLE_STRING_BYTES = 120;
     private const INVENTORY_SAMPLE_ARRAY_ITEMS = 8;
+    private const INVENTORY_DECODED_FIELD_NAMES = array(
+        'colorVar' => true,
+        'stopsVar' => true,
+        'gradientInterpolation' => true,
+        'interpolation' => true,
+        'interpolationMode' => true,
+        'colorInterpolation' => true,
+        'colorSpace' => true,
+        'interpolationColorSpace' => true,
+    );
 
     private FigKiwiDecodePolicy $decodePolicy;
     private FigKiwiSchemaFields $schemaFields;
@@ -151,11 +161,13 @@ final class FigKiwiDecoder
                 'policy_groups'      => $this->decodePolicy->scenegraphFieldPolicyGroups(),
                 'schema_definitions' => $this->schemaFields->schemaDefinitionInventory($schema),
                 'fields'             => array(),
+                'decoded_fields'     => array(),
             );
             $context = $this->decodePolicy->initialInventoryContext($rootType);
 
             $this->inventoryDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy, $inventory, $context);
             $inventory['summary'] = $this->decodePolicy->summarizeSkippedFieldInventory($inventory['fields']);
+            $inventory['decoded_summary'] = $this->decodePolicy->summarizeSkippedFieldInventory($inventory['decoded_fields']);
             return array('inventory' => $inventory, 'diagnostics' => array());
         } catch ( \Throwable $throwable ) {
             return array(
@@ -163,6 +175,125 @@ final class FigKiwiDecoder
                 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_decode_failed', 'Kiwi message chunk could not be inventoried.', $throwable->getMessage())),
             );
         }
+    }
+
+    /**
+     * Inspect the minimal raw Kiwi fields needed to decide page/frame/node gates
+     * before materializing the full scenegraph payload.
+     *
+     * @param array<string, mixed> $schema
+     * @param array<string, mixed> $options
+     * @return array{gate: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
+     */
+    public function inspectNodeGate(string $payload, array $schema, string $rootType = 'Message', array $options = array()): array
+    {
+        $policy = array(
+            'Message' => array('type', 'nodeChanges'),
+            'NodeChange' => array('guid', 'type', 'name', 'parentIndex', 'sortPosition', 'visible'),
+            'GUID' => array('sessionID', 'localID'),
+            'ParentIndex' => array('guid', 'position'),
+        );
+        $messageResult = $this->decodeMessageSelective($payload, $schema, $rootType, $policy);
+        if ( null === $messageResult['message'] ) {
+            return array('gate' => null, 'diagnostics' => $messageResult['diagnostics']);
+        }
+
+        $nodeChanges = is_array($messageResult['message']['nodeChanges'] ?? null) ? $messageResult['message']['nodeChanges'] : array();
+        $nodes = array();
+        $children = array();
+        $pages = array();
+        $frames = array();
+        $missingIds = 0;
+        $missingParents = 0;
+
+        foreach ( $nodeChanges as $index => $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $id = $this->readGateNodeId($node);
+            if ( null === $id || '' === $id ) {
+                $missingIds++;
+                continue;
+            }
+
+            $parentId = $this->readGateParentId($node);
+            if ( null === $parentId ) {
+                $missingParents++;
+            } else {
+                $children[$parentId] ??= array();
+                $children[$parentId][] = $id;
+            }
+
+            $type = isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : '';
+            $summary = array_filter(
+                array(
+                    'id' => $id,
+                    'type' => '' !== $type ? $type : null,
+                    'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
+                    'parent_id' => $parentId,
+                    'source_order' => is_int($index) ? $index : null,
+                ),
+                static fn (mixed $value): bool => null !== $value
+            );
+            $nodes[$id] = $summary;
+
+            if ( 'CANVAS' === $type ) {
+                $pages[] = $summary;
+            } elseif ( 'FRAME' === $type ) {
+                $frames[] = $summary;
+            }
+        }
+
+        $selectedIds = $this->planGateNodeIds($nodes, $children, $pages, $options);
+        $blockers = array();
+        if ( $missingIds > 0 ) {
+            $blockers[] = 'NodeChange.guid is missing on at least one node; stable filtering cannot preserve identities.';
+        }
+        if ( count($nodes) > 0 && $missingParents === count($nodes) ) {
+            $blockers[] = 'NodeChange.parentIndex.guid is absent on every decoded node; page/frame subtree filtering cannot be computed from raw Kiwi identity fields.';
+        }
+
+        return array(
+            'gate' => array(
+                'schema' => 'blocks-engine/figma-transformer/kiwi-node-gate/v1',
+                'root_type' => $rootType,
+                'required_raw_fields' => array(
+                    'Message.nodeChanges',
+                    'NodeChange.guid.sessionID',
+                    'NodeChange.guid.localID',
+                    'NodeChange.type',
+                    'NodeChange.name',
+                    'NodeChange.parentIndex.guid.sessionID',
+                    'NodeChange.parentIndex.guid.localID',
+                    'NodeChange.parentIndex.position',
+                ),
+                'options' => array_filter(
+                    array(
+                        'max_pages' => isset($options['max_pages']) && is_numeric($options['max_pages']) ? (int) $options['max_pages'] : null,
+                        'max_nodes' => isset($options['max_nodes']) && is_numeric($options['max_nodes']) ? (int) $options['max_nodes'] : null,
+                        'frame_id' => isset($options['frame_id']) && is_scalar($options['frame_id']) ? (string) $options['frame_id'] : null,
+                        'frame_ids' => is_array($options['frame_ids'] ?? null) ? array_values(array_filter($options['frame_ids'], 'is_scalar')) : null,
+                    ),
+                    static fn (mixed $value): bool => null !== $value && array() !== $value
+                ),
+                'node_count' => count($nodes),
+                'page_count' => count($pages),
+                'frame_count' => count($frames),
+                'missing_id_count' => $missingIds,
+                'missing_parent_count' => $missingParents,
+                'pages_sample' => array_slice($pages, 0, 25),
+                'frames_sample' => array_slice($frames, 0, 25),
+                'nodes_sample' => array_slice(array_values($nodes), 0, 25),
+                'gate_plan' => array(
+                    'feasible' => empty($blockers) && count($nodes) > 0,
+                    'selected_node_count' => count($selectedIds),
+                    'selected_node_ids_sample' => array_slice($selectedIds, 0, 50),
+                    'blockers' => $blockers,
+                ),
+            ),
+            'diagnostics' => $messageResult['diagnostics'],
+        );
     }
 
     /**
@@ -432,9 +563,11 @@ final class FigKiwiDecoder
      * @param array<string, mixed>                $inventory
      * @param array<string, mixed>                $context
      */
-    private function inventoryDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy, array &$inventory, array $context): void
+    private function inventoryDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy, array &$inventory, array $context): array
     {
+        $result = array();
         $typeName = (string) ($definition['name'] ?? '');
+        $collectResult = in_array($typeName, array('Paint', 'ColorStop'), true);
         $allowed = array_flip($fieldPolicy[$typeName] ?? array());
         $context['parent_type'] = $typeName;
 
@@ -444,7 +577,7 @@ final class FigKiwiDecoder
             while ( true ) {
                 $fieldValue = $reader->readVarUint();
                 if ( 0 === $fieldValue ) {
-                    return;
+                    return $result;
                 }
                 if ( ! isset($fieldsByValue[$fieldValue]) ) {
                     throw new \RuntimeException('Attempted to inventory invalid message field ' . $fieldValue . '.');
@@ -453,7 +586,10 @@ final class FigKiwiDecoder
                 $field = $fieldsByValue[$fieldValue];
                 $fieldName = $this->schemaFields->fieldName($field);
                 if ( isset($allowed[$fieldName]) ) {
-                    $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+                    $value = $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+                    if ( $collectResult ) {
+                        $result[$fieldName] = $value;
+                    }
                 } else {
                     $sample = $this->readFieldValue($reader, $field, $definitions);
                     $this->recordSkippedField($inventory, $field, $definitions, $context, $sample);
@@ -464,12 +600,17 @@ final class FigKiwiDecoder
         foreach ( $this->schemaFields->fields($definition) as $field ) {
             $fieldName = $this->schemaFields->fieldName($field);
             if ( isset($allowed[$fieldName]) ) {
-                $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+                $value = $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+                if ( $collectResult ) {
+                    $result[$fieldName] = $value;
+                }
             } else {
                 $sample = $this->readFieldValue($reader, $field, $definitions);
                 $this->recordSkippedField($inventory, $field, $definitions, $context, $sample);
             }
         }
+
+        return $result;
     }
 
     /**
@@ -479,7 +620,7 @@ final class FigKiwiDecoder
      * @param array<string, mixed>                $inventory
      * @param array<string, mixed>                $context
      */
-    private function inventoryDecodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$inventory, array &$context): void
+    private function inventoryDecodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$inventory, array &$context): mixed
     {
         $fieldName = $this->schemaFields->fieldName($field);
         $type = $this->schemaFields->fieldType($field);
@@ -508,6 +649,11 @@ final class FigKiwiDecoder
                 $context['node_id'] = $this->decodePolicy->formatInventoryNodeId($value);
             }
         }
+        if ( isset(self::INVENTORY_DECODED_FIELD_NAMES[$fieldName]) ) {
+            $this->recordInventoryField($inventory, 'decoded_fields', $field, $definitions, $context, $value);
+        }
+
+        return $value;
     }
 
     /**
@@ -554,7 +700,7 @@ final class FigKiwiDecoder
             return $value;
         }
 
-        if ( 'STRUCT' === ($definition['kind'] ?? null) ) {
+        if ( 'STRUCT' === ($definition['kind'] ?? null) && ! in_array($type, array('Paint', 'ColorStop'), true) ) {
             return $this->decodeDefinitionSelective($reader, $definition, $definitions, $fieldPolicy);
         }
 
@@ -565,8 +711,7 @@ final class FigKiwiDecoder
             $childContext['node_id'] = null;
         }
 
-        $this->inventoryDefinitionSelective($reader, $definition, $definitions, $fieldPolicy, $inventory, $childContext);
-        return array();
+        return $this->inventoryDefinitionSelective($reader, $definition, $definitions, $fieldPolicy, $inventory, $childContext);
     }
 
     /**
@@ -576,16 +721,28 @@ final class FigKiwiDecoder
      */
     private function recordSkippedField(array &$inventory, array $field, array $definitions, array $context, mixed $sample): void
     {
+        $this->recordInventoryField($inventory, 'fields', $field, $definitions, $context, $sample);
+    }
+
+    /**
+     * @param array<string, mixed> $inventory
+     * @param array<string, mixed> $field
+     * @param array<string, mixed> $context
+     */
+    private function recordInventoryField(array &$inventory, string $bucket, array $field, array $definitions, array $context, mixed $sample): void
+    {
         $fieldName = $this->schemaFields->fieldName($field);
         $type = $this->schemaFields->fieldType($field);
         $parentType = (string) ($context['parent_type'] ?? '');
         $path = $this->schemaFields->fieldPath((string) ($context['path'] ?? $parentType), $fieldName);
         $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type, $parentType);
         $key = $this->schemaFields->inventoryKey($parentType, $path, $fieldName, $type);
-        $typeDefinition = $this->schemaFields->typeDefinition($type, $definitions);
+        $typeDefinition = in_array($type, array('NodeChange'), true)
+            ? array('name' => $type, 'kind' => 'MESSAGE', 'fields_omitted' => 'large_recursive_definition')
+            : $this->schemaFields->typeDefinition($type, $definitions);
 
-        if ( ! isset($inventory['fields'][$key]) ) {
-            $inventory['fields'][$key] = array(
+        if ( ! isset($inventory[$bucket][$key]) ) {
+            $inventory[$bucket][$key] = array(
                 'path'              => $path,
                 'field'             => $fieldName,
                 'type'              => $type,
@@ -604,30 +761,30 @@ final class FigKiwiDecoder
             );
         }
 
-        $inventory['fields'][$key]['occurrences']++;
+        $inventory[$bucket][$key]['occurrences']++;
         $nodeType = is_scalar($context['node_type'] ?? null) ? (string) $context['node_type'] : 'unknown';
-        $inventory['fields'][$key]['node_types'][$nodeType] = ($inventory['fields'][$key]['node_types'][$nodeType] ?? 0) + 1;
+        $inventory[$bucket][$key]['node_types'][$nodeType] = ($inventory[$bucket][$key]['node_types'][$nodeType] ?? 0) + 1;
         $nodeId = is_scalar($context['node_id'] ?? null) ? (string) $context['node_id'] : '';
-        if ( '' !== $nodeId && count($inventory['fields'][$key]['sample_node_ids']) < 5 && ! in_array($nodeId, $inventory['fields'][$key]['sample_node_ids'], true) ) {
-            $inventory['fields'][$key]['sample_node_ids'][] = $nodeId;
+        if ( '' !== $nodeId && count($inventory[$bucket][$key]['sample_node_ids']) < 5 && ! in_array($nodeId, $inventory[$bucket][$key]['sample_node_ids'], true) ) {
+            $inventory[$bucket][$key]['sample_node_ids'][] = $nodeId;
         }
 
         $normalized = $this->normalizeInventorySample($sample);
-        if ( count($inventory['fields'][$key]['sample_nodes']) < self::INVENTORY_SAMPLE_LIMIT ) {
+        if ( count($inventory[$bucket][$key]['sample_nodes']) < self::INVENTORY_SAMPLE_LIMIT ) {
             $nodeSample = array_filter(array(
                 'node_id'   => '' !== $nodeId ? $nodeId : null,
                 'node_type' => $nodeType,
                 'path'      => $path,
                 'raw_value' => $normalized,
             ), static fn (mixed $value): bool => null !== $value);
-            if ( ! in_array($nodeSample, $inventory['fields'][$key]['sample_nodes'], true) ) {
-                $inventory['fields'][$key]['sample_nodes'][] = $nodeSample;
+            if ( ! in_array($nodeSample, $inventory[$bucket][$key]['sample_nodes'], true) ) {
+                $inventory[$bucket][$key]['sample_nodes'][] = $nodeSample;
             }
         }
 
-        if ( count($inventory['fields'][$key]['sample_raw_values']) < self::INVENTORY_SAMPLE_LIMIT ) {
-            if ( ! in_array($normalized, $inventory['fields'][$key]['sample_raw_values'], true) ) {
-                $inventory['fields'][$key]['sample_raw_values'][] = $normalized;
+        if ( count($inventory[$bucket][$key]['sample_raw_values']) < self::INVENTORY_SAMPLE_LIMIT ) {
+            if ( ! in_array($normalized, $inventory[$bucket][$key]['sample_raw_values'], true) ) {
+                $inventory[$bucket][$key]['sample_raw_values'][] = $normalized;
             }
         }
     }
@@ -704,6 +861,107 @@ final class FigKiwiDecoder
         }
 
         return array('kind' => get_debug_type($value));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function readGateNodeId(array $node): ?string
+    {
+        if ( isset($node['id']) && is_scalar($node['id']) ) {
+            return (string) $node['id'];
+        }
+
+        return $this->readGateGuid($node['guid'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function readGateParentId(array $node): ?string
+    {
+        $parentIndex = $node['parentIndex'] ?? null;
+        if ( ! is_array($parentIndex) ) {
+            return null;
+        }
+
+        return $this->readGateGuid($parentIndex['guid'] ?? null);
+    }
+
+    private function readGateGuid(mixed $guid): ?string
+    {
+        if ( is_array($guid) && isset($guid['sessionID'], $guid['localID']) && is_scalar($guid['sessionID']) && is_scalar($guid['localID']) ) {
+            return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
+        }
+
+        return is_scalar($guid) && '' !== (string) $guid ? (string) $guid : null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $children
+     * @param array<int, array<string, mixed>>    $pages
+     * @param array<string, mixed>                $options
+     * @return array<int, string>
+     */
+    private function planGateNodeIds(array $nodes, array $children, array $pages, array $options): array
+    {
+        $roots = array();
+        $frameIds = array();
+        if ( isset($options['frame_id']) && is_scalar($options['frame_id']) ) {
+            $frameIds[] = (string) $options['frame_id'];
+        }
+        if ( is_array($options['frame_ids'] ?? null) ) {
+            foreach ( $options['frame_ids'] as $frameId ) {
+                if ( is_scalar($frameId) ) {
+                    $frameIds[] = (string) $frameId;
+                }
+            }
+        }
+
+        foreach ( array_values(array_unique($frameIds)) as $frameId ) {
+            if ( isset($nodes[$frameId]) ) {
+                $roots[] = $frameId;
+            }
+        }
+
+        if ( empty($roots) && isset($options['max_pages']) && is_numeric($options['max_pages']) && (int) $options['max_pages'] > 0 ) {
+            foreach ( array_slice($pages, 0, (int) $options['max_pages']) as $page ) {
+                if ( isset($page['id']) && is_scalar($page['id']) ) {
+                    $roots[] = (string) $page['id'];
+                }
+            }
+        }
+
+        $selected = empty($roots) ? array_keys($nodes) : $this->gateSubtreeIds($roots, $children);
+        if ( isset($options['max_nodes']) && is_numeric($options['max_nodes']) && (int) $options['max_nodes'] > 0 ) {
+            $selected = array_slice($selected, 0, (int) $options['max_nodes']);
+        }
+
+        return array_values(array_unique($selected));
+    }
+
+    /**
+     * @param array<int, string>                $roots
+     * @param array<string, array<int, string>> $children
+     * @return array<int, string>
+     */
+    private function gateSubtreeIds(array $roots, array $children): array
+    {
+        $selected = array();
+        $queue = array_values($roots);
+        while ( ! empty($queue) ) {
+            $id = array_shift($queue);
+            if ( ! is_string($id) || isset($selected[$id]) ) {
+                continue;
+            }
+            $selected[$id] = $id;
+            foreach ( $children[$id] ?? array() as $childId ) {
+                $queue[] = $childId;
+            }
+        }
+
+        return array_values($selected);
     }
 
     /**

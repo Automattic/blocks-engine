@@ -13,34 +13,25 @@ if ( is_readable($autoload) ) {
 } else {
     require_once __DIR__ . '/../figma-transformer.php';
 }
+require_once __DIR__ . '/figma-script-utils.php';
 
 $options = blocks_engine_figma_kiwi_inventory_options($argv);
+if ( blocks_engine_figma_script_bool_option($options['self_check'] ?? false) ) {
+    blocks_engine_figma_script_self_check();
+    exit(0);
+}
 if ( true === ($options['help'] ?? false) || '' === ($options['input'] ?? '') ) {
     blocks_engine_figma_kiwi_inventory_usage(true === ($options['help'] ?? false) ? STDOUT : STDERR);
     exit(true === ($options['help'] ?? false) ? 0 : 1);
 }
 
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
-$result = blocks_engine_figma_kiwi_inventory((string) $options['input'], is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
-$json = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
-if ( false === $json ) {
-    fwrite(STDERR, 'Failed to encode skipped-field inventory output: ' . json_last_error_msg() . "\n");
-    exit(1);
-}
-$json .= "\n";
-$outputPath = $options['output'] ?? null;
-if ( is_string($outputPath) && '' !== $outputPath ) {
-    if ( false === file_put_contents($outputPath, $json) ) {
-        fwrite(STDERR, "Failed to write skipped-field inventory output to {$outputPath}\n");
-        exit(1);
-    }
-    fwrite(STDOUT, json_encode(array(
-        'schema' => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1',
-        'output' => $outputPath,
-        'summary' => $result['summary'] ?? array(),
-    ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) . "\n");
-} else {
-    fwrite(STDOUT, $json);
+try {
+    $input = blocks_engine_figma_script_require_input_path((string) $options['input']);
+    $result = blocks_engine_figma_kiwi_inventory($input, is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
+    blocks_engine_figma_script_output_json($result, isset($options['output']) ? (string) $options['output'] : null, $result['summary'] ?? array());
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
 }
 exit(empty($result['diagnostics']) ? 0 : 0);
 
@@ -67,7 +58,7 @@ function blocks_engine_figma_kiwi_inventory_options(array $argv): array
 
 function blocks_engine_figma_kiwi_inventory_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-kiwi-skipped-field-inventory.php <path-to-fig> [--zstd-command=/opt/homebrew/bin/zstd] [--output=/tmp/inventory.json]\n");
+    fwrite($stream, "Usage: figma-kiwi-skipped-field-inventory.php <path-to-fig> [--zstd-command=/opt/homebrew/bin/zstd] [--output=/tmp/inventory.json] [--self-check]\n");
 }
 
 /**
@@ -192,8 +183,11 @@ function blocks_engine_figma_kiwi_inventory_payload(string $payload, ZstdCapabil
 function blocks_engine_figma_kiwi_inventory_file_summary(array $inventories): array
 {
     $byRole = array();
+    $decodedByRole = array();
     $fieldCount = 0;
+    $decodedFieldCount = 0;
     $occurrences = 0;
+    $decodedOccurrences = 0;
     foreach ( $inventories as $inventory ) {
         $summary = is_array($inventory['summary'] ?? null) ? $inventory['summary'] : array();
         $fieldCount += (int) ($summary['field_count'] ?? 0);
@@ -201,7 +195,21 @@ function blocks_engine_figma_kiwi_inventory_file_summary(array $inventories): ar
         foreach ( is_array($summary['by_role'] ?? null) ? $summary['by_role'] : array() as $role => $count ) {
             $byRole[(string) $role] = ($byRole[(string) $role] ?? 0) + (int) $count;
         }
+        $decodedSummary = is_array($inventory['decoded_summary'] ?? null) ? $inventory['decoded_summary'] : array();
+        $decodedFieldCount += (int) ($decodedSummary['field_count'] ?? 0);
+        $decodedOccurrences += (int) ($decodedSummary['occurrences'] ?? 0);
+        foreach ( is_array($decodedSummary['by_role'] ?? null) ? $decodedSummary['by_role'] : array() as $role => $count ) {
+            $decodedByRole[(string) $role] = ($decodedByRole[(string) $role] ?? 0) + (int) $count;
+        }
     }
     arsort($byRole);
-    return array('field_count' => $fieldCount, 'occurrences' => $occurrences, 'by_role' => $byRole);
+    arsort($decodedByRole);
+    return array(
+        'field_count'         => $fieldCount,
+        'occurrences'         => $occurrences,
+        'by_role'             => $byRole,
+        'decoded_field_count' => $decodedFieldCount,
+        'decoded_occurrences' => $decodedOccurrences,
+        'decoded_by_role'     => $decodedByRole,
+    );
 }

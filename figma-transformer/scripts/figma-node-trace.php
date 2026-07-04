@@ -17,10 +17,15 @@ if ( is_readable($autoload) ) {
 } else {
     require_once __DIR__ . '/../figma-transformer.php';
 }
+require_once __DIR__ . '/figma-script-utils.php';
 
 $options = blocks_engine_figma_trace_options($argv);
 if ( true === ($options['help'] ?? false) ) {
     blocks_engine_figma_trace_usage(STDOUT);
+    exit(0);
+}
+if ( blocks_engine_figma_script_bool_option($options['self_check'] ?? false) ) {
+    blocks_engine_figma_script_self_check();
     exit(0);
 }
 
@@ -29,11 +34,16 @@ if ( '' === ($options['input'] ?? '') || '' === ($options['frame_id'] ?? '') || 
     exit(1);
 }
 
-$input = (string) $options['input'];
+try {
+    $input = blocks_engine_figma_script_require_input_path((string) $options['input']);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
+}
 $frameId = (string) $options['frame_id'];
 $nodeIds = $options['node_ids'];
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
-$diagnosticLimit = (int) ($options['diagnostic_limit'] ?? 20);
+$diagnosticLimit = blocks_engine_figma_script_int_option($options['diagnostic_limit'] ?? null, 20, 0, 500);
+$summaryLimit = blocks_engine_figma_script_int_option($options['summary_limit'] ?? null, 20, 0, 500);
 $maxNodes = isset($options['max_nodes']) ? (int) $options['max_nodes'] : null;
 $archiveOptions = blocks_engine_figma_trace_archive_options($options);
 
@@ -71,7 +81,7 @@ $trace = array(
     'frame_id' => $frameId,
     'node_ids' => $nodeIds,
     'nodes' => array(),
-    'transform_diagnostics' => blocks_engine_figma_trace_transform_diagnostics_summary($htmlReport),
+    'transform_diagnostics' => blocks_engine_figma_trace_transform_diagnostics_summary($htmlReport, $summaryLimit),
     'diagnostics_sample' => blocks_engine_figma_trace_diagnostics_sample($result, $htmlReport, $diagnosticLimit),
     'metrics' => $result['metrics'] ?? array(),
 );
@@ -103,8 +113,12 @@ foreach ( $nodeIds as $nodeId ) {
     );
 }
 
-fwrite(STDOUT, blocks_engine_figma_trace_json_encode($trace) . "\n");
-exit(0);
+try {
+    blocks_engine_figma_script_output_json($trace, isset($options['output']) ? (string) $options['output'] : null, blocks_engine_figma_trace_summary($trace));
+    exit(0);
+} catch (Throwable $error) {
+    blocks_engine_figma_script_fail($error);
+}
 
 /**
  * @return array<string, mixed>
@@ -150,7 +164,7 @@ function blocks_engine_figma_trace_options(array $argv): array
 
 function blocks_engine_figma_trace_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-kiwi-message-decode-bytes=1] [--max-nodes=5000] [--diagnostic-limit=20]\n");
+    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-kiwi-message-decode-bytes=1] [--max-nodes=5000] [--diagnostic-limit=20] [--summary-limit=20] [--output=/tmp/trace.json] [--self-check]\n");
 }
 
 /**
@@ -160,7 +174,7 @@ function blocks_engine_figma_trace_archive_options(array $options): array
 {
     return array(
         'include_asset_content' => false,
-        'max_kiwi_message_decode_bytes' => max(1, (int) ($options['max_kiwi_message_decode_bytes'] ?? 1)),
+        'max_kiwi_message_decode_bytes' => blocks_engine_figma_script_int_option($options['max_kiwi_message_decode_bytes'] ?? null, 1, 1, 104857600),
     );
 }
 
@@ -224,19 +238,19 @@ function blocks_engine_figma_trace_emit_result(array $normalized, array $transfo
 /**
  * @return array<string, mixed>
  */
-function blocks_engine_figma_trace_transform_diagnostics_summary(array $htmlReport): array
+function blocks_engine_figma_trace_transform_diagnostics_summary(array $htmlReport, int $limit = 20): array
 {
     $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
     $artifactQuality = is_array($diagnostics['artifact_quality'] ?? null) ? $diagnostics['artifact_quality'] : array();
 
     return array(
         'schema' => 'blocks-engine/figma-transformer/node-trace-transform-diagnostics/v1',
-        'artifact_quality_summary' => is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
-        'components' => is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(),
-        'effects' => is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(),
-        'mask_effect_clipping' => is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(),
-        'vector_child_composition' => is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(),
-        'stacking_order' => is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(),
+        'artifact_quality_summary' => blocks_engine_figma_script_bounded_summary_map(is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(), $limit),
+        'components' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(), $limit),
+        'effects' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(), $limit),
+        'mask_effect_clipping' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(), $limit),
+        'vector_child_composition' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(), $limit),
+        'stacking_order' => blocks_engine_figma_script_bounded_summary_map(is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(), $limit),
     );
 }
 
@@ -711,6 +725,7 @@ function blocks_engine_figma_trace_interesting_fields(array $node): array
         'absoluteBoundingBox', 'absoluteRenderBounds', 'size', 'x', 'y', 'width', 'height', 'rotation', 'fills', 'fillPaints',
         'strokes', 'strokePaints', 'styles', 'styleIdForFill', 'styleIdForStroke', 'boundVariables', 'variableConsumptionMap',
         'componentId', 'componentProperties', 'componentPropertyDefinitions', 'overrides', 'overrideTable', 'overrideMap',
+        'overrideKey', 'proportionsConstrained', 'targetAspectRatio', 'derivedSymbolDataLayoutVersion', 'figma_component',
         'symbolData', 'derivedSymbolData', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs', 'guidPath',
         'componentKey', 'key', 'variantPropSpecs', 'isStateGroup', 'stateGroupPropertyValueOrders',
         'characters', 'text', 'figma_text', 'style', 'textStyleOverrides', 'lineTypes', 'lineIndentations', 'vectorNetwork',
@@ -814,11 +829,22 @@ function blocks_engine_figma_trace_diagnostics_sample(array $result, array $html
     $transformDiagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
     return array(
         'top_level' => array_slice($diagnostics, 0, max(0, $limit)),
-        'transform' => $transformDiagnostics,
+        'transform' => blocks_engine_figma_script_bounded_summary_map($transformDiagnostics, $limit),
     );
 }
 
 function blocks_engine_figma_trace_json_encode(array $value): string
 {
-    return json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '{}';
+    return blocks_engine_figma_script_json_encode($value);
+}
+
+function blocks_engine_figma_trace_summary(array $trace): array
+{
+    return array(
+        'schema' => 'blocks-engine/figma-transformer/node-trace-summary/v1',
+        'input' => $trace['input'] ?? array(),
+        'frame_id' => $trace['frame_id'] ?? null,
+        'node_count' => count(is_array($trace['nodes'] ?? null) ? $trace['nodes'] : array()),
+        'metric_summary' => $trace['metrics'] ?? array(),
+    );
 }

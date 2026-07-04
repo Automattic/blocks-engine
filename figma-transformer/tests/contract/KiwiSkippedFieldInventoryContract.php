@@ -71,6 +71,9 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
 
     $message = $decoder->decodeMessageSelective(blocks_engine_figma_transformer_kiwi_inventory_message_fixture(), $schema)['message'] ?? array();
     $assert('variables' === ($message['nodeChanges'][0]['variableConsumptionMap'] ?? null), 'kiwi-selective-decodes-variable-consumption-map');
+    $assert('7:100' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($message['nodeChanges'][0]['overrideKey'] ?? null), 'kiwi-selective-decodes-override-key');
+    $assert(true === ($message['nodeChanges'][0]['proportionsConstrained'] ?? null), 'kiwi-selective-decodes-proportions-constrained');
+    $assert(array('x' => 16.0, 'y' => 9.0) === ($message['nodeChanges'][0]['targetAspectRatio'] ?? null), 'kiwi-selective-decodes-target-aspect-ratio');
 
     $fixture = blocks_engine_figma_transformer_kiwi_inventory_fixture();
     $command = escapeshellarg(PHP_BINARY)
@@ -98,7 +101,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
         @unlink($outputPath);
     }
 
-    $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-output-cli-schema');
+    $assert('blocks-engine/figma-transformer/script-output/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-output-cli-schema');
     $assert(is_array($written), 'kiwi-skipped-inventory-output-file-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($written['schema'] ?? null), 'kiwi-skipped-inventory-output-file-schema');
     $assert(11 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
@@ -114,7 +117,7 @@ function blocks_engine_figma_transformer_kiwi_inventory_fixture(): string
 
 function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(6)
+    return blocks_engine_figma_transformer_wire_varint(7)
         . blocks_engine_figma_transformer_kiwi_string('GUID')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -132,9 +135,14 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('axis', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('offset', -5, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 3)
+        . blocks_engine_figma_transformer_kiwi_string('OptionalVector')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('x', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('y', -5, false, 2)
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(21)
+        . blocks_engine_figma_transformer_wire_varint(24)
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
@@ -151,16 +159,19 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('arcData', 1, false, 14)
         . blocks_engine_figma_transformer_kiwi_schema_field('guides', 2, true, 15)
         . blocks_engine_figma_transformer_kiwi_schema_field('listSpacing', -5, false, 16)
-        . blocks_engine_figma_transformer_kiwi_schema_field('inventoryStatus', 5, false, 17)
+        . blocks_engine_figma_transformer_kiwi_schema_field('inventoryStatus', 6, false, 17)
         . blocks_engine_figma_transformer_kiwi_schema_field('extraGuid', 0, false, 18)
         . blocks_engine_figma_transformer_kiwi_schema_field('metadataAuditTrail', -6, false, 19)
         . blocks_engine_figma_transformer_kiwi_schema_field('handoffStatusHistory', -6, false, 20)
         . blocks_engine_figma_transformer_kiwi_schema_field('exportPreview', -6, false, 21)
+        . blocks_engine_figma_transformer_kiwi_schema_field('overrideKey', 0, false, 22)
+        . blocks_engine_figma_transformer_kiwi_schema_field('proportionsConstrained', -1, false, 23)
+        . blocks_engine_figma_transformer_kiwi_schema_field('targetAspectRatio', 3, false, 24)
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 3, true, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 4, true, 2)
         . blocks_engine_figma_transformer_kiwi_string('InventoryStatus')
         . chr(0)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -232,6 +243,14 @@ function blocks_engine_figma_transformer_kiwi_inventory_message_fixture(): strin
         . blocks_engine_figma_transformer_kiwi_string('handoff-history')
         . blocks_engine_figma_transformer_wire_varint(21)
         . blocks_engine_figma_transformer_kiwi_string('export-preview')
+        . blocks_engine_figma_transformer_wire_varint(22)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(100)
+        . blocks_engine_figma_transformer_wire_varint(23)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(24)
+        . blocks_engine_figma_transformer_kiwi_float(16.0)
+        . blocks_engine_figma_transformer_kiwi_float(9.0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

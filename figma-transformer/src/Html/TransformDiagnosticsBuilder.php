@@ -23,9 +23,10 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $maskEffectClipping
      * @param array<string, mixed> $css
      * @param array<string, mixed> $htmlArtifact
+     * @param array<string, mixed> $decisionTraces
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array(), array $decisionTraces = array()): array
     {
         $signals = array();
 
@@ -231,12 +232,16 @@ final class TransformDiagnosticsBuilder
             );
         }
         if ( ! empty($htmlArtifact['absolute_to_flow_conversion_count']) ) {
+            $absoluteToFlowEvidence = $this->absoluteToFlowDecisionEvidence(
+                is_array($htmlArtifact['absolute_to_flow_conversions'] ?? null) ? $htmlArtifact['absolute_to_flow_conversions'] : array(),
+                $decisionTraces
+            );
             $signals[] = array(
                 'severity' => 'warning',
                 'code' => 'suspicious_absolute_to_flow_conversion',
                 'count' => (int) $htmlArtifact['absolute_to_flow_conversion_count'],
-                'sample_rules' => array_slice(is_array($htmlArtifact['absolute_to_flow_conversions'] ?? null) ? $htmlArtifact['absolute_to_flow_conversions'] : array(), 0, 10),
-            );
+                'sample_rules' => $absoluteToFlowEvidence['sample_rules'],
+            ) + $absoluteToFlowEvidence['summary'];
         }
 
         $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping);
@@ -337,6 +342,76 @@ final class TransformDiagnosticsBuilder
                 'html_artifact' => $htmlArtifact,
                 'source_loss_coverage' => $sourceLossCoverage,
             ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rules
+     * @param array<string, mixed>             $decisionTraces
+     * @return array{sample_rules: array<int, array<string, mixed>>, summary: array<string, mixed>}
+     */
+    private function absoluteToFlowDecisionEvidence(array $rules, array $decisionTraces): array
+    {
+        $tracesByClass = array();
+        $samples = array_is_list($decisionTraces)
+            ? $decisionTraces
+            : (is_array($decisionTraces['samples'] ?? null) ? $decisionTraces['samples'] : array());
+        foreach ( $samples as $sample ) {
+            if ( ! is_array($sample) || true !== ($sample['evidence']['absolute_to_flow_conversion'] ?? null) ) {
+                continue;
+            }
+
+            $class = isset($sample['class']) && is_scalar($sample['class']) ? (string) $sample['class'] : '';
+            if ( '' === $class ) {
+                continue;
+            }
+
+            $tracesByClass[$class][] = $sample;
+        }
+
+        $sourceCounts = array();
+        $matchedGeometryCounts = array('matched' => 0, 'fallback' => 0);
+        $sampleRules = array();
+        foreach ( array_slice($rules, 0, 10) as $rule ) {
+            if ( ! is_array($rule) ) {
+                continue;
+            }
+
+            $class = isset($rule['class']) && is_scalar($rule['class']) ? (string) $rule['class'] : '';
+            $trace = '' !== $class && isset($tracesByClass[$class][0]) ? $tracesByClass[$class][0] : null;
+            if ( is_array($trace) ) {
+                $source = isset($trace['evidence']['source']) && is_scalar($trace['evidence']['source']) ? (string) $trace['evidence']['source'] : 'unknown';
+                $sourceCounts[$source] = (int) ($sourceCounts[$source] ?? 0) + 1;
+                if ( true === ($trace['evidence']['matched_breakpoint_geometry'] ?? null) ) {
+                    ++$matchedGeometryCounts['matched'];
+                } else {
+                    ++$matchedGeometryCounts['fallback'];
+                }
+
+                $rule['decision_trace'] = array_filter(array(
+                    'source' => $source,
+                    'matched_breakpoint_geometry' => true === ($trace['evidence']['matched_breakpoint_geometry'] ?? null),
+                    'reason_code' => isset($trace['reason_code']) && is_scalar($trace['reason_code']) ? (string) $trace['reason_code'] : null,
+                    'node_id' => isset($trace['node_id']) && is_scalar($trace['node_id']) ? (string) $trace['node_id'] : null,
+                    'variant_node_id' => isset($trace['evidence']['variant_node_id']) && is_scalar($trace['evidence']['variant_node_id']) ? (string) $trace['evidence']['variant_node_id'] : null,
+                    'trace_count' => isset($trace['count']) && is_numeric($trace['count']) ? (int) $trace['count'] : null,
+                ), static fn (mixed $value): bool => null !== $value && ! (is_string($value) && '' === $value));
+            }
+
+            $sampleRules[] = $rule;
+        }
+
+        ksort($sourceCounts);
+
+        $summary = array();
+        if ( ! empty($sourceCounts) ) {
+            $summary['decision_trace_source_counts'] = $sourceCounts;
+            $summary['matched_breakpoint_geometry_counts'] = array_filter($matchedGeometryCounts, static fn (int $count): bool => $count > 0);
+        }
+
+        return array(
+            'sample_rules' => $sampleRules,
+            'summary' => $summary,
         );
     }
 

@@ -724,13 +724,31 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(true === ($htmlArtifactDiagnostics['overlarge_inline_svg_ratio'] ?? null), 'quality-diagnostics-html-overlarge-inline-svg-ratio');
     $assert(2 === ($htmlArtifactDiagnostics['breakpoint_override_leak_count'] ?? null), 'quality-diagnostics-html-breakpoint-override-leaks');
     $assert(1 === ($htmlArtifactDiagnostics['absolute_to_flow_conversion_count'] ?? null), 'quality-diagnostics-html-absolute-to-flow-conversion');
-    $htmlArtifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), $htmlArtifactDiagnostics);
+    $htmlArtifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), $htmlArtifactDiagnostics, array(
+        'samples' => array(
+            array(
+                'class' => 'figma-node-card',
+                'reason_code' => 'responsive_generic_mobile_safety',
+                'node_id' => 'quality:card',
+                'evidence' => array(
+                    'source' => 'class_safety_fallback',
+                    'matched_breakpoint_geometry' => false,
+                    'absolute_to_flow_conversion' => true,
+                ),
+                'count' => 1,
+            ),
+        ),
+    ));
     $htmlArtifactSignalCodes = array_values(array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $htmlArtifactQuality['signals'] ?? array()));
     $assert(in_array('canvas_like_dom', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-canvas-like-signal');
     $assert(in_array('semantic_sparsity', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-semantic-sparsity-signal');
     $assert(in_array('overlarge_inline_svg_ratio', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-inline-svg-ratio-signal');
     $assert(in_array('breakpoint_override_leak', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-breakpoint-leak-signal');
     $assert(in_array('suspicious_absolute_to_flow_conversion', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-absolute-to-flow-signal');
+    $absoluteToFlowSignal = $artifactQualitySignal(array('source_reports' => array('figma' => array('html' => array('transform_diagnostics' => array('artifact_quality' => $htmlArtifactQuality))))), 'suspicious_absolute_to_flow_conversion');
+    $assert(1 === ($absoluteToFlowSignal['decision_trace_source_counts']['class_safety_fallback'] ?? null), 'quality-diagnostics-html-absolute-to-flow-source-count');
+    $assert('class_safety_fallback' === ($absoluteToFlowSignal['sample_rules'][0]['decision_trace']['source'] ?? null), 'quality-diagnostics-html-absolute-to-flow-sample-source');
+    $assert(false === ($absoluteToFlowSignal['sample_rules'][0]['decision_trace']['matched_breakpoint_geometry'] ?? null), 'quality-diagnostics-html-absolute-to-flow-sample-matched-geometry');
     $assert('warn' === ($htmlArtifactQuality['quality_status'] ?? null), 'quality-diagnostics-html-quality-status-warn');
     $qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
     $excessiveImageSignal = null;

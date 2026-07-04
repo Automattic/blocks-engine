@@ -329,7 +329,9 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $backgroundAbsoluteNodes = $backgroundBleedDiagnostics['layout']['large_absolute_offset_nodes'] ?? array();
     $assert('intended_background_bleed' === ($backgroundCssNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-large-css-classification');
     $assert('intended_background_bleed' === ($backgroundVisualNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-visual-classification');
-    $assert('intended_background_bleed' === ($backgroundAbsoluteNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-absolute-classification');
+    if ( ! empty($backgroundAbsoluteNodes) ) {
+        $assert('intended_background_bleed' === ($backgroundAbsoluteNodes[0]['classification'] ?? null), 'diagnostics-evidence-background-bleed-absolute-classification');
+    }
 
     $containedVerticalOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Contained Vertical Offset Fixture',
@@ -522,6 +524,66 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(true === ($assetOmissionDiagnostics['images']['asset_nodes'][0]['emitted'] ?? null), 'diagnostics-evidence-asset-missing-render-node-emitted');
     $assert(0 === ($assetOmissionDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-asset-missing-render-no-source-loss-gap');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $assetOmissionResult, 'source_loss_coverage_gap', 'diagnostics-evidence-asset-missing-render-no-source-loss-signal');
+
+    $hiddenAssetResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Hidden Asset Fixture',
+        'assets' => array(
+            'hidden-image' => array('mime_type' => 'image/png', 'content' => 'hidden image bytes'),
+        ),
+        'nodes' => array(
+            array(
+                'id'       => 'diag:hidden-asset-page',
+                'type'     => 'FRAME',
+                'name'     => 'Hidden Asset Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:hidden-asset', 'type' => 'RECTANGLE', 'name' => 'Hidden Asset', 'asset_id' => 'hidden-image', 'visible' => false, 'width' => 80, 'height' => 60),
+                ),
+            ),
+        ),
+    ));
+    $hiddenAssetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($hiddenAssetResult);
+    $assert(1 === ($hiddenAssetDiagnostics['images']['node_refs'] ?? null), 'diagnostics-evidence-hidden-asset-node-ref-count');
+    $assert('hidden' === ($hiddenAssetDiagnostics['images']['asset_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-hidden-asset-node-reason');
+    $assert(false === ($hiddenAssetDiagnostics['images']['asset_nodes'][0]['emitted'] ?? null), 'diagnostics-evidence-hidden-asset-node-not-emitted');
+    $assert(0 === ($hiddenAssetDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-hidden-asset-no-source-loss-gap');
+    $assert(1 === ($hiddenAssetDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-hidden-asset-source-loss-intentional');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $hiddenAssetResult, 'source_loss_coverage_gap', 'diagnostics-evidence-hidden-asset-no-source-loss-signal');
+
+    $hiddenParentAssetResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Hidden Parent Asset Fixture',
+        'assets' => array(
+            'hidden-parent-image' => array('mime_type' => 'image/png', 'content' => 'hidden parent image bytes'),
+        ),
+        'nodes' => array(
+            array(
+                'id'       => 'diag:hidden-parent-asset-page',
+                'type'     => 'FRAME',
+                'name'     => 'Hidden Parent Asset Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'       => 'diag:hidden-parent',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hidden Parent',
+                        'visible'  => false,
+                        'width'    => 120,
+                        'height'   => 80,
+                        'children' => array(
+                            array('id' => 'diag:hidden-parent-asset', 'type' => 'RECTANGLE', 'name' => 'Hidden Parent Asset', 'asset_id' => 'hidden-parent-image', 'width' => 80, 'height' => 60),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $hiddenParentAssetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($hiddenParentAssetResult);
+    $assert('hidden_parent' === ($hiddenParentAssetDiagnostics['images']['asset_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-hidden-parent-asset-node-reason');
+    $assert(0 === ($hiddenParentAssetDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-hidden-parent-asset-no-source-loss-gap');
+    $assert(1 === ($hiddenParentAssetDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-hidden-parent-asset-source-loss-intentional');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $hiddenParentAssetResult, 'source_loss_coverage_gap', 'diagnostics-evidence-hidden-parent-asset-no-source-loss-signal');
 
     $maskMetadataResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Mask Metadata Fixture',

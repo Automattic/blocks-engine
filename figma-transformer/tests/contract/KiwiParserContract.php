@@ -15,7 +15,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $fixture = blocks_engine_figma_transformer_create_fig_wrapper_fixture();
     $fileResult = blocks_engine_figma_transformer_transform_file($fixture);
     @unlink($fixture);
-    
+
     $canvas = $fileResult['source_reports']['figma']['archive']['canvas'] ?? array();
     $chunks = $canvas['chunks'] ?? array();
     $diagnosticCodes = array_map(
@@ -33,7 +33,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
             break;
         }
     }
-    
+
     $assert('success_with_warnings' === ($fileResult['status'] ?? null), 'file-transform-status');
     $assert('fig-kiwi' === ($canvas['prelude'] ?? null), 'fig-kiwi-prelude');
     $assert(106 === ($canvas['version'] ?? null), 'fig-kiwi-version');
@@ -81,7 +81,9 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'adapter-frame')
     );
     $failingAdapterResult = ( new ZstdCapability(static fn (): false => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
-    $commandAdapterResult = ( new ZstdCapability(new ZstdCommandDecoder(array(PHP_BINARY, '-r', '$payload = stream_get_contents(STDIN); fwrite(STDOUT, $payload);'))) )->uncompress('command adapter bytes', 'ContractTest', 4);
+    $commandAdapter = new ZstdCapability(new ZstdCommandDecoder(array(PHP_BINARY, '-r', '$payload = stream_get_contents(STDIN); fwrite(STDOUT, $payload);')));
+    $commandAdapterResult = $commandAdapter->uncompress('command adapter bytes', 'ContractTest', 4);
+    $limitedCommandAdapterResult = $commandAdapter->uncompress('command adapter bytes', 'ContractTest', 5, array('max_decoded_bytes' => 1));
     
     $assert(true === ($adapterStatus['available'] ?? null), 'zstd-adapter-status-available');
     $assert('adapter' === ($adapterStatus['provider'] ?? null) || 'ext-zstd' === ($adapterStatus['provider'] ?? null), 'zstd-adapter-status-provider');
@@ -90,6 +92,8 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert('figma_transformer_zstd_adapter_failed' === ($failingAdapterResult['diagnostics'][0]['code'] ?? null), 'zstd-adapter-failure-diagnostic');
     $assert('command adapter bytes' === ($commandAdapterResult['data'] ?? null), 'zstd-command-adapter-decodes-payload');
     $assert('figma_transformer_zstd_command_used' === ($commandAdapterResult['diagnostics'][1]['code'] ?? null), 'zstd-command-adapter-diagnostic');
+    $assert(null === ($limitedCommandAdapterResult['data'] ?? null), 'zstd-command-adapter-output-limit-data-null');
+    $assert('figma_transformer_zstd_command_output_preflight_failed' === ($limitedCommandAdapterResult['diagnostics'][1]['code'] ?? null), 'zstd-command-adapter-output-limit-diagnostic');
     $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
     $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
     $assert(2 === ($fileResult['metrics']['decoded_payload_candidate_count'] ?? null), 'file-transform-decoded-candidate-count');
@@ -121,7 +125,47 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     );
     $assert('unsupported_decoder_pending' === ($pendingResult['status'] ?? null), 'pending-decoder-status');
     $assert(in_array('figma_transformer_decoded_scenegraph_missing', $pendingDiagnosticCodes, true), 'pending-decoder-diagnostic');
-    
+
+    $assetPreflightFixture = SyntheticFigKiwiFixtureBuilder::jsonFigArchive(
+        SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Asset Preflight'),
+        array(
+            'images/oversized-a' => str_repeat('a', 12),
+            'images/oversized-b' => str_repeat('b', 12),
+        )
+    );
+    $assetPreflightResult = blocks_engine_figma_transformer_transform_file($assetPreflightFixture, array('max_archive_asset_content_bytes' => 10));
+    @unlink($assetPreflightFixture);
+    $assetPreflightDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $assetPreflightResult['diagnostics'] ?? array()
+    );
+    $assert('success_with_warnings' === ($assetPreflightResult['status'] ?? null), 'asset-preflight-status');
+    $assert(in_array('figma_transformer_archive_asset_content_omitted_size', $assetPreflightDiagnosticCodes, true), 'asset-preflight-diagnostic');
+    $assert(2 === ($assetPreflightResult['source_reports']['figma']['archive']['metrics']['asset_count'] ?? null), 'asset-preflight-asset-count-metric');
+    $assert(24 === ($assetPreflightResult['source_reports']['figma']['archive']['metrics']['total_asset_bytes'] ?? null), 'asset-preflight-total-asset-bytes');
+    $assert(false === ($assetPreflightResult['source_reports']['figma']['archive']['metrics']['asset_content_included'] ?? null), 'asset-preflight-content-omitted-metric');
+    $assert(! array_key_exists('content', $assetPreflightResult['source_reports']['figma']['assets'][0] ?? array()), 'asset-preflight-source-asset-content-omitted');
+
+    $canvasPreflightFixture = SyntheticFigKiwiFixtureBuilder::figArchive(
+        SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Canvas Preflight'))))
+    );
+    $canvasPreflightCommand = escapeshellarg(PHP_BINARY)
+        . ' ' . escapeshellarg(__DIR__ . '/../../bin/figma-transformer')
+        . ' ' . escapeshellarg($canvasPreflightFixture)
+        . ' --max-canvas-bytes=1';
+    $canvasPreflightJson = shell_exec($canvasPreflightCommand);
+    $canvasPreflightResult = is_string($canvasPreflightJson) ? json_decode($canvasPreflightJson, true) : null;
+    @unlink($canvasPreflightFixture);
+    $canvasPreflightDiagnosticCodes = is_array($canvasPreflightResult) ? array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $canvasPreflightResult['diagnostics'] ?? array()
+    ) : array();
+    $assert(is_array($canvasPreflightResult), 'canvas-preflight-cli-json-result');
+    $assert('decode_failed' === ($canvasPreflightResult['status'] ?? null), 'canvas-preflight-status');
+    $assert(in_array('figma_transformer_canvas_decode_preflight_failed', $canvasPreflightDiagnosticCodes, true), 'canvas-preflight-diagnostic');
+    $assert(true === ($canvasPreflightResult['source_reports']['figma']['archive']['canvas']['skipped'] ?? null), 'canvas-preflight-skipped-report');
+    $assert(0 === ($canvasPreflightResult['metrics']['embedded_asset_count'] ?? null), 'canvas-preflight-envelope-metrics');
+
     $kiwiSchemaBytes = blocks_engine_figma_transformer_kiwi_schema_fixture();
     $kiwiMessageBytes = blocks_engine_figma_transformer_kiwi_message_fixture();
     $kiwiDecoder = new FigKiwiDecoder();
@@ -163,6 +207,40 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert('kiwi_message' === ($guardedChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-selectively-decodes-oversized-message');
     $assert('selective' === ($guardedChunks[1]['payload']['kiwi_message_decode'] ?? null), 'kiwi-parser-selective-message-mode');
     $assert(in_array('figma_transformer_kiwi_message_selective_decode_used', $guardedDiagnosticCodes, true), 'kiwi-parser-selective-message-diagnostic');
+
+    $selectivePreflightCanvas = ( new FigKiwiParser(new ZstdCapability(static fn (string $payload, array $context): string => $kiwiMessageBytes)) )->parse(
+        'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($kiwiSchemaBytes))
+        . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame'),
+        array('max_kiwi_message_decode_bytes' => 1, 'max_kiwi_selective_message_decode_bytes' => 1)
+    );
+    $selectivePreflightChunks = $selectivePreflightCanvas['canvas']['chunks'] ?? array();
+    $selectivePreflightDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $selectivePreflightCanvas['diagnostics'] ?? array()
+    );
+    $assert('kiwi_message_skipped' === ($selectivePreflightChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-selective-preflight-skips-message');
+    $assert('skipped_preflight' === ($selectivePreflightChunks[1]['payload']['kiwi_message_decode'] ?? null), 'kiwi-parser-selective-preflight-mode');
+    $assert(in_array('figma_transformer_kiwi_message_decode_skipped_preflight', $selectivePreflightDiagnosticCodes, true), 'kiwi-parser-selective-preflight-diagnostic');
+
+    $gateSchemaBytes = blocks_engine_figma_transformer_kiwi_node_gate_schema_fixture();
+    $gateMessageBytes = blocks_engine_figma_transformer_kiwi_node_gate_message_fixture();
+    $gateCanvas = ( new FigKiwiParser() )->parse(
+        'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($gateSchemaBytes))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($gateMessageBytes)),
+        array('inspect_kiwi_gate' => true, 'max_pages' => 1, 'max_nodes' => 2)
+    );
+    $gateReport = $gateCanvas['canvas']['chunks'][1]['payload']['kiwi_node_gate'] ?? array();
+    $assert('blocks-engine/figma-transformer/kiwi-node-gate/v1' === ($gateReport['schema'] ?? null), 'kiwi-node-gate-schema');
+    $assert(4 === ($gateReport['node_count'] ?? null), 'kiwi-node-gate-node-count');
+    $assert(2 === ($gateReport['page_count'] ?? null), 'kiwi-node-gate-page-count');
+    $assert(1 === ($gateReport['frame_count'] ?? null), 'kiwi-node-gate-frame-count');
+    $assert(true === ($gateReport['gate_plan']['feasible'] ?? null), 'kiwi-node-gate-feasible');
+    $assert(array('1:1', '1:2') === ($gateReport['gate_plan']['selected_node_ids_sample'] ?? null), 'kiwi-node-gate-max-pages-max-nodes-plan');
+    $assert(in_array('NodeChange.parentIndex.guid.sessionID', $gateReport['required_raw_fields'] ?? array(), true), 'kiwi-node-gate-raw-field-contract');
 
     $schemaFields = new FigKiwiSchemaFields();
     $sameNameFirstFields = $schemaFields->fieldsByValue(array('name' => 'NodeChange', 'kind' => 'MESSAGE', 'fields' => array(array('name' => 'first', 'type' => 'string', 'value' => 1))));
@@ -256,6 +334,34 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     }
     $assert('direct-hash-asset-id' === ($assetReferenceMap['image.assetRef.id'] ?? null), 'kiwi-asset-reference-includes-nested-asset-ref');
     $assert('direct-hash-source-hash' === ($assetReferenceMap['image.sourceImage.hash'] ?? null), 'kiwi-asset-reference-includes-source-image-hash');
+
+    $kiwiPaintVarSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_paint_variable_schema_fixture());
+    $kiwiPaintVarMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_paint_variable_message_fixture(),
+        $kiwiPaintVarSchema['schema'] ?? array()
+    );
+    $kiwiPaintVarInventory = $kiwiDecoder->inventorySkippedFieldsSelective(
+        blocks_engine_figma_transformer_kiwi_paint_variable_message_fixture(),
+        $kiwiPaintVarSchema['schema'] ?? array()
+    );
+    $kiwiPaintVarNode = $kiwiPaintVarMessage['message']['nodeChanges'][0] ?? array();
+    $kiwiPaintVarDirectPaint = $kiwiPaintVarNode['fillPaints'][0] ?? array();
+    $kiwiPaintVarGradientPaint = $kiwiPaintVarNode['fillPaints'][1] ?? array();
+    $assert('77:1' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($kiwiPaintVarDirectPaint['colorVar']['guid'] ?? null), 'kiwi-selective-decodes-paint-color-var');
+    $assert('77:4' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($kiwiPaintVarGradientPaint['stopsVar']['guid'] ?? null), 'kiwi-selective-decodes-paint-stops-var');
+    $assert('OKLAB' === ($kiwiPaintVarGradientPaint['gradientInterpolation'] ?? null), 'kiwi-selective-decodes-gradient-interpolation');
+    $assert('SRGB' === ($kiwiPaintVarGradientPaint['stops'][0]['interpolationColorSpace'] ?? null), 'kiwi-selective-decodes-stop-interpolation-color-space');
+    $assert(! isset(($kiwiPaintVarInventory['inventory']['summary']['by_role'] ?? array())['variables_bindings']), 'kiwi-paint-var-fields-not-skipped');
+    $assert(8 === ($kiwiPaintVarInventory['inventory']['decoded_summary']['field_count'] ?? null), 'kiwi-paint-var-decoded-field-count');
+    $assert(16 === ($kiwiPaintVarInventory['inventory']['decoded_summary']['occurrences'] ?? null), 'kiwi-paint-var-decoded-occurrences');
+
+    $kiwiPaintVarNode['id'] = 'kiwi:paint-var';
+    $kiwiPaintVarNormalized = ( new ScenegraphNormalizer() )->normalize(array('name' => 'Kiwi Paint Variable Fixture', 'nodes' => array($kiwiPaintVarNode)));
+    $kiwiPaintVarNormalizedPaints = $kiwiPaintVarNormalized['nodes'][0]['figma_paints']['fills'] ?? array();
+    $assert('77:1' === ($kiwiPaintVarNormalizedPaints[0]['variable_bindings']['color']['variable_id'] ?? null), 'kiwi-normalizes-solid-color-var');
+    $assert('--figma-var-77-4' === ($kiwiPaintVarNormalizedPaints[1]['variable_bindings']['stops']['css_custom_property'] ?? null), 'kiwi-normalizes-gradient-stops-var-css-name');
+    $assert('OKLAB' === ($kiwiPaintVarNormalizedPaints[1]['gradient_interpolation']['gradient_interpolation'] ?? null), 'kiwi-normalizes-gradient-interpolation');
+    $assert('77:5' === ($kiwiPaintVarNormalizedPaints[1]['stops'][0]['variable_bindings']['color']['variable_id'] ?? null), 'kiwi-normalizes-gradient-stop-color-var');
     
     $kiwiDerivedTextSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture());
     $kiwiDerivedTextMessage = $kiwiDecoder->decodeMessageSelective(
@@ -365,7 +471,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         'symbolData' => array(
             'symbolOverrides' => array(
                 '40:3' => array('textData' => array('characters' => 'Mapped override')),
-                array('guid' => array('sessionID' => 40, 'localID' => 4), 'characters' => 'Direct guid override'),
+                array('guid' => array('sessionID' => 40, 'localID' => 4), 'characters' => 'Direct guid override', 'overrideKey' => array('sessionID' => 41, 'localID' => 4), 'proportionsConstrained' => true, 'targetAspectRatio' => array('x' => 4.0, 'y' => 3.0)),
                 array('guidPath' => array('guid' => array('sessionID' => 40, 'localID' => 5)), 'text' => 'Single guid path override'),
                 array('nodeID' => array('sessionID' => 40, 'localID' => 6), 'name' => 'NodeID override'),
             ),
@@ -379,6 +485,9 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     ), 'kiwi-singular-override:instance', $kiwiSingularOverrideDiagnostics);
     $assert('Mapped override' === ($kiwiAlternateOverrideFields['40:3']['characters'] ?? null), 'kiwi-overrides-resolver-reads-map-keyed-overrides');
     $assert('Direct guid override' === ($kiwiAlternateOverrideFields['40:4']['characters'] ?? null), 'kiwi-overrides-resolver-reads-direct-guid-target');
+    $assert(array('sessionID' => 41, 'localID' => 4) === ($kiwiAlternateOverrideFields['40:4']['overrideKey'] ?? null), 'kiwi-overrides-resolver-preserves-override-key-metadata');
+    $assert(true === ($kiwiAlternateOverrideFields['40:4']['proportionsConstrained'] ?? null), 'kiwi-overrides-resolver-preserves-proportions-metadata');
+    $assert(array('x' => 4.0, 'y' => 3.0) === ($kiwiAlternateOverrideFields['40:4']['targetAspectRatio'] ?? null), 'kiwi-overrides-resolver-preserves-target-aspect-ratio-metadata');
     $assert('Single guid path override' === ($kiwiAlternateOverrideFields['40:5']['text'] ?? null), 'kiwi-overrides-resolver-reads-single-guid-path-target');
     $assert('NodeID override' === ($kiwiAlternateOverrideFields['40:6']['name'] ?? null), 'kiwi-overrides-resolver-reads-node-id-guid-target');
     $assert('Singular override' === ($kiwiSingularOverrideFields['40:7']['characters'] ?? null), 'kiwi-overrides-resolver-reads-singular-symbol-override');
@@ -410,6 +519,26 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(str_contains($kiwiDerivedSymbolReferenceHtml, 'Resolved derived component'), 'kiwi-derived-symbol-reference-resolves-component-id');
 
     $kiwiStateGroupNormalizer = new ScenegraphNormalizer();
+    $kiwiOverrideMetadataNormalized = $kiwiStateGroupNormalizer->normalize(array(
+        'name'  => 'Kiwi Override Metadata Fixture',
+        'nodes' => array(
+            array(
+                'id'                             => 'override-metadata:instance',
+                'type'                           => 'INSTANCE',
+                'name'                           => 'Override metadata instance',
+                'overrideKey'                    => array('sessionID' => 7, 'localID' => 100),
+                'proportionsConstrained'         => true,
+                'targetAspectRatio'              => array('x' => 16.0, 'y' => 9.0),
+                'derivedSymbolDataLayoutVersion' => 3,
+            ),
+        ),
+    ));
+    $kiwiOverrideMetadataNode = $kiwiOverrideMetadataNormalized['node_map']['override-metadata:instance'] ?? array();
+    $assert('7:100' === ($kiwiOverrideMetadataNode['figma_component']['override_key'] ?? null), 'kiwi-normalizes-override-key-metadata');
+    $assert(true === ($kiwiOverrideMetadataNode['figma_component']['proportions_constrained'] ?? null), 'kiwi-normalizes-proportions-constrained-metadata');
+    $assert(array('x' => 16.0, 'y' => 9.0) === ($kiwiOverrideMetadataNode['figma_component']['target_aspect_ratio'] ?? null), 'kiwi-normalizes-target-aspect-ratio-metadata');
+    $assert(3 === ($kiwiOverrideMetadataNode['figma_component']['derived_symbol_data_layout_version'] ?? null), 'kiwi-normalizes-derived-symbol-layout-version-metadata');
+
     $kiwiStateGroupNormalized = $kiwiStateGroupNormalizer->normalize(array(
         'name'  => 'Kiwi State Group Metadata Fixture',
         'nodes' => array(
@@ -848,6 +977,78 @@ function blocks_engine_figma_transformer_kiwi_message_fixture(): string
         . blocks_engine_figma_transformer_wire_varint(0);
 }
 
+function blocks_engine_figma_transformer_kiwi_node_gate_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(5)
+        // def0: ENUM MessageType { NODE_CHANGES = 1 }
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        // def1: STRUCT GUID { sessionID, localID }
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        // def2: STRUCT ParentIndex { guid, position }
+        . blocks_engine_figma_transformer_kiwi_string('ParentIndex')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 1, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('position', -6, false, 2)
+        // def3: MESSAGE NodeChange { guid, type, name, parentIndex }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 1, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('parentIndex', 2, false, 4)
+        // def4: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 3, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_node_gate_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_node_gate_node(1, 1, 'CANVAS', 'Page A', null)
+        . blocks_engine_figma_transformer_kiwi_node_gate_node(1, 2, 'FRAME', 'Home', array(1, 1))
+        . blocks_engine_figma_transformer_kiwi_node_gate_node(1, 3, 'TEXT', 'Hero Title', array(1, 2))
+        . blocks_engine_figma_transformer_kiwi_node_gate_node(1, 4, 'CANVAS', 'Page B', null)
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * @param array{0:int,1:int}|null $parent
+ */
+function blocks_engine_figma_transformer_kiwi_node_gate_node(int $session, int $local, string $type, string $name, ?array $parent): string
+{
+    $bytes = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint($session)
+        . blocks_engine_figma_transformer_wire_varint($local)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string($type)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_string($name);
+
+    if ( null !== $parent ) {
+        $bytes .= blocks_engine_figma_transformer_wire_varint(4)
+            . blocks_engine_figma_transformer_wire_varint($parent[0])
+            . blocks_engine_figma_transformer_wire_varint($parent[1])
+            . blocks_engine_figma_transformer_kiwi_string((string) $local);
+    }
+
+    return $bytes . blocks_engine_figma_transformer_wire_varint(0);
+}
+
 function blocks_engine_figma_transformer_kiwi_frame_mask_schema_fixture(): string
 {
     return blocks_engine_figma_transformer_wire_varint(4)
@@ -1124,6 +1325,127 @@ function blocks_engine_figma_transformer_kiwi_export_settings_bytes(string $form
         . blocks_engine_figma_transformer_kiwi_varfloat($constraintValue)
         . chr($contentsOnly ? 1 : 0)
         . chr($useAbsoluteBounds ? 1 : 0);
+}
+
+function blocks_engine_figma_transformer_kiwi_paint_variable_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(8)
+        // def0: ENUM MessageType { NODE_CHANGES = 1 }
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        // def1: STRUCT GUID { sessionID, localID }
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        // def2: STRUCT VariableID { guid }
+        . blocks_engine_figma_transformer_kiwi_string('VariableID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 1, false, 1)
+        // def3: STRUCT Color { r, g, b, a }
+        . blocks_engine_figma_transformer_kiwi_string('Color')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('r', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('g', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('b', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('a', -5, false, 4)
+        // def4: STRUCT ColorStop { position, color, colorVar, interpolation, interpolationMode, interpolationColorSpace }
+        . blocks_engine_figma_transformer_kiwi_string('ColorStop')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('position', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('color', 3, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('colorVar', 2, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('interpolation', -6, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('interpolationMode', -6, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('interpolationColorSpace', -6, false, 6)
+        // def5: STRUCT Paint { type, color, colorVar, stops[], stopsVar, gradientInterpolation, interpolationColorSpace }
+        . blocks_engine_figma_transformer_kiwi_string('Paint')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('color', 3, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('colorVar', 2, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stops', 4, true, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stopsVar', 2, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('gradientInterpolation', -6, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('interpolationColorSpace', -6, false, 7)
+        // def6: MESSAGE NodeChange { type, fillPaints[] }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fillPaints', 5, true, 2)
+        // def7: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 6, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_paint_variable_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('RECTANGLE')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_paint_variable_paint_bytes('SOLID', 77, 1, 77, 2, array())
+        . blocks_engine_figma_transformer_kiwi_paint_variable_paint_bytes('GRADIENT_LINEAR', 77, 3, 77, 4, array(
+            array('position' => 0.0, 'variable_session' => 77, 'variable_local' => 5, 'interpolation' => 'EASE', 'mode' => 'LINEAR', 'space' => 'SRGB'),
+            array('position' => 1.0, 'variable_session' => 77, 'variable_local' => 6, 'interpolation' => 'EASE', 'mode' => 'LINEAR', 'space' => 'SRGB'),
+        ))
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * @param array<int, array<string, mixed>> $stops
+ */
+function blocks_engine_figma_transformer_kiwi_paint_variable_paint_bytes(string $type, int $colorVarSession, int $colorVarLocal, int $stopsVarSession, int $stopsVarLocal, array $stops): string
+{
+    $bytes = blocks_engine_figma_transformer_kiwi_string($type)
+        . blocks_engine_figma_transformer_kiwi_color_bytes(0.2, 0.3, 0.4, 1.0)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes($colorVarSession, $colorVarLocal)
+        . blocks_engine_figma_transformer_wire_varint(count($stops));
+    foreach ( $stops as $stop ) {
+        $bytes .= blocks_engine_figma_transformer_kiwi_color_stop_bytes($stop);
+    }
+
+    return $bytes
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes($stopsVarSession, $stopsVarLocal)
+        . blocks_engine_figma_transformer_kiwi_string('OKLAB')
+        . blocks_engine_figma_transformer_kiwi_string('SRGB');
+}
+
+/**
+ * @param array<string, mixed> $stop
+ */
+function blocks_engine_figma_transformer_kiwi_color_stop_bytes(array $stop): string
+{
+    return blocks_engine_figma_transformer_kiwi_float((float) ($stop['position'] ?? 0.0))
+        . blocks_engine_figma_transformer_kiwi_color_bytes(1.0, 0.0, 0.0, 1.0)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes((int) ($stop['variable_session'] ?? 0), (int) ($stop['variable_local'] ?? 0))
+        . blocks_engine_figma_transformer_kiwi_string((string) ($stop['interpolation'] ?? ''))
+        . blocks_engine_figma_transformer_kiwi_string((string) ($stop['mode'] ?? ''))
+        . blocks_engine_figma_transformer_kiwi_string((string) ($stop['space'] ?? ''));
+}
+
+function blocks_engine_figma_transformer_kiwi_color_bytes(float $r, float $g, float $b, float $a): string
+{
+    return blocks_engine_figma_transformer_kiwi_float($r)
+        . blocks_engine_figma_transformer_kiwi_float($g)
+        . blocks_engine_figma_transformer_kiwi_float($b)
+        . blocks_engine_figma_transformer_kiwi_float($a);
 }
 
 function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): string

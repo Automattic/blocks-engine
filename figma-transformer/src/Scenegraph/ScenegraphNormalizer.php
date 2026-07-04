@@ -1247,6 +1247,23 @@ final class ScenegraphNormalizer
             $metadata['component_prop_refs'] = $node['componentPropRefs'];
         }
 
+        $overrideKey = $this->readGuidId($node['overrideKey'] ?? null);
+        if ( null !== $overrideKey ) {
+            $metadata['override_key'] = $overrideKey;
+        }
+
+        if ( array_key_exists('proportionsConstrained', $node) && is_bool($node['proportionsConstrained']) ) {
+            $metadata['proportions_constrained'] = $node['proportionsConstrained'];
+        }
+
+        if ( is_array($node['targetAspectRatio'] ?? null) ) {
+            $metadata['target_aspect_ratio'] = $this->normalizeMetadataValue($node['targetAspectRatio']);
+        }
+
+        if ( array_key_exists('derivedSymbolDataLayoutVersion', $node) && is_scalar($node['derivedSymbolDataLayoutVersion']) ) {
+            $metadata['derived_symbol_data_layout_version'] = $node['derivedSymbolDataLayoutVersion'];
+        }
+
         if ( true === ($node['isStateGroup'] ?? false) ) {
             $metadata['state_group'] = true;
         }

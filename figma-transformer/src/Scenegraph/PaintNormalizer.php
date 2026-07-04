@@ -400,11 +400,18 @@ final class PaintNormalizer
 
         if ( 'SOLID' === $type ) {
             $color = $this->normalizeColor($paint['color'] ?? $paint);
-            if ( null === $color ) {
+            $variableBindings = $this->normalizePaintVariableBindings($paint);
+            if ( null === $color && empty($variableBindings) ) {
                 return array();
             }
 
-            $normalized = array('type' => 'SOLID', 'color' => $color);
+            $normalized = array('type' => 'SOLID');
+            if ( null !== $color ) {
+                $normalized['color'] = $color;
+            }
+            if ( ! empty($variableBindings) ) {
+                $normalized['variable_bindings'] = $variableBindings;
+            }
             if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
                 $normalized['opacity'] = (float) $paint['opacity'];
             }
@@ -507,11 +514,15 @@ final class PaintNormalizer
 
         if ( in_array($type, array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
             $stops = $this->normalizeGradientStops($paint['gradientStops'] ?? $paint['stops'] ?? array());
-            if ( ! empty($stops) ) {
-                $normalized = array(
-                    'type'  => $type,
-                    'stops' => $stops,
-                );
+            $variableBindings = $this->normalizePaintVariableBindings($paint);
+            if ( ! empty($stops) || ! empty($variableBindings) ) {
+                $normalized = array('type' => $type);
+                if ( ! empty($stops) ) {
+                    $normalized['stops'] = $stops;
+                }
+                if ( ! empty($variableBindings) ) {
+                    $normalized['variable_bindings'] = $variableBindings;
+                }
                 if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
                     $normalized['opacity'] = (float) $paint['opacity'];
                 }
@@ -523,6 +534,10 @@ final class PaintNormalizer
                         $normalized['gradientTransform'] = $paint[$transformKey];
                         break;
                     }
+                }
+                $interpolation = $this->normalizeGradientInterpolation($paint);
+                if ( ! empty($interpolation) ) {
+                    $normalized['gradient_interpolation'] = $interpolation;
                 }
 
                 return $normalized;
@@ -560,17 +575,110 @@ final class PaintNormalizer
             }
 
             $color = $this->normalizeColor($stop['color'] ?? null);
-            if ( null === $color ) {
+            $variableBindings = $this->normalizePaintVariableBindings($stop);
+            if ( null === $color && empty($variableBindings) ) {
                 continue;
             }
 
-            $normalizedStops[] = array(
-                'position' => max(0.0, min(1.0, (float) $stop['position'])),
-                'color'    => $color,
-            );
+            $normalizedStop = array('position' => max(0.0, min(1.0, (float) $stop['position'])));
+            if ( null !== $color ) {
+                $normalizedStop['color'] = $color;
+            }
+            if ( ! empty($variableBindings) ) {
+                $normalizedStop['variable_bindings'] = $variableBindings;
+            }
+            $interpolation = $this->normalizeGradientInterpolation($stop);
+            if ( ! empty($interpolation) ) {
+                $normalizedStop['interpolation'] = $interpolation;
+            }
+            $normalizedStops[] = $normalizedStop;
         }
 
         return $normalizedStops;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array<string, mixed>
+     */
+    private function normalizePaintVariableBindings(array $paint): array
+    {
+        $bindings = array();
+        foreach ( array('colorVar' => 'color', 'stopsVar' => 'stops') as $sourceKey => $target ) {
+            if ( ! array_key_exists($sourceKey, $paint) ) {
+                continue;
+            }
+
+            $binding = $this->normalizeVariableBindingValue($paint[$sourceKey], $target);
+            if ( ! empty($binding) ) {
+                $bindings[$target] = $binding;
+            }
+        }
+
+        return $bindings;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function normalizeVariableBindingValue(mixed $value, string $target): array
+    {
+        if ( is_scalar($value) && '' !== (string) $value ) {
+            return array(
+                'target_field'        => $target,
+                'variable_id'         => (string) $value,
+                'css_custom_property' => $this->cssCustomPropertyName((string) $value),
+            );
+        }
+
+        if ( ! is_array($value) ) {
+            return array();
+        }
+
+        $variableId = null;
+        foreach ( array('id', 'variableId', 'variableID', 'key') as $key ) {
+            if ( isset($value[$key]) && is_scalar($value[$key]) && '' !== (string) $value[$key] ) {
+                $variableId = (string) $value[$key];
+                break;
+            }
+        }
+        if ( null === $variableId ) {
+            foreach ( array('guid', 'alias', 'assetRef') as $key ) {
+                $variableId = $this->readGuidId($value[$key] ?? null);
+                if ( null !== $variableId ) {
+                    break;
+                }
+            }
+        }
+
+        $binding = array('target_field' => $target);
+        if ( null !== $variableId ) {
+            $binding['variable_id'] = $variableId;
+            $binding['css_custom_property'] = $this->cssCustomPropertyName($variableId);
+        }
+        foreach ( array('name', 'dataType', 'resolvedDataType', 'modeID', 'collectionID') as $key ) {
+            if ( isset($value[$key]) && is_scalar($value[$key]) ) {
+                $binding[$this->normalizeMetadataKey($key)] = (string) $value[$key];
+            }
+        }
+
+        return 1 === count($binding) ? array() : $binding;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array<string, mixed>
+     */
+    private function normalizeGradientInterpolation(array $paint): array
+    {
+        $interpolation = array();
+        foreach ( array('gradientInterpolation', 'interpolation', 'interpolationMode', 'colorInterpolation', 'colorSpace', 'interpolationColorSpace') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                $interpolation[$this->normalizeMetadataKey($key)] = (string) $paint[$key];
+            }
+        }
+
+        return $interpolation;
     }
 
     private function readNestedImageHash(array $image): ?string
@@ -740,6 +848,18 @@ final class PaintNormalizer
         }
 
         return null;
+    }
+
+    private function cssCustomPropertyName(string $variableId): string
+    {
+        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $variableId) ?? $variableId);
+        $slug = trim($slug, '-');
+        return '--figma-var-' . ('' !== $slug ? $slug : 'unknown');
+    }
+
+    private function normalizeMetadataKey(string $key): string
+    {
+        return strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key);
     }
 
     /**
