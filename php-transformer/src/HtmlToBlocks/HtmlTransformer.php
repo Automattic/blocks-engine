@@ -39,6 +39,8 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
+    private const MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES = 8192;
+
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
      * first-party runtime binds directly to them.
@@ -430,6 +432,7 @@ final class HtmlTransformer
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
@@ -1552,14 +1555,10 @@ final class HtmlTransformer
                 }
             }
 
-            // Imported inline SVGs are preserved faithfully as raw markup
-            // (core/html via inlineSvgBlockFromElement). They are never routed
-            // through core/icon: that block is a dynamic block keyed on a
-            // registry slug (its `icon` attribute) and discards arbitrary inline
-            // SVG markup, so render_block_core_icon() returns empty output for
-            // imported SVGs. Faithful passthrough keeps the original element,
-            // its sizing class(es), and correct-case viewBox so the
-            // materialized source CSS can size it.
+            // Imported inline SVGs are never routed through core/icon: that block
+            // is dynamic and keyed on a registered icon slug, not arbitrary SVG.
+            // Passive self-contained SVGs can be represented by core/image using
+            // a data:image/svg+xml source; the rest stay faithful core/html.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
                 // Faithfully preserve any inline SVG that carries real drawable
                 // artwork — icons, diagrams, illustrations — even when it is
@@ -1642,8 +1641,18 @@ final class HtmlTransformer
             }
 
             if ( $this->formHasDataEntryControls($element) ) {
+                $controls = $this->formControls($element);
                 $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
+                    'form'             => $this->formMetadata($element),
+                    'controls'         => $controls,
+                    'control_count'    => count($controls),
+                    'events'           => $this->eventMetadata($element),
+                    'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+
+                return $this->htmlPreservationBlock($element);
             }
 
             $controls = $this->formControls($element);
@@ -1762,6 +1771,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $columns ) {
@@ -1922,7 +1932,10 @@ final class HtmlTransformer
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
 
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
-            return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+            $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
+            if ( $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+                return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+            }
         }
 
         if ( $sourceElement instanceof DOMElement ) {
@@ -2474,12 +2487,24 @@ final class HtmlTransformer
             return null;
         }
 
-        $content = $this->innerHtml($element);
+        $content = $this->richTextContentWithoutDecorativeSvg($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function richTextContentWithoutDecorativeSvg(DOMElement $element): string
+    {
+        return $this->stripDecorativeSvgFromRichText($this->innerHtml($element));
+    }
+
+    private function stripDecorativeSvgFromRichText(string $content): string
+    {
+        $content = preg_replace('/<(?:span|i|b)\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[^>]*>\s*<svg\b[\s\S]*?<\/svg>\s*<\/(?:span|i|b)>\s*/i', '', $content) ?? $content;
+
+        return preg_replace('/<svg\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[\s\S]*?<\/svg>\s*/i', '', $content) ?? $content;
     }
 
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
@@ -4250,11 +4275,117 @@ final class HtmlTransformer
             return null;
         }
 
-        // core/icon is dynamic and references registered icon names; it cannot
-        // carry arbitrary imported SVG markup. Keep illustrative/decorative SVGs
-        // inline as sanitized core/html, but make viewBox-only SVGs explicitly
-        // bounded so they do not render oversized if source CSS is unavailable.
-        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgSizing($html)) ), array(), $element);
+        $html = $this->restoreSvgCasing($this->ensureInlineSvgSizing($html));
+        $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
+        if ( null !== $imageBlock ) {
+            return $imageBlock;
+        }
+
+        // Honest floor: keep SVGs that need inline document context as sanitized
+        // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
+        return $this->createBlock('core/html', array( 'content' => $html ), array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgImageBlockFromMarkup(DOMElement $element, string $html): ?array
+    {
+        if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
+            return null;
+        }
+
+        $html = $this->minifyInlineSvgForImage($html);
+        $dataUri = 'data:image/svg+xml,' . rawurlencode($html);
+        if ( strlen($dataUri) > self::MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES ) {
+            return null;
+        }
+
+        $dimensions = $this->svgImageDimensions($element, $html);
+        $attrs = array_filter(array_merge(array(
+            'url'          => $dataUri,
+            'alt'          => $this->svgImageAlt($element),
+            'className'    => $this->attr($element, 'class'),
+        ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
+
+        return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function minifyInlineSvgForImage(string $html): string
+    {
+        $html = preg_replace('/<!--.*?-->/s', '', $html) ?? $html;
+        $html = preg_replace('/>\s+</', '><', $html) ?? $html;
+        return trim($html);
+    }
+
+    private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
+    {
+        if ( ! $this->isPassiveSvgMarkup($element) ) {
+            return false;
+        }
+
+        // <img src="data:image/svg+xml,..."> renders in a separate image
+        // document, so inherited color/custom properties and external fragments
+        // cannot be represented faithfully as core/image.
+        if ( preg_match('/\bcurrentColor\b|var\s*\(/i', $html) ) {
+            return false;
+        }
+        if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function svgImageDimensions(DOMElement $element, string $html): array
+    {
+        $width = $this->svgLengthAttributeForImage($this->attr($element, 'width'));
+        $height = $this->svgLengthAttributeForImage($this->attr($element, 'height'));
+        if ( '' !== $width && '' !== $height ) {
+            return array( 'width' => $width, 'height' => $height );
+        }
+
+        if ( 1 !== preg_match('/\sviewBox\s*=\s*(["\'])([^"\']+)\1/i', $html, $viewBoxMatch) ) {
+            return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
+        }
+
+        $parts = preg_split('/[\s,]+/', trim($viewBoxMatch[2])) ?: array();
+        if ( count($parts) >= 4 ) {
+            $width = '' !== $width ? $width : ( is_numeric($parts[2]) ? $this->svgLengthAttributeForImage($this->normalizedSvgDimension((float) $parts[2])) : '' );
+            $height = '' !== $height ? $height : ( is_numeric($parts[3]) ? $this->svgLengthAttributeForImage($this->normalizedSvgDimension((float) $parts[3])) : '' );
+        }
+
+        return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
+    }
+
+    private function svgLengthAttributeForImage(string $value): string
+    {
+        $value = trim($value);
+        if ( '' === $value || ! preg_match('/^\d+(?:\.\d+)?$/', $value) ) {
+            return '';
+        }
+
+        return $value . 'px';
+    }
+
+    private function svgImageAlt(DOMElement $element): string
+    {
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+            return '';
+        }
+
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $value = trim($this->attr($element, $attribute));
+            if ( '' !== $value ) {
+                return $value;
+            }
+        }
+
+        $title = $element->getElementsByTagName('title')->item(0);
+        return $title instanceof DOMElement ? trim((string) $title->textContent) : '';
     }
 
     private function ensureInlineSvgSizing(string $html): string
@@ -4447,6 +4578,93 @@ final class HtmlTransformer
         return $targets;
     }
 
+    private function shouldRecordRuntimeHtmlSubtreeIsland(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'main', 'section' ), true) ) {
+            return false;
+        }
+
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return false;
+        }
+
+        if ( 0 < count($this->runtimeTargetsInSubtree($element, 1)) ) {
+            return true;
+        }
+
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            if ( 'form' === $tagName && $this->formHasDataEntryControls($descendant) ) {
+                return true;
+            }
+            if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function recordRuntimeIslandsForPreservedHtmlBlocks(array $blocks): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( 'core/html' === ($block['blockName'] ?? '') ) {
+                $content = is_array($block['attrs'] ?? null) && is_scalar($block['attrs']['content'] ?? null) ? (string) $block['attrs']['content'] : '';
+                $element = $this->preservedHtmlRootElement($content);
+                if ( $element instanceof DOMElement && $this->shouldRecordRuntimeHtmlSubtreeIsland($element) ) {
+                    $targets = $this->runtimeTargetsInSubtree($element, 8);
+                    $this->recordRuntimeIsland($element, 'app_shell', 'runtime_html_subtree', 'client_script_execution', array(
+                        'events'            => $this->eventMetadata($element),
+                        'target_count'      => count($targets),
+                        'targets'           => $targets,
+                        'app_shell_signals' => $this->runtimeAppShellSignals($element),
+                        'required_scripts'  => $this->requiredScriptsForElement($element),
+                    ));
+                }
+            }
+
+            if ( isset($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->recordRuntimeIslandsForPreservedHtmlBlocks($block['innerBlocks']);
+            }
+        }
+    }
+
+    private function preservedHtmlRootElement(string $html): ?DOMElement
+    {
+        if ( '' === trim($html) ) {
+            return null;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->normalizeHtml5VoidElements($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return null;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $body->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
     /**
      * @return array<int, DOMElement>
      */
@@ -4496,12 +4714,12 @@ final class HtmlTransformer
 
     private function hasWorkspaceSurface(DOMElement $element): bool
     {
-        foreach ( $this->descendantElements($element) as $descendant ) {
-            $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'svg', 'template', 'textarea' ), true) ) {
-                return true;
-            }
-            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+		foreach ( $this->descendantElements($element) as $descendant ) {
+			$tagName = strtolower($descendant->tagName);
+			if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
+				return true;
+			}
+			if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
                 return true;
             }
         }
@@ -4567,7 +4785,7 @@ final class HtmlTransformer
         }
 
         foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'transition' ), true) ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
                 return true;
             }
         }
@@ -5048,7 +5266,7 @@ final class HtmlTransformer
 
     private function htmlPreservationBlock(DOMElement $element): array
     {
-        return $this->blockFactory->create('core/html', array( 'content' => $this->outerHtml($element) ));
+        return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
     }
 
     private function recordRuntimeControlIsland(DOMElement $element): void

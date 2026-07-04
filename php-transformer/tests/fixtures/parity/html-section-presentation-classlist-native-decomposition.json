@@ -1,0 +1,45 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-section-presentation-classlist-native-decomposition",
+  "description": "Sections whose scripts only add presentation classes through classList remain decomposed into native blocks instead of being treated as runtime app shells.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-section-presentation-classlist-native-decomposition.json",
+    "notes": "Distilled from editorial article-grid section fallbacks: document/query scoped selectors add reveal classes but do not attach behavior or mutate content."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "blocks-engine/php-transformer/site-artifact/v1",
+      "entry_path": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "mime_type": "text/html",
+          "role": "document",
+          "content": "<main><section aria-label=\"Politics\"><div class=\"section-head\"><h2>Politics</h2></div><div class=\"article-grid\"><article class=\"article-card\"><h3>First story</h3><p>Editable summary.</p></article><article class=\"article-card reveal\"><h3>Second story</h3><p>Already revealed.</p></article></div></section><script>document.querySelectorAll('.article-grid').forEach(grid => { const cards = grid.querySelectorAll('.article-card'); cards.forEach((card, i) => { if (!card.classList.contains('reveal')) { card.classList.add('reveal', `reveal-d${Math.min(i + 1, 5)}`); } }); });</script></main>"
+        }
+      ]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "section" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-card", "tagName": "article" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "First story", "level": 3 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"article-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"\\u003csection" },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "script" }
+  ]
+}

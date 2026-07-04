@@ -566,6 +566,9 @@ final class ArtifactCompiler
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
             $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+                    continue;
+                }
                 if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
                     continue;
                 }
@@ -575,6 +578,9 @@ final class ArtifactCompiler
 
         foreach ( $this->allScriptContents($files) as $script ) {
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+                    continue;
+                }
                 if ( isset($statusFeedbackSelectors[$selector]) ) {
                     $selectors[$selector] = true;
                 }
@@ -866,15 +872,26 @@ final class ArtifactCompiler
         }
         if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
         if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
         foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
+            if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                continue;
+            }
             $selectors[$selector] = true;
         }
         foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
@@ -888,11 +905,52 @@ final class ArtifactCompiler
         }
         if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
-                $selectors[$this->canonicalRuntimeSelector((string) $selector)] = true;
+                $selector = $this->canonicalRuntimeSelector((string) $selector);
+                if ( $this->isPresentationalRuntimeSelector($selector) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
             }
         }
 
         return array_keys($selectors);
+    }
+
+    private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
+    {
+        if ( $this->isBehavioralRuntimeSelector($selector) ) {
+            return false;
+        }
+
+        $selectorPattern = preg_quote($selector, '/');
+        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)(.{0,700})/s', $script, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[2] as $tail ) {
+            $window = (string) $tail;
+            if ( ! str_contains($window, 'classList.') ) {
+                return false;
+            }
+            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:hidden|disabled|style|dataset)\b/', $window) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isBehavioralRuntimeSelector(string $selector): bool
+    {
+        if ( $this->isPresentationalRuntimeSelector($selector) ) {
+            return false;
+        }
+
+        if ( str_contains($selector, '[') || in_array($selector, array('button', 'input', 'select', 'textarea', 'canvas', 'svg'), true) ) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|modal|drawer|cart|checkout|search|filter|tab|accordion|slider|carousel|canvas|stage|player|map|app|editor|playground|demo)(?:[^a-z0-9]|$)/i', $selector);
     }
 
     /**
@@ -922,16 +980,46 @@ final class ArtifactCompiler
         $selectors = array();
         if ( preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches, PREG_SET_ORDER) ) {
             foreach ( $matches as $match ) {
-                $selectors[strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']'] = true;
+                $selector = strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
+                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
+                    $selectors[$selector] = true;
+                }
             }
         }
         if ( preg_match_all('/\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches) ) {
             foreach ( $matches[1] as $attribute ) {
-                $selectors['[' . strtolower((string) $attribute) . ']'] = true;
+                $selector = '[' . strtolower((string) $attribute) . ']';
+                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
+                    $selectors[$selector] = true;
+                }
             }
         }
 
         return array_keys($selectors);
+    }
+
+    private function isPresentationalRuntimeSelector(string $selector): bool
+    {
+        $name = '';
+        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
+            $name = substr(strtolower((string) $match[1]), 5);
+        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            $name = strtolower((string) $match[1]);
+        }
+
+        if ( '' === $name ) {
+            return false;
+        }
+
+        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
+            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1105,6 +1193,7 @@ final class ArtifactCompiler
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
+                    'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
                     'asset_references' => $this->assetReferencePaths($assets),
@@ -1366,6 +1455,7 @@ final class ArtifactCompiler
                     'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
                     'body_format'  => (string) ($file['kind'] ?? ''),
                     'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
+                    'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),
                 ),

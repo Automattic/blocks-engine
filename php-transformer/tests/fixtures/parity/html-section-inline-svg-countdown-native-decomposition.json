@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-section-inline-svg-countdown-native-decomposition",
+  "description": "Passive inline SVG artwork inside a scripted content section does not make the whole section a runtime app shell.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-section-inline-svg-countdown-native-decomposition.json",
+    "notes": "Distilled from nonprofit-campaign hero sections: the countdown script targets bounded child nodes while the section and passive SVG artwork remain editable native content."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "blocks-engine/php-transformer/site-artifact/v1",
+      "entry_path": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "mime_type": "text/html",
+          "role": "document",
+          "content": "<main><section class=\"hero\" aria-labelledby=\"hero-heading\"><div class=\"container hero-inner\"><div class=\"hero-copy\"><svg class=\"hero-mark\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle></svg><p class=\"eyebrow\">June 18, 2026</p><h1 id=\"hero-heading\">Keep the library open.</h1><p>Vote yes to protect public access.</p></div><div id=\"countdown-grid\" class=\"countdown\"><span class=\"countdown__num\">10</span><span class=\"countdown__num\">04</span></div></div></section><script>const grid=document.getElementById('countdown-grid');grid.querySelectorAll('.countdown__num').forEach((node, index) => { node.textContent = String(index + 1); });</script></main>"
+        }
+      ]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero", "tagName": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "container hero-inner" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero-mark\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"<section class=\\\"hero\\\"" },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "dom" },
+    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "runtime_dom_target" }
+  ]
+}
