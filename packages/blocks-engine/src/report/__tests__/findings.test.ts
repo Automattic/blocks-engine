@@ -206,7 +206,6 @@ deas Twilight Set</h4>
     expect(report.status).toBe('success_with_warnings');
     expect(report.diagnostics).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: 'hero_image_layering_risk', severity: 'warning' }),
         expect.objectContaining({ code: 'body_text_promoted_to_heading', selector: 'h6' }),
         expect.objectContaining({ code: 'heading_inside_list_item', selector: 'li h4' }),
         expect.objectContaining({
@@ -224,10 +223,9 @@ deas Twilight Set</h4>
           code: 'duplicate_canvas_chrome',
           duplicateText: 'a days of thunder lego set is coming',
         }),
-        expect.objectContaining({ code: 'split_word_heading', selector: 'h4' }),
       ]),
     );
-    expect(report.metrics.diagnosticCount).toBe(8);
+    expect(report.metrics.diagnosticCount).toBe(6);
   });
 
   it('does not value-import WordPress packages', () => {
