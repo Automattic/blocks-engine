@@ -39,6 +39,8 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
+    private const MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES = 8192;
+
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
      * first-party runtime binds directly to them.
@@ -4266,9 +4268,14 @@ final class HtmlTransformer
             return null;
         }
 
+        $dataUri = 'data:image/svg+xml,' . rawurlencode($html);
+        if ( strlen($dataUri) > self::MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES ) {
+            return null;
+        }
+
         $dimensions = $this->svgImageDimensions($element, $html);
         $attrs = array_filter(array_merge(array(
-            'url'          => 'data:image/svg+xml,' . rawurlencode($html),
+            'url'          => $dataUri,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->attr($element, 'class'),
             'isDecorative' => 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ? true : null,

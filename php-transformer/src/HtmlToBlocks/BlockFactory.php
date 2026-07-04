@@ -364,6 +364,9 @@ final class BlockFactory
         if ( ! empty($attrs['sizeSlug']) ) {
             $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
         }
+        if ( '' !== (string) ($attrs['width'] ?? '') || '' !== (string) ($attrs['height'] ?? '') ) {
+            $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'is-resized');
+        }
 
         $imageAttrs = array(
             'src'    => $attrs['url'] ?? '',
