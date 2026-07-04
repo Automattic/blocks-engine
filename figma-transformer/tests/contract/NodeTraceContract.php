@@ -118,4 +118,5 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
     $assert('trace-clone:component/title' === ($cloneTitleTrace['source']['id'] ?? null), 'node-trace-clone-source-id');
     $assert('trace-clone:component/title' === ($cloneTitleTrace['raw']['id'] ?? null), 'node-trace-clone-raw-source-id');
     $assert('Clone source' === ($cloneTitleTrace['raw']['text']['characters'] ?? null), 'node-trace-clone-raw-source-text');
+    $assert('trace-clone:component/title' === ($cloneTitleTrace['geometry_trace']['component_source_clone']['source_id'] ?? null), 'node-trace-clone-geometry-source-id');
 }

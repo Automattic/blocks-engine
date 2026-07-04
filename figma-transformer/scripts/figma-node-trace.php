@@ -555,6 +555,7 @@ function blocks_engine_figma_trace_geometry_context(mixed $rawNode, mixed $norma
         'raw_transform' => is_array($rawNode) ? blocks_engine_figma_trace_transform_summary($rawNode) : null,
         'normalized_box' => is_array($normalizedNode['box'] ?? null) ? $normalizedNode['box'] : null,
         'normalized_figma_box' => is_array($normalizedNode['figma_box'] ?? null) ? $normalizedNode['figma_box'] : null,
+        'component_source_clone' => is_array($normalizedNode) ? blocks_engine_figma_trace_component_source_clone_summary($normalizedNode) : null,
         'normalized_transform' => is_array($normalizedNode) ? blocks_engine_figma_trace_transform_summary($normalizedNode) : null,
         'visual_rect' => is_array($visualNode['rect'] ?? null) ? $visualNode['rect'] : null,
         'visible_rect' => is_array($visualNode['visible_rect'] ?? null) ? $visualNode['visible_rect'] : null,
@@ -564,6 +565,17 @@ function blocks_engine_figma_trace_geometry_context(mixed $rawNode, mixed $norma
         'emitted_geometry' => is_array($style['emitted'] ?? null) ? $style['emitted'] : null,
         'expected_geometry' => is_array($style['expected'] ?? null) ? $style['expected'] : null,
         'style_mismatches' => is_array($style['mismatches'] ?? null) ? $style['mismatches'] : null,
+    ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+}
+
+function blocks_engine_figma_trace_component_source_clone_summary(array $node): array
+{
+    return array_filter(array(
+        'source_id' => isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : null,
+        'is_clone_geometry' => true === ($node['_component_source_clone_geometry'] ?? false) ? true : null,
+        'source_box' => is_array($node['_component_source_clone_source_box'] ?? null) ? $node['_component_source_clone_source_box'] : null,
+        'scale' => is_array($node['_component_source_clone_scale'] ?? null) ? $node['_component_source_clone_scale'] : null,
+        'geometry_decision' => is_array($node['_component_source_clone_geometry_decision'] ?? null) ? $node['_component_source_clone_geometry_decision'] : null,
     ), static fn (mixed $value): bool => null !== $value && array() !== $value);
 }
 
@@ -699,8 +711,12 @@ function blocks_engine_figma_trace_interesting_fields(array $node): array
         'absoluteBoundingBox', 'absoluteRenderBounds', 'size', 'x', 'y', 'width', 'height', 'rotation', 'fills', 'fillPaints',
         'strokes', 'strokePaints', 'styles', 'styleIdForFill', 'styleIdForStroke', 'boundVariables', 'variableConsumptionMap',
         'componentId', 'componentProperties', 'componentPropertyDefinitions', 'overrides', 'overrideTable', 'overrideMap',
+        'symbolData', 'derivedSymbolData', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs', 'guidPath',
+        'componentKey', 'key', 'variantPropSpecs', 'isStateGroup', 'stateGroupPropertyValueOrders',
         'characters', 'text', 'figma_text', 'style', 'textStyleOverrides', 'lineTypes', 'lineIndentations', 'vectorNetwork',
         'vectorPaths', 'vectorPath', 'arcData', 'cornerRadius', 'rectangleCornerRadii', 'figma_component_source_id',
+        '_component_source_clone_geometry', '_component_source_clone_source_box', '_component_source_clone_scale',
+        '_component_source_clone_geometry_decision', '_figma_instance_override_applied',
     );
     $summary = array();
     foreach ( $interesting as $field ) {
