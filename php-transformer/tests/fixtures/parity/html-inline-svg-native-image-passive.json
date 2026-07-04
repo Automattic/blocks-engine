@@ -25,7 +25,7 @@
     { "path": "blocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
     { "path": "blocks.0.attrs.url", "assert": "contains", "value": "linearGradient" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image brand-mark is-resized\"><img src=\"data:image/svg+xml," },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized brand-mark\"><img src=\"data:image/svg+xml," },
     { "path": "serialized_blocks", "assert": "contains", "value": "alt=\"Acme\" style=\"width:40px;height:40px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
