@@ -12,5 +12,9 @@
     "bundles",
     "pricing"
   ],
+  "capabilities": [
+    "commerce-products",
+    "forms"
+  ],
   "complexity": 3
 }
