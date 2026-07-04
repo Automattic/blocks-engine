@@ -501,11 +501,11 @@ $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
 )->toArray();
 $inlineSvgMarkup = (string) ($inlineSvgArtwork['serialized_blocks'] ?? '');
-$assert('core/html' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'meaningful inline SVG artwork materializes as sanitized inline HTML');
-$assert(str_contains($inlineSvgMarkup, '<!-- wp:html'), 'meaningful inline SVG artwork serializes as core/html');
-$assert(str_contains($inlineSvgMarkup, '<svg class="album-art"'), 'meaningful inline SVG artwork preserves the SVG element and class');
-$assert(str_contains($inlineSvgMarkup, 'aria-label="Album art"'), 'meaningful inline SVG artwork preserves accessible label');
-$assert(! str_contains($inlineSvgMarkup, 'data:image/svg+xml'), 'meaningful inline SVG artwork avoids unreliable data image URLs');
+$assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'passive meaningful inline SVG artwork materializes as native core/image');
+$assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'passive meaningful inline SVG artwork serializes as core/image');
+$assert(str_contains($inlineSvgMarkup, 'data:image/svg+xml,'), 'passive meaningful inline SVG artwork uses a safe data image URL');
+$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image album-art is-resized"'), 'passive meaningful inline SVG artwork preserves source class and core/image resize class on the image block wrapper');
+$assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
@@ -808,25 +808,27 @@ $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
 $assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
-$assert('core/html' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is preserved faithfully as a core/html block, not a dynamic core/icon (which discards inline SVG markup and renders empty)');
-$assert(str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'icon-context inline SVG is preserved through a faithful core/html block so the verbatim <svg> element survives rendering');
-$assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
-$assert(str_contains($safeInlineSvgSerialized, '<svg viewBox="0 0 16 16"'), 'decorative icon SVG markup is preserved verbatim with correct-case viewBox');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
+$assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
+$assert(str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG uses a safe SVG data image source');
+$assert(str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'decorative icon SVG keeps intrinsic viewBox dimensions through core/image save styles');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'
 )->toArray();
-$safeInlineSvgAssetContent = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['content'] ?? '');
-$assert('core/html' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
-$assert(str_contains($safeInlineSvgAssetContent, 'aria-label="Status badge"') && str_contains($safeInlineSvgAssetContent, 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its accessible label and correct-case viewBox in faithful markup');
+$safeInlineSvgAssetUrl = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['url'] ?? '');
+$assert('core/image' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG is represented as native core/image, not dynamic core/icon');
+$assert('Status badge' === ($safeInlineSvgAsset['blocks'][0]['attrs']['alt'] ?? ''), 'safe accessible inline SVG maps its accessible label to image alt text');
+$assert(str_contains(rawurldecode(str_replace('data:image/svg+xml,', '', $safeInlineSvgAssetUrl)), 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its correct-case viewBox in the data image source');
 $assert(array() === ($safeInlineSvgAsset['assets'] ?? array()), 'safe accessible inline SVG icon does not generate an image asset');
-$assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG avoids data URI serialization');
+$assert(str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG serializes a data image URL');
 
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
-$complexSvgContent = (string) ($complexSvgAsset['blocks'][0]['attrs']['content'] ?? '');
-$assert('core/html' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large illustrative inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$complexSvgUrl = (string) ($complexSvgAsset['blocks'][0]['attrs']['url'] ?? '');
+$complexSvgContent = rawurldecode(str_replace('data:image/svg+xml,', '', $complexSvgUrl));
+$assert('core/image' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large passive illustrative inline SVG is represented as native core/image');
 $assert(array() === ($complexSvgAsset['assets'] ?? array()), 'inline illustrative SVG is not externalized to a generated .svg image asset');
 $assert(str_contains($complexSvgContent, '<svg') && str_contains($complexSvgContent, 'viewBox="0 0 400 200"'), 'inline illustrative SVG preserves its viewBox casing so it scales correctly');
 $assert(str_contains($complexSvgContent, 'role="img"') && str_contains($complexSvgContent, 'aria-label="Site illustration"'), 'inline illustrative SVG preserves accessibility attributes');
@@ -1351,8 +1353,8 @@ $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
 $safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
 $assert(1 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVG wrappers still materialize when they carry presentation signals');
-$assert(! str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs do not serialize as image data URIs');
-$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe logo-like inline SVG markup is preserved inline instead of externalized to a blocked .svg asset');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe passive decorative inline SVGs serialize as native image data URIs');
+$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe logo-like inline SVG markup is preserved inside the data image source instead of externalized to a blocked .svg asset');
 $assert(array() === ($safeDecorativeSvg['assets'] ?? array()), 'safe decorative inline SVG does not generate an external .svg image asset');
 $assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo'), 'safe logo-like inline SVG context preserves its wrapper class');
 
@@ -1493,12 +1495,13 @@ $artifactInlineSvg = $compiler->compile(
         'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
     )
 )->toArray();
-$artifactInlineSvgContent = (string) ($artifactInlineSvg['blocks'][0]['attrs']['content'] ?? '');
+$artifactInlineSvgUrl = (string) ($artifactInlineSvg['blocks'][0]['attrs']['url'] ?? '');
+$artifactInlineSvgContent = rawurldecode(str_replace('data:image/svg+xml,', '', $artifactInlineSvgUrl));
 $artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
-$assert('core/html' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
 $assert(array() === $artifactInlineSvgAssets, 'artifact safe inline SVG is not externalized to a generated .svg image asset');
-$assert(str_contains($artifactInlineSvgContent, 'aria-label="Inline logo"'), 'artifact inline SVG block preserves sanitized SVG content');
-$assert(! str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'artifact safe inline SVG avoids data URI serialization');
+$assert(str_contains($artifactInlineSvgContent, 'aria-label="Inline logo"'), 'artifact inline SVG image source preserves sanitized SVG content');
+$assert(str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'artifact safe inline SVG serializes a data image URL');
 
 $artifactNonEntryInlineSvg = $compiler->compile(
     array(
@@ -1510,8 +1513,8 @@ $artifactNonEntryInlineSvg = $compiler->compile(
     )
 )->toArray();
 $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:html'), 'non-entry artifact simple icon SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
+$assert(str_contains(rawurldecode((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? '')), 'aria-label="About icon"') && str_contains(rawurldecode((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? '')), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox');
 $assert(array() === ($artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array()), 'non-entry artifact simple icon SVG does not materialize a generated image asset');
 
 $artifactInlineScript = $compiler->compile(

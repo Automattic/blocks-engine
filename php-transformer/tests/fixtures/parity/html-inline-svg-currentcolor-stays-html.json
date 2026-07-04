@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-currentcolor-stays-html",
+  "description": "Keeps inheritance-sensitive decorative icons as sanitized core/html because currentColor cannot inherit through a core/image data URI document.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-currentcolor-stays-html.json",
+    "notes": "Distilled structural shape for small aria-hidden context icons whose stroke/fill depends on currentColor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><p class=\"notice\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"none\" aria-hidden=\"true\"><path d=\"M10 2.5L17.5 16H2.5L10 2.5Z\" fill=\"rgba(255,255,255,0.15)\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><line x1=\"10\" y1=\"8\" x2=\"10\" y2=\"12\" stroke=\"currentColor\"></line></svg> Sold out</p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "stroke=\"currentColor\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data:image/svg+xml" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

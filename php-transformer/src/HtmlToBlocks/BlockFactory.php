@@ -364,6 +364,9 @@ final class BlockFactory
         if ( ! empty($attrs['sizeSlug']) ) {
             $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
         }
+        if ( '' !== (string) ($attrs['width'] ?? '') || '' !== (string) ($attrs['height'] ?? '') ) {
+            $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'is-resized');
+        }
 
         $imageAttrs = array(
             'src'    => $attrs['url'] ?? '',
@@ -371,9 +374,9 @@ final class BlockFactory
             'title'  => $attrs['title'] ?? '',
             'srcset' => $attrs['srcset'] ?? '',
             'sizes'  => $attrs['sizes'] ?? '',
-            'width'  => (string) ($attrs['width'] ?? ''),
-            'height' => (string) ($attrs['height'] ?? ''),
             'class'  => ! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '',
+            'style'  => $this->imageDimensionStyle($attrs),
+            'role'   => ! empty($attrs['isDecorative']) ? 'none' : '',
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
@@ -392,6 +395,29 @@ final class BlockFactory
         }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function imageDimensionStyle(array $attrs): string
+    {
+        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) ) {
+            return '';
+        }
+
+        $style = array();
+        if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
+            $style[] = 'width:' . (string) $attrs['width'];
+        }
+
+        if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
+            $style[] = 'height:auto';
+        } else {
+            $style[] = 'height:' . (string) $attrs['height'];
+        }
+
+        return implode(';', $style);
     }
 
     /**
