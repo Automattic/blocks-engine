@@ -1078,7 +1078,7 @@ final class FigmaTransformer
      */
     private function mergePageTransformDiagnostics(array $pageReports, array $assetReport, array $visualNodeMap): array
     {
-        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
+        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array(), 'asset_nodes' => array());
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
@@ -1184,6 +1184,7 @@ final class FigmaTransformer
             DiagnosticAggregation::addIntegerCounts($images, $pageImages, array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count'));
             DiagnosticAggregation::appendContextSamples($images, 'image_block_nodes', $pageImages, 'image_block_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($images, 'missing_assets', $pageImages, 'missing_assets', $pageContext);
+            DiagnosticAggregation::appendContextSamples($images, 'asset_nodes', $pageImages, 'asset_nodes', $pageContext);
 
             $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
             DiagnosticAggregation::addIntegerCounts($vectors, $pageVectors, array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders'));
@@ -1557,11 +1558,7 @@ final class FigmaTransformer
     private function sourceLossCoverage(array $images, array $vectors): array
     {
         $domains = array(
-            'images' => $this->sourceLossDomain(
-                (int) ($images['node_refs'] ?? 0),
-                (int) ($images['resolved_assets'] ?? 0),
-                count($images['missing_assets'] ?? array())
-            ),
+            'images' => $this->sourceLossDomain(...$this->imageSourceLossCounts($images)),
             'vectors' => $this->sourceLossDomain(
                 (int) ($vectors['nodes'] ?? 0),
                 (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
@@ -1591,13 +1588,49 @@ final class FigmaTransformer
     /**
      * @return array<string, mixed>
      */
-    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted): array
+    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted, int $intentionallySuppressed = 0): array
     {
+        $decoded = max(0, $decoded);
+        $emitted = max(0, $emitted);
+        $intentionallySuppressed = max(0, $intentionallySuppressed);
+
         return array(
-            'decoded_source_nodes' => max(0, $decoded),
-            'emitted_source_nodes' => max(0, $emitted),
+            'decoded_source_nodes' => $decoded,
+            'emitted_source_nodes' => min($decoded, $emitted + $intentionallySuppressed),
+            'intentionally_suppressed_source_nodes' => min($decoded, $intentionallySuppressed),
             'not_emitted_source_nodes' => max(0, $notEmitted),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $images
+     * @return array{0: int, 1: int, 2: int, 3: int}
+     */
+    private function imageSourceLossCounts(array $images): array
+    {
+        $decoded = (int) ($images['node_refs'] ?? 0);
+        $assetNodes = is_array($images['asset_nodes'] ?? null) ? $images['asset_nodes'] : array();
+        if ( empty($assetNodes) ) {
+            return array($decoded, (int) ($images['resolved_assets'] ?? 0), count($images['missing_assets'] ?? array()), 0);
+        }
+
+        $emitted = 0;
+        $suppressed = 0;
+        foreach ( $assetNodes as $assetNode ) {
+            if ( ! is_array($assetNode) ) {
+                continue;
+            }
+            if ( true === ($assetNode['emitted'] ?? null) ) {
+                ++$emitted;
+                continue;
+            }
+            if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
+                ++$suppressed;
+            }
+        }
+
+        $notEmitted = max(0, $decoded - $emitted - $suppressed);
+        return array($decoded, $emitted, $notEmitted, $suppressed);
     }
 
     /**

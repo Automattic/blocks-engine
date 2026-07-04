@@ -352,11 +352,7 @@ final class TransformDiagnosticsBuilder
     private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping): array
     {
         $domains = array(
-            'images' => $this->sourceLossDomain(
-                (int) ($image['node_refs'] ?? 0),
-                (int) ($image['resolved_assets'] ?? 0),
-                count($image['missing_assets'] ?? array())
-            ),
+            'images' => $this->sourceLossDomain(...$this->imageSourceLossCounts($image)),
             'vectors' => $this->sourceLossDomain(
                 (int) ($vectors['nodes'] ?? 0),
                 (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
@@ -422,6 +418,37 @@ final class TransformDiagnosticsBuilder
             'intentionally_suppressed_source_nodes' => min($decoded, $intentionallySuppressed),
             'not_emitted_source_nodes' => $notEmitted,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @return array{0: int, 1: int, 2: int, 3: int}
+     */
+    private function imageSourceLossCounts(array $image): array
+    {
+        $decoded = (int) ($image['node_refs'] ?? 0);
+        $assetNodes = is_array($image['asset_nodes'] ?? null) ? $image['asset_nodes'] : array();
+        if ( empty($assetNodes) ) {
+            return array($decoded, (int) ($image['resolved_assets'] ?? 0), count($image['missing_assets'] ?? array()), 0);
+        }
+
+        $emitted = 0;
+        $suppressed = 0;
+        foreach ( $assetNodes as $assetNode ) {
+            if ( ! is_array($assetNode) ) {
+                continue;
+            }
+            if ( true === ($assetNode['emitted'] ?? null) ) {
+                ++$emitted;
+                continue;
+            }
+            if ( isset($assetNode['source_loss_reason']) && is_scalar($assetNode['source_loss_reason']) && '' !== (string) $assetNode['source_loss_reason'] ) {
+                ++$suppressed;
+            }
+        }
+
+        $notEmitted = max(0, $decoded - $emitted - $suppressed);
+        return array($decoded, $emitted, $notEmitted, $suppressed);
     }
 
     /**

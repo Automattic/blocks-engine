@@ -57,7 +57,7 @@ final class DecisionTraceBuilder
      * @param array<string, mixed>|null $parentNode
      * @param array<int, string> $declarations
      */
-    public static function recordResponsiveTrace(array &$traces, array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations): void
+    public static function recordResponsiveTrace(array &$traces, array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class = ''): void
     {
         if ( '' === $reasonCode ) {
             $reasonCode = 'responsive_safety_override';
@@ -77,6 +77,7 @@ final class DecisionTraceBuilder
             'node_id' => $nodeId,
             'name' => (string) ($node['name'] ?? ''),
             'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $class,
             'parent_id' => null === $parentNode ? null : (string) ($parentNode['id'] ?? ''),
             'viewport_width' => $viewportWidth,
             'declarations' => array_values($declarations),
@@ -101,12 +102,24 @@ final class DecisionTraceBuilder
         ksort($countsByReason);
         ksort($countsByDomain);
 
+        $samplesByReason = array();
+        foreach ( $traces as $trace ) {
+            $reason = (string) ($trace['reason_code'] ?? 'unknown');
+            if ( isset($samplesByReason[$reason]) ) {
+                continue;
+            }
+
+            $samplesByReason[$reason] = $trace;
+        }
+        ksort($samplesByReason);
+
         return array(
             'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
             'trace_count' => count($traces),
             'reason_counts' => $countsByReason,
             'domain_counts' => $countsByDomain,
             'samples' => array_slice(array_values($traces), 0, 100),
+            'samples_by_reason' => $samplesByReason,
         );
     }
 

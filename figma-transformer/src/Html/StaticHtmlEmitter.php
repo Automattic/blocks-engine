@@ -10,6 +10,7 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 final class StaticHtmlEmitter
 {
     private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
+    private const INLINE_VECTOR_SVG_BUDGET_BYTES = 32768;
 
     private LayoutGapResolver $layoutGapResolver;
 
@@ -32,6 +33,8 @@ final class StaticHtmlEmitter
      * @var array<string, string>
      */
     private array $generatedVectorSvgPathsByHash = array();
+
+    private int $inlineVectorSvgBytes = 0;
 
     private bool $renderTextGlyphPaths = false;
 
@@ -374,6 +377,7 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->inlineVectorSvgBytes = 0;
         $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
@@ -499,6 +503,7 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->inlineVectorSvgBytes = 0;
         $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
@@ -593,6 +598,7 @@ final class StaticHtmlEmitter
             // A planned page is a single wrapping frame; its bands are its
             // direct children one level down.
             $this->sectionDepth = 1;
+            $this->inlineVectorSvgBytes = 0;
             $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
             $files[] = array(
                 'path'      => $path,
@@ -621,6 +627,7 @@ final class StaticHtmlEmitter
             $this->prepareHeadingRanking($fallbackNodes);
             $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
             $this->sectionDepth = $this->sectionDepthFor($fallbackNodes);
+            $this->inlineVectorSvgBytes = 0;
             foreach ( $fallbackNodes as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
@@ -3944,7 +3951,8 @@ final class StaticHtmlEmitter
             $assetPath = $this->nodeAssetPath($node);
             $emitted = $this->htmlContainsNodeId($html, (string) ($node['id'] ?? ''));
             $reason = $this->assetNodeEmissionReason($node, $assetPath, $emitted, $parentNode);
-            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, $emitted, $reason);
+            $sourceLossReason = $emitted ? null : $suppressionReason;
+            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, $emitted, $reason, $sourceLossReason);
             $image['asset_nodes'][] = $assetNode;
             $image['asset_node_reason_categories'][$reason] = (int) ($image['asset_node_reason_categories'][$reason] ?? 0) + 1;
 
@@ -4513,7 +4521,7 @@ final class StaticHtmlEmitter
      * @param array<int, string> $paintReferences
      * @return array<string, mixed>
      */
-    private function assetCoverageNodeSample(array $node, array $assetReferences, array $paintReferences, ?string $assetPath, bool $emitted, string $reason): array
+    private function assetCoverageNodeSample(array $node, array $assetReferences, array $paintReferences, ?string $assetPath, bool $emitted, string $reason, ?string $sourceLossReason = null): array
     {
         return array_filter(array(
             'node_id' => (string) ($node['id'] ?? ''),
@@ -4522,6 +4530,7 @@ final class StaticHtmlEmitter
             'class' => $this->nodeDiagnosticClass($node),
             'emitted' => $emitted,
             'reason' => $reason,
+            'source_loss_reason' => $sourceLossReason,
             'path' => $assetPath,
             'refs' => array_values(array_unique(array_merge($assetReferences, $paintReferences))),
         ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
@@ -4565,7 +4574,7 @@ final class StaticHtmlEmitter
             ++$image['node_refs'];
             $assetPath = $this->nodeAssetPath($node);
             $reason = $this->assetNodeEmissionReason($node, $assetPath, $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')), $parentNode);
-            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, false, $reason);
+            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, false, $reason, 'clipped_masked');
             $image['asset_nodes'][] = $assetNode;
             $image['asset_node_reason_categories'][$reason] = (int) ($image['asset_node_reason_categories'][$reason] ?? 0) + 1;
             if ( null === $assetPath ) {
@@ -8596,7 +8605,13 @@ final class StaticHtmlEmitter
         }
 
         $hash = hash('sha256', $svg);
-        if ( strlen($svg) <= self::EXTERNAL_VECTOR_SVG_BYTES && ! isset($this->generatedVectorSvgPathsByHash[$hash]) ) {
+        $svgBytes = strlen($svg);
+        if (
+            $svgBytes <= self::EXTERNAL_VECTOR_SVG_BYTES
+            && ! isset($this->generatedVectorSvgPathsByHash[$hash])
+            && $this->inlineVectorSvgBytes + $svgBytes <= self::INLINE_VECTOR_SVG_BUDGET_BYTES
+        ) {
+            $this->inlineVectorSvgBytes += $svgBytes;
             return $svg;
         }
 

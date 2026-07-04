@@ -12,6 +12,11 @@ final class FigKiwiSchemaFields
     public const PRIMITIVE_TYPES = array('bool', 'byte', 'int', 'uint', 'float', 'string', 'int64', 'uint64');
 
     /**
+     * @var array<string, array<int, array<string, mixed>>>
+     */
+    private array $fieldsByValueCache = array();
+
+    /**
      * @param array<string, mixed> $schema
      * @return array<string, array<string, mixed>>
      */
@@ -33,6 +38,11 @@ final class FigKiwiSchemaFields
      */
     public function fieldsByValue(array $definition): array
     {
+        $cacheKey = $this->definitionCacheKey($definition);
+        if ( isset($this->fieldsByValueCache[$cacheKey]) ) {
+            return $this->fieldsByValueCache[$cacheKey];
+        }
+
         $fields = array();
         foreach ( $definition['fields'] ?? array() as $field ) {
             if ( is_array($field) ) {
@@ -40,7 +50,40 @@ final class FigKiwiSchemaFields
             }
         }
 
+        $this->fieldsByValueCache[$cacheKey] = $fields;
         return $fields;
+    }
+
+    /**
+     * @param array<string, mixed> $definition
+     */
+    private function definitionCacheKey(array $definition): string
+    {
+        $fields = is_array($definition['fields'] ?? null) ? $definition['fields'] : array();
+        $first = $fields[0] ?? array();
+        $last = $fields[array_key_last($fields)] ?? array();
+
+        return implode('|', array(
+            (string) ($definition['name'] ?? ''),
+            (string) ($definition['kind'] ?? ''),
+            (string) count($fields),
+            is_array($first) ? $this->fieldCacheKeyPart($first) : '',
+            is_array($last) ? $this->fieldCacheKeyPart($last) : '',
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $field
+     */
+    private function fieldCacheKeyPart(array $field): string
+    {
+        return implode(':', array(
+            (string) ($field['value'] ?? ''),
+            (string) ($field['name'] ?? ''),
+            (string) ($field['type'] ?? ''),
+            true === ($field['is_array'] ?? false) ? '1' : '0',
+            true === ($field['is_deprecated'] ?? false) ? '1' : '0',
+        ));
     }
 
     /**

@@ -477,6 +477,29 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(1 === ($externalizedVectorDiagnostics['assets'][0]['path_element_count'] ?? null), 'generated-svg-assets-diagnostics-asset-path-element-count');
     $assert(($externalizedVectorDiagnostics['assets'][0]['path_data_bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-asset-path-data-bytes');
     $assert(1 === ($externalizedVectorDiagnostics['assets'][0]['unique_path_data_count'] ?? null), 'generated-svg-assets-diagnostics-asset-unique-path-data-count');
+
+    $inlineBudgetVectorNodes = array();
+    for ( $i = 0; $i < 4; $i++ ) {
+        $inlineBudgetVectorNodes[] = array(
+            'id'                 => 'vector:inline-budget-' . $i,
+            'type'               => 'VECTOR',
+            'name'               => 'Inline Budget Vector ' . $i,
+            'width'              => 10,
+            'height'             => 10,
+            'figma_vector_paths' => array(array('data' => 'M0 0' . str_repeat('L' . (10 + $i) . ' 10', 1800) . 'Z', 'source' => 'fillGeometry')),
+        );
+    }
+    $inlineBudgetVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Inline Budget Vector Fixture',
+        'nodes' => $inlineBudgetVectorNodes,
+    ));
+    $inlineBudgetVectorHtml = $fileContent($inlineBudgetVectorResult, 'index.html');
+    $inlineBudgetVectorDiagnostics = $inlineBudgetVectorResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $inlineBudgetGeneratedSvgDiagnostics = $inlineBudgetVectorDiagnostics['generated_svg_assets'] ?? array();
+    $assert(substr_count($inlineBudgetVectorHtml, 'class="figma-vector-asset"') > 0, 'inline-budget-vector-externalizes-after-document-budget');
+    $assert(($inlineBudgetVectorDiagnostics['html_artifact']['inline_svg_bytes'] ?? 0) < 32768, 'inline-budget-vector-keeps-inline-svg-bytes-under-warning-floor');
+    $assert(false === ($inlineBudgetVectorDiagnostics['html_artifact']['overlarge_inline_svg_ratio'] ?? true), 'inline-budget-vector-avoids-overlarge-inline-svg-ratio');
+    $assert(($inlineBudgetGeneratedSvgDiagnostics['count'] ?? 0) > 0, 'inline-budget-vector-generated-svg-assets-recorded');
     
     $starVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Star Vector Fixture',

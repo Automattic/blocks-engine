@@ -338,7 +338,7 @@ final class BreakpointMediaDiffBuilder
             }
             if ( ! empty($changed) ) {
                 $rules[] = '.' . $class . '{' . implode(';', $changed) . '}';
-                $this->recordResponsiveDecisionTrace($node, $parentNode, $reasonCode, $viewportWidth, $changed);
+                $this->recordResponsiveDecisionTrace($node, $parentNode, $reasonCode, $viewportWidth, $changed, $class);
             }
         }
 
@@ -389,9 +389,9 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, mixed>|null $parentNode
      * @param array<int, string> $declarations
      */
-    private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations): void
+    private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations, string $class): void
     {
-        DecisionTraceBuilder::recordResponsiveTrace($this->decisionTraces, $node, $parentNode, $reasonCode, $viewportWidth, $declarations);
+        DecisionTraceBuilder::recordResponsiveTrace($this->decisionTraces, $node, $parentNode, $reasonCode, $viewportWidth, $declarations, $class);
     }
 
     private function cssPixelValue(string $value): ?float

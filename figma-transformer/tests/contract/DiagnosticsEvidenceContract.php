@@ -68,6 +68,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
         }
     }
     $assert(1 === ($positioningTraceDiagnostics['decision_traces']['domain_counts']['positioning_context'] ?? null), 'diagnostics-evidence-positioning-context-trace-count');
+    $assert('freeform_parent_absolute_child' === ($positioningTraceDiagnostics['decision_traces']['samples_by_reason']['freeform_parent_absolute_child']['reason_code'] ?? null), 'diagnostics-evidence-positioning-context-sample-by-reason');
     $assert('freeform_parent_absolute_child' === ($positioningTraceSample['reason_code'] ?? null), 'diagnostics-evidence-positioning-context-reason');
     $assert(in_array('position:absolute', $positioningTraceSample['evidence']['positioning_declarations'] ?? array(), true), 'diagnostics-evidence-positioning-context-declarations');
 
@@ -410,6 +411,9 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($assetReasons['no_archive_asset'] ?? null), 'diagnostics-evidence-asset-no-archive-reason');
     $assert('no_archive_asset' === ($assetOmissionDiagnostics['images']['asset_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-asset-node-reason');
     $assert('no_archive_asset' === ($assetSignal['sample_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-asset-signal-sample-reason');
+    $assert(true === ($assetOmissionDiagnostics['images']['asset_nodes'][0]['emitted'] ?? null), 'diagnostics-evidence-asset-missing-render-node-emitted');
+    $assert(0 === ($assetOmissionDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-asset-missing-render-no-source-loss-gap');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $assetOmissionResult, 'source_loss_coverage_gap', 'diagnostics-evidence-asset-missing-render-no-source-loss-signal');
 
     $maskMetadataResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Mask Metadata Fixture',
@@ -597,11 +601,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('index.html' === ($multiPageDiagnostics['layout']['positional_parity']['decision_trace_samples'][0]['page_path'] ?? null), 'diagnostics-evidence-multi-page-positional-sample-context');
     $sourceLossCoverage = $multiPageDiagnostics['artifact_quality']['summary']['source_loss_coverage'] ?? array();
     $sourceLossSignal = blocks_engine_figma_transformer_contract_artifact_quality_signal($multiPageResult, 'source_loss_coverage_gap');
-    $assert(4 === ($sourceLossCoverage['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');
-    $assert(2 === ($sourceLossCoverage['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-image-domain-count');
+    $assert(2 === ($sourceLossCoverage['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');
+    $assert(0 === ($sourceLossCoverage['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-image-domain-count');
     $assert(2 === ($sourceLossCoverage['domains']['vectors']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-vector-domain-count');
-    $assert(0.0 === ($sourceLossCoverage['coverage_ratio'] ?? null), 'diagnostics-evidence-multi-page-source-loss-ratio');
-    $assert(4 === ($sourceLossSignal['count'] ?? null), 'diagnostics-evidence-multi-page-source-loss-signal-count');
+    $assert(0.5 === ($sourceLossCoverage['coverage_ratio'] ?? null), 'diagnostics-evidence-multi-page-source-loss-ratio');
+    $assert(2 === ($sourceLossSignal['count'] ?? null), 'diagnostics-evidence-multi-page-source-loss-signal-count');
     $assert('fail' === ($multiPageDiagnostics['artifact_quality']['quality_status'] ?? null), 'diagnostics-evidence-multi-page-source-loss-quality-fail');
     blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $multiPageResult, 'missing_render_assets', 'diagnostics-evidence-multi-page-source-loss-missing-assets-signal');
     blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $multiPageResult, 'vector_placeholders', 'diagnostics-evidence-multi-page-source-loss-vector-signal');

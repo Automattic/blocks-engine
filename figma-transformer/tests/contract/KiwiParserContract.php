@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiSchemaFields;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $assert, callable $fileContent): void
@@ -162,6 +163,12 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert('kiwi_message' === ($guardedChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-selectively-decodes-oversized-message');
     $assert('selective' === ($guardedChunks[1]['payload']['kiwi_message_decode'] ?? null), 'kiwi-parser-selective-message-mode');
     $assert(in_array('figma_transformer_kiwi_message_selective_decode_used', $guardedDiagnosticCodes, true), 'kiwi-parser-selective-message-diagnostic');
+
+    $schemaFields = new FigKiwiSchemaFields();
+    $sameNameFirstFields = $schemaFields->fieldsByValue(array('name' => 'NodeChange', 'kind' => 'MESSAGE', 'fields' => array(array('name' => 'first', 'type' => 'string', 'value' => 1))));
+    $sameNameSecondFields = $schemaFields->fieldsByValue(array('name' => 'NodeChange', 'kind' => 'MESSAGE', 'fields' => array(array('name' => 'second', 'type' => 'uint', 'value' => 2))));
+    $assert('first' === ($sameNameFirstFields[1]['name'] ?? null), 'kiwi-schema-fields-cache-first-definition');
+    $assert('second' === ($sameNameSecondFields[2]['name'] ?? null), 'kiwi-schema-fields-cache-same-name-different-signature');
     
     $kiwiFrameMaskDecoder = new FigKiwiDecoder();
     $kiwiFrameMaskSchema = $kiwiFrameMaskDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_frame_mask_schema_fixture());

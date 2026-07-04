@@ -17,6 +17,11 @@ final class FigKiwiDecoder
     private FigKiwiDecodePolicy $decodePolicy;
     private FigKiwiSchemaFields $schemaFields;
 
+    /**
+     * @var array<string, array<string, int>>
+     */
+    private array $allowedFieldCache = array();
+
     public function __construct(?FigKiwiDecodePolicy $decodePolicy = null, ?FigKiwiSchemaFields $schemaFields = null)
     {
         $this->decodePolicy = $decodePolicy ?? new FigKiwiDecodePolicy();
@@ -198,7 +203,7 @@ final class FigKiwiDecoder
     {
         $result = array();
         $typeName = (string) ($definition['name'] ?? '');
-        $allowed = array_flip($fieldPolicy[$typeName] ?? array());
+        $allowed = $this->allowedFields($typeName, $fieldPolicy);
 
         if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
             $fieldsByValue = $this->schemaFields->fieldsByValue($definition);
@@ -232,6 +237,22 @@ final class FigKiwiDecoder
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $fieldPolicy
+     * @return array<string, int>
+     */
+    private function allowedFields(string $typeName, array $fieldPolicy): array
+    {
+        $fieldNames = $fieldPolicy[$typeName] ?? array();
+        $cacheKey = $typeName . '|' . implode(',', $fieldNames);
+        if ( isset($this->allowedFieldCache[$cacheKey]) ) {
+            return $this->allowedFieldCache[$cacheKey];
+        }
+
+        $this->allowedFieldCache[$cacheKey] = array_flip($fieldNames);
+        return $this->allowedFieldCache[$cacheKey];
     }
 
     /**
