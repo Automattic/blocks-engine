@@ -504,7 +504,7 @@ $inlineSvgMarkup = (string) ($inlineSvgArtwork['serialized_blocks'] ?? '');
 $assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'passive meaningful inline SVG artwork materializes as native core/image');
 $assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'passive meaningful inline SVG artwork serializes as core/image');
 $assert(str_contains($inlineSvgMarkup, 'data:image/svg+xml,'), 'passive meaningful inline SVG artwork uses a safe data image URL');
-$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image album-art is-resized"'), 'passive meaningful inline SVG artwork preserves source class and core/image resize class on the image block wrapper');
+$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art"'), 'passive meaningful inline SVG artwork preserves source class and core/image resize class on the image block wrapper');
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();

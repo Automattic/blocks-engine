@@ -58,7 +58,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "\"id\":42" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"sizeSlug\":\"medium\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-image-42\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-logo rounded is-resized size-medium" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image is-resized hero-logo rounded size-medium" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "bad.svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "onload" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }

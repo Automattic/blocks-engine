@@ -4306,7 +4306,6 @@ final class HtmlTransformer
             'url'          => $dataUri,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->attr($element, 'class'),
-            'isDecorative' => 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ? true : null,
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);

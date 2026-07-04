@@ -365,7 +365,7 @@ final class BlockFactory
             $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
         }
         if ( '' !== (string) ($attrs['width'] ?? '') || '' !== (string) ($attrs['height'] ?? '') ) {
-            $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'is-resized');
+            $figureAttrs['className'] = $this->mergeClassNames('is-resized', (string) ($figureAttrs['className'] ?? ''));
         }
 
         $imageAttrs = array(
@@ -376,7 +376,6 @@ final class BlockFactory
             'sizes'  => $attrs['sizes'] ?? '',
             'class'  => ! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '',
             'style'  => $this->imageDimensionStyle($attrs),
-            'role'   => ! empty($attrs['isDecorative']) ? 'none' : '',
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
