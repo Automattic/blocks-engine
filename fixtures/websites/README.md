@@ -19,7 +19,8 @@ Each fixture directory contains:
 
 - An `index.html` entry point plus any supporting assets/content files (the source
   tree under test).
-- A `fixture.json` manifest describing the fixture's class, tags, and complexity.
+- A `fixture.json` manifest describing the fixture's taxonomy, tags,
+  capabilities, risk profile, and complexity.
 
 `20-switchback-woocommerce-extra-hard.zip` is a deliberate companion archive of the
 matching source tree, kept to exercise archive-based transform/intake paths. Leave
@@ -28,32 +29,40 @@ it in place.
 fixture.json — the single source of truth
 -----------------------------------------
 
-Each `fixture.json` is the sole source of truth for a fixture's class, tags, and
-complexity. Consumers (the Blocks Engine corpus diagnostics runner and the Static
-Site Importer fixture matrix) read it directly; there is no separate manifest or
-index to keep in sync, so class metadata cannot drift.
+Each `fixture.json` is the sole source of truth for a fixture's authored taxonomy.
+Consumers (the Blocks Engine corpus diagnostics runner and the Static Site Importer
+fixture matrix) read it directly; there is no separate manifest or index to keep in
+sync, so class metadata cannot drift.
 
 ```json
 {
-  "class": "marketing/static",
+  "fixture_class": "marketing/static",
   "tags": ["restaurant", "has-form"],
+  "capabilities": ["forms", "local-css"],
+  "risk_profile": "low",
   "complexity": 1
 }
 ```
 
-- `class` (required): the fixture class lane, one of the canonical values verbatim:
+- `fixture_class` (required): the fixture class lane, one of the canonical values verbatim:
   `marketing/static`, `docs/blog`, `ecommerce/catalog`, `app/dashboard`,
-  `canvas/webgl/audio/runtime-heavy`. An unrecognized or missing value resolves to
-  `unknown` with a loud warning in consuming tools.
+  `canvas/webgl/audio/runtime-heavy`, `unknown`. An unrecognized or missing value
+  resolves to `unknown` with a loud warning in consuming tools.
+- `class` (legacy alias): still accepted by current consumers when
+  `fixture_class` is absent.
 - `tags` (optional): free-form lowercase string array for lane/tag querying.
+- `capabilities` (optional): authored capability lanes such as `forms`,
+  `runtime-js`, or `commerce-products`.
+- `risk_profile` (optional): authored risk lane such as `low`, `medium`, `high`,
+  or `extreme`.
 - `complexity` (optional): integer 1–5.
 
 Consuming
 ---------
 
 Discover fixtures by listing the immediate subdirectories of `fixtures/websites/`
-and deriving each fixture ID from the directory basename. Read `class`, `tags`, and
-`complexity` from each directory's `fixture.json`.
+and deriving each fixture ID from the directory basename. Read taxonomy metadata
+from each directory's `fixture.json`.
 
 Treat these as read-only fixtures. If a test needs derived artifacts, transformed
 block output, screenshots, or reports, write them to a temporary output directory
