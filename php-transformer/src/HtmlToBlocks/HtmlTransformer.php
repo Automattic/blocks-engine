@@ -4717,7 +4717,7 @@ final class HtmlTransformer
     {
         foreach ( $this->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( in_array($tagName, array( 'canvas', 'iframe', 'svg', 'template', 'textarea' ), true) ) {
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
                 return true;
             }
             if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
