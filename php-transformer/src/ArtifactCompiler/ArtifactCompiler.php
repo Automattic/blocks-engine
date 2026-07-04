@@ -566,6 +566,9 @@ final class ArtifactCompiler
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
             $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+                    continue;
+                }
                 if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
                     continue;
                 }
@@ -575,6 +578,9 @@ final class ArtifactCompiler
 
         foreach ( $this->allScriptContents($files) as $script ) {
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+                    continue;
+                }
                 if ( isset($statusFeedbackSelectors[$selector]) ) {
                     $selectors[$selector] = true;
                 }
@@ -895,6 +901,39 @@ final class ArtifactCompiler
         return array_keys($selectors);
     }
 
+    private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
+    {
+        if ( $this->isBehavioralRuntimeSelector($selector) ) {
+            return false;
+        }
+
+        $selectorPattern = preg_quote($selector, '/');
+        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)(.{0,700})/s', $script, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[2] as $tail ) {
+            $window = (string) $tail;
+            if ( ! str_contains($window, 'classList.') ) {
+                return false;
+            }
+            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:hidden|disabled|style|dataset)\b/', $window) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isBehavioralRuntimeSelector(string $selector): bool
+    {
+        if ( str_contains($selector, '[') || in_array($selector, array('button', 'input', 'select', 'textarea', 'canvas', 'svg'), true) ) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|modal|drawer|cart|checkout|search|filter|tab|accordion|slider|carousel|canvas|stage|player|map|app|editor|playground|demo)(?:[^a-z0-9]|$)/i', $selector);
+    }
+
     /**
      * @return array<int, string>
      */
@@ -1105,6 +1144,7 @@ final class ArtifactCompiler
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
+                    'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
                     'asset_references' => $this->assetReferencePaths($assets),
@@ -1366,6 +1406,7 @@ final class ArtifactCompiler
                     'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
                     'body_format'  => (string) ($file['kind'] ?? ''),
                     'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
+                    'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),
                 ),

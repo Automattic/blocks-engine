@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-section-runtime-island-classification",
+  "description": "A genuine canvas/script section remains preserved as raw HTML but carries explicit preserved-runtime-island metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-section-runtime-island-classification.json",
+    "notes": "Distilled from runtime-heavy canvas sections: native blocks cannot preserve the canvas runtime contract, so the assertion is classification, not conversion."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "blocks-engine/php-transformer/site-artifact/v1",
+      "entry_path": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "mime_type": "text/html",
+          "role": "document",
+          "content": "<main><section id=\"stage\" class=\"stage\"><canvas id=\"stage-canvas\"></canvas><div id=\"hud\">Ready</div></section><script>const c=document.getElementById('stage-canvas');c.getContext('2d');document.getElementById('hud').textContent='Running';</script></main>"
+        }
+      ]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "app_shell" },
+    { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": "#stage" },
+    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "runtime_app_shell" },
+    { "path": "source_reports.runtime_islands.0.runtime_requirement", "assert": "equals", "value": "client_script_execution" },
+    { "path": "source_reports.runtime_islands.0.target_count", "assert": "equals", "value": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html {\"content\":\"<section id=\\\"stage\\\"" }
+  ]
+}
