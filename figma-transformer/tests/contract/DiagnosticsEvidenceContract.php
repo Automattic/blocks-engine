@@ -275,6 +275,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $clippedDiagnostics, array('layout', 'clipped_visual_node_count'), 1, 'diagnostics-evidence-clipped-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $clippedDiagnostics, array('layout', 'clipped_visual_area_ratio'), 0.5, 'diagnostics-evidence-clipped-area-ratio');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $clippedDiagnostics, array('layout', 'clipped_visual_nodes', 0, 'node_id'), 'diag:clip-vector', 'diagnostics-evidence-clipped-sample-node');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $clippedDiagnostics, array('layout', 'clipped_visual_nodes', 0, 'classification'), 'intended_clipped_decorative_art', 'diagnostics-evidence-clipped-sample-classification');
     blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $clippedResult, 'clipped_visual_area', 'diagnostics-evidence-clipped-area-signal');
 
     $largeOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
@@ -429,6 +430,26 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(0 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-domain-count');
     $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-intentional-domain-count');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $omittedTextResult, 'source_loss_coverage_gap', 'diagnostics-evidence-hidden-text-no-source-loss-signal');
+
+    $hiddenOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Hidden Offset Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:hidden-offset-page',
+                'type'     => 'FRAME',
+                'name'     => 'Hidden Offset Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:hidden-offset-rect', 'type' => 'RECTANGLE', 'name' => 'Hidden Offset Rect', 'visible' => false, 'x' => 400, 'y' => 0, 'width' => 80, 'height' => 20),
+                ),
+            ),
+        ),
+    ));
+    $hiddenOffsetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($hiddenOffsetResult);
+    $assert(0 === ($hiddenOffsetDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'diagnostics-evidence-hidden-offset-no-active-large-absolute-offset');
+    $assert(1 === ($hiddenOffsetDiagnostics['layout']['suppressed_large_absolute_offset_count'] ?? null), 'diagnostics-evidence-hidden-offset-suppressed-large-absolute-offset');
+    $assert('hidden_descendant_suppressed' === ($hiddenOffsetDiagnostics['layout']['suppressed_large_absolute_offset_nodes'][0]['suppression_reason'] ?? null), 'diagnostics-evidence-hidden-offset-suppressed-large-absolute-reason');
 
     $offCanvasTextResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Off Canvas Text Fixture',

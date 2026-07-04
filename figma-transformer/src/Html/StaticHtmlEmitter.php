@@ -3891,7 +3891,9 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
 
-        $suppressionReason = $this->suppressedLayoutDiagnosticReason($node, $parentSuppressionReason);
+        $suppressionReason = false === ($node['visible'] ?? null)
+            ? 'hidden_descendant_suppressed'
+            : $this->suppressedLayoutDiagnosticReason($node, $parentSuppressionReason);
 
         if ( null !== $parentNode ) {
             $offset = $this->largeAbsoluteOffsetDiagnostic($node, $parentNode);
@@ -4855,7 +4857,11 @@ final class StaticHtmlEmitter
                 'left' => null === $left ? null : $this->reportNumericValue($left),
                 'top' => null === $top ? null : $this->reportNumericValue($top),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
-            $this->applyDiagnosticReason($sample, $this->largeCssOffsetClassification($node, $visualEntry), 'large_css_offset');
+            $classification = $this->largeCssOffsetClassification($node, $visualEntry);
+            if ( '' === $classification && $this->hasCssBackgroundImageEvidence($body) ) {
+                $classification = 'intended_image_crop_bleed';
+            }
+            $this->applyDiagnosticReason($sample, $classification, 'large_css_offset');
             $samples[] = $sample;
         }
 
@@ -5149,6 +5155,13 @@ final class StaticHtmlEmitter
         return false;
     }
 
+    private function hasCssBackgroundImageEvidence(string $cssBody): bool
+    {
+        $backgroundImage = $this->cssDeclarationValue($cssBody, 'background-image');
+
+        return null !== $backgroundImage && str_contains(strtolower($backgroundImage), 'url(');
+    }
+
     /**
      * @param array<string, mixed> $node
      * @param array<string, mixed> $visualEntry
@@ -5201,6 +5214,7 @@ final class StaticHtmlEmitter
         $samples = array();
         $sourceArea = 0.0;
         $visibleArea = 0.0;
+        $visualNodeMapById = $this->visualNodeMapIndex($visualNodeMap);
 
         foreach ( $visualNodeMap as $entry ) {
             if ( ! is_array($entry) || ! is_array($entry['rect'] ?? null) || ! is_array($entry['visible_rect'] ?? null) ) {
@@ -5224,17 +5238,21 @@ final class StaticHtmlEmitter
             $sourceArea += $entryArea;
             $visibleArea += $entryVisibleArea;
             $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
-            $samples[] = array_filter(array(
+            $parentId = isset($entry['parent_id']) && is_scalar($entry['parent_id']) ? (string) $entry['parent_id'] : '';
+            $parent = '' !== $parentId && is_array($visualNodeMapById[$parentId] ?? null) ? $visualNodeMapById[$parentId] : null;
+            $sample = array_filter(array(
                 'node_id' => (string) ($entry['id'] ?? ''),
                 'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
                 'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
                 'class' => (string) ($node['class'] ?? ''),
-                'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                'parent_id' => $parentId,
                 'source_area_px' => $this->reportNumericValue($entryArea),
                 'visible_area_px' => $this->reportNumericValue($entryVisibleArea),
                 'clipped_area_px' => $this->reportNumericValue($entryArea - $entryVisibleArea),
                 'clipped_area_ratio' => round(($entryArea - $entryVisibleArea) / $entryArea, 3),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            $this->applyDiagnosticReason($sample, $this->largeGeometryIntentClassification($node, $entry, $parent), 'clipped_visual_area');
+            $samples[] = $sample;
         }
 
         usort($samples, static fn (array $a, array $b): int => ((float) ($b['clipped_area_px'] ?? 0.0) <=> (float) ($a['clipped_area_px'] ?? 0.0)) ?: strcmp((string) ($a['node_id'] ?? ''), (string) ($b['node_id'] ?? '')));
