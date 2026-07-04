@@ -141,14 +141,7 @@ final class BlockFactory
         }
 
         if ( 'core/icon' === $name ) {
-            $support = $this->styleSupport($attrs['style'] ?? null);
-            $iconAttrs = array(
-                'class'       => $this->mergeClassNames('wp-block-icon', $support['classes'], (string) ($attrs['className'] ?? '')),
-                'style'       => $support['style'],
-                'aria-label'  => (string) ($attrs['label'] ?? ''),
-                'aria-hidden' => ! empty($attrs['ariaHidden']) ? 'true' : '',
-            );
-            return '<div' . $this->htmlAttrs($iconAttrs) . '>' . ($attrs['svg'] ?? '') . '</div>';
+            return '';
         }
 
         if ( 'core/preformatted' === $name ) {

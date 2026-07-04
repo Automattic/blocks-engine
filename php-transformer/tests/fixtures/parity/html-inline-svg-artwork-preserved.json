@@ -24,7 +24,7 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 600 600\" role=\"img\" aria-label=\"Mara Vale cover\">" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 600 600\" role=\"img\" aria-label=\"Mara Vale cover\" width=\"600\" height=\"600\">" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<!-- Background -->" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<rect width=\"600\" height=\"600\" fill=\"#1a1a2e\"></rect>" },
     { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<circle cx=\"300\" cy=\"240\" r=\"160\" fill=\"#e94560\"></circle>" },
