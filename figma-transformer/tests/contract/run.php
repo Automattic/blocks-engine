@@ -4812,6 +4812,96 @@ $assert($documentModeHomeLogoLeftPx >= 0.0 && $documentModeHomeLogoLeftPx < 1440
 $assert($documentModeAboutLogoLeftPx >= 0.0 && $documentModeAboutLogoLeftPx < 1440.0, 'document-mode-multi-page-overridden-instance-child-localizes-about-x');
 $assert(! str_contains($documentModeCss, 'left:12120px') && ! str_contains($documentModeCss, 'left:24150px'), 'document-mode-multi-page-css-omits-canvas-global-lefts');
 
+$documentModeLimitedChildren = static function (string $prefix): array {
+    $children = array();
+    for ( $i = 0; $i < 4; $i++ ) {
+        $children[] = array(
+            'id'         => $prefix . ':text:' . $i,
+            'type'       => 'TEXT',
+            'name'       => 'Text ' . $i,
+            'characters' => strtoupper($prefix) . ' text ' . $i,
+        );
+    }
+
+    return $children;
+};
+$documentModeLimitedNormalized = $documentModeNormalizer->normalize(array(
+    'name'  => 'Document Mode Limited Multi-Root Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'dml:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array(
+                    'id'       => 'dml:home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 1200,
+                    'children' => $documentModeLimitedChildren('dml:home'),
+                ),
+                array(
+                    'id'       => 'dml:about',
+                    'type'     => 'FRAME',
+                    'name'     => 'About',
+                    'width'    => 1440,
+                    'height'   => 1200,
+                    'children' => $documentModeLimitedChildren('dml:about'),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'render_document' => true,
+    'document_frame_ids' => array('dml:home', 'dml:about'),
+    'max_nodes' => 3,
+));
+$documentModeLimitedNodeMap = is_array($documentModeLimitedNormalized['node_map'] ?? null) ? $documentModeLimitedNormalized['node_map'] : array();
+$assert(isset($documentModeLimitedNodeMap['dml:home:text:1']), 'document-mode-limit-keeps-home-selected-subtree');
+$assert(isset($documentModeLimitedNodeMap['dml:about:text:1']), 'document-mode-limit-keeps-about-selected-subtree');
+$documentModeLimitedLimitDiagnostic = null;
+foreach ( is_array($documentModeLimitedNormalized['diagnostics'] ?? null) ? $documentModeLimitedNormalized['diagnostics'] : array() as $diagnostic ) {
+    if ( is_array($diagnostic) && 'scenegraph_node_limit_applied' === ($diagnostic['code'] ?? null) ) {
+        $documentModeLimitedLimitDiagnostic = $diagnostic;
+        break;
+    }
+}
+$documentModeLimitedPreferredRoots = is_array($documentModeLimitedLimitDiagnostic['context']['preferred_root_ids'] ?? null)
+    ? $documentModeLimitedLimitDiagnostic['context']['preferred_root_ids']
+    : array();
+$assert(in_array('dml:home', $documentModeLimitedPreferredRoots, true) && in_array('dml:about', $documentModeLimitedPreferredRoots, true), 'document-mode-limit-reports-all-preferred-roots');
+
+$componentPlaceholderLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Placeholder Label Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'placeholder:instance',
+            'type'     => 'FRAME',
+            'name'     => 'Heading instance',
+            'width'    => 320,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'         => 'placeholder:instance/label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Label',
+                    'characters' => 'Label',
+                ),
+                array(
+                    'id'         => 'placeholder:instance/title',
+                    'type'       => 'TEXT',
+                    'name'       => 'Title',
+                    'characters' => 'Actual section title',
+                ),
+            ),
+        ),
+    ),
+));
+$componentPlaceholderLabelHtml = $fileContent($componentPlaceholderLabelResult, 'index.html');
+$assert(! str_contains($componentPlaceholderLabelHtml, '>Label<'), 'component-placeholder-label-text-suppressed');
+$assert(str_contains($componentPlaceholderLabelHtml, 'Actual section title'), 'component-placeholder-label-keeps-real-text');
+
 // Real anchor tags: a TEXT node carrying a URL hyperlink emits a real <a href>.
 $urlLinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Url Link Fixture',
@@ -5492,6 +5582,44 @@ $classificationDiagnosticCodes = array_map(
     is_array($classificationPlan['diagnostics'] ?? null) ? $classificationPlan['diagnostics'] : array()
 );
 $assert(in_array('figma_frame_classification_coverage', $classificationDiagnosticCodes, true), 'classification-coverage-diagnostic-emitted');
+
+$scopedHomeSource = array(
+    'name'  => 'Scoped Home Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:scoped-home',
+            'type'     => 'CANVAS',
+            'name'     => 'Design System Resources',
+            'children' => array(
+                array(
+                    'id'       => 'frame:scoped-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 2400,
+                    'children' => array(
+                        array('id' => 'scoped-home:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Marketing home page'),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:scoped-button',
+                    'type'     => 'FRAME',
+                    'name'     => 'Button',
+                    'width'    => 320,
+                    'height'   => 900,
+                    'children' => array(
+                        array('id' => 'scoped-button:text', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Button'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$scopedHomePlan = ( new ScenegraphPagePlanner() )->plan($scopedHomeSource, array('include_all_pages' => true));
+$scopedHomePages = is_array($scopedHomePlan['pages'] ?? null) ? $scopedHomePlan['pages'] : array();
+$scopedHomeFrameIds = array_map(static fn (array $page): string => (string) ($page['frame_id'] ?? ''), $scopedHomePages);
+$assert(in_array('frame:scoped-home', $scopedHomeFrameIds, true), 'classification-scoped-home-page-intent-overrides-design-system-scope');
+$assert(! in_array('frame:scoped-button', $scopedHomeFrameIds, true), 'classification-scoped-generic-component-remains-design-system');
 
 // CONTENT-SHAPE: classification is generic — a design-system frame with a
 // GENERIC name still classifies as design_system from a swatch grid, and an

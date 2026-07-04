@@ -22,7 +22,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
     $assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
     $assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
-    
+
     $edgeAlignedFilledVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Edge Aligned Filled Vector Fixture',
         'nodes' => array(

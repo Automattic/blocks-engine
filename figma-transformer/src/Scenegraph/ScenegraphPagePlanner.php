@@ -1537,6 +1537,10 @@ final class ScenegraphPagePlanner
             $name = (string) ($candidate['node']['name'] ?? '');
             $width = (float) ($candidate['dimensions']['width'] ?? 0);
             $height = (float) ($candidate['dimensions']['height'] ?? 0);
+            if ( ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($classifications[$id]['page_type'] ?? null) ) {
+                $kept[] = $id;
+                continue;
+            }
             if ( ! $this->isLowConfidenceUtilityRouteName($name, $width, $height) ) {
                 $kept[] = $id;
                 continue;

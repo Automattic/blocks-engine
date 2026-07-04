@@ -2244,7 +2244,51 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         is_array($utilityFramePlan['source_frame_evidence']['filtered_candidates'] ?? null) ? $utilityFramePlan['source_frame_evidence']['filtered_candidates'] : array()
     );
     $assert(in_array('low_confidence_route_frame', $utilityFilteredReasons, true), 'page-plan-source-frame-evidence-filtered-utility-route');
-    
+
+    $frontPageUtilityNameSource = array(
+        'name'  => 'Landing Utility Name Site',
+        'nodes' => array(
+            array(
+                'id'       => 'canvas:landing-utility',
+                'type'     => 'CANVAS',
+                'name'     => 'Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'frame:landing-desktop',
+                        'type'     => 'FRAME',
+                        'name'     => 'Landing page V1 / desktop / 1920px',
+                        'width'    => 1920,
+                        'height'   => 3200,
+                        'children' => array(array('id' => 'text:landing-desktop', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Landing page hero')),
+                    ),
+                    array(
+                        'id'       => 'frame:landing-tablet',
+                        'type'     => 'FRAME',
+                        'name'     => 'Landing page V1 / Tablet / 768px',
+                        'width'    => 768,
+                        'height'   => 3400,
+                        'children' => array(array('id' => 'text:landing-tablet', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Landing page hero')),
+                    ),
+                    array(
+                        'id'       => 'frame:desktop-mockup-only',
+                        'type'     => 'FRAME',
+                        'name'     => 'Desktop - 1440px',
+                        'width'    => 1440,
+                        'height'   => 1400,
+                        'children' => array(array('id' => 'text:desktop-mockup-only', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Desktop mockup')),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $frontPageUtilityNamePlan = ( new ScenegraphPagePlanner() )->plan($frontPageUtilityNameSource, array('include_all_pages' => true));
+    $frontPageUtilityNameFrameIds = array_map(
+        static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+        is_array($frontPageUtilityNamePlan['pages'] ?? null) ? $frontPageUtilityNamePlan['pages'] : array()
+    );
+    $assert(in_array('frame:landing-desktop', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-keeps-front-page-device-name');
+    $assert(! in_array('frame:desktop-mockup-only', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-still-filters-non-front-page-device-name');
+
     // (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
     // candidates, not total node count. The `responsive_detection_bounded`
     // diagnostic only fires in pathological cases (here forced via a frame-limit of

@@ -178,6 +178,24 @@ final class StaticHtmlEmissionDiagnostics
         $inlineSvgRatio = $htmlBytes > 0 ? round($inlineSvgBytes / $htmlBytes, 3) : 0.0;
         $breakpointLeaks = $this->breakpointOverrideLeaks($css);
         $absoluteToFlowConversions = $this->absoluteToFlowConversions($css);
+        $mediaQueryCount = preg_match_all('/@media\s*\(max-width:[^)]+\)/i', $css) ?: 0;
+        $fixedWidthOverDesktopCount = 0;
+        if ( preg_match_all('/\bwidth:([0-9.]+)px\b/i', $css, $widthMatches) ) {
+            foreach ( is_array($widthMatches[1] ?? null) ? $widthMatches[1] : array() as $width ) {
+                if ( (float) $width > 1440.0 ) {
+                    ++$fixedWidthOverDesktopCount;
+                }
+            }
+        }
+        $largeFixedCanvasHeight = false;
+        if ( preg_match_all('/\b(?:height|min-height):([0-9.]+)px\b/i', $css, $heightMatches) ) {
+            foreach ( is_array($heightMatches[1] ?? null) ? $heightMatches[1] : array() as $height ) {
+                if ( (float) $height >= 3000.0 ) {
+                    $largeFixedCanvasHeight = true;
+                    break;
+                }
+            }
+        }
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
@@ -194,6 +212,10 @@ final class StaticHtmlEmissionDiagnostics
             'inline_svg_bytes' => $inlineSvgBytes,
             'inline_svg_byte_ratio' => $inlineSvgRatio,
             'overlarge_inline_svg_ratio' => $htmlBytes >= 2048 && $inlineSvgBytes >= 32768 && $inlineSvgRatio >= 0.35,
+            'media_query_count' => $mediaQueryCount,
+            'fixed_width_over_desktop_count' => $fixedWidthOverDesktopCount,
+            'large_fixed_canvas_height' => $largeFixedCanvasHeight,
+            'desktop_canvas_without_responsive_breakpoints' => 0 === $mediaQueryCount && $largeFixedCanvasHeight && $structuralElementCount >= 80,
             'breakpoint_override_leak_count' => count($breakpointLeaks),
             'breakpoint_override_leaks' => array_slice($breakpointLeaks, 0, 25),
             'absolute_to_flow_conversion_count' => count($absoluteToFlowConversions),

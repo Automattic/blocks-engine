@@ -1195,6 +1195,13 @@ final class FigmaTransformer
             'invalid_numeric_token_count' => 0,
             'invalid_numeric_tokens' => array(),
         );
+        $htmlArtifact = array(
+            'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
+            'media_query_count' => 0,
+            'fixed_width_over_desktop_count' => 0,
+            'large_fixed_canvas_height' => false,
+            'desktop_canvas_without_responsive_breakpoints' => false,
+        );
         $decisionTraces = array(
             'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
             'trace_count' => 0,
@@ -1251,6 +1258,10 @@ final class FigmaTransformer
             $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
             DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
             DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
+            $pageHtmlArtifact = is_array($diagnostics['html_artifact'] ?? null) ? $diagnostics['html_artifact'] : array();
+            DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count'));
+            $htmlArtifact['large_fixed_canvas_height'] = ! empty($htmlArtifact['large_fixed_canvas_height']) || ! empty($pageHtmlArtifact['large_fixed_canvas_height']);
+            $htmlArtifact['desktop_canvas_without_responsive_breakpoints'] = ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) || ! empty($pageHtmlArtifact['desktop_canvas_without_responsive_breakpoints']);
             $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
@@ -1395,7 +1406,8 @@ final class FigmaTransformer
             'decision_traces' => $decisionTraces,
             'links' => $links,
             'css' => $css,
-            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css),
+            'html_artifact' => $htmlArtifact,
+            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css, $htmlArtifact),
             'diagnostic_codes' => $diagnosticCodes,
         );
     }
@@ -1445,9 +1457,10 @@ final class FigmaTransformer
      * @param array<string, mixed> $layout
      * @param array<string, mixed> $links
      * @param array<string, mixed> $css
+     * @param array<string, mixed> $htmlArtifact
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $css = array()): array
+    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $css = array(), array $htmlArtifact = array()): array
     {
         $signals = array();
 
@@ -1512,6 +1525,15 @@ final class FigmaTransformer
                 'code' => 'invalid_css_numeric_token',
                 'count' => (int) $css['invalid_numeric_token_count'],
                 'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'desktop_canvas_without_responsive_breakpoints',
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
             );
         }
         $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
@@ -1585,6 +1607,9 @@ final class FigmaTransformer
                 'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
                 'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
+                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
+                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),

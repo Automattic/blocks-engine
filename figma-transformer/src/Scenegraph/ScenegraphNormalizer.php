@@ -58,8 +58,8 @@ final class ScenegraphNormalizer
         $diagnostics = $index['diagnostics'];
         $blobs       = is_array($source['blobs'] ?? null) ? $source['blobs'] : array();
         if ( isset($options['max_nodes']) && is_numeric($options['max_nodes']) && (int) $options['max_nodes'] > 0 && count($index['nodes']) > (int) $options['max_nodes'] ) {
-            $preferredRootId = isset($options['frame_id']) && is_scalar($options['frame_id']) ? (string) $options['frame_id'] : null;
-            $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootId);
+            $preferredRootIds = $this->preferredLimitRootIds($options, $index['nodes']);
+            $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootIds);
         }
         $paintStyles = $this->buildPaintStyleDefinitions($index['nodes'], $diagnostics);
         $textStyles  = $this->buildTextStyleDefinitions($index['nodes']);
@@ -154,12 +154,19 @@ final class ScenegraphNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function limitIndexNodes(array $index, int $maxNodes, array &$diagnostics, ?string $preferredRootId = null): array
+    private function limitIndexNodes(array $index, int $maxNodes, array &$diagnostics, array $preferredRootIds = array()): array
     {
         $nodes = is_array($index['nodes'] ?? null) ? $index['nodes'] : array();
-        $allowedIds = null !== $preferredRootId && isset($nodes[$preferredRootId])
-            ? $this->limitedSubtreeIds($preferredRootId, is_array($index['children_index'] ?? null) ? $index['children_index'] : array(), $maxNodes)
-            : array_slice(array_keys($nodes), 0, $maxNodes);
+        $childrenIndex = is_array($index['children_index'] ?? null) ? $index['children_index'] : array();
+        $allowedIds = array();
+        foreach ( $preferredRootIds as $preferredRootId ) {
+            if ( is_string($preferredRootId) && isset($nodes[$preferredRootId]) ) {
+                foreach ( $this->limitedSubtreeIds($preferredRootId, $childrenIndex, $maxNodes) as $allowedId ) {
+                    $allowedIds[$allowedId] = $allowedId;
+                }
+            }
+        }
+        $allowedIds = array() !== $allowedIds ? array_values($allowedIds) : array_slice(array_keys($nodes), 0, $maxNodes);
         $allowedIds = $this->includeComponentClosureIds($allowedIds, $nodes, is_array($index['children_index'] ?? null) ? $index['children_index'] : array());
         $allowed = array_fill_keys($allowedIds, true);
         $limitedNodes = array();
@@ -185,8 +192,12 @@ final class ScenegraphNormalizer
             static fn (string $id): bool => isset($allowed[$id])
         ));
 
-        if ( null !== $preferredRootId && isset($allowed[$preferredRootId]) ) {
-            $index['top_level_node_ids'] = array($preferredRootId);
+        $allowedPreferredRootIds = array_values(array_filter(
+            $preferredRootIds,
+            static fn (string $preferredRootId): bool => isset($allowed[$preferredRootId])
+        ));
+        if ( array() !== $allowedPreferredRootIds ) {
+            $index['top_level_node_ids'] = $allowedPreferredRootIds;
         } elseif ( empty($index['top_level_node_ids']) && ! empty($allowedIds) ) {
             $index['top_level_node_ids'] = array($allowedIds[0]);
         }
@@ -200,11 +211,41 @@ final class ScenegraphNormalizer
                 'original_node_count' => count($nodes),
                 'max_nodes'           => $maxNodes,
                 'selected_node_count' => count($allowedIds),
-                'preferred_root_id'   => $preferredRootId,
+                'preferred_root_id'   => $preferredRootIds[0] ?? null,
+                'preferred_root_ids'  => $preferredRootIds,
             ),
         );
 
         return $index;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $nodes
+     * @return array<int, string>
+     */
+    private function preferredLimitRootIds(array $options, array $nodes): array
+    {
+        $ids = array();
+        if ( isset($options['frame_id']) && is_scalar($options['frame_id']) ) {
+            $ids[] = (string) $options['frame_id'];
+        }
+        if ( is_array($options['document_frame_ids'] ?? null) ) {
+            foreach ( $options['document_frame_ids'] as $id ) {
+                if ( is_scalar($id) ) {
+                    $ids[] = (string) $id;
+                }
+            }
+        }
+
+        $deduped = array();
+        foreach ( $ids as $id ) {
+            if ( '' !== $id && isset($nodes[$id]) ) {
+                $deduped[$id] = $id;
+            }
+        }
+
+        return array_values($deduped);
     }
 
     /**

@@ -636,7 +636,7 @@ final class VisualNodeMapBuilder
     private function isUnresolvedComponentPlaceholderText(array $node, string $characters): bool
     {
         $placeholder = strtolower(trim($characters));
-        if ( ! in_array($placeholder, array('button label'), true) ) {
+        if ( ! in_array($placeholder, array('button label', 'label'), true) ) {
             return false;
         }
         $id = (string) ($node['id'] ?? '');
