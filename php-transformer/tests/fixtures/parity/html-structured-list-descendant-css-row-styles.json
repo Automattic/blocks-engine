@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-structured-list-descendant-css-row-styles",
+  "description": "Resolves class-scoped tag descendant CSS such as .tracklist li onto decomposed structured list rows so source row spacing/layout survives native block conversion.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-structured-list-descendant-css-row-styles.json",
+    "notes": "Product-neutral fixture for track lists, schedules, and metadata rows whose source CSS targets list items through a parent class."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<ul class=\"tracklist\"><li><span class=\"track-num\">01</span><span class=\"track-title\">Kindling</span><span class=\"track-dur\">3:42</span></li></ul>",
+    "options": {
+      "static_css": ".tracklist{list-style:none}.tracklist li{display:flex;align-items:baseline;gap:1.25rem;padding:0.9rem 0}.track-title{flex:1}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "tracklist" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex" } } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "track-num", "content": "01" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "track-title", "content": "Kindling" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "track-dur", "content": "3:42" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"layout\":{\"type\":\"flex\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "padding-top:0.9rem" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"track-title\">Kindling</p>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

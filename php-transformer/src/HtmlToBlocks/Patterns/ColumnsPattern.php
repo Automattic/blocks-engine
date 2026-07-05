@@ -114,8 +114,7 @@ final class ColumnsPattern
             || ( $this->looksLikeSplitLayout($element) && 2 === $this->directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || $this->hasSidebarAndContentChildren($element)
-            || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle)
-            || ( 2 < $this->directElementChildCount($element) && preg_match('/(?:^|;)\s*grid-template-columns\s*:/', $style) );
+            || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
     }
 
     /**
