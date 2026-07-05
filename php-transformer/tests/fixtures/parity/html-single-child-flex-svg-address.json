@@ -25,9 +25,9 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.alt", "assert": "equals", "value": "Storefront illustration" },
-    { "path": "assets", "assert": "count", "count": 0 },
+    { "path": "assets", "assert": "count", "count": 1 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Storefront illustration" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

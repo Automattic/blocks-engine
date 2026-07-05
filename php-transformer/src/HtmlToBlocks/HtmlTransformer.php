@@ -39,8 +39,6 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
-    private const MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES = 65536;
-
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
      * first-party runtime binds directly to them.
@@ -270,6 +268,16 @@ final class HtmlTransformer
     private array $generatedAssets = array();
 
     /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $gutenbergIncompatibilities = array();
+
+    /**
+     * @var array<string, string>
+     */
+    private array $cssCustomProperties = array();
+
+    /**
      * @var array<string, array<int, string>>
      */
     private array $staticClassPromotions = array();
@@ -357,8 +365,10 @@ final class HtmlTransformer
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
+        $this->gutenbergIncompatibilities = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->cssCustomProperties = $this->cssCustomProperties($html, (string) ($options['static_css'] ?? ''));
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
@@ -466,6 +476,7 @@ final class HtmlTransformer
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
                 'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
+                'gutenberg_incompatibilities' => $this->gutenbergIncompatibilities,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
@@ -4522,6 +4533,7 @@ final class HtmlTransformer
                 ? $this->ensureInlineSvgBoxStyle($html, $element)
                 : $this->ensureInlineSvgSizing($html, $element)
         );
+        $html = $this->resolveMaterializedSvgColors($html, $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -4529,6 +4541,7 @@ final class HtmlTransformer
 
         // Honest floor: keep SVGs that need inline document context as sanitized
         // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
+        $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG uses behavior or external document features that cannot be represented as a static editable core/image asset.');
         return $this->createBlock('core/html', array( 'content' => $html ), array(), $element);
     }
 
@@ -4542,14 +4555,31 @@ final class HtmlTransformer
         }
 
         $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
-        $dataUri = 'data:image/svg+xml,' . rawurlencode($html);
-        if ( strlen($dataUri) > self::MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES ) {
-            return null;
-        }
+        $path = $this->materializedInlineSvgPath($element, $html);
+        $this->generatedAssets[$path] = array(
+            'source'      => 'inline-svg',
+            'source_path' => $this->transformSourcePath(),
+            'selector'    => $this->elementSelector($element),
+            'path'        => $path,
+            'target_path' => $path,
+            'kind'        => 'svg',
+            'role'        => 'image',
+            'mime_type'   => 'image/svg+xml',
+            'media_type'  => 'image/svg+xml',
+            'content'     => $html . "\n",
+            'bytes'       => strlen($html) + 1,
+            'encoding'    => 'utf-8',
+            'binary'      => false,
+            'source_role' => 'importer_owned',
+            'keep_source' => false,
+            'hash'        => hash('sha256', $html),
+            'source_hash' => hash('sha256', $html),
+            'pipeline_sanitized' => true,
+        );
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $attrs = array_filter(array_merge(array(
-            'url'          => $dataUri,
+            'url'          => $path,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->attr($element, 'class'),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
@@ -4585,15 +4615,130 @@ final class HtmlTransformer
         return preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
     }
 
+    private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
+    {
+        $html = $this->resolveCssVariablesInValue($html);
+        if ( false === stripos($html, 'currentColor') ) {
+            return $html;
+        }
+
+        return preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
+    }
+
+    private function inheritedSvgColor(DOMElement $element): string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->presentationDeclarations($current);
+            if ( empty($declarations['color']) ) {
+                continue;
+            }
+
+            $color = $this->resolveCssVariablesInValue(trim((string) $declarations['color']));
+            if ( '' !== $color && ! preg_match('/\bcurrentColor\b|var\s*\(|[<>]/i', $color) ) {
+                return $color;
+            }
+        }
+
+        return '#000000';
+    }
+
+    private function resolveCssVariablesInValue(string $value): string
+    {
+        if ( false === strpos($value, 'var(') ) {
+            return $value;
+        }
+
+        for ( $pass = 0; $pass < 5; ++$pass ) {
+            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', function (array $matches): string {
+                $name = (string) $matches[1];
+                if ( isset($this->cssCustomProperties[$name]) && '' !== $this->cssCustomProperties[$name] ) {
+                    return $this->cssCustomProperties[$name];
+                }
+
+                return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
+            }, $value);
+
+            if ( ! is_string($expanded) || $expanded === $value ) {
+                break;
+            }
+            $value = $expanded;
+        }
+
+        return trim($value);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function cssCustomProperties(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
+        }
+        if ( '' === trim($css) || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $properties = array();
+        foreach ( $matches as $match ) {
+            $properties[(string) $match[1]] = trim((string) $match[2]);
+        }
+
+        return $properties;
+    }
+
+    private function materializedInlineSvgPath(DOMElement $element, string $html): string
+    {
+        $sourcePath = $this->transformSourcePath();
+        $sourceDir = '' !== $sourcePath ? dirname($sourcePath) : '';
+        if ( '.' === $sourceDir ) {
+            $sourceDir = '';
+        }
+
+        $label = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
+        $label = trim(preg_replace('/[^a-z0-9]+/', '-', $label) ?? '', '-');
+        if ( '' === $label ) {
+            $label = 'inline-svg';
+        }
+        $filename = substr($label, 0, 48) . '-' . substr(hash('sha256', $html), 0, 16) . '.svg';
+        $path = ( '' !== $sourceDir ? trim($sourceDir, '/') . '/' : '' ) . 'assets/materialized-svg/' . $filename;
+
+        return preg_replace('#/+#', '/', $path) ?? $path;
+    }
+
+    private function transformSourcePath(): string
+    {
+        foreach ( array( 'source', 'path' ) as $key ) {
+            $value = $this->fallbackProvenance[$key] ?? '';
+            if ( '' !== trim((string) $value) ) {
+                return trim((string) $value);
+            }
+        }
+
+        return '';
+    }
+
+    private function recordGutenbergIncompatibility(DOMElement $element, string $reason, string $message): void
+    {
+        $this->gutenbergIncompatibilities[] = array(
+            'type'     => 'svg_materialization_incompatibility',
+            'element'  => 'svg',
+            'selector' => $this->elementSelector($element),
+            'reason'   => $reason,
+            'message'  => $message,
+        );
+    }
+
     private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
     {
         if ( ! $this->isPassiveSvgMarkup($element) ) {
             return false;
         }
 
-        // <img src="data:image/svg+xml,..."> renders in a separate image
-        // document, so inherited color/custom properties and external fragments
-        // cannot be represented faithfully as core/image.
+        // The materialized SVG renders in a separate image document. Color
+        // inheritance and custom properties are resolved before this gate; any
+        // unresolved value would still be document-context dependent.
         if ( preg_match('/\bcurrentColor\b|var\s*\(/i', $html) ) {
             return false;
         }
@@ -5275,12 +5420,12 @@ final class HtmlTransformer
             'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
             'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
-            'patterncontentunits', 'patterntransform', 'patternunits', 'points',
+            'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
             'preserveaspectratio', 'r', 'refx', 'refy', 'role', 'rotate', 'rx', 'ry',
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
             'stroke-opacity', 'stroke-width', 'style', 'text-anchor', 'transform',
-            'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2',
+            'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xmlns', 'y', 'y1', 'y2',
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
@@ -5304,7 +5449,10 @@ final class HtmlTransformer
 
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             $name = strtolower($name);
-            if ( ! isset($allowedAttributes[$name]) || preg_match('/^on[a-z]+$|(?:^|:)href$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            if ( ! isset($allowedAttributes[$name]) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+                return false;
+            }
+            if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') ) {
                 return false;
             }
             if ( preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $value) ) {

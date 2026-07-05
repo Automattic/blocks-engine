@@ -30,11 +30,12 @@
     { "path": "blocks.0.innerBlocks.0.attrs.width", "assert": "equals", "value": "24px" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
     { "path": "blocks.0.innerBlocks.1.attrs.alt", "assert": "equals", "value": "Hero flame" },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "linearGradient" },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "assets.1.content", "assert": "contains", "value": "linearGradient" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:icon" },
-    { "path": "assets", "assert": "count", "count": 0 },
+    { "path": "assets", "assert": "count", "count": 2 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-class-layout-media-rule-contained",
-  "description": "Class-owned desktop layout around a preserved inline SVG does not inherit mobile @media declarations as unconditional block styles.",
+  "description": "Class-owned desktop layout around a materialized SVG image does not inherit mobile @media declarations as unconditional block styles.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-class-layout-media-rule-contained.json",
@@ -18,13 +18,14 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "release-grid" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "cover-wrap" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/html" }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover", "alt": "EP cover" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group release-grid\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cover-wrap\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<svg class=\"ep-cover\"" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "assets.0.content", "assert": "contains", "value": "stop-color=\"#000000\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "margin-right:auto" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "max-width:220px" }
   ]
