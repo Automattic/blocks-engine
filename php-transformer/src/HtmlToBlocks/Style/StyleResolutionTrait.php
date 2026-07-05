@@ -221,6 +221,10 @@ trait StyleResolutionTrait
             return true;
         }
 
+        if ( 'li' === $tagName && $this->hasMultipleStyledInlineChildren($element) ) {
+            return true;
+        }
+
         $tokens = strtolower(trim(implode(' ', array(
             $this->attr($element, 'class'),
             $this->attr($element, 'id'),
@@ -241,6 +245,27 @@ trait StyleResolutionTrait
         }
 
         return false;
+    }
+
+    private function hasMultipleStyledInlineChildren(DOMElement $element): bool
+    {
+        $styledInlineChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                continue;
+            }
+
+            if ( '' !== trim($this->attr($child, 'class')) || '' !== trim($this->attr($child, 'style')) ) {
+                ++$styledInlineChildren;
+            }
+        }
+
+        return $styledInlineChildren >= 2;
     }
 
     /**
@@ -374,7 +399,7 @@ trait StyleResolutionTrait
         }
 
         foreach ( preg_split('/\s+/', $selector) ?: array() as $part ) {
-            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$/i', $part) ) {
+            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$|^[a-z][a-z0-9_-]*$/i', $part) ) {
                 return false;
             }
         }
@@ -435,7 +460,11 @@ trait StyleResolutionTrait
 
     private function matchesCssSelectorPart(DOMElement $element, string $selector): bool
     {
-        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)+)$/i', $selector, $match) ) {
+        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)*)$/i', $selector, $match) ) {
+            return false;
+        }
+
+        if ( empty($match['tag']) && empty($match['classes']) ) {
             return false;
         }
 
@@ -443,7 +472,7 @@ trait StyleResolutionTrait
             return false;
         }
 
-        $classes = preg_split('/\./', ltrim((string) $match['classes'], '.')) ?: array();
+        $classes = preg_split('/\./', ltrim((string) ($match['classes'] ?? ''), '.')) ?: array();
         $elementClasses = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
         foreach ( $classes as $class ) {
             if ( ! in_array($class, $elementClasses, true) ) {
@@ -518,7 +547,7 @@ trait StyleResolutionTrait
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
             && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
         ) {
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
+            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
 
@@ -547,6 +576,11 @@ trait StyleResolutionTrait
         }
 
         return array();
+    }
+
+    private function hasOwnStyleHook(DOMElement $element): bool
+    {
+        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'id'));
     }
 
     private function layoutJustifyContent(string $value): string

@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-css-grid-row-stays-transparent-group",
+  "description": "Keeps arbitrary source CSS-grid rows as transparent groups instead of inserting core/column wrappers that break direct-child layout selectors.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-css-grid-row-stays-transparent-group.json",
+    "notes": "Product-neutral fixture for schedule/list rows that use grid-template-columns for direct children but are not semantic column sections."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"event-row\" style=\"display:grid;grid-template-columns:90px 1fr auto;align-items:center;gap:2rem;padding:1.5rem 0\"><div class=\"date\">Mar 8</div><div class=\"venue\">The Moth House</div><a class=\"btn\" href=\"/tickets\">Tickets</a></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "event-row" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "date" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "venue" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"event-row\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
