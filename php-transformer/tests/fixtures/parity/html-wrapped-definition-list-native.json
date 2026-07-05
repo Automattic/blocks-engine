@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-wrapped-definition-list-native",
+  "description": "Preserves valid wrapped dt/dd definition-list entries as editable native blocks instead of dropping entry bodies.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-wrapped-definition-list-native.json",
+    "notes": "Generic CV/resume and directory row coverage for dl structures whose term/description pairs are wrapped in divs."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New generic wrapped definition-list behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"section\"><h2>Education</h2><dl class=\"entries\"><div class=\"entry\"><dt class=\"entry__date mono\">2017-2022</dt><dd class=\"entry__body\"><p class=\"entry__title\">Ph.D., Neuroscience</p><p class=\"entry__org\"><em>Stanford University</em></p><p class=\"entry__detail\">Dissertation on attention failure.</p></dd></div></dl></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "section" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "entries" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "entry" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "entry__date mono" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "entry__body" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"entries\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__date mono\">2017-2022</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__title\">Ph.D., Neuroscience</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__org\"><em>Stanford University</em></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__detail\">Dissertation on attention failure.</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

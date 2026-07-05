@@ -1261,11 +1261,41 @@ final class HtmlTransformer
 
         if ( 'dl' === $tagName ) {
             $items = $this->definitionListItems($element);
-            if ( array() === $items ) {
+            if ( array() !== $items ) {
+                return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+            }
+
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() === $children ) {
                 return null;
             }
 
-            return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+        }
+
+        if ( 'dt' === $tagName ) {
+            $content = $this->richTextContentWithMaterializedInlineStyles($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( 'dd' === $tagName ) {
+            if ( $this->hasBlockContentChildren($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+            }
+
+            $content = $this->richTextContentWithMaterializedInlineStyles($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
         if ( 'blockquote' === $tagName ) {
