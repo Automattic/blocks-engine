@@ -4487,7 +4487,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $html = $this->restoreSvgCasing($this->ensureInlineSvgSizing($html));
+        $html = $this->restoreSvgCasing($this->cssOwnsMediaBox($element) ? $html : $this->ensureInlineSvgSizing($html));
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -4513,7 +4513,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $dimensions = $this->svgImageDimensions($element, $html);
+        $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $attrs = array_filter(array_merge(array(
             'url'          => $dataUri,
             'alt'          => $this->svgImageAlt($element),
@@ -4521,6 +4521,18 @@ final class HtmlTransformer
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function cssOwnsMediaBox(DOMElement $element): bool
+    {
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function minifyInlineSvgForImage(string $html): string

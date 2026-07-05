@@ -231,7 +231,7 @@ trait StyleResolutionTrait
             $this->attr($element, 'role'),
         ))));
 
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|media|image|photo|gallery)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|media|image|photo|gallery|cover|thumb|thumbnail|art|artwork|illustration)(?:[^a-z0-9]|$)/', $tokens) ) {
             return true;
         }
 
@@ -432,6 +432,7 @@ trait StyleResolutionTrait
             'box-shadow',
             'color',
             'align-items',
+            'aspect-ratio',
             'column-gap',
             'display',
             'flex-direction',
@@ -442,6 +443,7 @@ trait StyleResolutionTrait
             'gap',
             'grid-template-columns',
             'grid-template-rows',
+            'height',
             'justify-content',
             'line-height',
             'margin',
@@ -449,6 +451,10 @@ trait StyleResolutionTrait
             'margin-left',
             'margin-right',
             'margin-top',
+            'max-height',
+            'max-width',
+            'min-height',
+            'min-width',
             'padding',
             'padding-bottom',
             'padding-left',
@@ -458,6 +464,7 @@ trait StyleResolutionTrait
             'text-align',
             'text-decoration',
             'text-transform',
+            'width',
         ));
 
         return array_intersect_key($declarations, $safe);
