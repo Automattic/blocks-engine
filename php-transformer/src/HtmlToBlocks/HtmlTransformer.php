@@ -4511,7 +4511,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $html = $this->minifyInlineSvgForImage($html);
+        $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
         $dataUri = 'data:image/svg+xml,' . rawurlencode($html);
         if ( strlen($dataUri) > self::MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES ) {
             return null;
@@ -4544,6 +4544,15 @@ final class HtmlTransformer
         $html = preg_replace('/<!--.*?-->/s', '', $html) ?? $html;
         $html = preg_replace('/>\s+</', '><', $html) ?? $html;
         return trim($html);
+    }
+
+    private function ensureSvgImageNamespace(string $html): string
+    {
+        if ( preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
+            return $html;
+        }
+
+        return preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $html, 1) ?? $html;
     }
 
     private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
