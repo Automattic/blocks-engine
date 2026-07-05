@@ -1493,7 +1493,7 @@ final class HtmlTransformer
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
@@ -2009,7 +2009,7 @@ final class HtmlTransformer
         }
 
         $content = (string) ($attrs['content'] ?? '');
-        if ( '' === $content || ! preg_match('/<(?:span|a)\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $attrs;
         }
 
@@ -2051,18 +2051,20 @@ final class HtmlTransformer
             }
         }
 
+        // Unwrap any remaining styling hooks (sibling / partial content) unless
+        // their visual style can be carried by RichText's mark format.
+        foreach ( $this->richTextStylingHookElements($body) as $inline ) {
+            if ( $this->replaceRichTextStylingHookWithMark($inline) ) {
+                continue;
+            }
+            if ( 'span' === strtolower($inline->tagName) ) {
+                $this->unwrapElement($inline);
+            }
+        }
+
         foreach ( $this->richTextAnchors($body) as $anchor ) {
             $anchor->removeAttribute('class');
             $anchor->removeAttribute('style');
-        }
-
-        // Unwrap any remaining styling-hook spans (sibling / partial content)
-        // unless their visual style can be carried by RichText's mark format.
-        foreach ( $this->stylingHookSpans($body) as $span ) {
-            if ( $this->replaceSpanWithRichTextMark($span) ) {
-                continue;
-            }
-            $this->unwrapElement($span);
         }
 
         $newContent = $this->innerHtml($body);
@@ -2152,6 +2154,27 @@ final class HtmlTransformer
         return $hasStyling;
     }
 
+    private function isRichTextInlineStylingHookElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'span' === $tagName ) {
+            return $this->isStylingHookSpan($element);
+        }
+
+        if ( ! in_array($tagName, array( 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            return false;
+        }
+
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $attributeName = strtolower($attribute->nodeName);
+            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * @return array<int, DOMElement>
      */
@@ -2165,6 +2188,21 @@ final class HtmlTransformer
         }
 
         return $spans;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function richTextStylingHookElements(DOMElement $container): array
+    {
+        $elements = array();
+        foreach ( $container->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $this->isRichTextInlineStylingHookElement($element) ) {
+                $elements[] = $element;
+            }
+        }
+
+        return $elements;
     }
 
     /**
@@ -2190,7 +2228,7 @@ final class HtmlTransformer
     private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
     {
         $content = $this->innerHtml($element);
-        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
 
@@ -2205,33 +2243,33 @@ final class HtmlTransformer
             return $content;
         }
 
-        $sourceSpans = array();
-        foreach ( $element->getElementsByTagName('span') as $sourceSpan ) {
-            if ( $sourceSpan instanceof DOMElement ) {
-                $sourceSpans[] = $sourceSpan;
+        $sourceInlines = array();
+        foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
+            if ( $sourceInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($sourceInline) ) {
+                $sourceInlines[] = $sourceInline;
             }
         }
 
-        $targetSpans = array();
-        foreach ( $body->getElementsByTagName('span') as $targetSpan ) {
-            if ( $targetSpan instanceof DOMElement ) {
-                $targetSpans[] = $targetSpan;
+        $targetInlines = array();
+        foreach ( $body->getElementsByTagName('*') as $targetInline ) {
+            if ( $targetInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($targetInline) ) {
+                $targetInlines[] = $targetInline;
             }
         }
 
-        foreach ( $targetSpans as $index => $targetSpan ) {
-            $sourceSpan = $sourceSpans[$index] ?? null;
-            if ( ! $sourceSpan instanceof DOMElement || ! $this->isStylingHookSpan($sourceSpan) ) {
+        foreach ( $targetInlines as $index => $targetInline ) {
+            $sourceInline = $sourceInlines[$index] ?? null;
+            if ( ! $sourceInline instanceof DOMElement ) {
                 continue;
             }
 
-            $inline = $this->richTextInlineVisualDeclarations($sourceSpan);
+            $inline = $this->richTextInlineVisualDeclarations($sourceInline);
             if ( array() === $inline ) {
                 continue;
             }
 
-            $existing = $this->cssDeclarations($this->attr($targetSpan, 'style'));
-            $targetSpan->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
+            $existing = $this->cssDeclarations($this->attr($targetInline, 'style'));
+            $targetInline->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
         }
 
         return $this->innerHtml($body);
@@ -2266,9 +2304,9 @@ final class HtmlTransformer
         return array_intersect_key($declarations, $allowed);
     }
 
-    private function replaceSpanWithRichTextMark(DOMElement $span): bool
+    private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
-        $declarations = $this->richTextInlineVisualDeclarations($span);
+        $declarations = $this->richTextInlineVisualDeclarations($element);
         $hasUsefulInlineStyle = isset($declarations['color']) || isset($declarations['background-color']) || 'block' === strtolower(trim((string) ($declarations['display'] ?? '')));
         if ( ! $hasUsefulInlineStyle ) {
             return false;
@@ -2278,23 +2316,30 @@ final class HtmlTransformer
             $declarations['background-color'] = 'transparent';
         }
 
-        $document = $span->ownerDocument;
+        $document = $element->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
             return false;
         }
 
         $mark = $document->createElement('mark');
         $mark->setAttribute('style', $this->cssDeclarationString($declarations));
-        while ( null !== $span->firstChild ) {
-            $mark->appendChild($span->firstChild);
+        while ( null !== $element->firstChild ) {
+            $mark->appendChild($element->firstChild);
         }
 
-        $parent = $span->parentNode;
+        $parent = $element->parentNode;
         if ( ! $parent instanceof DOMNode ) {
             return false;
         }
 
-        $parent->replaceChild($mark, $span);
+        if ( in_array(strtolower($element->tagName), array( 'span', 'mark' ), true) ) {
+            $parent->replaceChild($mark, $element);
+            return true;
+        }
+
+        $element->removeAttribute('class');
+        $element->removeAttribute('style');
+        $element->appendChild($mark);
         return true;
     }
 

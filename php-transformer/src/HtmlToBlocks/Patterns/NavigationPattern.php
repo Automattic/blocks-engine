@@ -27,6 +27,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
+            return null;
+        }
+
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget);
 
         if ( array() === $links ) {
@@ -52,6 +56,43 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $url;
+    }
+
+    private function hasDirectBrandingAnchorBesideListNavigation(DOMElement $element, callable $innerHtml): bool
+    {
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) ) {
+            return false;
+        }
+
+        $hasDirectAnchor = false;
+        $hasListNavigation = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'a' === $tagName && $this->hasBrandAnchorSignal($child) && '' !== $this->anchorLabel($child, $innerHtml) && ! preg_match('/<(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b/i', $innerHtml($child)) ) {
+                $hasDirectAnchor = true;
+                continue;
+            }
+
+            if ( in_array($tagName, array( 'ul', 'ol' ), true) && array() !== $this->navigationBlocksFromList($child, static fn (): array => array(), $innerHtml, static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
+                'blockName'   => $name,
+                'attrs'       => $attrs,
+                'innerBlocks' => $innerBlocks,
+            )) ) {
+                $hasListNavigation = true;
+            }
+        }
+
+        return $hasDirectAnchor && $hasListNavigation;
+    }
+
+    private function hasBrandAnchorSignal(DOMElement $anchor): bool
+    {
+        $haystack = strtolower(trim($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id') . ' ' . $this->attr($anchor, 'aria-label') . ' ' . $this->attr($anchor, 'title')));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:brand|branding|logo|site-title|site-name|home-link|home-logo)(?:[^a-z0-9]|$)/', $haystack);
     }
 
     /**
