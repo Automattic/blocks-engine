@@ -203,8 +203,9 @@ final class ButtonsPattern
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
         $resolvedStyle = (string) $resolvedStyle($element);
-        if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
-            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
+        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle);
+        if ( $isOutline ) {
+            $attrs['className'] = 'is-style-outline';
         }
 
         // Translate the resolved source CSS (inline style merged with the matched
@@ -217,7 +218,7 @@ final class ButtonsPattern
             $attrs = array_merge($attrs, $native);
         }
 
-        if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
+        if ( $isOutline ) {
             $attrs['style']['color']['background'] = 'transparent';
         }
 
@@ -247,7 +248,11 @@ final class ButtonsPattern
             return false;
         }
 
-        return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))/i', $normalized) === 1;
+        if ( ! preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $matches) ) {
+            return true;
+        }
+
+        return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
     }
 
     private function hasButtonSignal(DOMElement $anchor): bool

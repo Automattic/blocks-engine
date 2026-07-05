@@ -554,6 +554,7 @@ final class BlockFactory
         $typographyMap = array(
             'fontSize'      => 'font-size',
             'fontWeight'    => 'font-weight',
+            'letterSpacing' => 'letter-spacing',
             'lineHeight'    => 'line-height',
             'textTransform' => 'text-transform',
         );
