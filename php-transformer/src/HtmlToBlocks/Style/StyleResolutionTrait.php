@@ -258,6 +258,7 @@ trait StyleResolutionTrait
         }
 
         $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $css = $this->topLevelCssRules($css);
         $rules = array();
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -280,6 +281,112 @@ trait StyleResolutionTrait
         }
 
         return array_slice($rules, 0, 200);
+    }
+
+    private function topLevelCssRules(string $css): string
+    {
+        $output = '';
+        $length = strlen($css);
+        $depth = 0;
+
+        for ( $offset = 0; $offset < $length; ++$offset ) {
+            $char = $css[$offset];
+
+            if ( '"' === $char || "'" === $char ) {
+                $output .= $char;
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    $output .= $css[$offset];
+                    if ( '\\' === $css[$offset] ) {
+                        if ( $offset + 1 < $length ) {
+                            ++$offset;
+                            $output .= $css[$offset];
+                        }
+                        continue;
+                    }
+                    if ( $char === $css[$offset] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            if ( 0 !== $depth || '@' !== $char ) {
+                if ( '{' === $char ) {
+                    ++$depth;
+                } elseif ( '}' === $char && $depth > 0 ) {
+                    --$depth;
+                }
+                $output .= $char;
+                continue;
+            }
+
+            $blockStart = $this->findCssToken($css, '{', $offset);
+            $statementEnd = $this->findCssToken($css, ';', $offset);
+            if ( null === $blockStart || ( null !== $statementEnd && $statementEnd < $blockStart ) ) {
+                if ( null === $statementEnd ) {
+                    break;
+                }
+                $offset = $statementEnd;
+                continue;
+            }
+
+            $atRuleDepth = 1;
+            for ( $innerOffset = $blockStart + 1; $innerOffset < $length; ++$innerOffset ) {
+                if ( '"' === $css[$innerOffset] || "'" === $css[$innerOffset] ) {
+                    $quote = $css[$innerOffset];
+                    for ( ++$innerOffset; $innerOffset < $length; ++$innerOffset ) {
+                        if ( '\\' === $css[$innerOffset] ) {
+                            ++$innerOffset;
+                            continue;
+                        }
+                        if ( $quote === $css[$innerOffset] ) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ( '{' === $css[$innerOffset] ) {
+                    ++$atRuleDepth;
+                    continue;
+                }
+                if ( '}' === $css[$innerOffset] ) {
+                    --$atRuleDepth;
+                    if ( 0 === $atRuleDepth ) {
+                        $offset = $innerOffset;
+                        continue 2;
+                    }
+                }
+            }
+
+            break;
+        }
+
+        return $output;
+    }
+
+    private function findCssToken(string $css, string $token, int $offset): ?int
+    {
+        $length = strlen($css);
+        for ( ; $offset < $length; ++$offset ) {
+            if ( '"' === $css[$offset] || "'" === $css[$offset] ) {
+                $quote = $css[$offset];
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    if ( '\\' === $css[$offset] ) {
+                        ++$offset;
+                        continue;
+                    }
+                    if ( $quote === $css[$offset] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( $token === $css[$offset] ) {
+                return $offset;
+            }
+        }
+
+        return null;
     }
 
     /**

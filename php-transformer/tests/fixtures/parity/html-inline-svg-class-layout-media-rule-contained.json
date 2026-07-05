@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-class-layout-media-rule-contained",
+  "description": "Class-owned desktop layout around a preserved inline SVG does not inherit mobile @media declarations as unconditional block styles.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-class-layout-media-rule-contained.json",
+    "notes": "Regression guard for class-owned SVG layout context: conditional CSS rules are viewport-bound and must not be folded into static desktop block attributes without a matching viewport."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.release-grid{display:grid;grid-template-columns:260px 1fr;gap:5rem}.cover-wrap{position:relative}.ep-cover{width:100%;aspect-ratio:1;display:block}@media (max-width: 768px){.release-grid{grid-template-columns:1fr;gap:2rem}.cover-wrap{max-width:220px;margin:0 auto}.ep-cover{max-width:220px}}</style><main><section class=\"release-grid\"><div class=\"cover-wrap\"><svg class=\"ep-cover\" viewBox=\"0 0 500 500\" role=\"img\" aria-label=\"EP cover\"><defs><linearGradient id=\"paint\"><stop offset=\"0%\" stop-color=\"currentColor\"></stop><stop offset=\"100%\" stop-color=\"#b8552a\"></stop></linearGradient></defs><rect width=\"500\" height=\"500\" fill=\"url(#paint)\"></rect></svg></div><div><h2>Between the Fog</h2><p>New EP.</p></div></section></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "release-grid" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "cover-wrap" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group release-grid\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cover-wrap\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<svg class=\"ep-cover\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "margin-right:auto" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "max-width:220px" }
+  ]
+}
