@@ -1494,7 +1494,7 @@ final class HtmlTransformer
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $logo ) {
@@ -1719,7 +1719,7 @@ final class HtmlTransformer
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $logo ) {
@@ -2607,6 +2607,11 @@ final class HtmlTransformer
             return null;
         }
 
+        $structuredInlineItems = $this->structuredInlineItemBlocks($element);
+        if ( null !== $structuredInlineItems ) {
+            return $this->createBlock('core/group', $this->presentationAttributes($element), $structuredInlineItems, $element);
+        }
+
         $content = $this->innerHtml($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
@@ -2645,6 +2650,54 @@ final class HtmlTransformer
         }
 
         return $nonAnchorText;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function structuredInlineItemBlocks(DOMElement $element): ?array
+    {
+        $blocks = array();
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( ! $this->isClassedPhrasingItem($child) ) {
+                return null;
+            }
+
+            $content = $this->innerHtml($child);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            $blocks[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+        }
+
+        return 1 < count($blocks) ? $blocks : null;
+    }
+
+    private function isClassedPhrasingItem(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'br' === $tagName || ( 'a' !== $tagName && ! $this->isInlineContentElement($tagName) ) ) {
+            return false;
+        }
+
+        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'style'));
     }
 
     private function dynamicTextContent(DOMElement $element): ?string

@@ -25,6 +25,10 @@ final class LogoPattern
             return null;
         }
 
+        if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
+            return $createBlock('core/html', array( 'content' => $outerHtml($element) ), array(), $element);
+        }
+
         $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element)) : $this->logoLabelHtml($innerHtml($element));
         if ( '' === trim($content) ) {
             return null;
@@ -176,6 +180,44 @@ final class LogoPattern
             }
 
             if ( $this->containsBlockContent($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasStructuredAnchorChrome(DOMElement $anchor): bool
+    {
+        if ( '' === trim($anchor->getAttribute('class')) ) {
+            return false;
+        }
+
+        foreach ( $anchor->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( '' !== trim($child->getAttribute('class')) || $this->descendantHasClassedInlineChrome($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function descendantHasClassedInlineChrome(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( '' !== trim($child->getAttribute('class')) ) {
+                return true;
+            }
+
+            if ( $this->descendantHasClassedInlineChrome($child) ) {
                 return true;
             }
         }

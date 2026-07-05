@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-structured-inline-chrome-class-preservation",
+  "description": "Preserves class-targeted logo anchors and segmented inline chrome instead of flattening them into unstyled paragraph text.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-structured-inline-chrome-class-preservation.json",
+    "notes": "Covers generic source-CSS selectors that require classes on anchor/span-like chrome rather than only the parent block."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"nav\"><a href=\"#home\" class=\"brand-logo\" aria-label=\"Home\"><span class=\"brand-mark\" aria-hidden=\"true\"><svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg></span><span><span class=\"brand-name\">Roasters</span><span class=\"brand-sub\">Est. 2018</span></span></a><ul class=\"nav-links\"><li><a href=\"#menu\">Menu</a></li><li><a href=\"#contact\">Contact</a></li></ul><button class=\"nav-toggle\" aria-label=\"Open navigation\"><span></span><span></span></button></nav><div class=\"ticker-band\"><div class=\"ticker-track\"><span class=\"ticker-item\">Small Batch</span><span class=\"ticker-item ticker-dot\">•</span><span class=\"ticker-item\">Direct Trade</span></div></div><article class=\"menu-card\"><div class=\"card-footer\"><span class=\"card-tag\">Espresso</span><span class=\"card-price\">$4.50</span></div></article>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "nav" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-track" } },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "ticker-item" } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/group", "attrs": { "className": "card-footer" } },
+    { "path": "blocks.2.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "card-tag" } },
+    { "path": "blocks.2.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "card-price" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"brand-logo\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"brand-name\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "viewBox=\"0 0 10 10\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-track" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item\">Small Batch</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item ticker-dot\">•</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group card-footer" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-tag\">Espresso</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-price\">$4.50</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Small Batch•Direct Trade" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
