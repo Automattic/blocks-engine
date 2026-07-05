@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-richtext-partial-span-visual-mark",
+  "description": "Carries visual styles from a partial classed RichText span by materializing supported CSS into a mark format instead of dropping the styling hook entirely.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-richtext-partial-span-visual-mark.json",
+    "notes": "Generic RichText fidelity coverage for headings with styled line segments where class hooks are not safe to keep in RichText content."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.hero-title{font-size:clamp(3rem,10vw,8rem);line-height:.9;color:#fff}.hero-title .accent{display:block;color:#b8893a}</style></head><body><h1 class=\"hero-title\">Driftwood <span class=\"accent\">Roasters</span></h1></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/heading", "attrs": { "level": 1, "className": "hero-title", "style": { "typography": { "fontSize": "clamp(3rem,10vw,8rem)", "lineHeight": ".9" }, "color": { "text": "#fff" } } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark style=\"display:block;color:#b8893a;background-color:transparent\">Roasters</mark>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "class=\"accent\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

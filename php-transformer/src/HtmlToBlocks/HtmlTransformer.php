@@ -1159,7 +1159,7 @@ final class HtmlTransformer
         }
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
-            $content = $this->innerHtml($element);
+            $content = $this->richTextContentWithMaterializedInlineStyles($element);
             if ( $this->richTextRequiresHtmlFallback($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
@@ -1174,7 +1174,7 @@ final class HtmlTransformer
         }
 
         if ( 'p' === $tagName ) {
-            $content = $this->innerHtml($element);
+            $content = $this->richTextContentWithMaterializedInlineStyles($element);
             if ( $this->richTextRequiresHtmlFallback($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
@@ -1190,7 +1190,7 @@ final class HtmlTransformer
         }
 
         if ( 'address' === $tagName ) {
-            $content = $this->innerHtml($element);
+            $content = $this->richTextContentWithMaterializedInlineStyles($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -2056,9 +2056,12 @@ final class HtmlTransformer
             $anchor->removeAttribute('style');
         }
 
-        // Unwrap any remaining styling-hook spans (sibling / partial content):
-        // best-effort, the class styling is not representable as valid RichText.
+        // Unwrap any remaining styling-hook spans (sibling / partial content)
+        // unless their visual style can be carried by RichText's mark format.
         foreach ( $this->stylingHookSpans($body) as $span ) {
+            if ( $this->replaceSpanWithRichTextMark($span) ) {
+                continue;
+            }
             $this->unwrapElement($span);
         }
 
@@ -2182,6 +2185,117 @@ final class HtmlTransformer
     private function richTextRequiresHtmlFallback(string $content): bool
     {
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
+    }
+
+    private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
+    {
+        $content = $this->innerHtml($element);
+        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+            return $content;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $content;
+        }
+
+        $sourceSpans = array();
+        foreach ( $element->getElementsByTagName('span') as $sourceSpan ) {
+            if ( $sourceSpan instanceof DOMElement ) {
+                $sourceSpans[] = $sourceSpan;
+            }
+        }
+
+        $targetSpans = array();
+        foreach ( $body->getElementsByTagName('span') as $targetSpan ) {
+            if ( $targetSpan instanceof DOMElement ) {
+                $targetSpans[] = $targetSpan;
+            }
+        }
+
+        foreach ( $targetSpans as $index => $targetSpan ) {
+            $sourceSpan = $sourceSpans[$index] ?? null;
+            if ( ! $sourceSpan instanceof DOMElement || ! $this->isStylingHookSpan($sourceSpan) ) {
+                continue;
+            }
+
+            $inline = $this->richTextInlineVisualDeclarations($sourceSpan);
+            if ( array() === $inline ) {
+                continue;
+            }
+
+            $existing = $this->cssDeclarations($this->attr($targetSpan, 'style'));
+            $targetSpan->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
+        }
+
+        return $this->innerHtml($body);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function richTextInlineVisualDeclarations(DOMElement $element): array
+    {
+        $allowed = array_flip(array(
+            'background-color',
+            'color',
+            'display',
+            'font-size',
+            'font-style',
+            'font-weight',
+            'letter-spacing',
+            'line-height',
+            'text-decoration',
+            'text-transform',
+        ));
+
+        $declarations = array();
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+        $declarations = array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+
+        return array_intersect_key($declarations, $allowed);
+    }
+
+    private function replaceSpanWithRichTextMark(DOMElement $span): bool
+    {
+        $declarations = $this->richTextInlineVisualDeclarations($span);
+        $hasUsefulInlineStyle = isset($declarations['color']) || isset($declarations['background-color']) || 'block' === strtolower(trim((string) ($declarations['display'] ?? '')));
+        if ( ! $hasUsefulInlineStyle ) {
+            return false;
+        }
+
+        if ( isset($declarations['color']) && ! isset($declarations['background-color']) ) {
+            $declarations['background-color'] = 'transparent';
+        }
+
+        $document = $span->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return false;
+        }
+
+        $mark = $document->createElement('mark');
+        $mark->setAttribute('style', $this->cssDeclarationString($declarations));
+        while ( null !== $span->firstChild ) {
+            $mark->appendChild($span->firstChild);
+        }
+
+        $parent = $span->parentNode;
+        if ( ! $parent instanceof DOMNode ) {
+            return false;
+        }
+
+        $parent->replaceChild($mark, $span);
+        return true;
     }
 
     /**
