@@ -258,6 +258,7 @@ trait StyleResolutionTrait
         }
 
         $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $css = $this->stripConditionalCssAtRules($css);
         $rules = array();
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -280,6 +281,51 @@ trait StyleResolutionTrait
         }
 
         return array_slice($rules, 0, 200);
+    }
+
+    /**
+     * Remove conditional at-rules before applying the lightweight top-level CSS
+     * rule parser. The transformer has no viewport/container context, so folding
+     * responsive rules into static block attributes makes mobile declarations
+     * unconditional on desktop imports.
+     */
+    private function stripConditionalCssAtRules(string $css): string
+    {
+        $length = strlen($css);
+        $output = '';
+        for ( $index = 0; $index < $length; ) {
+            if ( '@' !== $css[$index] ) {
+                $output .= $css[$index];
+                ++$index;
+                continue;
+            }
+
+            if ( ! preg_match('/\G@(media|supports|container)\b/i', $css, $match, 0, $index) ) {
+                $output .= $css[$index];
+                ++$index;
+                continue;
+            }
+
+            $brace = strpos($css, '{', $index);
+            if ( false === $brace ) {
+                break;
+            }
+
+            $depth = 1;
+            $cursor = $brace + 1;
+            while ( $cursor < $length && $depth > 0 ) {
+                if ( '{' === $css[$cursor] ) {
+                    ++$depth;
+                } elseif ( '}' === $css[$cursor] ) {
+                    --$depth;
+                }
+                ++$cursor;
+            }
+
+            $index = $cursor;
+        }
+
+        return $output;
     }
 
     /**
