@@ -507,6 +507,28 @@ $assert(str_contains($inlineSvgMarkup, 'data:image/svg+xml,'), 'passive meaningf
 $assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art"'), 'passive meaningful inline SVG artwork preserves source class and core/image resize class on the image block wrapper');
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 
+$cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
+)->toArray();
+$cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover"'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
+$assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
+$assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
+
+$largeCssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.hero-cover{width:100%;max-width:380px;aspect-ratio:1;display:block}</style><main><svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover">' . str_repeat('<rect width="500" height="500" fill="#111"/>', 2000) . '</svg></main>'
+)->toArray();
+$largeCssSizedInlineSvgArtworkMarkup = (string) ($largeCssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
+$assert(str_contains($largeCssSizedInlineSvgArtworkMarkup, '<!-- wp:html'), 'large CSS-sized inline SVG artwork falls back to bounded HTML when too large for a native image data URI');
+$assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover" width="500" height="500"'), 'large CSS-sized inline SVG artwork does not inject intrinsic SVG dimensions over source CSS sizing');
+
+$fixedBackgroundLayer = ( new HtmlTransformer() )->transform(
+    '<style>.page-bg{position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#211,#000)}</style><main><div class="page-bg" aria-hidden="true"></div><section class="hero"><h1>Hero</h1></section></main>'
+)->toArray();
+$fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks'] ?? '');
+$assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
+$assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');

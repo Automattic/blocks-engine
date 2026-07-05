@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-preserved-box-size-carry",
+  "description": "Preserved inline SVGs that must stay core/html retain source box sizing so currentColor/vector-context artwork does not render oversized.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-preserved-box-size-carry.json",
+    "notes": "Distilled generic coverage for class-sized cover/map/logo SVGs that legitimately stay inline HTML because inherited currentColor cannot be represented by a data URI image document."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.cover-art{width:100%;max-width:320px;aspect-ratio:1;display:block}</style><main><svg class=\"cover-art\" viewBox=\"0 0 500 500\" role=\"img\" aria-label=\"Cover art\"><defs><linearGradient id=\"paint\"><stop offset=\"0%\" stop-color=\"currentColor\"></stop><stop offset=\"100%\" stop-color=\"#b8552a\"></stop></linearGradient></defs><rect width=\"500\" height=\"500\" fill=\"url(#paint)\"></rect></svg></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "currentColor" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "style=\"width:100%;max-width:320px;aspect-ratio:1;display:block\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data:image/svg+xml" }
+  ]
+}
