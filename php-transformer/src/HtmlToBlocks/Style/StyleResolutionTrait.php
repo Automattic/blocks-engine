@@ -217,7 +217,7 @@ trait StyleResolutionTrait
     private function isHighValueStyledElement(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'button', 'nav', 'article' ), true) ) {
+        if ( in_array($tagName, array( 'button', 'nav', 'article', 'svg' ), true) ) {
             return true;
         }
 
@@ -424,6 +424,7 @@ trait StyleResolutionTrait
             'background',
             'background-color',
             'background-image',
+            'aspect-ratio',
             'border',
             'border-color',
             'border-radius',
@@ -432,7 +433,6 @@ trait StyleResolutionTrait
             'box-shadow',
             'color',
             'align-items',
-            'aspect-ratio',
             'column-gap',
             'display',
             'flex-direction',

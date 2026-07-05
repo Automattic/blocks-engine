@@ -39,7 +39,7 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
-    private const MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES = 8192;
+    private const MAX_INLINE_SVG_IMAGE_DATA_URI_BYTES = 65536;
 
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
@@ -1551,7 +1551,7 @@ final class HtmlTransformer
             if ( $this->isRuntimeDomTarget($element) ) {
                 $html = $this->sanitizeInlineSvgMarkup($element);
                 if ( $this->isSafeSvgContent($html) ) {
-                    return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
+                    return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
                 }
             }
 
@@ -4487,7 +4487,11 @@ final class HtmlTransformer
             return null;
         }
 
-        $html = $this->restoreSvgCasing($this->cssOwnsMediaBox($element) ? $html : $this->ensureInlineSvgSizing($html));
+        $html = $this->restoreSvgCasing(
+            $this->cssOwnsMediaBox($element)
+                ? $this->ensureInlineSvgBoxStyle($html, $element)
+                : $this->ensureInlineSvgSizing($html, $element)
+        );
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -4612,10 +4616,17 @@ final class HtmlTransformer
         return $title instanceof DOMElement ? trim((string) $title->textContent) : '';
     }
 
-    private function ensureInlineSvgSizing(string $html): string
+    private function ensureInlineSvgSizing(string $html, ?DOMElement $element = null): string
     {
         if ( 1 !== preg_match('/<svg\b([^>]*)>/i', $html, $match, PREG_OFFSET_CAPTURE) ) {
             return $html;
+        }
+
+        if ( null !== $element ) {
+            $html = $this->ensureInlineSvgBoxStyle($html, $element);
+            if ( 1 !== preg_match('/<svg\b([^>]*)>/i', $html, $match, PREG_OFFSET_CAPTURE) ) {
+                return $html;
+            }
         }
 
         $attrs = $match[1][0];
@@ -4640,6 +4651,44 @@ final class HtmlTransformer
 
         $insertAt = $match[0][1] + strlen($match[0][0]) - 1;
         return substr($html, 0, $insertAt) . ' width="' . $width . '" height="' . $height . '"' . substr($html, $insertAt);
+    }
+
+    private function ensureInlineSvgBoxStyle(string $html, DOMElement $element): string
+    {
+        $boxProperties = array_flip(array(
+            'aspect-ratio',
+            'display',
+            'height',
+            'max-height',
+            'max-width',
+            'min-height',
+            'min-width',
+            'width',
+        ));
+        $boxDeclarations = array_intersect_key($this->presentationDeclarations($element), $boxProperties);
+        if ( array() === $boxDeclarations ) {
+            return $html;
+        }
+
+        $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        foreach ( array_keys($existingDeclarations) as $name ) {
+            unset($boxDeclarations[$name]);
+        }
+        if ( array() === $boxDeclarations ) {
+            return $html;
+        }
+
+        $style = $this->cssDeclarationString(array_merge($existingDeclarations, $boxDeclarations));
+        if ( '' === $style ) {
+            return $html;
+        }
+
+        $escapedStyle = htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if ( preg_match('/<svg\b([^>]*)\sstyle\s*=\s*(["\'])(.*?)\2([^>]*)>/i', $html) ) {
+            return preg_replace('/(<svg\b[^>]*\sstyle\s*=\s*)(["\'])(.*?)\2/i', '$1$2' . $escapedStyle . '$2', $html, 1) ?? $html;
+        }
+
+        return preg_replace('/<svg\b([^>]*)>/i', '<svg$1 style="' . $escapedStyle . '">', $html, 1) ?? $html;
     }
 
     private function normalizedSvgDimension(float $value): string
