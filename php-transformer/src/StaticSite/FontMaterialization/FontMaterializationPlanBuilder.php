@@ -371,8 +371,9 @@ final class FontMaterializationPlanBuilder
     /**
      * Extract integer weights from a Google Fonts axis suffix.
      *
-     * Supports `css2` axis tuples (`wght@400;700`, `ital,wght@0,400;1,700`)
-     * and the legacy `css` weight list (`400,700`). Defaults to `[400]`.
+     * Supports `css2` axis tuples (`wght@400;700`, `ital,wght@0,400;1,700`),
+     * Google Fonts ranges (`wght@300..900`), and the legacy `css` weight list
+     * (`400,700`). Defaults to `[400]`.
      *
      * @return array<int,int>
      */
@@ -391,19 +392,39 @@ final class FontMaterializationPlanBuilder
             foreach ( explode(';', $tuples) as $tuple ) {
                 $values = explode(',', $tuple);
                 $value = false === $wghtIndex ? end($values) : ($values[$wghtIndex] ?? null);
-                if ( is_numeric($value) ) {
-                    $weights[] = (int) $value;
-                }
+                array_push($weights, ...$this->expandFontWeightToken((string) $value));
             }
         } else {
             foreach ( explode(',', $axes) as $token ) {
-                if ( preg_match('/(\d{2,4})/', $token, $match) ) {
-                    $weights[] = (int) $match[1];
-                }
+                array_push($weights, ...$this->expandFontWeightToken($token));
             }
         }
 
         return array() === $weights ? array(400) : $weights;
+    }
+
+    /**
+     * @return array<int,int>
+     */
+    private function expandFontWeightToken(string $token): array
+    {
+        $token = trim($token);
+        if ( preg_match('/^(\d{2,4})\.\.(\d{2,4})$/', $token, $range) ) {
+            $start = max(1, min(1000, (int) $range[1]));
+            $end = max(1, min(1000, (int) $range[2]));
+            if ( $start > $end ) {
+                [$start, $end] = array($end, $start);
+            }
+
+            $weights = array();
+            for ( $weight = (int) (ceil($start / 100) * 100); $weight <= $end; $weight += 100 ) {
+                $weights[] = $weight;
+            }
+
+            return array() === $weights ? array($start, $end) : $weights;
+        }
+
+        return is_numeric($token) ? array((int) $token) : array();
     }
 
     /**

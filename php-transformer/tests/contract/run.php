@@ -2126,6 +2126,13 @@ $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detec
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
 
+$rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
+    'body { font-family: "Crimson Pro", Georgia, serif; } .mono { font-family: "JetBrains Mono", monospace; }'
+);
+$assert(array(300, 400, 500, 600, 700, 800, 900) === ($rangeFontPlan['fonts'][0]['weights'] ?? null), 'web-font detection expands css2 font-weight ranges');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400&display=swap");' === ($rangeFontPlan['css'] ?? null), 'web-font detection preserves ranged google font weights deterministically');
+
 // Legacy css (v1) link syntax with `|`-separated families and comma weight lists.
 $legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700|Lora">',
