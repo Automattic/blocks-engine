@@ -34,7 +34,7 @@ final class ButtonStyleResolver
     /**
      * Typography supports projected onto buttons, in canonical emission order.
      */
-    private const BUTTON_TYPOGRAPHY = array( 'fontSize', 'fontWeight', 'lineHeight', 'textTransform' );
+    private const BUTTON_TYPOGRAPHY = array( 'fontSize', 'fontWeight', 'letterSpacing', 'lineHeight', 'textTransform' );
 
     private readonly StyleAttributeMapper $mapper;
 

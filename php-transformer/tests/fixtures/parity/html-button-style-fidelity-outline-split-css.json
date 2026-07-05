@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-style-fidelity-outline-split-css",
+  "description": "Outlined CTA buttons with border shorthand on a base class and color on variant classes resolve to native transparent core/button styles without preserving source chrome classes on the wrapper.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-style-fidelity-outline-split-css.json",
+    "notes": "Covers generic bordered/no-fill CTA CSS split across base and variant classes, matching the Mara Vale hero button shape."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New native outline button style-fidelity behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>:root{--ember:#b8552a;--bone:#e6d8c5}.cta-row{display:flex;gap:1rem}.btn{display:inline-flex;padding:.8rem 1.8rem;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;border:1px solid}.btn-primary{border-color:var(--ember);color:var(--bone)}</style></head><body><main><div class=\"cta-row\"><a href=\"/music\" class=\"btn btn-primary\"><span>Listen Now</span></a><a href=\"/tour\" class=\"btn btn-primary\"><span>Tour Dates</span></a></div></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Listen Now", "url": "/music", "className": "is-style-outline", "style": { "color": { "text": "var(--bone)", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "var(--ember)" }, "spacing": { "padding": { "top": ".8rem", "right": "1.8rem", "bottom": ".8rem", "left": "1.8rem" } }, "typography": { "fontSize": ".7rem", "letterSpacing": ".16em", "textTransform": "uppercase" } } } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Tour Dates", "url": "/tour", "className": "is-style-outline", "style": { "color": { "text": "var(--bone)", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "var(--ember)" }, "spacing": { "padding": { "top": ".8rem", "right": "1.8rem", "bottom": ".8rem", "left": "1.8rem" } }, "typography": { "fontSize": ".7rem", "letterSpacing": ".16em", "textTransform": "uppercase" } } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline\"><a class=\"wp-block-button__link has-text-color has-background has-border-color has-custom-font-size wp-element-button\" style=\"border-color:var(--ember);border-style:solid;border-width:1px;color:var(--bone);background-color:transparent;padding-top:.8rem;padding-right:1.8rem;padding-bottom:.8rem;padding-left:1.8rem;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase\" href=\"/music\">Listen Now</a></div>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button btn btn-primary" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button__link has-text-color has-background has-border-color has-custom-font-size wp-element-button btn btn-primary" }
+  ]
+}

@@ -306,6 +306,7 @@ trait StyleResolutionTrait
             'flex-wrap',
             'font-size',
             'font-weight',
+            'letter-spacing',
             'gap',
             'grid-template-columns',
             'grid-template-rows',
