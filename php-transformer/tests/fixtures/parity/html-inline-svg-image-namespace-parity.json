@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-image-namespace-parity",
+  "description": "Safe inline SVGs converted to native core/image data URIs include an SVG namespace so browser image documents render instead of failing while remaining editable as image blocks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-image-namespace-parity.json",
+    "notes": "Generic inline-SVG-as-image serialization parity. Not fixture-specific."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" fill=\"none\"><circle cx=\"7\" cy=\"7\" r=\"6\" stroke=\"#2DD4C8\" stroke-width=\"1.5\"></circle></svg>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data:image/svg+xml" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
