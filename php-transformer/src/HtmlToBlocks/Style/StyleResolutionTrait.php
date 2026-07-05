@@ -258,7 +258,7 @@ trait StyleResolutionTrait
         }
 
         $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $css = $this->stripConditionalCssAtRules($css);
+        $css = $this->topLevelCssRules($css);
         $rules = array();
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -283,49 +283,110 @@ trait StyleResolutionTrait
         return array_slice($rules, 0, 200);
     }
 
-    /**
-     * Remove conditional at-rules before applying the lightweight top-level CSS
-     * rule parser. The transformer has no viewport/container context, so folding
-     * responsive rules into static block attributes makes mobile declarations
-     * unconditional on desktop imports.
-     */
-    private function stripConditionalCssAtRules(string $css): string
+    private function topLevelCssRules(string $css): string
     {
-        $length = strlen($css);
         $output = '';
-        for ( $index = 0; $index < $length; ) {
-            if ( '@' !== $css[$index] ) {
-                $output .= $css[$index];
-                ++$index;
+        $length = strlen($css);
+        $depth = 0;
+
+        for ( $offset = 0; $offset < $length; ++$offset ) {
+            $char = $css[$offset];
+
+            if ( '"' === $char || "'" === $char ) {
+                $output .= $char;
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    $output .= $css[$offset];
+                    if ( '\\' === $css[$offset] ) {
+                        if ( $offset + 1 < $length ) {
+                            ++$offset;
+                            $output .= $css[$offset];
+                        }
+                        continue;
+                    }
+                    if ( $char === $css[$offset] ) {
+                        break;
+                    }
+                }
                 continue;
             }
 
-            if ( ! preg_match('/\G@(media|supports|container)\b/i', $css, $match, 0, $index) ) {
-                $output .= $css[$index];
-                ++$index;
-                continue;
-            }
-
-            $brace = strpos($css, '{', $index);
-            if ( false === $brace ) {
-                break;
-            }
-
-            $depth = 1;
-            $cursor = $brace + 1;
-            while ( $cursor < $length && $depth > 0 ) {
-                if ( '{' === $css[$cursor] ) {
+            if ( 0 !== $depth || '@' !== $char ) {
+                if ( '{' === $char ) {
                     ++$depth;
-                } elseif ( '}' === $css[$cursor] ) {
+                } elseif ( '}' === $char && $depth > 0 ) {
                     --$depth;
                 }
-                ++$cursor;
+                $output .= $char;
+                continue;
             }
 
-            $index = $cursor;
+            $blockStart = $this->findCssToken($css, '{', $offset);
+            $statementEnd = $this->findCssToken($css, ';', $offset);
+            if ( null === $blockStart || ( null !== $statementEnd && $statementEnd < $blockStart ) ) {
+                if ( null === $statementEnd ) {
+                    break;
+                }
+                $offset = $statementEnd;
+                continue;
+            }
+
+            $atRuleDepth = 1;
+            for ( $innerOffset = $blockStart + 1; $innerOffset < $length; ++$innerOffset ) {
+                if ( '"' === $css[$innerOffset] || "'" === $css[$innerOffset] ) {
+                    $quote = $css[$innerOffset];
+                    for ( ++$innerOffset; $innerOffset < $length; ++$innerOffset ) {
+                        if ( '\\' === $css[$innerOffset] ) {
+                            ++$innerOffset;
+                            continue;
+                        }
+                        if ( $quote === $css[$innerOffset] ) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ( '{' === $css[$innerOffset] ) {
+                    ++$atRuleDepth;
+                    continue;
+                }
+                if ( '}' === $css[$innerOffset] ) {
+                    --$atRuleDepth;
+                    if ( 0 === $atRuleDepth ) {
+                        $offset = $innerOffset;
+                        continue 2;
+                    }
+                }
+            }
+
+            break;
         }
 
         return $output;
+    }
+
+    private function findCssToken(string $css, string $token, int $offset): ?int
+    {
+        $length = strlen($css);
+        for ( ; $offset < $length; ++$offset ) {
+            if ( '"' === $css[$offset] || "'" === $css[$offset] ) {
+                $quote = $css[$offset];
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    if ( '\\' === $css[$offset] ) {
+                        ++$offset;
+                        continue;
+                    }
+                    if ( $quote === $css[$offset] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( $token === $css[$offset] ) {
+                return $offset;
+            }
+        }
+
+        return null;
     }
 
     /**
