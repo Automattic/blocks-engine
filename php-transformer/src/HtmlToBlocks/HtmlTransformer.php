@@ -5410,22 +5410,24 @@ final class HtmlTransformer
         // inline-preservation path (local refs) or the fallback diagnostic
         // (external sprite refs) rather than this decorative classification.
         $allowedTags = array_flip(array(
-            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient',
+            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'fegaussianblur', 'femerge',
+            'femergenode', 'filter', 'g', 'line', 'lineargradient',
             'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
             'rect', 'stop', 'svg', 'symbol', 'text', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
             'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
             'dominant-baseline', 'dx', 'dy', 'fill', 'fill-opacity', 'fill-rule', 'font-family',
-            'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'filter', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
             'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
             'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
-            'preserveaspectratio', 'r', 'refx', 'refy', 'role', 'rotate', 'rx', 'ry',
+            'preserveaspectratio', 'r', 'refx', 'refy', 'result', 'role', 'rotate', 'rx', 'ry',
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
-            'stroke-opacity', 'stroke-width', 'style', 'text-anchor', 'transform',
+            'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'text-anchor', 'transform',
             'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xmlns', 'y', 'y1', 'y2',
+            'in',
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
