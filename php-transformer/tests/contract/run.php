@@ -516,7 +516,7 @@ $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
 
 $largeCssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
-    '<style>.hero-cover{width:100%;max-width:380px;aspect-ratio:1;display:block}</style><main><svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover">' . str_repeat('<rect width="500" height="500" fill="#111"/>', 400) . '</svg></main>'
+    '<style>.hero-cover{width:100%;max-width:380px;aspect-ratio:1;display:block}</style><main><svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover">' . str_repeat('<rect width="500" height="500" fill="#111"/>', 2000) . '</svg></main>'
 )->toArray();
 $largeCssSizedInlineSvgArtworkMarkup = (string) ($largeCssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
 $assert(str_contains($largeCssSizedInlineSvgArtworkMarkup, '<!-- wp:html'), 'large CSS-sized inline SVG artwork falls back to bounded HTML when too large for a native image data URI');
