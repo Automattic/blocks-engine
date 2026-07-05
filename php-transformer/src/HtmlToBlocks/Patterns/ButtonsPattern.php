@@ -205,7 +205,7 @@ final class ButtonsPattern
         $resolvedStyle = (string) $resolvedStyle($element);
         $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle);
         if ( $isOutline ) {
-            $attrs['className'] = 'is-style-outline';
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
 
         // Translate the resolved source CSS (inline style merged with the matched
@@ -223,6 +223,20 @@ final class ButtonsPattern
         }
 
         return $attrs;
+    }
+
+    private function mergeClassNames(string ...$classNames): string
+    {
+        $classes = array();
+        foreach ( $classNames as $className ) {
+            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+                if ( '' !== $class && ! in_array($class, $classes, true) ) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
     }
 
     /**

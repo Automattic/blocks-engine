@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-outline-preserves-source-classes-and-metrics",
+  "description": "Preserves source classes on outline core/buttons while carrying border radius and padding through native button style attributes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-outline-preserves-source-classes-and-metrics.json",
+    "notes": "Generic button geometry fixture: sharp rectangle radius, exact padding, and source class hook survive with is-style-outline."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Native button geometry/style fidelity is a PHP transformer behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"btn btn-outline\" href=\"/tour\">Tour Dates</a>",
+    "options": { "static_css": ".btn{padding:14px 28px;border-radius:0;border:1px solid #e6d8c5}.btn-outline{background:transparent;color:#e6d8c5}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn btn-outline is-style-outline", "text": "Tour Dates", "url": "/tour", "style": { "color": { "text": "#e6d8c5", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "#e6d8c5", "radius": "0" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } } } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btn btn-outline is-style-outline\"><a class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\" style=\"border-color:#e6d8c5;border-style:solid;border-width:1px;border-radius:0;color:#e6d8c5;background-color:transparent;padding-top:14px;padding-right:28px;padding-bottom:14px;padding-left:28px\" href=\"/tour\">Tour Dates</a></div>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

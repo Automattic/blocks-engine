@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-color-format-in-heading",
+  "description": "Materializes class-owned color on nested RichText inline format elements as native mark formatting inside headings.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-color-format-in-heading.json",
+    "notes": "Generic inline color fixture for a mostly-one-color heading with a nested colored <em>."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "RichText inline color materialization is a native WordPress fidelity improvement."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<h1 class=\"brand\">Mara <em>Vale</em></h1>",
+    "options": { "static_css": ".brand em{font-style:normal;color:#b8552a}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/heading", "attrs": { "className": "brand", "content": "Mara <em><mark style=\"color:#b8552a;background-color:transparent\">Vale</mark></em>", "level": 1 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h1 class=\"wp-block-heading brand\">Mara <em><mark style=\"color:#b8552a;background-color:transparent\">Vale</mark></em></h1>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

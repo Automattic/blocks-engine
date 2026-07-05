@@ -69,9 +69,18 @@ final class LogoPattern
         $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
-        $text = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
+        $html = trim($html);
+        $text = $this->plainText($html);
+        if ( '' === $text ) {
+            return '';
+        }
 
-        return '' === $text ? '' : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if ( preg_match('/<\/?(?!em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i', $html) ) {
+            $flattened = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
+            return htmlspecialchars('' !== $flattened ? $flattened : $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        return $html;
     }
 
     private function unwrapPresentationalSpan(string $html): string

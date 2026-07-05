@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-brand-anchor-beside-active-nav-list",
+  "description": "Keeps a direct brand/home anchor beside a list menu out of dynamic core/navigation so RichText logo color and active-list selector hooks survive.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-brand-anchor-beside-active-nav-list.json",
+    "notes": "Generic header shape: nav landmark with direct brand anchor plus ul/li menu; preserves .nav-links a.active CSS scope."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers native block decomposition fidelity beyond the legacy converter."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"site-nav\"><a href=\"index.html\" class=\"nav-logo\">Mara <em>Vale</em></a><ul class=\"nav-links\"><li><a href=\"index.html\" class=\"active\">Home</a></li><li><a href=\"music.html\">Music</a></li></ul></nav>",
+    "options": { "static_css": ".nav-logo em{font-style:normal;color:#b8552a}.nav-links a.active::after{width:100%}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-nav", "tagName": "nav" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "className": "active", "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "active" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"nav-logo\"><a href=\"index.html\">Mara <em><mark style=\"color:#b8552a;background-color:transparent\">Vale</mark></em></a></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"nav-links\",\"overlayMenu\":\"mobile\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"anchorClassName\":\"active\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"label\":\"Mara \\u003cem" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
