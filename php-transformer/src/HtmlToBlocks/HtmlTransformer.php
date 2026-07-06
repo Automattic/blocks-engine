@@ -2421,11 +2421,16 @@ final class HtmlTransformer
      */
     private function linkedSvgLogoBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
     {
-        if ( ! $this->hasLogoBrandSignal($anchor) || 0 === $anchor->getElementsByTagName('svg')->length ) {
+        if ( ! $this->isLinkedSvgLogoAnchor($anchor) ) {
             return null;
         }
 
         return $this->convertLinkWrapperGroup($anchor, $fallbacks);
+    }
+
+    private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
+    {
+        return $this->hasLogoBrandSignal($anchor) && 0 < $anchor->getElementsByTagName('svg')->length;
     }
 
     private function hasLogoBrandSignal(DOMElement $element): bool
