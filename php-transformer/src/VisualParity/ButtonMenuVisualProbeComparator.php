@@ -185,8 +185,8 @@ final class ButtonMenuVisualProbeComparator
         $targetStyle = $this->style($targetProbe);
 
         foreach ( self::STYLE_GROUPS as $group => $fields ) {
-            $sourceValues = $this->groupValues($sourceStyle, $fields);
-            $targetValues = $this->groupValues($targetStyle, $fields);
+            $sourceValues = $this->styleGroupValues($sourceStyle, $group, $fields);
+            $targetValues = $this->styleGroupValues($targetStyle, $group, $fields);
             if ( array() === $sourceValues || $sourceValues === $targetValues ) {
                 continue;
             }
@@ -216,14 +216,14 @@ final class ButtonMenuVisualProbeComparator
         $sourceStyle = $this->style($sourceProbe);
         $targetStyle = $this->style($targetProbe);
         foreach ( self::STYLE_GROUPS as $group => $fields ) {
-            if ( array() === $this->groupValues($sourceStyle, $fields) ) {
+            if ( array() === $this->styleGroupValues($sourceStyle, $group, $fields) ) {
                 continue;
             }
-            if ( array() === $this->groupValues($targetStyle, $fields) ) {
+            if ( array() === $this->styleGroupValues($targetStyle, $group, $fields) ) {
                 $risks[] = array(
                     'code' => 'missing_' . $group . '_style',
                     'group' => $group,
-                    'source' => $this->groupValues($sourceStyle, $fields),
+                    'source' => $this->styleGroupValues($sourceStyle, $group, $fields),
                 );
             }
         }
@@ -409,13 +409,47 @@ final class ButtonMenuVisualProbeComparator
 
     /**
      * @param array<string, string> $style
+     * @param array<int, string> $fields
+     * @return array<string, string>
+     */
+    private function styleGroupValues(array $style, string $group, array $fields): array
+    {
+        $values = $this->groupValues($style, $fields);
+        if ( 'border' !== $group ) {
+            return $values;
+        }
+
+        return array_filter($values, static function (string $value, string $property): bool {
+            $normalized = strtolower(trim($value));
+            if ( '' === $normalized ) {
+                return false;
+            }
+
+            if ( in_array($property, array('border', 'border-top', 'border-right', 'border-bottom', 'border-left'), true) ) {
+                return ! preg_match('/^(?:none|0(?:\.0+)?(?:px|rem|em)?)(?:\s+none)?$/', $normalized);
+            }
+
+            if ( str_ends_with($property, '-width') ) {
+                return ! preg_match('/^0(?:\.0+)?(?:px|rem|em)?$/', $normalized);
+            }
+
+            if ( str_ends_with($property, '-style') ) {
+                return 'none' !== $normalized;
+            }
+
+            return true;
+        }, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * @param array<string, string> $style
      * @return array<int, string>
      */
     private function sourceVisualStyleGroups(array $style): array
     {
         $groups = array();
         foreach ( self::STYLE_GROUPS as $group => $fields ) {
-            if ( array() !== $this->groupValues($style, $fields) ) {
+            if ( array() !== $this->styleGroupValues($style, $group, $fields) ) {
                 $groups[] = $group;
             }
         }
