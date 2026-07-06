@@ -5,13 +5,40 @@
     "blocks-engine": {
       "path": "${package.root}/../../..",
       "branch": "trunk",
-      "extensions": {}
+      "extensions": {
+        "nodejs": {}
+      }
     }
   },
   "resources": {
     "paths": [
       "${components.blocks-engine.path}"
     ]
+  },
+  "bench": {
+    "default_component": "blocks-engine",
+    "iterations": 1,
+    "warmup_iterations": 0,
+    "path_inputs": [
+      "--path",
+      "bench_env.FIGMA_FIXTURE_MATRIX_FIXTURE",
+      "bench_env.FIGMA_FIXTURE_MATRIX_FIXTURES",
+      "bench_env.FIGMA_FIXTURE_MATRIX_OUTPUT_DIR"
+    ],
+    "result_gates": {
+      "failed_fixture_count": { "lte": 0 }
+    }
+  },
+  "bench_workloads": {
+    "nodejs": [
+      {
+        "path": "${components.blocks-engine.path}/figma-transformer/bench/figma-fixture-matrix.bench.mjs"
+      }
+    ]
+  },
+  "bench_profiles": {
+    "smoke": ["figma-fixture-matrix"],
+    "fixture-matrix": ["figma-fixture-matrix"]
   },
   "pipeline": {
     "check": [
