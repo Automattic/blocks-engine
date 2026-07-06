@@ -1521,8 +1521,23 @@ final class FigmaTransformer
             'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
             'media_query_count' => 0,
             'fixed_width_over_desktop_count' => 0,
+            'fixed_width_declaration_count' => 0,
+            'fixed_width_with_responsive_override_count' => 0,
+            'fixed_width_without_responsive_override_count' => 0,
+            'effective_responsive_coverage_ratio' => 1.0,
+            'fixed_width_samples' => array(),
             'large_fixed_canvas_height' => false,
             'desktop_canvas_without_responsive_breakpoints' => false,
+            'giant_fixed_section_count' => 0,
+            'giant_fixed_sections' => array(),
+            'large_overflow_risk_count' => 0,
+            'large_overflow_risks' => array(),
+            'fallback_prone_form_island_count' => 0,
+            'fallback_prone_svg_island_count' => 0,
+            'fallback_prone_input_island_count' => 0,
+            'invalid_list_child_count' => 0,
+            'missing_semantic_role_count' => 0,
+            'semantic_role_samples' => array(),
         );
         $decisionTraces = array(
             'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
@@ -1581,7 +1596,11 @@ final class FigmaTransformer
             DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
             DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
             $pageHtmlArtifact = is_array($diagnostics['html_artifact'] ?? null) ? $diagnostics['html_artifact'] : array();
-            DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count'));
+            DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count', 'fixed_width_declaration_count', 'fixed_width_with_responsive_override_count', 'fixed_width_without_responsive_override_count', 'giant_fixed_section_count', 'large_overflow_risk_count', 'fallback_prone_form_island_count', 'fallback_prone_svg_island_count', 'fallback_prone_input_island_count', 'invalid_list_child_count', 'missing_semantic_role_count'));
+            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'fixed_width_samples', $pageHtmlArtifact, 'fixed_width_samples', $pageContext);
+            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'giant_fixed_sections', $pageHtmlArtifact, 'giant_fixed_sections', $pageContext);
+            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'large_overflow_risks', $pageHtmlArtifact, 'large_overflow_risks', $pageContext);
+            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'semantic_role_samples', $pageHtmlArtifact, 'semantic_role_samples', $pageContext);
             $htmlArtifact['large_fixed_canvas_height'] = ! empty($htmlArtifact['large_fixed_canvas_height']) || ! empty($pageHtmlArtifact['large_fixed_canvas_height']);
             $htmlArtifact['desktop_canvas_without_responsive_breakpoints'] = ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) || ! empty($pageHtmlArtifact['desktop_canvas_without_responsive_breakpoints']);
             $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
@@ -1689,6 +1708,14 @@ final class FigmaTransformer
         }
         ksort($decisionTraces['reason_counts']);
         ksort($decisionTraces['domain_counts']);
+        $htmlArtifact['fixed_width_samples'] = array_slice(array_values($htmlArtifact['fixed_width_samples']), 0, 25);
+        $htmlArtifact['giant_fixed_sections'] = array_slice(array_values($htmlArtifact['giant_fixed_sections']), 0, 25);
+        $htmlArtifact['large_overflow_risks'] = array_slice(array_values($htmlArtifact['large_overflow_risks']), 0, 25);
+        $htmlArtifact['semantic_role_samples'] = array_slice(array_values($htmlArtifact['semantic_role_samples']), 0, 25);
+        $fixedWidthDeclarationCount = (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0);
+        $htmlArtifact['effective_responsive_coverage_ratio'] = $fixedWidthDeclarationCount > 0
+            ? round((int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0) / $fixedWidthDeclarationCount, 3)
+            : 1.0;
         ksort($positionalParity['root_stacking_reason_counts']);
         $positionalParity['fixed_over_root_width_underlays'] = array_slice(array_values($positionalParity['fixed_over_root_width_underlays']), 0, 25);
         $positionalParity['chrome_overflow_nodes'] = array_slice(array_values($positionalParity['chrome_overflow_nodes']), 0, 25);
@@ -1858,6 +1885,53 @@ final class FigmaTransformer
                 'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
             );
         }
+        if ( (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0) >= 8 && (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0) < 0.35 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'low_effective_responsive_coverage',
+                'coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 0.0),
+                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
+                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
+                'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['giant_fixed_section_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'giant_fixed_section_risk',
+                'count' => (int) $htmlArtifact['giant_fixed_section_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['giant_fixed_sections'] ?? null) ? $htmlArtifact['giant_fixed_sections'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['large_overflow_risk_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_overflow_risk',
+                'count' => (int) $htmlArtifact['large_overflow_risk_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['large_overflow_risks'] ?? null) ? $htmlArtifact['large_overflow_risks'] : array(), 0, 10),
+            );
+        }
+        $fallbackProneIslandCount = (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0);
+        if ( $fallbackProneIslandCount >= 3 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'fallback_prone_html_islands',
+                'form_islands' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
+                'svg_islands' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
+                'input_islands' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
+            );
+        }
+        if ( ! empty($htmlArtifact['invalid_list_child_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'invalid_list_children', 'count' => (int) $htmlArtifact['invalid_list_child_count']);
+        }
+        if ( (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0) >= 2 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'missing_semantic_roles',
+                'count' => (int) $htmlArtifact['missing_semantic_role_count'],
+                'sample_nodes' => array_slice(is_array($htmlArtifact['semantic_role_samples'] ?? null) ? $htmlArtifact['semantic_role_samples'] : array(), 0, 10),
+            );
+        }
         $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
         if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
             $signals[] = array(
@@ -1931,7 +2005,18 @@ final class FigmaTransformer
                 'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
                 'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
                 'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'effective_responsive_coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0),
+                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
+                'fixed_width_with_responsive_override_count' => (int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0),
+                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
                 'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
+                'giant_fixed_section_count' => (int) ($htmlArtifact['giant_fixed_section_count'] ?? 0),
+                'large_overflow_risk_count' => (int) ($htmlArtifact['large_overflow_risk_count'] ?? 0),
+                'fallback_prone_form_island_count' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
+                'fallback_prone_svg_island_count' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
+                'fallback_prone_input_island_count' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
+                'invalid_list_child_count' => (int) ($htmlArtifact['invalid_list_child_count'] ?? 0),
+                'missing_semantic_role_count' => (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
