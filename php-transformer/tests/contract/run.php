@@ -1127,6 +1127,17 @@ $assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography
 $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
 $assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
 
+$activeNavigationColor = ( new HtmlTransformer() )->transform(
+    '<style>.nav-links a{color:var(--bone)}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
+)->toArray();
+$activeNavigationColorLinks = $activeNavigationColor['blocks'][0]['innerBlocks'] ?? array();
+$activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
+$assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
+$assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
+$assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
+$assert(str_contains($activeNavigationColorSerialized, '"textDecorationColor":"var(--ember)"'), 'active navigation underline color is serialized into the dynamic navigation-link block attrs');
+$assert(! str_contains($activeNavigationColorSerialized, '<li class="wp-block-navigation-item'), 'active navigation color serialization emits no invalid static navigation item markup');
+
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
 )->toArray();
