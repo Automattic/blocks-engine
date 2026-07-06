@@ -6982,7 +6982,7 @@ final class StaticHtmlEmitter
                 return '';
             }
 
-            return $this->sanitizeText($this->textShouldUseFluidFlowBox($node, $parentNode) ? $characters : $this->derivedLineBreakText($characters, $text));
+            return $this->sanitizeText($this->trimTextContent($this->textShouldUseFluidFlowBox($node, $parentNode) ? $characters : $this->derivedLineBreakText($characters, $text)));
         }
 
         $characters = (string) ($node['characters'] ?? $node['text'] ?? '');
@@ -6990,7 +6990,12 @@ final class StaticHtmlEmitter
             return '';
         }
 
-        return $this->sanitizeText($characters);
+        return $this->sanitizeText($this->trimTextContent($characters));
+    }
+
+    private function trimTextContent(string $characters): string
+    {
+        return trim($characters);
     }
 
     /**
