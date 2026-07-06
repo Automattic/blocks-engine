@@ -6,6 +6,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 2);
 $figmaRoot = $root . '/figma-transformer';
 require_once __DIR__ . '/figma-fixture-selection.php';
+require_once __DIR__ . '/figma-fixture-matrix-quality.php';
 
 $options = matrix_options($argv);
 if ( true === ($options['help'] ?? false) ) {
@@ -270,6 +271,7 @@ foreach ( $fixtures as $fixture ) {
                     $record['parity']['layout_mismatch_count'] = $record['quality_summary']['layout_mismatch_count'] ?? $record['parity']['layout_mismatch_count'];
                     $record['parity']['layout_mismatch_status'] = $record['quality_summary']['layout_mismatch_status'] ?? null;
                 }
+                $record['visual_readiness'] = matrix_fixture_visual_readiness($record);
             }
         }
     }
@@ -283,74 +285,6 @@ if ( ! $dryRun ) {
 }
 
 echo json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
-
-/**
- * @param array<int, array<string, mixed>> $fixtures
- * @return array<string, mixed>
- */
-function matrix_quality_matrix(array $fixtures): array
-{
-    $keys = array(
-        'missing_asset_nodes',
-        'vector_placeholders',
-        'image_block_count',
-        'vector_image_fallbacks',
-        'media_query_count',
-        'fixed_width_over_desktop_count',
-        'fixed_width_declaration_count',
-        'fixed_width_without_responsive_override_count',
-        'giant_fixed_section_count',
-        'large_overflow_risk_count',
-        'fallback_prone_form_island_count',
-        'fallback_prone_svg_island_count',
-        'fallback_prone_input_island_count',
-        'invalid_list_child_count',
-        'missing_semantic_role_count',
-        'missing_emitted_text_nodes',
-        'layout_mismatch_count',
-        'render_style_mismatch_count',
-        'link_targets_unresolved',
-        'invalid_css_numeric_tokens',
-    );
-    $totals = array_fill_keys($keys, 0);
-    $qualityStatuses = array();
-    $signalCounts = array();
-    $coverageNumerator = 0;
-    $coverageDenominator = 0;
-
-    foreach ( $fixtures as $fixture ) {
-        if ( ! is_array($fixture) ) {
-            continue;
-        }
-        $summary = is_array($fixture['quality_summary'] ?? null) ? $fixture['quality_summary'] : array();
-        foreach ( $keys as $key ) {
-            $totals[$key] += (int) ($summary[$key] ?? 0);
-        }
-        $coverageNumerator += (int) ($summary['fixed_width_with_responsive_override_count'] ?? 0);
-        $coverageDenominator += (int) ($summary['fixed_width_declaration_count'] ?? 0);
-        $status = isset($fixture['quality_status']) && is_scalar($fixture['quality_status']) ? (string) $fixture['quality_status'] : 'unknown';
-        $qualityStatuses[$status] = ($qualityStatuses[$status] ?? 0) + 1;
-        foreach ( is_array($fixture['artifact_quality']['signals'] ?? null) ? $fixture['artifact_quality']['signals'] : array() as $signal ) {
-            if ( ! is_array($signal) || ! isset($signal['code']) || ! is_scalar($signal['code']) ) {
-                continue;
-            }
-            $code = (string) $signal['code'];
-            $signalCounts[$code] = ($signalCounts[$code] ?? 0) + 1;
-        }
-    }
-
-    ksort($qualityStatuses);
-    ksort($signalCounts);
-
-    return array(
-        'schema' => 'blocks-engine/figma-transformer/fixture-matrix-quality/v1',
-        'fixture_count' => count($fixtures),
-        'quality_status_counts' => $qualityStatuses,
-        'signal_counts' => $signalCounts,
-        'effective_responsive_coverage_ratio' => $coverageDenominator > 0 ? round($coverageNumerator / $coverageDenominator, 3) : 1.0,
-        'totals' => $totals,
-    );
-}
 
 function matrix_options(array $argv): array
 {
