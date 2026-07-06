@@ -908,14 +908,9 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
-        $placeholderMedia = $this->placeholderMediaPattern->match(
-            $element,
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (string $value): string => $this->runtime->escapeHtml($value),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
-        if ( null !== $placeholderMedia ) {
-            return $placeholderMedia;
+        $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
+        if ( $mediaDispatch['handled'] ) {
+            return $mediaDispatch['block'];
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
@@ -1036,15 +1031,7 @@ final class HtmlTransformer
         }
 
         if ( 'figure' === $tagName ) {
-            $gallery = $this->galleryPattern->match(
-                $element,
-                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
-                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
-                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $gallery = $this->mediaGalleryBlockFromElement($element);
             if ( null !== $gallery ) {
                 return $gallery;
             }
@@ -1212,28 +1199,7 @@ final class HtmlTransformer
             );
         }
 
-        if ( 'img' === $tagName ) {
-            return $this->convertImageElement($element);
-        }
-
-        if ( 'picture' === $tagName ) {
-            return $this->convertPictureElement($element);
-        }
-
-        if ( 'iframe' === $tagName ) {
-            return $this->convertIframeElement($element, $fallbacks);
-        }
-
-        if ( in_array($tagName, array( 'audio', 'video' ), true) ) {
-            return $this->convertMediaElement($element);
-        }
-
         if ( 'a' === $tagName ) {
-            $linkedImage = $this->imageBlockFromAnchor($element);
-            if ( null !== $linkedImage ) {
-                return $linkedImage;
-            }
-
             $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
             if ( null !== $linkedLogo ) {
                 return $linkedLogo;
@@ -1527,15 +1493,7 @@ final class HtmlTransformer
                 return $columns;
             }
 
-            $gallery = $this->galleryPattern->match(
-                $element,
-                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
-                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
-                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $gallery = $this->mediaGalleryBlockFromElement($element);
             if ( null !== $gallery ) {
                 return $gallery;
             }
@@ -1659,6 +1617,64 @@ final class HtmlTransformer
         }
 
         return null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array{handled: bool, block: array<string, mixed>|null}
+     */
+    private function convertMediaDispatchElement(DOMElement $element, string $tagName, array &$fallbacks): array
+    {
+        $placeholderMedia = $this->placeholderMediaPattern->match(
+            $element,
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (string $value): string => $this->runtime->escapeHtml($value),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
+        if ( null !== $placeholderMedia ) {
+            return array( 'handled' => true, 'block' => $placeholderMedia );
+        }
+
+        if ( 'img' === $tagName ) {
+            return array( 'handled' => true, 'block' => $this->convertImageElement($element) );
+        }
+
+        if ( 'picture' === $tagName ) {
+            return array( 'handled' => true, 'block' => $this->convertPictureElement($element) );
+        }
+
+        if ( 'iframe' === $tagName ) {
+            return array( 'handled' => true, 'block' => $this->convertIframeElement($element, $fallbacks) );
+        }
+
+        if ( in_array($tagName, array( 'audio', 'video' ), true) ) {
+            return array( 'handled' => true, 'block' => $this->convertMediaElement($element) );
+        }
+
+        if ( 'a' === $tagName ) {
+            $linkedImage = $this->imageBlockFromAnchor($element);
+            if ( null !== $linkedImage ) {
+                return array( 'handled' => true, 'block' => $linkedImage );
+            }
+        }
+
+        return array( 'handled' => false, 'block' => null );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function mediaGalleryBlockFromElement(DOMElement $element): ?array
+    {
+        return $this->galleryPattern->match(
+            $element,
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+            fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
     }
 
     /**
