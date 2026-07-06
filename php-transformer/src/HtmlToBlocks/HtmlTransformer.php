@@ -19,13 +19,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
@@ -154,6 +154,8 @@ final class HtmlTransformer
     private readonly SpacerPattern $spacerPattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
+
+    private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
     private readonly DiagnosticsCollector $diagnosticsCollector;
 
@@ -341,6 +343,7 @@ final class HtmlTransformer
             new AccordionPattern(),
             new NavigationPattern(),
         ));
+        $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
@@ -1153,61 +1156,13 @@ final class HtmlTransformer
 
     private function navigationUnderlineColor(DOMElement $item, DOMElement $anchor): string
     {
-        foreach ( array( $anchor, $item ) as $element ) {
-            $declarations = $this->presentationDeclarations($element);
-            foreach ( array( 'text-decoration-color', 'border-bottom-color', 'border-color' ) as $property ) {
-                $color = $this->usableCssColor((string) ($declarations[ $property ] ?? ''));
-                if ( '' !== $color ) {
-                    return $color;
-                }
-            }
-        }
-
-        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
-            if ( ! $this->matchesCssSelector($anchor, $rule['selector']) && ! $this->matchesCssSelector($item, $rule['selector']) ) {
-                continue;
-            }
-
-            $declarations = $rule['declarations'];
-            foreach ( array( 'background-color', 'background', 'border-bottom-color', 'border-color', 'color' ) as $property ) {
-                $color = $this->usableCssColor((string) ($declarations[ $property ] ?? ''));
-                if ( '' !== $color ) {
-                    return $color;
-                }
-            }
-        }
-
-        foreach ( array( $anchor, $item ) as $element ) {
-            $color = $this->usableCssColor((string) ($this->presentationDeclarations($element)['color'] ?? ''));
-            if ( '' !== $color ) {
-                return $color;
-            }
-        }
-
-        return '';
-    }
-
-    private function usableCssColor(string $value): string
-    {
-        $value = trim($value);
-        if ( '' === $value ) {
-            return '';
-        }
-
-        $lower = strtolower($value);
-        if ( in_array($lower, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'revert', 'auto' ), true) ) {
-            return '';
-        }
-
-        if ( str_contains($value, '(') && ( ! str_ends_with($value, ')') || ! CssValueSplitter::hasBalancedParens($value) ) ) {
-            return '';
-        }
-
-        if ( preg_match('/^#[0-9a-f]{3,8}$/i', $value) || preg_match('/^(?:rgb|rgba|hsl|hsla|var)\s*\(/i', $value) || 'currentcolor' === $lower || preg_match('/^[a-z]+$/', $lower) ) {
-            return 'currentcolor' === $lower ? 'currentColor' : $value;
-        }
-
-        return '';
+        return $this->navigationUnderlineColorResolver->resolve(
+            $item,
+            $anchor,
+            fn (DOMElement $element): array => $this->presentationDeclarations($element),
+            $this->staticPseudoElementStyleRules,
+            fn (DOMElement $element, string $selector): bool => $this->matchesCssSelector($element, $selector)
+        );
     }
 
     /**
