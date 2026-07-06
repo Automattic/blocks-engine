@@ -21,6 +21,7 @@ require_once __DIR__ . '/NodeTraceContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/ParserParityContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
+require_once __DIR__ . '/ResponsiveOverlayAnchoringContract.php';
 require_once __DIR__ . '/SemanticAccessibilityContract.php';
 require_once __DIR__ . '/SiteGenerationContract.php';
 require_once __DIR__ . '/StackingContextPolicyContract.php';
@@ -1380,6 +1381,7 @@ $assert(in_array('generated-vs-source-clipping', $genericCauses, true), 'layout-
 $assert(in_array('vector-shell-wrapper-offset', $genericCauses, true), 'layout-mismatch-vector-shell-wrapper-offset-suspected-cause');
 blocks_engine_figma_transformer_run_layout_mismatch_contract($assert);
 blocks_engine_figma_transformer_run_render_style_mismatch_contract($assert);
+blocks_engine_figma_transformer_run_responsive_overlay_anchoring_contract($assert);
 blocks_engine_figma_transformer_run_geometry_box_contract($assert);
 
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
