@@ -443,7 +443,7 @@ final class StaticHtmlSemanticClassifier
         } elseif ( 'email' === $type ) {
             $attributes .= ' name="email"';
         } elseif ( 'textarea' === $tag ) {
-            $attributes .= ' name="message"';
+            $attributes .= ' name="' . ($this->sanitizeAttribute)($this->textareaControlName($node, $haystack)) . '"';
         }
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($placeholder) . '"';
@@ -458,6 +458,16 @@ final class StaticHtmlSemanticClassifier
         }
 
         return $attributes;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function textareaControlName(array $node, string $haystack): string
+    {
+        $base = str_contains($haystack, 'comment') || str_contains($haystack, 'reply') ? 'comment' : 'message';
+        $id = strtolower((string) ($node['id'] ?? ''));
+        $suffix = trim((string) preg_replace('/[^a-z0-9]+/', '-', $id), '-');
+
+        return '' === $suffix ? $base : $base . '-' . $suffix;
     }
 
     /**

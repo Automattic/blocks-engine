@@ -351,6 +351,14 @@ final class StaticHtmlEmitter
     private array $listItemIdCache = array();
 
     /**
+     * Per-page emitted form control name counts, used to keep generated names
+     * unique without losing the first canonical name such as `s` or `email`.
+     *
+     * @var array<string, int>
+     */
+    private array $formControlNameCounts = array();
+
+    /**
      * Tree depth at which a frame can read as a top-level <section> for the page
      * being emitted. When the page is a single wrapping frame, its bands sit one
      * level down (depth 1); when bands are emitted as sibling root nodes, they
@@ -407,6 +415,7 @@ final class StaticHtmlEmitter
         $this->currentTemplateSlug = is_scalar($options['static_site_template_slug'] ?? null) ? (string) $options['static_site_template_slug'] : $this->templateSlugFromPath($pagePath);
         $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
+        $this->formControlNameCounts = array();
         $this->prepareHeadingRanking($nodes);
         $this->prepareHeadingAnchors($nodes, $pagePath);
         $diagnostics = array();
@@ -642,6 +651,7 @@ final class StaticHtmlEmitter
             $seenPaths[$path] = true;
 
             $this->listItemIdCache = array();
+            $this->formControlNameCounts = array();
             $this->currentTemplateType = is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '';
             $this->currentTemplateSlug = is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path);
             $this->prepareHeadingRanking(array($frameNode));
@@ -693,6 +703,7 @@ final class StaticHtmlEmitter
             $this->currentPagePath = 'index.html';
             $this->currentTemplateType = '';
             $this->currentTemplateSlug = 'index';
+            $this->formControlNameCounts = array();
             $fallbackNodes = $this->nodeList($scenegraph);
             $this->prepareHeadingRanking($fallbackNodes);
             $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
@@ -1041,7 +1052,7 @@ final class StaticHtmlEmitter
         } elseif ( 'ol' === $tag && null !== $sourceTextList && isset($sourceTextList['start']) ) {
             $attributes .= ' start="' . $this->sanitizeAttribute((string) $sourceTextList['start']) . '"';
         } elseif ( 'button' === $tag ) {
-            $attributes .= $this->buttonControlAttributes($node);
+            $attributes .= $this->buttonControlAttributes($node, $insideForm);
         } elseif ( 'form' === $tag ) {
             $attributes .= $this->formAttributes($node);
         }
@@ -2294,7 +2305,24 @@ final class StaticHtmlEmitter
      */
     private function formControlAttributes(array $node, string $tag, ?array $parentNode = null): string
     {
-        return $this->staticHtmlSemanticClassifier()->formControlAttributes($node, $tag, $parentNode);
+        $attributes = $this->staticHtmlSemanticClassifier()->formControlAttributes($node, $tag, $parentNode);
+        if ( 1 !== preg_match('/\bname="([^"]+)"/', $attributes, $matches) ) {
+            return $attributes;
+        }
+
+        $name = $matches[1];
+        $count = $this->formControlNameCounts[$name] ?? 0;
+        $this->formControlNameCounts[$name] = $count + 1;
+        if ( 0 === $count ) {
+            return $attributes;
+        }
+
+        $suffix = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower((string) ($node['id'] ?? ''))), '-');
+        if ( '' === $suffix ) {
+            $suffix = (string) ($count + 1);
+        }
+
+        return preg_replace('/\bname="[^"]+"/', 'name="' . $this->sanitizeAttribute($name . '-' . $suffix) . '"', $attributes, 1) ?? $attributes;
     }
 
     /**
@@ -2330,14 +2358,18 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function buttonControlAttributes(array $node): string
+    private function buttonControlAttributes(array $node, bool $insideForm): string
     {
         $label = trim($this->subtreePlainText($node));
         $name = (string) ($node['name'] ?? '');
         $haystack = strtolower($name . ' ' . $label);
-        $type = preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $haystack) ? 'submit' : 'button';
+        $submitIntent = 1 === preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $haystack);
+        $type = $insideForm && $submitIntent ? 'submit' : 'button';
 
         $attributes = ' type="' . $type . '"';
+        if ( ! $insideForm && $submitIntent ) {
+            $attributes .= ' data-figma-action-intent="submit"';
+        }
         if ( '' === $label && '' !== $name ) {
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
         }

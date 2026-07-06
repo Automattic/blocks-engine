@@ -178,7 +178,7 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($html, 'placeholder="Search this site"'), 'form-control-search-uses-placeholder');
     $assert(str_contains($html, '<div class="figma-node-form-search-icon-search-field-with-icon"'), 'form-control-search-icon-keeps-visual-wrapper');
     $assert(str_contains($html, 'data-figma-node-id="form:search-icon:icon"'), 'form-control-search-icon-preserves-icon-child');
-    $assert(str_contains($html, '<input class="figma-node-form-search-icon-search-field-with-icon__control" data-figma-synthetic-control="input" type="search" name="s" placeholder="Search for..."'), 'form-control-search-icon-emits-nested-input');
+    $assert(str_contains($html, '<input class="figma-node-form-search-icon-search-field-with-icon__control" data-figma-synthetic-control="input" type="search" name="s-form-search-icon" placeholder="Search for..."'), 'form-control-search-icon-emits-nested-input');
     $assert(! str_contains($html, 'data-figma-node-id="form:search-icon:text"'), 'form-control-search-icon-suppresses-presentational-placeholder');
     $assert(str_contains($css, '.figma-node-form-search-icon-search-field-with-icon__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}'), 'form-control-search-icon-input-reset-css');
     $assert(str_contains($html, '<textarea class="figma-node-form-comment-comment-textarea"'), 'form-control-comment-emits-textarea-tag');
@@ -342,7 +342,7 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($layeredButtonHtml, 'data-figma-node-id="layered:button:icon"'), 'layered-button-preserves-meaningful-icon-layer');
     $assert(! str_contains($layeredButtonHtml, 'data-figma-node-id="layered:button:bg"'), 'layered-button-suppresses-decorative-background-child');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $layeredButtonCss, '.figma-node-layered-button-book-now-button', array('background:#0d527a', 'border-radius:12px', 'border:2px solid #ffffff', 'box-sizing:border-box'), 'layered-button-composes-background-child-styles');
-    $assert(str_contains($layeredButtonHtml, '<button class="figma-node-layered-submit-subscribe-button"') && str_contains($layeredButtonHtml, 'type="submit"'), 'layered-button-preserves-submit-behavior');
+    $assert(str_contains($layeredButtonHtml, '<button class="figma-node-layered-submit-subscribe-button"') && str_contains($layeredButtonHtml, 'type="button" data-figma-action-intent="submit"'), 'layered-button-outside-form-emits-safe-action-metadata');
     $assert(! str_contains($layeredButtonHtml, 'data-figma-node-id="layered:submit:bg"'), 'layered-submit-suppresses-decorative-background-child');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $layeredButtonCss, '.figma-node-layered-submit-subscribe-button', array('background:#ffffff', 'border-radius:999px'), 'layered-submit-composes-background-child-styles');
 
@@ -406,5 +406,50 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($fieldShellHtml, 'data-figma-synthetic-control="input"') && str_contains($fieldShellHtml, 'type="email" name="email" placeholder="Your email"'), 'form-control-field-shell-emits-synthetic-email-input');
     $assert(str_contains($fieldShellHtml, 'data-figma-node-id="field-shell:email-bg"'), 'form-control-field-shell-keeps-email-chrome');
     $assert(! str_contains($fieldShellHtml, 'data-figma-node-id="field-shell:email-placeholder"'), 'form-control-field-shell-suppresses-email-placeholder');
-    $assert(str_contains($fieldShellHtml, 'data-figma-synthetic-control="textarea"') && str_contains($fieldShellHtml, 'name="message" placeholder="Message"'), 'form-control-field-shell-emits-synthetic-message-textarea');
+    $assert(str_contains($fieldShellHtml, 'data-figma-synthetic-control="textarea"') && str_contains($fieldShellHtml, 'name="message-field-shell-message" placeholder="Message"'), 'form-control-field-shell-emits-synthetic-message-textarea');
+
+    $duplicateTextareaResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Duplicate Textarea Names Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'duplicate-textarea:root',
+                'type'     => 'FRAME',
+                'name'     => 'Comment Form',
+                'width'    => 640,
+                'height'   => 360,
+                'children' => array(
+                    array('id' => 'duplicate-textarea:first', 'type' => 'FRAME', 'name' => 'Comment textarea', 'width' => 420, 'height' => 128, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'duplicate-textarea:first-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Leave a comment'),
+                    )),
+                    array('id' => 'duplicate-textarea:second', 'type' => 'FRAME', 'name' => 'Comment textarea', 'width' => 420, 'height' => 128, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'duplicate-textarea:second-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Leave a comment'),
+                    )),
+                    array('id' => 'duplicate-textarea:submit', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 120, 'height' => 44, 'cornerRadius' => 8, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                        array('id' => 'duplicate-textarea:submit-text', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Post Comment'),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $duplicateTextareaHtml = $fileContent($duplicateTextareaResult, 'index.html');
+    $assert(str_contains($duplicateTextareaHtml, 'name="comment-duplicate-textarea-first"') && str_contains($duplicateTextareaHtml, 'name="comment-duplicate-textarea-second"'), 'form-control-textarea-names-derive-from-node-id');
+    $assert(0 === preg_match('/name="comment"/', $duplicateTextareaHtml), 'form-control-textarea-does-not-emit-duplicate-generic-name');
+
+    $outsideSubmitResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Action Button Outside Form Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'outside-submit:root',
+                'type'     => 'FRAME',
+                'name'     => 'Hero actions',
+                'children' => array(
+                    array('id' => 'outside-submit:button', 'type' => 'FRAME', 'name' => 'Subscribe button', 'width' => 140, 'height' => 44, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                        array('id' => 'outside-submit:button-text', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Subscribe'),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $outsideSubmitHtml = $fileContent($outsideSubmitResult, 'index.html');
+    $assert(str_contains($outsideSubmitHtml, '<button class="figma-node-outside-submit-button-subscribe-button"') && str_contains($outsideSubmitHtml, 'type="button" data-figma-action-intent="submit"'), 'form-control-outside-submit-button-emits-safe-action-metadata');
 }
