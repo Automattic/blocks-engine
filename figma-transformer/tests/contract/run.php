@@ -6255,7 +6255,7 @@ $fluidParagraphResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 $fluidParagraphHtml = $fileContent($fluidParagraphResult, 'index.html');
 $fluidParagraphCss = $fileContent($fluidParagraphResult, 'style.css');
 $fluidParagraphRule = blocks_engine_figma_transformer_contract_css_rule($fluidParagraphCss, '.figma-node-fluid-copy-paragraph-paragraph');
-$assert(str_contains($fluidParagraphRule, 'width:100%') && str_contains($fluidParagraphRule, 'max-width:640px') && ! str_contains($fluidParagraphRule, 'height:116px') && ! str_contains($fluidParagraphRule, 'white-space:'), 'fluid-paragraph-uses-intrinsic-max-width');
+$assert(str_contains($fluidParagraphRule, 'width:100%') && str_contains($fluidParagraphRule, 'max-width:min(640px,72ch)') && str_contains($fluidParagraphRule, 'overflow-wrap:break-word') && str_contains($fluidParagraphRule, 'hyphens:auto') && ! str_contains($fluidParagraphRule, 'height:116px') && ! str_contains($fluidParagraphRule, 'white-space:'), 'fluid-paragraph-uses-intrinsic-max-width');
 $assert(str_contains($fluidParagraphRule, 'flex-shrink:1') && str_contains($fluidParagraphRule, 'min-width:0'), 'fluid-paragraph-can-shrink-in-flex-flow');
 $assert(str_contains($fluidParagraphHtml, 'source words intact') && ! str_contains($fluidParagraphHtml, "source\nwords"), 'fluid-paragraph-avoids-derived-soft-wrap-content');
 
