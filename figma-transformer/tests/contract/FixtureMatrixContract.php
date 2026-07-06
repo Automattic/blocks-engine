@@ -57,6 +57,37 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
         ),
     ), 5);
 
+    $wideRootSelection = matrix_select_frame_ids(array(
+        'candidates' => array(
+            array(
+                'id'         => 'frame:fisiostetic-home',
+                'name'       => 'Fisiostetic home page',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'front_page',
+                'score'      => 500,
+                'width'      => 2095,
+                'height'     => 6200,
+                'text_count' => 120,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Fisiostetic'),
+            ),
+            array(
+                'id'         => 'frame:pricing-section',
+                'name'       => 'Pricing',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'page',
+                'score'      => 900,
+                'width'      => 1440,
+                'height'     => 1200,
+                'text_count' => 20,
+                'parent'     => array('type' => 'SECTION'),
+                'page'       => array('name' => 'Fisiostetic'),
+            ),
+        ),
+    ), 1);
+
     $matrixSelectionLockPath = $matrixFixtureDir . '/selection-lock.json';
     file_put_contents($matrixSelectionLockPath, json_encode(array(
         'schema'   => 'blocks-engine/figma-transformer/fixture-matrix/v1',
@@ -130,6 +161,7 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
 
     $assert(! in_array('frame:title-card', $matrixSelection, true), 'fixture-matrix-selection-skips-dev-marked-title-card');
     $assert(array('frame:home-desktop', 'frame:single-desktop') === $matrixSelection, 'fixture-matrix-selection-falls-back-to-page-like-frames');
+    $assert(array('frame:fisiostetic-home') === $wideRootSelection, 'fixture-matrix-selection-prefers-wide-root-page-over-section-frame');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
     $assert('/opt/homeboy-alias' === ($matrixAliasSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-bin-alias');
     $assert(true === ($matrixAliasSummary['dom_box_provider_command_configured'] ?? null), 'fixture-matrix-dom-box-command-alias-configured');

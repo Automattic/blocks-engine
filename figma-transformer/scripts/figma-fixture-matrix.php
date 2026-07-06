@@ -151,18 +151,26 @@ foreach ( $fixtures as $fixture ) {
     }
 
     $startedAt = microtime(true);
-    passthru($inspectCommand, $inspectExitCode);
-    $record['inspect_exit_code'] = $inspectExitCode;
-    $record['inspect_duration_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
-    if ( 0 !== $inspectExitCode || ! is_file($inspectPath) ) {
-        $record['status'] = 'inspect_failed';
-        $summary['fixtures'][] = $record;
-        continue;
-    }
+    $hasPresetFrameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']);
+    if ( $hasPresetFrameIds ) {
+        $inspection = array();
+        $record['inspection'] = array('status' => 'skipped_preset_frame_ids');
+        $record['inspect_duration_ms'] = 0;
+        $frameIds = $fixture['frame_ids'];
+    } else {
+        passthru($inspectCommand, $inspectExitCode);
+        $record['inspect_exit_code'] = $inspectExitCode;
+        $record['inspect_duration_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+        if ( 0 !== $inspectExitCode || ! is_file($inspectPath) ) {
+            $record['status'] = 'inspect_failed';
+            $summary['fixtures'][] = $record;
+            continue;
+        }
 
-    $inspection = json_decode((string) file_get_contents($inspectPath), true);
-    $record['inspection'] = matrix_inspection_summary(is_array($inspection) ? $inspection : array());
-    $frameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']) ? $fixture['frame_ids'] : matrix_select_frame_ids(is_array($inspection) ? $inspection : array(), $maxPages);
+        $inspection = json_decode((string) file_get_contents($inspectPath), true);
+        $record['inspection'] = matrix_inspection_summary(is_array($inspection) ? $inspection : array());
+        $frameIds = matrix_select_frame_ids(is_array($inspection) ? $inspection : array(), $maxPages);
+    }
     $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
     $record['selected_frame_ids'] = $frameIds;
     $record['selected_frames'] = matrix_selected_frame_records(is_array($inspection) ? $inspection : array(), $frameIds);

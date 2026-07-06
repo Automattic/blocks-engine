@@ -104,6 +104,28 @@ add_filter(
 
 No pure-PHP Zstandard decoder is bundled today. Unsupported runtimes report `figma_transformer_zstd_extension_missing` or adapter failure diagnostics and continue parsing the rest of the archive metadata.
 
+### Fixture Matrix Bench
+
+The Homeboy fixture matrix bench shells out to `scripts/figma-fixture-matrix.php`, reads its `summary.json`, and reports duration, fixture-count, failure-count, per-fixture timing, and available quality counters as Homeboy metrics. Fixture files are intentionally supplied out of tree.
+
+Run a single local fixture:
+
+```sh
+homeboy bench --rig figma-transformer-fixture-matrix --profile fixture-matrix --setting bench_env.FIGMA_FIXTURE_MATRIX_FIXTURE=/path/to/fixture.fig --path /path/to/blocks-engine
+```
+
+Run a fixture corpus manually:
+
+```sh
+homeboy bench --rig figma-transformer-fixture-matrix --profile fixture-matrix --setting-json bench_env='{"FIGMA_FIXTURE_MATRIX_FIXTURES":["/path/to/fixture-a.fig","/path/to/fixture-b.fig","/path/to/fixture-c.fig"]}' --path /path/to/blocks-engine
+```
+
+The bench script is also directly runnable for local debugging:
+
+```sh
+node figma-transformer/bench/figma-fixture-matrix.bench.mjs --fixture=/path/to/fixture.fig
+```
+
 ### Large `.fig` Memory Profiles
 
 Large production `.fig` exports should default to bounded inspection before full scenegraph materialization. Keep the library defaults conservative: the eager Kiwi message decode limit is 16 MB, the selective decode preflight limit is 32 MB, and the zstd inflated chunk limit is 64 MB. With those defaults, oversized modern Kiwi messages are reported with `figma_transformer_kiwi_message_decode_skipped_preflight` instead of risking a PHP fatal.

@@ -393,6 +393,7 @@ final class StaticHtmlEmitter
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
         $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
+        $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkState->resetForSinglePage($this->normalizeLinkTargetPaths($options));
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -429,7 +430,8 @@ final class StaticHtmlEmitter
         $cssRules = $shared['rules'];
         $body     = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($body, $shared['class_map']);
 
-        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules);
+        $mediaBlocks = $this->desktopOnlyFallbackMediaBlocks($scenegraph, $nodes);
+        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules, $mediaBlocks);
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $body);
         $fontFamilies = array_column($fontUsage, 'family');
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
@@ -439,7 +441,7 @@ final class StaticHtmlEmitter
             $diagnostics[] = $diagnostic;
         }
 
-        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules);
+        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules, $mediaBlocks);
         $files = array(
             array(
                 'path'      => 'index.html',
@@ -500,6 +502,35 @@ final class StaticHtmlEmitter
                 'asset_count' => count($assetFiles),
             ),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $scenegraph
+     * @param array<int, mixed> $nodes
+     * @return array<int, string>
+     */
+    private function desktopOnlyFallbackMediaBlocks(array $scenegraph, array $nodes): array
+    {
+        $blocks = array();
+        $nodeMap = $this->nodeMap($scenegraph);
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $viewportWidth = $this->boxValue($node, 'width');
+            $blocks = array_merge($blocks, $this->breakpointMediaDiffBuilder()->buildMediaBlocks(array(
+                'variants' => array(
+                    array(
+                        'frame_id'       => is_scalar($node['id'] ?? null) ? (string) $node['id'] : '',
+                        'viewport_width' => $viewportWidth,
+                        'primary'        => true,
+                    ),
+                ),
+            ), $node, $nodeMap));
+        }
+
+        return array_values(array_unique($blocks));
     }
 
     /**
@@ -4654,8 +4685,9 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        $offsets = $this->cssPositioningResolver()->effectiveOffsets($box, $parentNode, $node);
+        $left = $offsets['x'];
+        $top = $offsets['y'];
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
         $parentWidth = isset($parentBox['width']) && is_numeric($parentBox['width']) ? (float) $parentBox['width'] : null;
