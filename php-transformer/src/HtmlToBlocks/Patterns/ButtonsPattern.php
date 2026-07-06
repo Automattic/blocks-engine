@@ -70,6 +70,11 @@ final class ButtonsPattern
      */
     public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
     {
+		$wrappedAnchor = $this->singleSimpleAnchorChild($element);
+		if ( null !== $wrappedAnchor && $this->hasButtonSignal($element) ) {
+			return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
+		}
+
 		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
@@ -93,12 +98,14 @@ final class ButtonsPattern
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): array
+    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
     {
-        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes, $resolvedStyle), array(
+        $presentationElement ??= $anchor;
+
+        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle), array(
             'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
-        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
+        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement);
     }
 
     private function buttonText(DOMElement $element, string $html): string
@@ -218,6 +225,11 @@ final class ButtonsPattern
             $attrs = array_merge($attrs, $native);
         }
 
+		$width = $this->buttonWidth($resolvedStyle);
+		if ( null !== $width ) {
+			$attrs['width'] = $width;
+		}
+
         if ( $isOutline ) {
             if ( array() !== $native ) {
                 $attrs['className'] = 'is-style-outline';
@@ -252,6 +264,15 @@ final class ButtonsPattern
 
         return implode(' ', $classes);
     }
+
+	private function buttonWidth(string $style): ?int
+	{
+		if ( ! preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $style, $matches) ) {
+			return null;
+		}
+
+		return (int) $matches[1];
+	}
 
     /**
      * @return array<string, string>
@@ -368,6 +389,26 @@ final class ButtonsPattern
 		}
 
 		return $anchors > 1 && 0 === $buttonSignals;
+	}
+
+	private function singleSimpleAnchorChild(DOMElement $element): ?DOMElement
+	{
+		$anchor = null;
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMElement ) {
+				if ( null !== $anchor || 'a' !== strtolower($child->tagName) || '' === trim($child->textContent ?? '') || ! $this->isSimpleAnchor($child) ) {
+					return null;
+				}
+				$anchor = $child;
+				continue;
+			}
+
+			if ( '' !== trim($child->textContent ?? '') ) {
+				return null;
+			}
+		}
+
+		return $anchor;
 	}
 
 	private function isSimpleAnchor(DOMElement $anchor): bool
