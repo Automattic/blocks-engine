@@ -273,6 +273,16 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($htmlArtifact['semantic_role_samples'] ?? null) ? $htmlArtifact['semantic_role_samples'] : array(), 0, 10),
             );
         }
+        if ( ! empty($htmlArtifact['fixed_width_over_desktop_uncovered_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'uncovered_fixed_desktop_widths',
+                'count' => (int) $htmlArtifact['fixed_width_over_desktop_uncovered_count'],
+                'raw_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'covered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_covered_count'] ?? 0),
+                'sample_classes' => array_slice(is_array($htmlArtifact['fixed_width_over_desktop_uncovered_classes'] ?? null) ? $htmlArtifact['fixed_width_over_desktop_uncovered_classes'] : array(), 0, 10),
+            );
+        }
         if ( ! empty($htmlArtifact['overlarge_inline_svg_ratio']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -372,6 +382,9 @@ final class TransformDiagnosticsBuilder
                 'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
                 'fixed_width_with_responsive_override_count' => (int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0),
                 'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
+                'fixed_width_over_desktop_class_count' => (int) ($htmlArtifact['fixed_width_over_desktop_class_count'] ?? 0),
+                'fixed_width_over_desktop_covered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_covered_count'] ?? 0),
+                'fixed_width_over_desktop_uncovered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_uncovered_count'] ?? 0),
                 'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'giant_fixed_section_count' => (int) ($htmlArtifact['giant_fixed_section_count'] ?? 0),
                 'large_overflow_risk_count' => (int) ($htmlArtifact['large_overflow_risk_count'] ?? 0),

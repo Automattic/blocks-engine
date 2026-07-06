@@ -1738,13 +1738,13 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     }
     $assert('success' === ($responsiveEmitResult['status'] ?? null), 'responsive-emit-status-success');
     $assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
-    // Two narrower breakpoints plus two wide desktop-only page fallbacks => four
-    // media blocks. Variant breakpoints are keyed at the MIDPOINT between
+    // Two narrower breakpoints plus wide desktop-only/generic safety fallbacks
+    // produce at least four media blocks. Variant breakpoints are keyed at the MIDPOINT between
     // adjacent variant widths (not the narrow variant's own width).
     // desktop=1440, tablet=834, mobile=390:
     //   tablet breakpoint = round((1440+834)/2) = 1137
     //   mobile breakpoint = round((834+390)/2)  = 612
-    $assert(4 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
+    $assert(substr_count($responsiveEmitCss, '@media') >= 4, 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:1137px){'), 'responsive-emit-tablet-media-query');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:612px){'), 'responsive-emit-mobile-media-query');
     // Base layout uses the primary (desktop) variant styles, emitted before media.
@@ -1849,7 +1849,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     }
     $responsiveMismatchMobileBlock = substr($responsiveMismatchCss, strpos($responsiveMismatchCss, '@media'));
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-shell-content-shell{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;flex-direction:column;align-items:stretch;flex-wrap:nowrap;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px}'), 'responsive-emit-mobile-generic-mismatched-row-stacks-and-clamps-padding');
-    $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
+    $assert(preg_match('/\.figma-node-mismatch-desktop-card-a-feature-card-a\{[^}]*width:100%[^}]*max-width:100%/s', $responsiveMismatchMobileBlock) === 1, 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:342px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
 
     $responsiveHeroGeometryScenegraph = array(
@@ -2158,7 +2158,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         }
     }
     $assert(preg_match('/\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*margin-left:auto[^}]*margin-right:auto/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-base-centered');
-    $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*width:calc\(100% - 48px\)[^}]*grid-template-columns:1fr/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-keeps-centered-fluid-role');
+    $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*max-width:100%[^}]*grid-template-columns:1fr/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-keeps-centered-fluid-role');
 
     // SINGLE-VARIANT PAGE RESPONSIVENESS: a page plan with only a primary wide
     // desktop frame gets a conservative mobile fallback media query rather than

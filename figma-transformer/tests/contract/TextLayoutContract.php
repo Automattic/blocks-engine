@@ -428,8 +428,8 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $derivedSoftWrapCss = $fileContent($derivedSoftWrapResult, 'style.css');
     $derivedSoftWrapHtml = $fileContent($derivedSoftWrapResult, 'index.html');
-    $assert(str_contains($derivedSoftWrapCss, '.figma-node-text-derived-soft-wrap-measured-soft-wrap-heading{width:342px;height:100px;font-size:56px;line-height:50px;white-space:pre}'), 'derived-soft-wrap-preserves-line-boxes-without-browser-rewrap');
-    $assert(str_contains($derivedSoftWrapHtml, "We\u{2019}re all\nabout Lego"), 'derived-soft-wrap-html-keeps-measured-line-break');
+    $assert(str_contains($derivedSoftWrapCss, '.figma-node-text-derived-soft-wrap-measured-soft-wrap-heading{width:100%;max-width:min(342px,18ch);font-size:56px;line-height:50px;overflow-wrap:break-word;text-wrap:balance'), 'derived-soft-wrap-uses-responsive-css-wrap');
+    $assert(str_contains($derivedSoftWrapHtml, "We\u{2019}re all about Lego") && ! str_contains($derivedSoftWrapHtml, "We\u{2019}re all\nabout Lego"), 'derived-soft-wrap-html-keeps-source-text');
 
     $unsupportedGlyphScenegraph = array(
         'name'  => 'Unsupported Glyph Diagnostic Fixture',
@@ -776,8 +776,8 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
     $derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
-    $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
-    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre}'), 'derived-baselines-enable-pre');
+    $assert(str_contains($derivedLineBreakHtml, 'First line Second line') && ! str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-preserve-source-text');
+    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px}') && ! str_contains($derivedLineBreakCss, 'white-space:pre'), 'derived-baselines-avoid-soft-wrap-pre');
     $assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
     
     $derivedHugTextHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -856,7 +856,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             $derivedMeasuredLineHeightDiagnostic = $styleDiagnostic;
         }
     }
-    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre}'), 'derived-baselines-prefer-position-delta-line-height');
+    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px}'), 'derived-baselines-prefer-position-delta-line-height');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
     $assert(array() === ($derivedMeasuredLineHeightDiagnostic['mismatches'] ?? null), 'derived-baselines-measured-line-height-no-diagnostic-mismatch');

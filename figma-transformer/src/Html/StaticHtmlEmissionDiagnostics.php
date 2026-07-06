@@ -208,6 +208,11 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_with_responsive_override_count' => (int) $fixedWidthCoverage['fixed_width_with_responsive_override_count'],
             'fixed_width_without_responsive_override_count' => (int) $fixedWidthCoverage['fixed_width_without_responsive_override_count'],
             'fixed_width_samples' => $fixedWidthCoverage['fixed_width_samples'],
+            'fixed_width_over_desktop_class_count' => (int) $fixedWidthCoverage['fixed_width_over_desktop_class_count'],
+            'fixed_width_over_desktop_covered_count' => (int) $fixedWidthCoverage['fixed_width_over_desktop_covered_count'],
+            'fixed_width_over_desktop_uncovered_count' => (int) $fixedWidthCoverage['fixed_width_over_desktop_uncovered_count'],
+            'fixed_width_over_desktop_covered_classes' => array_slice($fixedWidthCoverage['fixed_width_over_desktop_covered_classes'], 0, 25),
+            'fixed_width_over_desktop_uncovered_classes' => array_slice($fixedWidthCoverage['fixed_width_over_desktop_uncovered_classes'], 0, 25),
             'large_fixed_canvas_height' => $largeFixedCanvasHeight,
             'desktop_canvas_without_responsive_breakpoints' => 0 === $mediaQueryCount && $largeFixedCanvasHeight && $structuralElementCount >= 80,
             'giant_fixed_section_count' => (int) $largeFixedSections['giant_fixed_section_count'],
@@ -228,13 +233,14 @@ final class StaticHtmlEmissionDiagnostics
     }
 
     /**
-     * @return array{fixed_width_declaration_count: int, fixed_width_over_desktop_count: int, fixed_width_with_responsive_override_count: int, fixed_width_without_responsive_override_count: int, effective_responsive_coverage_ratio: float, fixed_width_samples: array<int, array<string, mixed>>}
+     * @return array{fixed_width_declaration_count: int, fixed_width_over_desktop_count: int, fixed_width_with_responsive_override_count: int, fixed_width_without_responsive_override_count: int, effective_responsive_coverage_ratio: float, fixed_width_samples: array<int, array<string, mixed>>, fixed_width_over_desktop_class_count: int, fixed_width_over_desktop_covered_count: int, fixed_width_over_desktop_uncovered_count: int, fixed_width_over_desktop_covered_classes: array<int, string>, fixed_width_over_desktop_uncovered_classes: array<int, string>}
      */
     private function fixedWidthCoverage(string $css): array
     {
         $rules = $this->cssRuleDeclarations($css);
         $base = array();
         $responsive = array();
+        $overDesktop = array();
         $samples = array();
         $fixedWidthOverDesktopCount = 0;
 
@@ -258,6 +264,7 @@ final class StaticHtmlEmissionDiagnostics
                 $base[$class] = true;
                 if ( $width > 1440.0 ) {
                     ++$fixedWidthOverDesktopCount;
+                    $overDesktop[$class] = true;
                 }
                 if ( count($samples) < 25 ) {
                     $samples[] = array(
@@ -272,6 +279,8 @@ final class StaticHtmlEmissionDiagnostics
         $baseClasses = array_keys($base);
         $coveredCount = count(array_filter($baseClasses, static fn (string $class): bool => isset($responsive[$class])));
         $totalCount = count($baseClasses);
+        $overDesktopCoveredClasses = array_values(array_filter(array_keys($overDesktop), static fn (string $class): bool => isset($responsive[$class])));
+        $overDesktopUncoveredClasses = array_values(array_diff(array_keys($overDesktop), $overDesktopCoveredClasses));
 
         return array(
             'fixed_width_declaration_count' => $totalCount,
@@ -280,6 +289,11 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_without_responsive_override_count' => max(0, $totalCount - $coveredCount),
             'effective_responsive_coverage_ratio' => $totalCount > 0 ? round($coveredCount / $totalCount, 3) : 1.0,
             'fixed_width_samples' => $samples,
+            'fixed_width_over_desktop_class_count' => count($overDesktop),
+            'fixed_width_over_desktop_covered_count' => count($overDesktopCoveredClasses),
+            'fixed_width_over_desktop_uncovered_count' => count($overDesktopUncoveredClasses),
+            'fixed_width_over_desktop_covered_classes' => $overDesktopCoveredClasses,
+            'fixed_width_over_desktop_uncovered_classes' => $overDesktopUncoveredClasses,
         );
     }
 

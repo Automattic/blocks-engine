@@ -1090,7 +1090,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      * @param array<int, mixed>    $children
-     * @return array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null}|null
+     * @return array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, object_fit: string, object_position: string, crop_rect: array<string, mixed>|null}|null
      */
     private function imageElementMetadata(array $node, string $type, array $children): ?array
     {
@@ -1123,17 +1123,21 @@ final class StaticHtmlEmitter
             'scale_mode'          => $scaleMode,
             'background_size'     => isset($backgroundStyles['size']) ? (string) $backgroundStyles['size'] : null,
             'background_position' => isset($backgroundStyles['position']) ? (string) $backgroundStyles['position'] : null,
+            'object_fit'          => $this->imageObjectFit($scaleMode),
+            'object_position'     => $this->imageObjectPosition(isset($backgroundStyles['position']) ? (string) $backgroundStyles['position'] : null),
             'crop_rect'           => empty($paint) ? null : $this->imagePaintCropRect($paint),
         );
     }
 
-    /** @param array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null} $metadata */
+    /** @param array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, object_fit: string, object_position: string, crop_rect: array<string, mixed>|null} $metadata */
     private function imageElementAttributes(array $metadata): string
     {
         $attributes = ' src="' . $this->sanitizeAttribute($metadata['src']) . '"';
         $attributes .= ' alt="' . $this->sanitizeAttribute($metadata['alt']) . '"';
         $attributes .= ' loading="lazy" decoding="async"';
-        $attributes .= ' data-figma-image-fill="true" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
+        $attributes .= ' style="object-fit:' . $this->sanitizeAttribute($metadata['object_fit']) . ';object-position:' . $this->sanitizeAttribute($metadata['object_position']) . '"';
+        $attributes .= ' data-figma-image-fill="true" data-figma-image-rendering="semantic-img" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
+        $attributes .= ' data-figma-image-object-fit="' . $this->sanitizeAttribute($metadata['object_fit']) . '" data-figma-image-object-position="' . $this->sanitizeAttribute($metadata['object_position']) . '"';
         if ( null !== $metadata['background_size'] ) {
             $attributes .= ' data-figma-image-background-size="' . $this->sanitizeAttribute($metadata['background_size']) . '"';
         }
@@ -1145,6 +1149,25 @@ final class StaticHtmlEmitter
         }
 
         return $attributes;
+    }
+
+    private function imageObjectFit(string $scaleMode): string
+    {
+        return match ( strtoupper($scaleMode) ) {
+            'FIT' => 'contain',
+            'STRETCH' => 'fill',
+            'TILE' => 'none',
+            default => 'cover',
+        };
+    }
+
+    private function imageObjectPosition(?string $backgroundPosition): string
+    {
+        if ( null === $backgroundPosition || '' === trim($backgroundPosition) ) {
+            return 'center';
+        }
+
+        return $backgroundPosition;
     }
 
     /**
@@ -6144,7 +6167,7 @@ final class StaticHtmlEmitter
             if ( 'TEXT' === $type && $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
                 if ( 'width' === $dimension && isset($box['width']) && is_numeric($box['width']) ) {
                     $styles[] = 'width:100%';
-                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                    $styles[] = 'max-width:' . $this->textFlowMaxWidth($node, (float) $box['width']);
                 }
                 continue;
             }
@@ -6275,6 +6298,11 @@ final class StaticHtmlEmitter
                     continue;
                 }
                 $styles[] = $style;
+            }
+            if ( $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
+                foreach ( $this->textWrappingStyles($node, $parentNode, $grandParentNode) as $style ) {
+                    $styles[] = $style;
+                }
             }
             if ( $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
                 $styles[] = 'overflow:visible';
@@ -7138,22 +7166,85 @@ final class StaticHtmlEmitter
      */
     private function textShouldUseFluidFlowBox(array $node, ?array $parentNode): bool
     {
-        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) || null === $parentNode ) {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
             return false;
         }
 
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( 'absolute' === ($layout['positioning'] ?? null) || ($this->isFreeformContainer($parentNode) && ! $this->freeformContainerShouldUseFlow($parentNode)) ) {
-            return false;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        if ( ! str_contains($name, 'paragraph') && ! str_contains($name, 'body') && ! str_contains($name, 'copy') && ! str_contains($name, 'lede') && ! str_contains($name, 'supporting text') ) {
+        if ( 'absolute' === ($layout['positioning'] ?? null) || (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $this->freeformContainerShouldUseFlow($parentNode)) ) {
             return false;
         }
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        return isset($box['width']) && is_numeric($box['width']) && (float) $box['width'] >= 280.0;
+        $hasResponsiveWidth = isset($box['width']) && is_numeric($box['width']) && (float) $box['width'] >= 280.0;
+        if ( null === $parentNode ) {
+            $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+            $textAutoResize = strtoupper((string) ($text['auto_resize'] ?? $node['text_auto_resize'] ?? ''));
+            $fontSize = $this->textFontSize($node);
+            return $hasResponsiveWidth
+                && $this->textHasDerivedLineBreaks($node)
+                && ! $this->textHasLineBreaks($node)
+                && ! in_array($textAutoResize, array('HEIGHT', 'WIDTH_AND_HEIGHT'), true)
+                && (null === $fontSize || $fontSize <= 96.0);
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $textIntent = str_contains($name, 'paragraph')
+            || str_contains($name, 'body')
+            || str_contains($name, 'copy')
+            || str_contains($name, 'lede')
+            || str_contains($name, 'supporting text');
+        if ( ! $textIntent ) {
+            return false;
+        }
+
+        return $hasResponsiveWidth;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function textFlowMaxWidth(array $node, float $pixelWidth): string
+    {
+        $px = $this->number($pixelWidth) . 'px';
+        $characters = trim(strip_tags($this->textContent($node)));
+        if ( '' === $characters ) {
+            return $px;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $wordCount = $this->textWordCount($node);
+        if ( $wordCount >= 12 || $this->hasBodyTextNameIntent($name) ) {
+            return 'min(' . $px . ',72ch)';
+        }
+        if ( str_contains($name, 'title') || str_contains($name, 'heading') || str_contains($name, 'headline') ) {
+            return 'min(' . $px . ',18ch)';
+        }
+
+        return $px;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $grandParentNode
+     * @return array<int, string>
+     */
+    private function textWrappingStyles(array $node, ?array $parentNode, ?array $grandParentNode): array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( $this->textIsAtomicSingleLineLabel($node, $text) || $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
+            return array();
+        }
+
+        $styles = array('overflow-wrap:break-word');
+        $tag = $this->semanticTag($node, strtoupper((string) ($node['type'] ?? '')), strtolower((string) ($node['name'] ?? '')), 1, $parentNode, $grandParentNode);
+        if ( in_array($tag, array('h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true) ) {
+            $styles[] = 'text-wrap:balance';
+        } elseif ( 'p' === $tag || $this->hasBodyTextNameIntent(strtolower((string) ($node['name'] ?? ''))) ) {
+            $styles[] = 'hyphens:auto';
+            $styles[] = 'text-wrap:pretty';
+        }
+
+        return $styles;
     }
 
     /**
@@ -7276,7 +7367,7 @@ final class StaticHtmlEmitter
                 return '';
             }
 
-            return $this->sanitizeText($this->trimTextContent($this->textShouldUseFluidFlowBox($node, $parentNode) ? $characters : $this->derivedLineBreakText($characters, $text)));
+            return $this->sanitizeText($this->normalizeTextContentWhitespace($characters));
         }
 
         $characters = (string) ($node['characters'] ?? $node['text'] ?? '');
@@ -7284,12 +7375,14 @@ final class StaticHtmlEmitter
             return '';
         }
 
-        return $this->sanitizeText($this->trimTextContent($characters));
+        return $this->sanitizeText($this->normalizeTextContentWhitespace($characters));
     }
 
-    private function trimTextContent(string $characters): string
+    private function normalizeTextContentWhitespace(string $characters): string
     {
-        return trim($characters);
+        $characters = str_replace(array("\r\n", "\r"), "\n", trim($characters));
+
+        return preg_replace('/[^\S\n]+/u', ' ', $characters) ?? $characters;
     }
 
     /**
@@ -8074,8 +8167,8 @@ final class StaticHtmlEmitter
         }
         if ( $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
             $styles[] = 'white-space:pre-wrap';
-        } elseif ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
-            $styles[] = $this->textHasDerivedLineBreaks($node) && ! $this->textHasLineBreaks($node) ? 'white-space:pre' : 'white-space:pre-line';
+        } elseif ( $this->textHasLineBreaks($node) && ! $this->shouldSplitParagraphs($node) ) {
+            $styles[] = 'white-space:pre-line';
         } elseif ( $this->textIsAtomicSingleLineLabel($node, $text) ) {
             $styles[] = 'white-space:nowrap';
         }
@@ -8169,7 +8262,7 @@ final class StaticHtmlEmitter
      */
     private function textShouldPreserveChromeSpacing(array $node, ?array $parentNode, ?array $grandParentNode): bool
     {
-        $characters = strip_tags($this->textContent($node));
+        $characters = $this->rawDecodedText($node);
         if ( ! preg_match('/ {2,}/', $characters) ) {
             return false;
         }
