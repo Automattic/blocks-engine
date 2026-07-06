@@ -1,0 +1,48 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-saas-style-boundaries",
+  "description": "Preserves generic styled SaaS-like logo, navigation, badge, and trusted-section boundaries without raw HTML fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-saas-style-boundaries.json",
+    "notes": "Generic fixture for styled marketing landing-page primitives."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><a class=\"brand-logo\" href=\"/\"><svg viewBox=\"0 0 12 12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"5\"></circle></svg><span>Relay Atlas</span></a><nav class=\"primary-nav\"><a href=\"#features\">Features</a><a href=\"#pricing\">Pricing</a></nav></header><main><section class=\"hero\"><p class=\"beta-badge\"><span class=\"status-orb\"></span><span>Now in open beta</span></p><h1>Every launch mapped.</h1></section><section class=\"trusted-by\" aria-label=\"Trusted by\"><article class=\"trusted-card\"><h3>Launch teams</h3><p>Keep work aligned.</p></article><article class=\"trusted-card\"><h3>Ops teams</h3><p>Surface risks early.</p></article><article class=\"trusted-card\"><h3>Founders</h3><p>Ship with context.</p></article></section></main>",
+    "options": {
+      "static_css": ".site-header{display:flex;align-items:center;gap:24px}.brand-logo{display:flex;align-items:center;gap:10px;font-weight:700}.primary-nav{display:flex;align-items:center;gap:16px}.beta-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid #a36e12;border-radius:999px;padding:4px 12px}.beta-badge .status-orb{width:6px;height:6px;border-radius:999px;background:#3eca7a}.trusted-by{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.trusted-card{background:#112240;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:18px}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.1", "name": "core/group", "attrs": { "tagName": "main" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero", "tagName": "section" } },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "beta-badge" } },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading" },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "trusted-by", "tagName": "section" } },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "trusted-card", "tagName": "article" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/\"><span>Relay Atlas</span></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "beta-badge" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "status-orb" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "trusted-by" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "trusted-card" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

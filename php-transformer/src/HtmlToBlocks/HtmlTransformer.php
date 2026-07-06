@@ -1259,6 +1259,12 @@ final class HtmlTransformer
             if ( $this->richTextRequiresHtmlFallback($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
+            if ( $this->hasEmptyVisualInlineChild($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 if ( $this->isRuntimeDomTarget($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
@@ -1310,6 +1316,10 @@ final class HtmlTransformer
                 }
                 if ( array() !== $children ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+
+                if ( $this->shouldPreserveEmptyVisualElement($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
 
                 return null;
@@ -2735,7 +2745,38 @@ final class HtmlTransformer
             return false;
         }
 
-        return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+        if ( in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden')) ) {
+            return true;
+        }
+
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
+            return false;
+        }
+
+        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
+        if ( ! preg_match('/(?:^|[^a-z0-9])(?:badge|chip|pill|status|indicator|marker|dot|orb|icon)(?:[^a-z0-9]|$)/', $tokens) ) {
+            return false;
+        }
+
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'background', 'background-color', 'border', 'border-color', 'border-width', 'border-radius', 'box-shadow', 'width', 'height', 'min-width', 'min-height' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasEmptyVisualInlineChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isInlineContentElement(string $tagName): bool
