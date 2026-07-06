@@ -7,6 +7,8 @@ use DOMElement;
 
 final class CodeWindowPattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml
@@ -67,24 +69,4 @@ final class CodeWindowPattern
         return '';
     }
 
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
-    }
-
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        return in_array($className, preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
-    }
 }

@@ -9,6 +9,8 @@ use const XML_TEXT_NODE;
 
 final class QuotePattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * Inline blockquote entry point (convertElement blockquote-tag branch).
      *
@@ -136,20 +138,4 @@ final class QuotePattern
         return array( $createBlock('core/paragraph', array( 'content' => $value )) );
     }
 
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        $class = $element->hasAttribute('class') ? $element->getAttribute('class') : '';
-        return in_array($className, preg_split('/\s+/', trim($class)) ?: array(), true);
-    }
-
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
 }
