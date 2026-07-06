@@ -8,7 +8,7 @@ final class ButtonMenuVisualProbeComparator
     public const SCHEMA = 'blocks-engine/php-transformer/visual-parity-probe-comparison/v1';
 
     private const STYLE_GROUPS = array(
-        'background' => array('background-color'),
+        'fill' => array('background', 'background-color'),
         'border' => array(
             'border',
             'border-bottom-color',
@@ -35,6 +35,8 @@ final class ButtonMenuVisualProbeComparator
             'border-top-right-radius',
         ),
         'padding' => array('padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top'),
+        'text_color' => array('color'),
+        'width' => array('width', 'min-width'),
     );
 
     /**
@@ -59,11 +61,14 @@ final class ButtonMenuVisualProbeComparator
 
             unset($unmatchedTargetIndexes[$targetIndex]);
             $targetProbe = $targetProbes[$targetIndex];
+            $styleDeltas = $this->styleDeltas($sourceProbe, $targetProbe);
+            $missingStyleRisks = $this->missingStyleRisks($sourceProbe, $targetProbe);
             $matches[] = array_filter(array(
                 'source' => $this->candidateSummary($sourceProbe, $sourceIndex),
                 'target' => $this->candidateSummary($targetProbe, $targetIndex),
-                'style_deltas' => $this->styleDeltas($sourceProbe, $targetProbe),
-                'missing_style_risks' => $this->missingStyleRisks($sourceProbe, $targetProbe),
+                'style_deltas' => $styleDeltas,
+                'missing_style_risks' => $missingStyleRisks,
+                'mismatch_causes' => $this->mismatchCauses($sourceProbe, $targetProbe, $styleDeltas, $missingStyleRisks),
             ), static fn ($value): bool => array() !== $value);
         }
 
@@ -74,10 +79,19 @@ final class ButtonMenuVisualProbeComparator
 
         $styleDeltaCount = 0;
         $missingStyleRiskCount = 0;
+        $causeCounts = array();
         foreach ( $matches as $match ) {
             $styleDeltaCount += count($match['style_deltas'] ?? array());
             $missingStyleRiskCount += count($match['missing_style_risks'] ?? array());
+            foreach ( $match['mismatch_causes'] ?? array() as $cause ) {
+                if ( ! is_array($cause) ) {
+                    continue;
+                }
+                $code = (string) ($cause['code'] ?? 'unknown');
+                $causeCounts[$code] = ($causeCounts[$code] ?? 0) + 1;
+            }
         }
+        ksort($causeCounts);
 
         return array(
             'schema' => self::SCHEMA,
@@ -90,6 +104,7 @@ final class ButtonMenuVisualProbeComparator
                 'unmatched_target_total' => count($unmatchedTarget),
                 'style_delta_total' => $styleDeltaCount,
                 'missing_style_risk_total' => $missingStyleRiskCount,
+                'mismatch_cause_counts' => $causeCounts,
             ),
             'matches' => $matches,
             'unmatched_source' => $unmatchedSource,
@@ -222,6 +237,152 @@ final class ButtonMenuVisualProbeComparator
         }
 
         return $risks;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceProbe
+     * @param array<string, mixed> $targetProbe
+     * @param array<int, array<string, mixed>> $styleDeltas
+     * @param array<int, array<string, mixed>> $missingStyleRisks
+     * @return array<int, array<string, mixed>>
+     */
+    private function mismatchCauses(array $sourceProbe, array $targetProbe, array $styleDeltas, array $missingStyleRisks): array
+    {
+        $causes = array();
+        $missingGroups = $this->missingRiskGroups($missingStyleRisks);
+
+        foreach ( $styleDeltas as $delta ) {
+            $group = (string) ($delta['group'] ?? 'style');
+            if ( isset($missingGroups[$group]) && array() === ($delta['target'] ?? array()) ) {
+                continue;
+            }
+            $causes[] = array_filter(array(
+                'code' => 'button_' . $group . '_mismatch',
+                'category' => $group,
+                'source' => $delta['source'] ?? array(),
+                'target' => $delta['target'] ?? array(),
+                'guidance' => $this->guidanceForGroup($group),
+            ), static fn ($value): bool => array() !== $value && '' !== $value);
+        }
+
+        foreach ( $missingStyleRisks as $risk ) {
+            $code = (string) ($risk['code'] ?? 'missing_style');
+            $group = (string) ($risk['group'] ?? 'default_style_leakage');
+            $causes[] = array_filter(array(
+                'code' => 'target_default_button_style' === $code ? 'button_default_style_leakage' : 'button_' . $group . '_missing',
+                'category' => $group,
+                'source' => $risk['source'] ?? array(),
+                'signal' => $risk['signal'] ?? null,
+                'guidance' => 'target_default_button_style' === $code ? 'Target looks like browser/core default button chrome; preserve explicit source button styles or remove unintended button promotion.' : $this->guidanceForGroup($group),
+            ), static fn ($value): bool => null !== $value && array() !== $value && '' !== $value);
+        }
+
+        $sourceDepth = (int) ($sourceProbe['hierarchy']['menu_depth'] ?? 0);
+        $targetDepth = (int) ($targetProbe['hierarchy']['menu_depth'] ?? 0);
+        if ( $sourceDepth !== $targetDepth ) {
+            $causes[] = array(
+                'code' => 'button_nesting_mismatch',
+                'category' => 'nesting',
+                'source' => array('menu_depth' => $sourceDepth),
+                'target' => array('menu_depth' => $targetDepth),
+                'guidance' => 'Button/menu item moved across list or navigation depth; inspect wrapper conversion before tuning styles.',
+            );
+        }
+
+        $wrapperDelta = $this->wrapperChromeDelta($sourceProbe, $targetProbe);
+        if ( array() !== $wrapperDelta ) {
+            $causes[] = array_filter(array(
+                'code' => 'button_wrapper_chrome_mismatch',
+                'category' => 'wrapper_chrome',
+                'source' => $wrapperDelta['source'] ?? array(),
+                'target' => $wrapperDelta['target'] ?? array(),
+                'guidance' => 'Visual chrome lives on a parent wrapper in one side; preserve wrapper block style/supports before changing button attributes.',
+            ), static fn ($value): bool => array() !== $value && '' !== $value);
+        }
+
+        return $this->uniqueCauses($causes);
+    }
+
+    private function guidanceForGroup(string $group): string
+    {
+        return match ($group) {
+            'width' => 'Compare source width/min-width against core/button width support or wrapper layout constraints.',
+            'padding' => 'Preserve source padding on the button/link element or its wrapper block spacing support.',
+            'radius' => 'Preserve source border radius on the core/button border support.',
+            'fill' => 'Preserve source fill/background color and avoid theme default fill leakage.',
+            'border' => 'Preserve border width/style/color together; partial border emission usually changes button shape.',
+            'text_color' => 'Preserve link text color separately from fill/background color.',
+            default => '',
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $missingStyleRisks
+     * @return array<string, bool>
+     */
+    private function missingRiskGroups(array $missingStyleRisks): array
+    {
+        $groups = array();
+        foreach ( $missingStyleRisks as $risk ) {
+            $group = (string) ($risk['group'] ?? '');
+            if ( '' !== $group ) {
+                $groups[$group] = true;
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceProbe
+     * @param array<string, mixed> $targetProbe
+     * @return array<string, mixed>
+     */
+    private function wrapperChromeDelta(array $sourceProbe, array $targetProbe): array
+    {
+        $sourceStyle = $this->wrapperChromeStyle($sourceProbe);
+        $targetStyle = $this->wrapperChromeStyle($targetProbe);
+        if ( array() === $sourceStyle || $sourceStyle === $targetStyle ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'source' => array_filter(array(
+                'selector' => $sourceProbe['wrapper_chrome']['selector'] ?? null,
+                'style' => $sourceStyle,
+            ), static fn ($value): bool => null !== $value && array() !== $value && '' !== $value),
+            'target' => array_filter(array(
+                'selector' => $targetProbe['wrapper_chrome']['selector'] ?? null,
+                'style' => $targetStyle,
+            ), static fn ($value): bool => null !== $value && array() !== $value && '' !== $value),
+        ), static fn ($value): bool => array() !== $value);
+    }
+
+    /** @param array<string, mixed> $probe */
+    private function wrapperChromeStyle(array $probe): array
+    {
+        $style = $probe['wrapper_chrome']['style'] ?? array();
+        return is_array($style) ? array_filter($style, 'is_string') : array();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $causes
+     * @return array<int, array<string, mixed>>
+     */
+    private function uniqueCauses(array $causes): array
+    {
+        $unique = array();
+        $seen = array();
+        foreach ( $causes as $cause ) {
+            $key = (string) ($cause['code'] ?? '') . '|' . (string) ($cause['category'] ?? '');
+            if ( isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $cause;
+        }
+
+        return $unique;
     }
 
     /**

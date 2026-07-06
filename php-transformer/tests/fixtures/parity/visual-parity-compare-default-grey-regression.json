@@ -20,11 +20,14 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-probe-comparison/v1" },
     { "path": "summary.matched_total", "assert": "equals", "value": 1 },
-    { "path": "summary.style_delta_total", "assert": "equals", "value": 4 },
-    { "path": "summary.missing_style_risk_total", "assert": "equals", "value": 1 },
+    { "path": "summary.style_delta_total", "assert": "equals", "value": 5 },
+    { "path": "summary.missing_style_risk_total", "assert": "equals", "value": 2 },
+    { "path": "summary.mismatch_cause_counts.button_fill_mismatch", "assert": "equals", "value": 1 },
+    { "path": "summary.mismatch_cause_counts.button_text_color_missing", "assert": "equals", "value": 1 },
     { "path": "matches.0.source.text", "assert": "equals", "value": "Book now" },
     { "path": "matches.0.target.signals.2", "assert": "equals", "value": "default-button-style-watch" },
-    { "path": "matches.0.style_deltas.0.group", "assert": "equals", "value": "background" },
+    { "path": "matches.0.style_deltas.0.group", "assert": "equals", "value": "fill" },
+    { "path": "matches.0.mismatch_causes.0.code", "assert": "equals", "value": "button_fill_mismatch" },
     { "path": "matches.0.missing_style_risks.0.code", "assert": "equals", "value": "target_default_button_style" }
   ]
 }
