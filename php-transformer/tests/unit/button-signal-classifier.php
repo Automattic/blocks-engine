@@ -58,6 +58,17 @@ $assert('core/buttons' === ($result['blocks'][0]['blockName'] ?? ''), '11: style
 $assert('core/button' === ($button['blockName'] ?? ''), '12: styled anchor inner block is core/button', json_encode($button));
 $assert('/buy' === ($button['attrs']['url'] ?? ''), '13: styled anchor promotion preserves URL', json_encode($button['attrs'] ?? array()));
 
+$buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();
+$nativeButton = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('core/buttons' === ($buttonResult['blocks'][0]['blockName'] ?? ''), '14: native button is dispatched to core/buttons', json_encode($buttonResult['blocks'] ?? array()));
+$assert('core/button' === ($nativeButton['blockName'] ?? ''), '15: native button inner block is core/button', json_encode($nativeButton));
+$assert('button' === ($nativeButton['attrs']['tagName'] ?? ''), '16: native button keeps button tagName', json_encode($nativeButton['attrs'] ?? array()));
+
+$plainLinkResult = ( new HtmlTransformer() )->transform('<a href="/about">About us</a>', array())->toArray();
+$plainLink = $plainLinkResult['blocks'][0] ?? array();
+$assert('core/paragraph' === ($plainLink['blockName'] ?? ''), '17: plain anchor stays paragraph rich text', json_encode($plainLinkResult['blocks'] ?? array()));
+$assert(str_contains((string) ($plainLink['innerHTML'] ?? ''), 'href="/about"'), '18: plain anchor preserves href in content', json_encode($plainLink ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

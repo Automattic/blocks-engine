@@ -28,6 +28,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
@@ -39,6 +40,7 @@ use DOMNode;
 
 final class HtmlTransformer
 {
+    use ButtonLinkDispatchTrait;
     use DomHelpersTrait;
     use FormDispatchTrait;
     use NavigationToggleSuppressionTrait;
@@ -1202,66 +1204,11 @@ final class HtmlTransformer
         }
 
         if ( 'a' === $tagName ) {
-            $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
-            if ( null !== $linkedLogo ) {
-                return $linkedLogo;
-            }
-
-            $logo = $this->logoPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
-            if ( null !== $logo ) {
-                return $logo;
-            }
-
-            $button = $this->buttonsPattern->matchAnchor(
-                $element,
-                fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
-            if ( null !== $button ) {
-                return $button;
-            }
-
-            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
-                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
-            }
-
-            if ( '' === trim($element->textContent ?? '') ) {
-                return null;
-            }
-
-            if ( $this->hasBlockContentChildren($element) ) {
-                $linkWrapper = $this->convertLinkWrapperGroup($element, $fallbacks);
-                if ( null !== $linkWrapper ) {
-                    return $linkWrapper;
-                }
-            }
-
-            return $this->createBlock('core/paragraph', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            return $this->convertAnchorDispatchElement($element, $fallbacks);
         }
 
         if ( 'button' === $tagName ) {
-            if ( $this->isRuntimeDomTarget($element) ) {
-                $this->recordRuntimeControlIsland($element);
-                return $this->htmlPreservationBlock($element);
-            }
-
-            return $this->buttonsPattern->matchButton(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            return $this->convertButtonDispatchElement($element);
         }
 
         if ( 'svg' === $tagName ) {
