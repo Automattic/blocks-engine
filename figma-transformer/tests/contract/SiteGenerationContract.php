@@ -548,6 +548,61 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
 
+    $desktopOnlyResponsiveRowsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Desktop Only Responsive Rows Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-rows:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 1200,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'responsive-rows:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero row',
+                        'width'    => 1216,
+                        'height'   => 420,
+                        'layoutMode' => 'HORIZONTAL',
+                        'paddingLeft' => 64,
+                        'paddingRight' => 64,
+                        'itemSpacing' => 48,
+                        'children' => array(
+                            array('id' => 'responsive-rows:hero-copy', 'type' => 'FRAME', 'name' => 'Hero copy', 'width' => 560, 'height' => 320, 'children' => array(
+                                array('id' => 'responsive-rows:hero-title', 'type' => 'TEXT', 'name' => 'Hero title', 'characters' => 'Fisiostetic', 'width' => 420, 'height' => 64, 'fontSize' => 48),
+                            )),
+                            array('id' => 'responsive-rows:hero-media', 'type' => 'FRAME', 'name' => 'Hero media', 'width' => 520, 'height' => 320),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'responsive-rows:pricing',
+                        'type'     => 'FRAME',
+                        'name'     => 'Pricing cards',
+                        'width'    => 1216,
+                        'height'   => 360,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children' => array(
+                            array('id' => 'responsive-rows:price-a', 'type' => 'FRAME', 'name' => 'Price card', 'width' => 380, 'height' => 280),
+                            array('id' => 'responsive-rows:price-b', 'type' => 'FRAME', 'name' => 'Price card', 'width' => 380, 'height' => 280),
+                            array('id' => 'responsive-rows:price-c', 'type' => 'FRAME', 'name' => 'Price card', 'width' => 380, 'height' => 280),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $desktopOnlyResponsiveRowsCss = $fileContent($desktopOnlyResponsiveRowsResult, 'style.css');
+    $desktopOnlyResponsiveRowsTabletBlockPosition = strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:1439px)');
+    $assert(false !== $desktopOnlyResponsiveRowsTabletBlockPosition, 'desktop-only-responsive-rows-emits-tablet-safety-block');
+    $desktopOnlyResponsiveRowsTabletBlock = false === $desktopOnlyResponsiveRowsTabletBlockPosition ? '' : substr($desktopOnlyResponsiveRowsCss, $desktopOnlyResponsiveRowsTabletBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-hero-hero-row', array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap', 'padding-right:24px', 'padding-left:24px'), 'desktop-only-responsive-hero-row-stacks-at-tablet');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-hero-hero-row', array('min-height:420px', 'flex-wrap:wrap'), 'desktop-only-responsive-hero-row-has-no-fixed-min-height-floor-or-wrap-only-layout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-pricing-cards-stack-at-tablet');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-or-wrap-only-layout');
+
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',
         'nodes' => array(
