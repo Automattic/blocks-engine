@@ -806,6 +806,8 @@ $assert(! preg_match('/<!-- wp:paragraph[^>]*-->.*<svg\b.*<!-- \/wp:paragraph --
 $coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeHtml, array())->toArray();
 $coffeeSerialized = (string) ($coffeeResult['serialized_blocks'] ?? '');
+$coffeeStylesheets = array_values(array_filter($coffeeResult['assets'] ?? array(), static fn (array $asset): bool => 'stylesheet' === ($asset['role'] ?? '') && 'text/css' === ($asset['mime_type'] ?? '')));
+$coffeeStylesheetCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $coffeeStylesheets));
 $coffeeRiskCount = 0;
 if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
     foreach ( $coffeeBlocks as $coffeeBlock ) {
@@ -815,6 +817,10 @@ if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/w
     }
 }
 $assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no class/style anchors/spans or SVG inside RichText core blocks', (string) $coffeeRiskCount);
+$assert('pass' === ($coffeeResult['source_reports']['wp_block_validity']['status'] ?? ''), '2-onepager-coffee generated block serialization remains valid after stylesheet materialization');
+$assert(str_contains($coffeeStylesheetCss, '.about-section'), '2-onepager-coffee materializes source About-section CSS as class-owned theme CSS');
+$assert(str_contains($coffeeStylesheetCss, '.about-title'), '2-onepager-coffee materializes Born from Fog & Flame heading paint/spacing CSS without group style attrs');
+$assert(! preg_match('/<!-- wp:group [^>]*"blockGap"/s', $coffeeSerialized), '2-onepager-coffee keeps group spacing out of saved attrs that core/group does not serialize here');
 
 $invalidButtonBlocks = array(
     array(
