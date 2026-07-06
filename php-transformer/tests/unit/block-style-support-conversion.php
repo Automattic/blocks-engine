@@ -66,8 +66,8 @@ $cardMarkup = (string) ($cardResult['serialized_blocks'] ?? '');
 
 $assert('1120px' === ($cardShellAttrs['style']['dimensions']['maxWidth'] ?? ''), '17: section max-width maps to dimensions support', json_encode($cardShellAttrs['style']['dimensions'] ?? array()));
 $assert('360px' === ($cardAttrs['style']['dimensions']['maxWidth'] ?? ''), '18: card max-width maps to dimensions support', json_encode($cardAttrs['style']['dimensions'] ?? array()));
-$assert(str_contains($cardMarkup, 'max-width:1120px'), '19: rendered section preserves max-width geometry', $cardMarkup);
-$assert(str_contains($cardMarkup, 'max-width:360px'), '20: rendered card preserves max-width geometry', $cardMarkup);
+$assert(! str_contains($cardMarkup, 'max-width:1120px'), '19: rendered section omits max-width that core save() does not reproduce', $cardMarkup);
+$assert(! str_contains($cardMarkup, 'max-width:360px'), '20: rendered card omits max-width that core save() does not reproduce', $cardMarkup);
 $assert(! str_contains($cardMarkup, 'style="max-width:1120px;margin:0 auto;padding:5rem 2rem"'), '21: rendered section does not keep unsupported raw style wholesale', $cardMarkup);
 
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';

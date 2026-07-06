@@ -188,9 +188,9 @@ final class StyleAttributeMapper
         if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
             $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
         }
-        if ( '' !== trim((string) ($dimensions['maxWidth'] ?? '')) ) {
-            $declarations[] = 'max-width:' . trim((string) $dimensions['maxWidth']);
-        }
+        // Core stores dimensions.maxWidth in block attrs but does not reproduce
+        // it as an inline wrapper declaration in save(), so emitting it here
+        // makes otherwise native blocks fail editor validation.
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
         $typographyMap = array(
