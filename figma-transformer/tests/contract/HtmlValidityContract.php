@@ -184,7 +184,7 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
 
     $html = $fileContent($result, 'index.html');
     $links = $result['source_report']['transform_diagnostics']['links'] ?? array();
-    $assert(str_contains($html, '<main class="figma-root" data-figma-root="true" data-page-title="Home Page" aria-label="Home Page" data-page-path="index.html">'), 'html-validity-document-root-carries-page-legibility-metadata');
+    $assert(str_contains($html, '<main class="figma-root" data-figma-root="true" data-page-title="Home Page" aria-label="Home Page" data-page-path="index.html"'), 'html-validity-document-root-carries-page-legibility-metadata');
     $assert(str_contains($html, 'data-figma-node-id="validity:nav" data-figma-node-name="Navigation" data-figma-semantic-role="nav"'), 'html-validity-nav-carries-semantic-role-metadata');
     $assert(str_contains($html, 'data-figma-node-id="validity:services" data-figma-node-name="Services Section" data-figma-semantic-role="services"'), 'html-validity-services-section-carries-semantic-role-metadata');
     $assert(str_contains($html, 'data-figma-node-id="validity:pricing" data-figma-node-name="Pricing" data-figma-semantic-role="pricing"'), 'html-validity-pricing-section-carries-semantic-role-metadata');

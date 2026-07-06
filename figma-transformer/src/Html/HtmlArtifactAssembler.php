@@ -118,6 +118,16 @@ final class HtmlArtifactAssembler
             $mainAttributes[] = 'data-page-path="' . $this->sanitizeAttribute($pagePath) . '"';
         }
 
+        $templateType = $this->metadataValue($metadata, 'template_type');
+        if ( null !== $templateType ) {
+            $mainAttributes[] = 'data-template-type="' . $this->sanitizeAttribute($templateType) . '"';
+        }
+
+        $templateSlug = $this->metadataValue($metadata, 'template_slug');
+        if ( null !== $templateSlug ) {
+            $mainAttributes[] = 'data-template-slug="' . $this->sanitizeAttribute($templateSlug) . '"';
+        }
+
         return "<!doctype html>\n<html lang=\"en\">\n<head>\n" . implode("\n", $head) . "\n</head>\n<body>\n<main " . implode(' ', $mainAttributes) . ">\n" . $body . "</main>\n</body>\n</html>\n";
     }
 
