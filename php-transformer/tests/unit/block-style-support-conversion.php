@@ -41,7 +41,7 @@ $assert('space-between' === ($attrs['layout']['justifyContent'] ?? ''), '6: just
 $assert(! isset($attrs['style']['box-shadow']), '7: unsupported box-shadow is not stored as block style', json_encode($attrs['style'] ?? array()));
 $assert(! is_string($attrs['style'] ?? null), '8: block style attr is structured, never a raw style string');
 
-$groupHtml = '<div class="hero-row" style="display:flex;justify-content:center;gap:1rem;padding:2rem;background:var(--wp--preset--color--base)"><p>Hello</p><p>World</p></div>';
+$groupHtml = '<div class="hero-row" style="display:flex;justify-content:center;gap:1rem;min-height:100svh;padding:2rem;background:var(--wp--preset--color--base)"><p>Hello</p><p>World</p></div>';
 $groupResult = ( new HtmlTransformer() )->transform($groupHtml, array())->toArray();
 $group = $groupResult['blocks'][0] ?? array();
 $groupAttrs = is_array($group['attrs'] ?? null) ? $group['attrs'] : array();
@@ -53,13 +53,15 @@ $assert(str_contains($groupInnerHtml, 'has-base-background-color has-background'
 $assert(str_contains($groupInnerHtml, 'is-layout-flex wp-block-columns-is-layout-flex'), '12: rendered wrapper uses layout support classes', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: rendered wrapper omits blockGap when the core save shape does not reproduce it', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: rendered wrapper does not carry raw flex declarations', $groupInnerHtml);
+$assert('100svh' === ($groupAttrs['style']['dimensions']['minHeight'] ?? ''), '15: min-height maps to Gutenberg dimensions support', json_encode($groupAttrs['style']['dimensions'] ?? array()));
+$assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: rendered wrapper preserves section min-height geometry', $groupInnerHtml);
 
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';
 $stackResult = ( new HtmlTransformer() )->transform($stackHtml, array())->toArray();
 $stack = $stackResult['blocks'][0] ?? array();
 
-$assert('core/group' === ($stack['blockName'] ?? ''), '15: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
-$assert('hero-content' === (($stack['attrs']['className'] ?? '')), '16: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
+$assert('core/group' === ($stack['blockName'] ?? ''), '17: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
+$assert('hero-content' === (($stack['attrs']['className'] ?? '')), '18: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
