@@ -306,7 +306,7 @@ final class BlockFactory
 
         $wrapperAttrs = array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
-            'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
+            'class' => $this->mergeClassNames('wp-block-button', $this->buttonWidthClasses($attrs), (string) ($attrs['className'] ?? '')),
         );
 
         $controlAttrs = array(
@@ -322,6 +322,19 @@ final class BlockFactory
 
         $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
         return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function buttonWidthClasses(array $attrs): string
+    {
+        $width = (int) ($attrs['width'] ?? 0);
+        if ( ! in_array($width, array( 25, 50, 75, 100 ), true) ) {
+            return '';
+        }
+
+        return 'has-custom-width wp-block-button__width-' . $width;
     }
 
     /**

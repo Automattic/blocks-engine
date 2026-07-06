@@ -600,6 +600,30 @@ $roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks
 $assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button preserves an explicit source border radius');
 $assert(! str_contains($roundedOutlineButtonMarkup, 'border-radius:0'), 'outline button does not override an explicit source border radius');
 
+$wrapperOwnedButton = ( new HtmlTransformer() )->transform(
+    '<main><div class="hero-cta" role="button" style="display:inline-flex;align-items:center;padding:14px 24px;border-radius:999px;background:#2563eb;color:#ffffff;font-weight:700"><a href="/start"><span>Start free</span></a></div></main>'
+)->toArray();
+$wrapperOwnedButtonMarkup = (string) ($wrapperOwnedButton['serialized_blocks'] ?? '');
+$assert(str_contains($wrapperOwnedButtonMarkup, '<!-- wp:button'), 'button-like wrapper with a single simple anchor materializes as core/button');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'href="/start"'), 'button-like wrapper preserves the nested anchor URL on the native button');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'Start free'), 'button-like wrapper preserves the nested anchor label');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'background-color:#2563eb'), 'button-like wrapper applies wrapper-owned fill color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'color:#ffffff'), 'button-like wrapper applies wrapper-owned text color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'border-radius:999px'), 'button-like wrapper applies wrapper-owned radius to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonMarkup, 'padding-top:14px'), 'button-like wrapper applies wrapper-owned padding to the native button chrome');
+$assert('pass' === ($wrapperOwnedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button-like wrapper conversion emits valid native button markup');
+
+$fullWidthButton = ( new HtmlTransformer() )->transform(
+    '<main><a class="btn tier-cta" style="display:inline-flex;width:100%;justify-content:center;padding:10px 18px;background:#111827;color:#ffffff" href="/pricing">Start free</a></main>'
+)->toArray();
+$fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
+$assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), '100% source button width maps to the native core/button width attribute');
+$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta">'), '100% source button width emits canonical core/button width wrapper classes');
+$assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
+
+$plainWrappedLink = ( new HtmlTransformer() )->transform('<main><div class="card-link"><a href="/docs">Read docs</a></div></main>')->toArray();
+$assert(! str_contains((string) ($plainWrappedLink['serialized_blocks'] ?? ''), '<!-- wp:button'), 'plain single-anchor wrappers without button signals do not become buttons');
+
 $separatorResult = ( new HtmlTransformer() )->transform('<main><hr class="wp-block-separator has-alpha-channel-opacity has-css-opacity divider"></main>')->toArray();
 $separatorMarkup = (string) ($separatorResult['serialized_blocks'] ?? '');
 $separatorAttrs = $separatorResult['blocks'][0]['attrs'] ?? array();
