@@ -1533,6 +1533,11 @@ final class HtmlTransformer
                 return $linkedImage;
             }
 
+            $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
+            if ( null !== $linkedLogo ) {
+                return $linkedLogo;
+            }
+
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -2655,6 +2660,32 @@ final class HtmlTransformer
             $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
             if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function linkedSvgLogoBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
+    {
+        if ( ! $this->hasLogoBrandSignal($anchor) || 0 === $anchor->getElementsByTagName('svg')->length ) {
+            return null;
+        }
+
+        return $this->convertLinkWrapperGroup($anchor, $fallbacks);
+    }
+
+    private function hasLogoBrandSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+                if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
+                    return true;
+                }
             }
         }
 

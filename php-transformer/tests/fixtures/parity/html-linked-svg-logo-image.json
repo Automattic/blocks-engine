@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-svg-logo-image",
+  "description": "A brand/logo anchor wrapping passive SVG artwork and text materializes the SVG as editable core/image media and propagates the anchor href to native link-bearing children.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-svg-logo-image.json",
+    "notes": "Generic coverage for linked brand/logo anchors with inline SVG marks; the SVG should not force the whole anchor into core/html."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"brand-logo\" href=\"/\" aria-label=\"Acme home\"><span class=\"brand-mark\" aria-hidden=\"true\"><svg width=\"38\" height=\"38\" viewBox=\"0 0 38 38\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 28 Q7.5 23 12 28 Q16.5 33 21 28 Q25.5 23 30 28 Q33 31 36 28\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" fill=\"none\"/></svg></span><span><span class=\"brand-name\">Acme Studio</span><span class=\"brand-sub\">Est. 2018</span></span></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "/", "linkDestination": "custom", "width": "38px", "height": "38px" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "/" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
