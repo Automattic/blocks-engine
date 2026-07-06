@@ -641,6 +641,7 @@ final class FigmaTransformer
         $textNodeCount = 0;
         $assetReferenceCount = 0;
         $linkTargetPaths = $this->linkTargetPathsFromPages($pages, $scenegraph);
+        $normalized = empty($pages) ? null : $this->normalizeScenegraphForPagePlan($scenegraph, $pagePlan, $options);
 
         foreach ( $pages as $page ) {
             if ( ! is_array($page) ) {
@@ -677,7 +678,9 @@ final class FigmaTransformer
                 $pageOptions['page_name'] = (string) ($page['name'] ?? $frameId);
             }
 
-            $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
+            $pageResult = null !== $normalized
+                ? $this->transformNormalizedScenegraphPage($normalized, $page, $pageOptions)->toArray()
+                : $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
             $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
             $diagnostics = array_merge($diagnostics, $pageDiagnostics);
             $nodeCount += (int) ($pageResult['metrics']['node_count'] ?? 0);
@@ -755,6 +758,10 @@ final class FigmaTransformer
 
         $mergedCss = $this->mergeCssChunks($cssChunks);
         $css = $mergedCss['css'];
+        $mergedFontCss = $this->mergedFontCss($fontUsage, $options);
+        if ( str_contains($mergedFontCss, '@import') ) {
+            $css = $this->replaceWebFontImports($css, $mergedFontCss);
+        }
         foreach ( $files as $fileIndex => $file ) {
             if ( 'text/html' !== ($file['mime_type'] ?? '') || ! isset($file['content'], $file['path']) || ! is_scalar($file['path']) ) {
                 continue;
@@ -824,6 +831,251 @@ final class FigmaTransformer
                 'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
+    }
+
+    /**
+     * Normalize the selected page roots once for a multi-page transform.
+     *
+     * @param array<string, mixed> $scenegraph
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function normalizeScenegraphForPagePlan(array $scenegraph, array $pagePlan, array $options): array
+    {
+        $normalizeOptions = $options;
+        unset(
+            $normalizeOptions['multi_page'],
+            $normalizeOptions['include_all_pages'],
+            $normalizeOptions['frame_ids'],
+            $normalizeOptions['entry_frame_id'],
+            $normalizeOptions['frame_slug_map'],
+            $normalizeOptions['responsive_variants'],
+            $normalizeOptions['page_name']
+        );
+
+        $normalizeOptions['render_document'] = true;
+        $normalizeOptions['document_frame_ids'] = $this->pagePlanFrameIds($pagePlan);
+
+        return $this->scenegraphNormalizer->normalize($scenegraph, $normalizeOptions);
+    }
+
+    /**
+     * Emit one planned page from a shared normalized scenegraph.
+     *
+     * @param array<string, mixed> $normalized
+     * @param array<string, mixed> $page
+     * @param array<string, mixed> $options
+     */
+    private function transformNormalizedScenegraphPage(array $normalized, array $page, array $options): FigmaTransformResult
+    {
+        $startedAt = microtime(true);
+        $responsiveVariants = $this->responsivePageVariants($options);
+        if ( null !== $responsiveVariants ) {
+            $primaryFrameId = (string) ($responsiveVariants[0]['frame_id'] ?? ($page['frame_id'] ?? ''));
+            $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : (string) ($page['name'] ?? $primaryFrameId);
+            $pagePath = isset($options['static_site_page_path']) && is_scalar($options['static_site_page_path']) && '' !== (string) $options['static_site_page_path']
+                ? (string) $options['static_site_page_path']
+                : 'index.html';
+            $singlePagePlan = array(
+                'pages' => array(
+                    array(
+                        'frame_id'   => $primaryFrameId,
+                        'name'       => $pageName,
+                        'path'       => $pagePath,
+                        'entrypoint' => true === ($page['entrypoint'] ?? false),
+                        'responsive' => true,
+                        'variants'   => $responsiveVariants,
+                    ),
+                ),
+            );
+            $emitOptions = $options;
+            unset($emitOptions['responsive_variants'], $emitOptions['frame_id'], $emitOptions['page_name']);
+            $artifact = $this->htmlEmitter->emitSite($normalized, $singlePagePlan, $emitOptions);
+        } else {
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            $artifact = $this->htmlEmitter->emit($this->normalizedScenegraphForFrame($normalized, $frameId, (string) ($page['name'] ?? $frameId)), $options);
+        }
+
+        $artifact = $this->withLayoutMismatchReport($artifact, $options);
+        $artifact = $this->withRenderStyleMismatchReport($artifact, $options);
+        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
+        $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
+        $renderedNodes = $this->renderedNodesFromArtifact($artifact, $normalized, $page);
+
+        return FigmaTransformResult::create(
+            $artifact['status'],
+            $diagnostics,
+            $artifact['files'],
+            $artifact['assets'],
+            array(
+                'figma' => array(
+                    'scenegraph' => $normalized['source_report'],
+                    'html'       => $artifact['source_report'],
+                ),
+                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+            ),
+            $parity,
+            array(
+                'node_count'             => $artifact['metrics']['node_count'] ?? $this->countNormalizedNodes($renderedNodes),
+                'text_node_count'        => $this->countNormalizedTextNodes($renderedNodes),
+                'asset_reference_count'  => count($this->assetReferencesForNodes($renderedNodes)),
+                'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
+                'file_count'             => count($artifact['files']),
+                'breakpoint_count'       => null !== $responsiveVariants ? count($responsiveVariants) : null,
+                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
+            )
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $normalized
+     * @return array<string, mixed>
+     */
+    private function normalizedScenegraphForFrame(array $normalized, string $frameId, string $name): array
+    {
+        $nodeMap = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
+        $node = isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ? $nodeMap[$frameId] : null;
+        $pageNormalized = $normalized;
+        $pageNormalized['name'] = '' !== $name ? $name : ($normalized['name'] ?? 'Figma Site');
+        $pageNormalized['nodes'] = null !== $node ? array($node) : array();
+        $pageNormalized['selected_frame_id'] = $frameId;
+        if ( is_array($pageNormalized['source_report'] ?? null) ) {
+            $pageNormalized['source_report']['name'] = $pageNormalized['name'];
+            $pageNormalized['source_report']['selected_frame_id'] = $frameId;
+            $pageNormalized['source_report']['node_count'] = $this->countNormalizedNodes($pageNormalized['nodes']);
+        }
+
+        return $pageNormalized;
+    }
+
+    /**
+     * @param array<string, mixed> $pagePlan
+     * @return array<int, string>
+     */
+    private function pagePlanFrameIds(array $pagePlan): array
+    {
+        $ids = array();
+        foreach ( is_array($pagePlan['pages'] ?? null) ? $pagePlan['pages'] : array() as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+            if ( isset($page['frame_id']) && is_scalar($page['frame_id']) && '' !== (string) $page['frame_id'] ) {
+                $ids[(string) $page['frame_id']] = (string) $page['frame_id'];
+            }
+            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+                if ( is_array($variant) && isset($variant['frame_id']) && is_scalar($variant['frame_id']) && '' !== (string) $variant['frame_id'] ) {
+                    $ids[(string) $variant['frame_id']] = (string) $variant['frame_id'];
+                }
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $normalized
+     * @param array<string, mixed> $page
+     * @return array<int, array<string, mixed>>
+     */
+    private function renderedNodesFromArtifact(array $artifact, array $normalized, array $page): array
+    {
+        $nodeMap = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
+        $nodes = array();
+        $htmlPages = is_array($artifact['source_report']['pages'] ?? null) ? $artifact['source_report']['pages'] : array();
+        if ( empty($htmlPages) ) {
+            $htmlPages = array($page);
+        }
+        foreach ( $htmlPages as $htmlPage ) {
+            if ( ! is_array($htmlPage) || ! isset($htmlPage['frame_id']) || ! is_scalar($htmlPage['frame_id']) ) {
+                continue;
+            }
+            $frameId = (string) $htmlPage['frame_id'];
+            if ( isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ) {
+                $nodes[] = $nodeMap[$frameId];
+            }
+        }
+
+        return $nodes;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     */
+    private function countNormalizedNodes(array $nodes): int
+    {
+        $count = 0;
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            ++$count;
+            $count += $this->countNormalizedNodes($this->normalizedChildNodes($node));
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     */
+    private function countNormalizedTextNodes(array $nodes): int
+    {
+        $count = 0;
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+                ++$count;
+            }
+            $count += $this->countNormalizedTextNodes($this->normalizedChildNodes($node));
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, string>
+     */
+    private function assetReferencesForNodes(array $nodes): array
+    {
+        $references = array();
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            foreach ( array('fills', 'strokes', 'backgrounds') as $paintKey ) {
+                foreach ( is_array($node[$paintKey] ?? null) ? $node[$paintKey] : array() as $paint ) {
+                    if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                        $ref = (string) ($paint['ref'] ?? $paint['imageHash'] ?? $paint['assetRef']['guid'] ?? '');
+                        if ( '' !== $ref ) {
+                            $references[$ref] = $ref;
+                        }
+                    }
+                }
+            }
+            foreach ( $this->assetReferencesForNodes($this->normalizedChildNodes($node)) as $ref ) {
+                $references[$ref] = $ref;
+            }
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizedChildNodes(array $node): array
+    {
+        $children = is_array($node['nodes'] ?? null) ? $node['nodes'] : (is_array($node['children'] ?? null) ? $node['children'] : array());
+
+        return array_values(array_filter($children, 'is_array'));
     }
 
     /**
@@ -1079,9 +1331,10 @@ final class FigmaTransformer
         }
 
         $index = $this->scenegraphIndex->build($scenegraph);
+        $nodes = is_array($index['nodes'] ?? null) ? $index['nodes'] : array();
         $childrenIndex = is_array($index['children_index'] ?? null) ? $index['children_index'] : array();
         foreach ( $descendantRootPaths as $rootId => $path ) {
-            $this->mapDescendantLinkTargets((string) $rootId, (string) $path, $childrenIndex, $map);
+            $this->mapDescendantLinkTargets((string) $rootId, (string) $path, $childrenIndex, $nodes, $map);
         }
 
         return $map;
@@ -1093,10 +1346,11 @@ final class FigmaTransformer
      * instead of the page frame itself; static HTML can only navigate to the
      * generated page path, so descendants inherit their containing page target.
      *
-     * @param array<string, array<int, string>> $childrenIndex
-     * @param array<string, string>             $map
+     * @param array<string, array<int, string>>  $childrenIndex
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>              $map
      */
-    private function mapDescendantLinkTargets(string $rootId, string $path, array $childrenIndex, array &$map): void
+    private function mapDescendantLinkTargets(string $rootId, string $path, array $childrenIndex, array $nodes, array &$map): void
     {
         $stack = is_array($childrenIndex[$rootId] ?? null) ? $childrenIndex[$rootId] : array();
         $visited = array($rootId => true);
@@ -1110,7 +1364,7 @@ final class FigmaTransformer
             }
 
             $visited[$nodeId] = true;
-            $map[$nodeId] = $path;
+            $map[$nodeId] = $this->descendantLinkTargetPath($path, is_array($nodes[$nodeId] ?? null) ? $nodes[$nodeId] : array());
 
             foreach ( is_array($childrenIndex[$nodeId] ?? null) ? $childrenIndex[$nodeId] : array() as $childId ) {
                 if ( is_string($childId) && ! isset($visited[$childId]) ) {
@@ -1118,6 +1372,49 @@ final class FigmaTransformer
                 }
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function descendantLinkTargetPath(string $path, array $node): string
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return $path;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $fontSize = isset($node['fontSize']) && is_numeric($node['fontSize']) ? (float) $node['fontSize'] : null;
+        if ( null !== $fontSize && $fontSize < 24.0 ) {
+            return $path;
+        }
+        if ( null === $fontSize && ! str_contains($name, 'heading') && ! str_contains($name, 'title') ) {
+            return $path;
+        }
+
+        $text = trim((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
+        if ( '' === $text ) {
+            return $path;
+        }
+
+        return $this->linkHrefWithHash($path, $this->slug($text));
+    }
+
+    private function linkHrefWithHash(string $href, string $hash): string
+    {
+        if ( '' === $hash || str_contains($href, '#') ) {
+            return $href;
+        }
+
+        return $href . '#' . $hash;
+    }
+
+    private function slug(string $value): string
+    {
+        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $value) ?? '');
+        $slug = trim($slug, '-');
+
+        return '' === $slug ? 'node' : $slug;
     }
 
     /**
@@ -1896,6 +2193,36 @@ final class FigmaTransformer
             'css' => implode("\n", $ordered) . (empty($ordered) ? '' : "\n"),
             'class_maps' => $classMaps,
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<string, mixed>             $options
+     */
+    private function mergedFontCss(array $fontUsage, array $options): string
+    {
+        $operatorFontCss = isset($options['font_css']) && is_scalar($options['font_css']) ? (string) $options['font_css'] : '';
+        $familyOverrides = is_array($options['font_family_overrides'] ?? null) ? $options['font_family_overrides'] : array();
+        $fontResolution = (new FontResolver())->resolve($fontUsage, $operatorFontCss, $familyOverrides);
+
+        return (string) ($fontResolution['css'] ?? '');
+    }
+
+    private function replaceWebFontImports(string $css, string $fontCss): string
+    {
+        $statements = array();
+        foreach ( $this->splitCssStatements($css) as $statement ) {
+            $trimmed = trim($statement);
+            if ( '' === $trimmed ) {
+                continue;
+            }
+            if ( str_starts_with($trimmed, '@import') || ( str_starts_with($trimmed, '/*') && str_contains($trimmed, 'web fonts') ) ) {
+                continue;
+            }
+            $statements[] = $trimmed;
+        }
+
+        return rtrim($fontCss) . "\n" . implode("\n", $statements) . (empty($statements) ? "" : "\n");
     }
 
     /**
