@@ -206,15 +206,18 @@ final class BreakpointMediaDiffBuilder
         $position = (string) ($baseMap['position'] ?? '');
         $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION'), true);
         $declarations = array();
+        $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
 
         if ( $isContainer && null !== $width && $width > 767.0 ) {
             $declarations[] = 'width:100%';
             $declarations[] = 'max-width:100%';
             if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
                 $declarations[] = 'height:auto';
-                $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+                if ( ! $wrapsRow ) {
+                    $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+                }
             }
-            if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) ) {
+            if ( $wrapsRow ) {
                 $declarations[] = 'flex-wrap:wrap';
                 $declarations[] = 'align-content:flex-start';
             }
