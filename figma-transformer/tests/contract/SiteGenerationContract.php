@@ -1657,13 +1657,13 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     }
     $assert('success' === ($responsiveEmitResult['status'] ?? null), 'responsive-emit-status-success');
     $assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
-    // Two narrower breakpoints plus one wide desktop-only page fallback => three
+    // Two narrower breakpoints plus two wide desktop-only page fallbacks => four
     // media blocks. Variant breakpoints are keyed at the MIDPOINT between
     // adjacent variant widths (not the narrow variant's own width).
     // desktop=1440, tablet=834, mobile=390:
     //   tablet breakpoint = round((1440+834)/2) = 1137
     //   mobile breakpoint = round((834+390)/2)  = 612
-    $assert(3 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
+    $assert(4 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:1137px){'), 'responsive-emit-tablet-media-query');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:612px){'), 'responsive-emit-mobile-media-query');
     // Base layout uses the primary (desktop) variant styles, emitted before media.
@@ -1686,8 +1686,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
     $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
     $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
-    // The single-variant About page contributes only a conservative desktop-only
-    // fallback media block.
+    // The single-variant About page contributes source-width and mobile
+    // desktop-only fallback media blocks.
+    $assert(1 === preg_match('/@media \(max-width:1439px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-source-width-fallback-media');
     $assert(1 === preg_match('/@media \(max-width:767px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-desktop-fallback-media');
 
     $responsiveMismatchScenegraph = array(
