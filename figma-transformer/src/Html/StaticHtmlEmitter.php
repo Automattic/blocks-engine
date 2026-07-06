@@ -985,6 +985,10 @@ final class StaticHtmlEmitter
         }
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
+        $semanticRole = $this->semanticRoleMetadata($node, $tag, $type, $name);
+        if ( null !== $semanticRole ) {
+            $attributes .= ' data-figma-semantic-role="' . $this->sanitizeAttribute($semanticRole) . '"';
+        }
         $anchorId = $this->headingAnchorId($node, $tag);
         if ( null !== $anchorId ) {
             $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
@@ -1229,6 +1233,87 @@ final class StaticHtmlEmitter
     private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
         return $this->staticHtmlSemanticClassifier()->semanticTag($node, $type, $name, $depth, $this->sectionDepth, $parentNode, $grandParentNode);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticRoleMetadata(array $node, string $tag, string $type, string $name): ?string
+    {
+        if ( 'TEXT' === $type ) {
+            return null;
+        }
+
+        if ( in_array($tag, array('header', 'nav', 'footer'), true) ) {
+            return $tag;
+        }
+
+        $nameHaystack = strtolower(trim($name));
+        if ( '' === $nameHaystack ) {
+            return null;
+        }
+
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('nav', 'navigation', 'menu')) ) {
+            return 'nav';
+        }
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('service', 'services', 'treatment', 'treatments', 'tratamiento', 'tratamientos')) ) {
+            return 'services';
+        }
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('pricing', 'price', 'prices', 'plans', 'precios', 'precio')) ) {
+            return 'pricing';
+        }
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('map', 'location', 'visit us', 'visitanos')) ) {
+            return 'map';
+        }
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('contact', 'contacto', 'phone', 'telephone', 'address', 'whatsapp')) ) {
+            return 'contact';
+        }
+        if ( $this->containsSemanticRoleToken($nameHaystack, array('cta', 'call to action', 'book now', 'reserve', 'reservar', 'appointment', 'cita')) ) {
+            return 'cta';
+        }
+
+        $subtreeHaystack = strtolower(trim(strip_tags($this->subtreePlainText($node))));
+        if ( '' === $subtreeHaystack ) {
+            return null;
+        }
+
+        if ( in_array($tag, array('button', 'a'), true) ) {
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('contact', 'contacto', 'phone', 'telephone', 'address', 'whatsapp')) ) {
+                return 'contact';
+            }
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('cta', 'call to action', 'book now', 'reserve', 'reservar', 'appointment', 'cita')) ) {
+                return 'cta';
+            }
+        }
+
+        if ( 'section' === $tag ) {
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('service', 'services', 'treatment', 'treatments', 'tratamiento', 'tratamientos')) ) {
+                return 'services';
+            }
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('pricing', 'price', 'prices', 'plans', 'precios', 'precio')) ) {
+                return 'pricing';
+            }
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('map', 'location', 'visit us', 'visitanos')) ) {
+                return 'map';
+            }
+            if ( $this->containsSemanticRoleToken($subtreeHaystack, array('contact', 'contacto', 'phone', 'telephone', 'address', 'whatsapp')) ) {
+                return 'contact';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function containsSemanticRoleToken(string $haystack, array $tokens): bool
+    {
+        foreach ( $tokens as $token ) {
+            if ( str_contains($haystack, $token) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isFooterTextContext(?array $parentNode, ?array $grandParentNode): bool
