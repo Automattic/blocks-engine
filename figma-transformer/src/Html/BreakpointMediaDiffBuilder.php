@@ -78,7 +78,7 @@ final class BreakpointMediaDiffBuilder
     {
         $variants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
         if ( count($variants) < 2 ) {
-            return array();
+            return $this->desktopOnlyResponsiveFallbackMediaBlocks($page, $baseNode);
         }
 
         $baseStyles = array();
@@ -127,6 +127,150 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $blocks;
+    }
+
+    /**
+     * Desktop-only Figma files often export one oversized fixed canvas. Keep the
+     * source desktop rules intact and add a narrow-screen safety layer only when
+     * the page root itself clearly exceeds common mobile/tablet widths.
+     *
+     * @param array<string, mixed> $page
+     * @param array<string, mixed> $baseNode
+     * @return array<int, string>
+     */
+    private function desktopOnlyResponsiveFallbackMediaBlocks(array $page, array $baseNode): array
+    {
+        $rootWidth = $this->nodeBoxDimension($baseNode, 'width') ?? $this->primaryVariantViewportWidth($page);
+        if ( null === $rootWidth || $rootWidth < 960.0 ) {
+            return array();
+        }
+
+        $baseStyles = array();
+        $this->collectVariantNodeStyles($baseNode, 0, null, null, 'r', $baseStyles);
+
+        $rules = array();
+        foreach ( $baseStyles as $base ) {
+            $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
+            $node = is_array($base['node'] ?? null) ? $base['node'] : array();
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            if ( '' === $class || empty($node) || empty($baseMap) || $this->usesFullBleedViewportBreakout($baseMap) ) {
+                continue;
+            }
+
+            $depth = isset($base['depth']) && is_numeric($base['depth']) ? (int) $base['depth'] : 0;
+            $declarations = $this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null);
+            $changed = array();
+            foreach ( $declarations as $declaration ) {
+                $parts = explode(':', $declaration, 2);
+                if ( 2 !== count($parts) ) {
+                    continue;
+                }
+                $property = trim($parts[0]);
+                $value = trim($parts[1]);
+                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                    $changed[] = $property . ':' . $value;
+                }
+            }
+
+            if ( ! empty($changed) ) {
+                $rules[] = '.' . $class . '{' . implode(';', array_values(array_unique($changed))) . '}';
+            }
+        }
+
+        if ( empty($rules) ) {
+            return array();
+        }
+
+        return array($this->mediaBlock(767, array_values(array_unique($rules))));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function desktopOnlyResponsiveFallbackDeclarations(array $node, array $baseMap, int $depth, ?float $fallbackWidth = null): array
+    {
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $width = $this->responsiveCssWidth($baseMap) ?? $this->nodeBoxDimension($node, 'width') ?? $fallbackWidth;
+        $height = $this->cssPixelValue($baseMap['height'] ?? '');
+        $display = (string) ($baseMap['display'] ?? '');
+        $position = (string) ($baseMap['position'] ?? '');
+        $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION'), true);
+        $declarations = array();
+
+        if ( $isContainer && null !== $width && $width > 767.0 ) {
+            $declarations[] = 'width:100%';
+            $declarations[] = 'max-width:100%';
+            if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
+                $declarations[] = 'height:auto';
+                $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+            }
+            if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) ) {
+                $declarations[] = 'flex-wrap:wrap';
+                $declarations[] = 'align-content:flex-start';
+            }
+        }
+
+        if ( 'TEXT' === $type && null !== $width && $width > 320.0 ) {
+            $declarations[] = 'width:100%';
+            $declarations[] = 'max-width:100%';
+            if ( null !== $height && $height > 0.0 ) {
+                $declarations[] = 'height:auto';
+            }
+            if ( in_array($baseMap['white-space'] ?? '', array('pre', 'pre-line', 'nowrap'), true) ) {
+                $declarations[] = 'white-space:normal';
+                $declarations[] = 'overflow-wrap:anywhere';
+            }
+            if ( $depth <= 2 && 'absolute' === $position ) {
+                $declarations[] = 'left:24px';
+                $declarations[] = 'right:24px';
+            }
+        }
+
+        return array_values(array_unique($declarations));
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     */
+    private function responsiveCssWidth(array $baseMap): ?float
+    {
+        $width = $this->cssPixelValue($baseMap['width'] ?? '');
+        if ( null === $width && '100%' === ($baseMap['width'] ?? null) ) {
+            $width = $this->cssPixelValue($baseMap['max-width'] ?? '');
+        }
+
+        return $width;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeBoxDimension(array $node, string $dimension): ?float
+    {
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                return (float) $box[$dimension];
+            }
+        }
+
+        return isset($node[$dimension]) && is_numeric($node[$dimension]) ? (float) $node[$dimension] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $page
+     */
+    private function primaryVariantViewportWidth(array $page): ?float
+    {
+        foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+            if ( is_array($variant) && true === ($variant['primary'] ?? false) && is_numeric($variant['viewport_width'] ?? null) ) {
+                return (float) $variant['viewport_width'];
+            }
+        }
+
+        return is_numeric($page['viewport_width'] ?? null) ? (float) $page['viewport_width'] : null;
     }
 
     /**
