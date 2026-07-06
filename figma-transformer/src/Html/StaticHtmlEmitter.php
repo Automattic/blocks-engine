@@ -20,6 +20,16 @@ final class StaticHtmlEmitter
     private array $assetsById = array();
 
     /**
+     * @var array<string, string>
+     */
+    private array $assetUnavailableReasonsById = array();
+
+    /**
+     * @var callable|null
+     */
+    private mixed $archiveAssetContentResolver = null;
+
+    /**
      * @var array<string, bool>
      */
     private array $usedAssetPaths = array();
@@ -382,6 +392,7 @@ final class StaticHtmlEmitter
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
+        $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
         $this->stickyLayoutCoordinator()->reset();
         $this->linkState->resetForSinglePage($this->normalizeLinkTargetPaths($options));
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -508,6 +519,7 @@ final class StaticHtmlEmitter
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
+        $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
@@ -4558,7 +4570,12 @@ final class StaticHtmlEmitter
             return 'zero_area';
         }
         if ( null === $assetPath ) {
-            return empty(array_merge($this->explicitNodeAssetReferences($node), $this->imagePaintReferences($node))) ? 'no_archive_asset_hash' : 'no_archive_asset';
+            $references = array_merge($this->explicitNodeAssetReferences($node), $this->imagePaintReferences($node));
+            if ( empty($references) ) {
+                return 'no_archive_asset_hash';
+            }
+
+            return $this->assetUnavailableReasonForReferences($references) ?? 'no_archive_asset';
         }
         if ( $emitted ) {
             return 'converted_to_background';
@@ -8178,6 +8195,7 @@ final class StaticHtmlEmitter
     private function normalizeAssets(mixed $assets, array &$diagnostics): array
     {
         $this->assetsById = array();
+        $this->assetUnavailableReasonsById = array();
         $this->staticHtmlSemanticClassifier = null;
         if ( ! is_array($assets) ) {
             return array();
@@ -8197,6 +8215,18 @@ final class StaticHtmlEmitter
             $content = $decodedAsset['content'];
             $mimeType = $decodedAsset['mime_type'];
 
+            if ( null === $content && null !== $this->archiveAssetContentResolver ) {
+                $hydratedAsset = ($this->archiveAssetContentResolver)($asset);
+                if ( is_array($hydratedAsset) ) {
+                    $asset = array_merge($asset, $hydratedAsset);
+                    $content = $asset['content'] ?? $asset['data'] ?? null;
+                    $mimeType = (string) ($asset['mime_type'] ?? $asset['mimeType'] ?? $mimeType);
+                    $decodedAsset = $this->decodeInlineAssetContent($asset, $content, $mimeType);
+                    $content = $decodedAsset['content'];
+                    $mimeType = $decodedAsset['mime_type'];
+                }
+            }
+
             if ( null === $content ) {
                 if ( preg_match('/^https?:\/\//', $source) ) {
                     $diagnostics[] = array(
@@ -8205,6 +8235,11 @@ final class StaticHtmlEmitter
                         'message'  => 'External asset URL omitted from static output.',
                         'asset_id' => $id,
                     );
+                }
+
+                $reason = true === ($asset['content_omitted'] ?? false) ? 'archive_asset_content_omitted' : 'asset_content_unavailable';
+                foreach ( $this->assetAliases($asset, $id) as $alias ) {
+                    $this->assetUnavailableReasonsById[$alias] = $reason;
                 }
                 continue;
             }
@@ -8603,6 +8638,25 @@ final class StaticHtmlEmitter
         }
 
         return array_values(array_unique(array_filter($aliases, static fn (string $alias): bool => '' !== $alias)));
+    }
+
+    /**
+     * @param array<int, string> $references
+     */
+    private function assetUnavailableReasonForReferences(array $references): ?string
+    {
+        foreach ( $references as $reference ) {
+            if ( isset($this->assetUnavailableReasonsById[$reference]) ) {
+                return $this->assetUnavailableReasonsById[$reference];
+            }
+
+            $slugged = $this->slug($reference);
+            if ( isset($this->assetUnavailableReasonsById[$slugged]) ) {
+                return $this->assetUnavailableReasonsById[$slugged];
+            }
+        }
+
+        return null;
     }
 
     /**

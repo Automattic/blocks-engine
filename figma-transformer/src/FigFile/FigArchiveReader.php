@@ -127,6 +127,81 @@ final class FigArchiveReader
     }
 
     /**
+     * Hydrate one archive asset by metadata path/hash without reading every asset.
+     *
+     * @param array<string, mixed> $asset
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>|null
+     */
+    public function hydrateAssetContent(string $path, array $asset, array $options = array()): ?array
+    {
+        if ( ! is_readable($path) || ! class_exists(ZipArchive::class) ) {
+            return null;
+        }
+
+        $zip = new ZipArchive();
+        if ( true !== $zip->open($path) ) {
+            return null;
+        }
+
+        $entries = $this->entries($zip);
+        $figEntry = $this->findNestedFigEntry($entries);
+        if ( null !== $figEntry ) {
+            $stream = $zip->getFromName($figEntry);
+            $zip->close();
+            if ( false === $stream ) {
+                return null;
+            }
+
+            $tmp = tempnam(sys_get_temp_dir(), 'blocks-engine-figma-asset-');
+            if ( false === $tmp ) {
+                return null;
+            }
+
+            file_put_contents($tmp, $stream);
+            $hydrated = $this->hydrateAssetContent($tmp, $asset, $options);
+            @unlink($tmp);
+            return $hydrated;
+        }
+
+        $assetPath = $this->assetArchivePath($asset);
+        if ( null === $assetPath ) {
+            $zip->close();
+            return null;
+        }
+
+        $stat = $zip->statName($assetPath);
+        if ( ! is_array($stat) ) {
+            $zip->close();
+            return null;
+        }
+
+        $bytes = (int) ($stat['size'] ?? 0);
+        $maxAssetBytes = $this->optionBytes($options, 'max_archive_asset_hydration_bytes', self::DEFAULT_MAX_ARCHIVE_ASSET_CONTENT_BYTES);
+        if ( $maxAssetBytes > 0 && $bytes > $maxAssetBytes ) {
+            $zip->close();
+            return array_merge($asset, array('content_omitted' => true));
+        }
+
+        if ( ! $this->hasMemoryHeadroomForAsset($bytes) ) {
+            $zip->close();
+            return array_merge($asset, array('content_omitted' => true));
+        }
+
+        $content = $zip->getFromName($assetPath);
+        $zip->close();
+        if ( false === $content ) {
+            return null;
+        }
+
+        return array_merge($asset, array(
+            'path'      => $assetPath,
+            'content'   => $content,
+            'mime_type' => $this->mimeTypeForPath($assetPath, $content),
+        ));
+    }
+
+    /**
      * @return array<int, string>
      */
     private function entries(ZipArchive $zip): array
@@ -219,6 +294,8 @@ final class FigArchiveReader
 
             if ( $includeContent ) {
                 $asset['content'] = $contentString;
+            } else {
+                $asset['content_omitted'] = true;
             }
 
             $assets[] = $asset;
@@ -262,6 +339,61 @@ final class FigArchiveReader
         }
 
         return 'application/octet-stream';
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     */
+    private function assetArchivePath(array $asset): ?string
+    {
+        if ( isset($asset['path']) && is_scalar($asset['path']) ) {
+            $path = (string) $asset['path'];
+            return str_starts_with($path, 'images/') && ! str_ends_with($path, '/') ? $path : null;
+        }
+
+        foreach ( array('hash', 'id', 'name') as $key ) {
+            if ( isset($asset[$key]) && is_scalar($asset[$key]) && '' !== (string) $asset[$key] ) {
+                return 'images/' . (string) $asset[$key];
+            }
+        }
+
+        return null;
+    }
+
+    private function hasMemoryHeadroomForAsset(int $bytes): bool
+    {
+        $memoryLimit = $this->memoryLimitBytes();
+        if ( $memoryLimit <= 0 || $bytes <= 0 ) {
+            return true;
+        }
+
+        $available = $memoryLimit - memory_get_usage(true);
+        // ZipArchive materializes the string and PHP may transiently duplicate it
+        // while the caller stores the hydrated asset. Keep a small fixed cushion.
+        $required = ($bytes * 2) + 8388608;
+
+        return $available > $required;
+    }
+
+    private function memoryLimitBytes(): int
+    {
+        $value = trim((string) ini_get('memory_limit'));
+        if ( '' === $value || '-1' === $value ) {
+            return 0;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+        if ( $number <= 0 ) {
+            return 0;
+        }
+
+        return (int) match ( $unit ) {
+            'g' => $number * 1073741824,
+            'm' => $number * 1048576,
+            'k' => $number * 1024,
+            default => $number,
+        };
     }
 
     /**
