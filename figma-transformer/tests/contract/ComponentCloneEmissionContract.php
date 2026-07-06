@@ -58,6 +58,12 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     );
     $assert(in_array('left:1180px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-x');
     $assert(in_array('top:72px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-y');
+    $scalarEffectiveOffsets = $scalarPositioning->effectiveOffsets(
+        array('x' => 1774, 'y' => 2387, 'width' => 225, 'height' => 48, 'coordinate_space' => 'local', 'local_origin' => 'page'),
+        array('box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145), 'layout' => array('freeform' => true)),
+        array('figma_component_source_id' => 'component-source:page-local-css', 'x' => 1180, 'y' => 72)
+    );
+    $assert(array('x' => 1180.0, 'y' => 72.0) === $scalarEffectiveOffsets, 'component-clone-effective-offsets-use-clone-scalar');
 
     $headerChromePositioning = new Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver(
         new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier(),

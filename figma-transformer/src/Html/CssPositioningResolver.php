@@ -31,17 +31,10 @@ final class CssPositioningResolver
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $parentIsFreeform = true === ($parentLayout['freeform'] ?? false);
-        $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
+        $offsets = $this->effectiveOffsets($box, $parentNode, $node);
+        $left = $offsets['x'];
+        $top = $offsets['y'];
         $centerInsetVisualChild = null !== $node && null !== $parentNode && $this->isInsetSingleVisualChild($node, $parentNode);
-        if ( null !== $node ) {
-            $left = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'x', $left);
-            $top = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'y', $top);
-        }
-        if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
-            $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
-            $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
-        }
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
         if ( $centerInsetVisualChild ) {
             $left = $this->centeredInsetOffset($box, $parentBox, 'width');
@@ -61,6 +54,34 @@ final class CssPositioningResolver
         }
 
         return $styles;
+    }
+
+    /**
+     * Resolve the near-edge offsets CSS will use before constraint-specific
+     * anchoring. Diagnostics consume this so component clone/source geometry is
+     * judged against emitted placement, not stale source coordinates.
+     *
+     * @param array<string, mixed> $box
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $node
+     * @return array{x: float|null, y: float|null}
+     */
+    public function effectiveOffsets(array $box, ?array $parentNode, ?array $node = null): array
+    {
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
+
+        if ( null !== $node ) {
+            $left = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentSourceCloneScalarOffset($node, $box, $parentBox, 'y', $top);
+        }
+        if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
+            $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
+        }
+
+        return array('x' => $left, 'y' => $top);
     }
 
     /**

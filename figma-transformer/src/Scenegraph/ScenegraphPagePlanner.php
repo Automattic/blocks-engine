@@ -43,7 +43,7 @@ final class ScenegraphPagePlanner
     /**
      * Page-candidacy dimension band. A real page artboard is a tall, scrolling
      * frame whose width sits in the realistic device range (small mobile through
-     * wide desktop). Frames outside this band are top-level on the canvas but are
+     * extra-wide desktop). Frames outside this band are top-level on the canvas but are
      * not pages: layout-grid guides / chips (narrower than {@see PAGE_MIN_WIDTH_PX}),
      * oversized presentation / overview / style-guide boards (wider than
      * {@see PAGE_MAX_WIDTH_PX}), and decorative dividers / cover thumbnails /
@@ -51,7 +51,7 @@ final class ScenegraphPagePlanner
      * `frame_ids` bypass this band so any requested frame stays selectable.
      */
     private const PAGE_MIN_WIDTH_PX  = 320.0;
-    private const PAGE_MAX_WIDTH_PX  = 2048.0;
+    private const PAGE_MAX_WIDTH_PX  = 2560.0;
     private const PAGE_MIN_HEIGHT_PX = 700.0;
 
     public function __construct(
@@ -620,9 +620,8 @@ final class ScenegraphPagePlanner
      * candidacy — it drops top-level frames that are structurally on the canvas
      * but are plainly not pages: layout-grid guides and chips (too narrow),
      * decorative "Title Card" dividers / cover thumbnails / device mockups (too
-     * short), and oversized presentation/overview artboards (too wide, e.g. a
-     * 2238px "Home Page – Desktop" overview board colliding with the real 1440px
-     * page). Explicit `frame_ids` bypass this gate entirely.
+     * short), and oversized presentation/overview artboards (too wide). Explicit
+     * `frame_ids` bypass this gate entirely.
      */
     private function isPageSizedCandidate(float $width, float $height): bool
     {
