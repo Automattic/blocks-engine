@@ -50,7 +50,9 @@ if ( isset($options['frame_ids']) ) {
     foreach ( $fixtures as $index => $fixture ) {
         $fixtures[$index]['mode'] = 'transform';
         $fixtures[$index]['frame_ids'] = $globalFrameIds;
-        $fixtures[$index]['entry_frame_id'] = (string) ($options['entry_frame_id'] ?? ($globalFrameIds[0] ?? ''));
+        if ( isset($options['entry_frame_id']) ) {
+            $fixtures[$index]['entry_frame_id'] = (string) $options['entry_frame_id'];
+        }
         $fixtures[$index]['selection_source'] = 'manual_frame_ids';
     }
 } elseif ( ! empty($selectionLock['records']) ) {
@@ -63,7 +65,9 @@ if ( isset($options['frame_ids']) ) {
         $lockRecord = $selectionLock['records'][$fixtureId];
         $fixtures[$index]['mode'] = 'transform';
         $fixtures[$index]['frame_ids'] = $lockRecord['frame_ids'];
-        $fixtures[$index]['entry_frame_id'] = $lockRecord['entry_frame_id'] ?? ($lockRecord['frame_ids'][0] ?? '');
+        if ( isset($lockRecord['entry_frame_id']) ) {
+            $fixtures[$index]['entry_frame_id'] = $lockRecord['entry_frame_id'];
+        }
         $fixtures[$index]['selection_source'] = 'selection_lock';
     }
 }
@@ -136,7 +140,7 @@ foreach ( $fixtures as $fixture ) {
         $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
         $hasDryRunFrameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']);
         $dryRunFrameIds = $hasDryRunFrameIds ? $fixture['frame_ids'] : array('<selected-frame-ids>');
-        $dryRunEntryFrameId = (string) ($fixture['entry_frame_id'] ?? ($hasDryRunFrameIds ? ($dryRunFrameIds[0] ?? '') : '<entry-frame-id>'));
+        $dryRunEntryFrameId = isset($fixture['entry_frame_id']) ? (string) $fixture['entry_frame_id'] : null;
         $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, matrix_dry_run_pages($dryRunFrameIds));
         if ( $captureDomBoxes ) {
             $record['dom_box_capture'] = array(
@@ -174,7 +178,9 @@ foreach ( $fixtures as $fixture ) {
     $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
     $record['selected_frame_ids'] = $frameIds;
     $record['selected_frames'] = matrix_selected_frame_records(is_array($inspection) ? $inspection : array(), $frameIds);
-    $record['entry_frame_id'] = (string) ($fixture['entry_frame_id'] ?? ($frameIds[0] ?? ''));
+    if ( isset($fixture['entry_frame_id']) ) {
+        $record['entry_frame_id'] = (string) $fixture['entry_frame_id'];
+    }
     $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, $record['selected_frames']);
 
     if ( $inspectOnly ) {
@@ -189,7 +195,7 @@ foreach ( $fixtures as $fixture ) {
         continue;
     }
 
-    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $captureDomBoxes ? array() : ($record['evidence']['transform_arguments'] ?? array()));
+    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'] ?? null, $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $captureDomBoxes ? array() : ($record['evidence']['transform_arguments'] ?? array()));
     $record['command'] = $command;
     passthru($command, $exitCode);
     $record['exit_code'] = $exitCode;
@@ -220,7 +226,7 @@ foreach ( $fixtures as $fixture ) {
                 ));
                 $capturedEvidence = matrix_fixture_evidence($capturedEvidenceOptions, $fixture, $record['selected_frames']);
                 $rerunResultPath = $outputDir . '/' . $fixture['id'] . '-result-with-dom-boxes.json';
-                $rerunCommand = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $rerunResultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $capturedEvidence['transform_arguments'] ?? array());
+                $rerunCommand = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'] ?? null, $fixtureOutputDir, $rerunResultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $capturedEvidence['transform_arguments'] ?? array());
                 $record['dom_box_rerun_command'] = $rerunCommand;
                 passthru($rerunCommand, $rerunExitCode);
                 $record['dom_box_rerun_exit_code'] = $rerunExitCode;
@@ -687,7 +693,7 @@ function matrix_inspect_command(string $figmaRoot, string $fixturePath, string $
  * @param array<int, string> $fontCssArguments
  * @param array<int, string> $evidenceArguments
  */
-function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes, array $fontCssArguments = array(), array $evidenceArguments = array()): string
+function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, ?string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes, array $fontCssArguments = array(), array $evidenceArguments = array()): string
 {
     $parts = array(
         escapeshellarg(PHP_BINARY),
@@ -698,10 +704,13 @@ function matrix_transform_command(string $figmaRoot, string $fixturePath, array 
         '--zstd-command=' . escapeshellarg($zstdCommand),
         '--multi-page',
         '--frame-ids=' . escapeshellarg(implode(',', $frameIds)),
-        '--entry-frame-id=' . escapeshellarg($entryFrameId),
         '--max-nodes=' . $maxNodes,
         '--output-dir=' . escapeshellarg($fixtureOutputDir),
     );
+
+    if ( null !== $entryFrameId && '' !== $entryFrameId ) {
+        $parts[] = '--entry-frame-id=' . escapeshellarg($entryFrameId);
+    }
 
     array_push($parts, ...$fontCssArguments);
     array_push($parts, ...$evidenceArguments);

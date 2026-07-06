@@ -353,6 +353,45 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(0 === ($containedVerticalOffsetDiagnostics['layout']['large_css_offset_count'] ?? null), 'diagnostics-evidence-contained-vertical-offset-no-large-css-offset');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $containedVerticalOffsetResult, 'large_css_offsets', 'diagnostics-evidence-contained-vertical-offset-no-quality-signal');
 
+    $desktopRightAlignedResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Desktop Right Aligned Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:desktop-right-page',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop Right Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'diag:desktop-right-copy', 'type' => 'TEXT', 'name' => 'Right aligned copy', 'text' => 'Designed with WordPress', 'x' => 1227, 'y' => 632, 'width' => 162, 'height' => 18),
+                ),
+            ),
+        ),
+    ));
+    $desktopRightAlignedDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($desktopRightAlignedResult);
+    $assert(0 === ($desktopRightAlignedDiagnostics['layout']['large_css_offset_count'] ?? null), 'diagnostics-evidence-desktop-right-aligned-no-large-css-offset');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $desktopRightAlignedResult, 'large_css_offsets', 'diagnostics-evidence-desktop-right-aligned-no-quality-signal');
+
+    $layoutSpacerResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Layout Spacer Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:layout-spacer-page',
+                'type'     => 'FRAME',
+                'name'     => 'Layout Spacer Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'diag:layout-spacer', 'type' => 'FRAME', 'name' => 'Spacer', 'x' => 0, 'y' => 120, 'width' => 1440, 'height' => 70),
+                    array('id' => 'diag:layout-hairline-spacer', 'type' => 'FRAME', 'name' => 'Frame 1000005928', 'x' => 0, 'y' => 240, 'width' => 1331, 'height' => 10),
+                ),
+            ),
+        ),
+    ));
+    $layoutSpacerDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($layoutSpacerResult);
+    $assert(2 === ($layoutSpacerDiagnostics['layout']['empty_visible_container_count'] ?? null), 'diagnostics-evidence-layout-spacer-empty-container-count');
+    $assert(0 === ($layoutSpacerDiagnostics['layout']['empty_visible_container_blocker_count'] ?? null), 'diagnostics-evidence-layout-spacer-non-blocking');
+
     $decorativeHairlineResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Decorative Hairline Offset Fixture',
         'nodes' => array(
