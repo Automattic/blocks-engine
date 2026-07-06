@@ -270,6 +270,8 @@ Homeboy/external runner workflow:
 4. Re-run or wrap the transform with the parity metadata above so `parity-report.json` contains stable artifact references and numeric comparison results.
 5. Link the PR or issue to the external artifact record rather than local paths or localhost URLs.
 
+For repeatable generated HTML DOM-box evidence, use `php-transformer/tools/visual-parity/bin/dom-box-provider.mjs` with Homeboy's `artifact-origin dom-boxes` flow. The visual parity README includes the install commands and placeholder examples for Fisiostetic, FSE, and TT5 artifact roots.
+
 ## Fixture Strategy
 
 Contract tests use small synthetic fixtures that exercise the public envelope, archive safety, deterministic HTML/CSS output, and parity report shape. Large real `.fig` exports are not committed to the repository. When real-file parity evidence is needed, generate it externally through Homeboy or another reviewable artifact surface and attach the resulting reports/screenshots to the relevant issue or PR.
