@@ -61,6 +61,26 @@ $stack = $stackResult['blocks'][0] ?? array();
 $assert('core/group' === ($stack['blockName'] ?? ''), '15: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
 $assert('hero-content' === (($stack['attrs']['className'] ?? '')), '16: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
 
+$paintCss = '.pricing-card{background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4);background-position:center top;background-size:120% 80%,100% 100%;background-repeat:no-repeat;box-shadow:0 28px 80px rgba(20,12,4,.18);padding:2rem;border-radius:24px}';
+$paintHtml = '<main><section class="pricing-card"><h2>Roast Club</h2><p>Fresh coffee every week.</p></section></main>';
+$paintResult = ( new HtmlTransformer() )->transform($paintHtml, array('static_css' => $paintCss))->toArray();
+$paintBlock = $paintResult['blocks'][0] ?? array();
+$paintAttrs = is_array($paintBlock['attrs'] ?? null) ? $paintBlock['attrs'] : array();
+
+$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '17: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
+$assert(! isset($paintAttrs['style']['box-shadow']), '18: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
+$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '19: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
+
+$rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
+$paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
+$paintDeclarations = $paintRules[0]['declarations'] ?? array();
+
+$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '20: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '21: background-position survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '22: background-size survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '23: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '24: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);
