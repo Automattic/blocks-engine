@@ -50,6 +50,49 @@ node bin/visual-parity.mjs --config visual-parity.config.json
 
 `bin/dom-box-provider.mjs` captures per-node DOM boxes for Homeboy's `artifact-origin dom-boxes` flow. Node identity is keyed off a configurable attribute, so the provider is product-neutral and not tied to any single source format.
 
+Install the tool dependencies and Chromium browser once per checkout:
+
+```sh
+npm ci --prefix php-transformer/tools/visual-parity
+npm --prefix php-transformer/tools/visual-parity run install:browsers
+```
+
+Capture DOM-box evidence for a generated static HTML artifact root:
+
+```sh
+HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
+homeboy tunnel artifact-origin dom-boxes \
+  --root=<artifact-root> \
+  --entrypoint=index.html \
+  --report=<report.json>
+```
+
+Use the generated `.fig -> HTML` artifact directory as `<artifact-root>`. The directory must contain `index.html` and any referenced CSS/assets. Keep committed docs and PR descriptions on placeholders such as `<fisiostetic-html-artifact-root>`, `<fse-html-artifact-root>`, and `<tt5-html-artifact-root>`; put machine-local paths only in local operator notes.
+
+Example artifact captures:
+
+```sh
+HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
+homeboy tunnel artifact-origin dom-boxes \
+  --root=<fisiostetic-html-artifact-root> \
+  --entrypoint=index.html \
+  --report=<fisiostetic-dom-box-report.json>
+
+HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
+homeboy tunnel artifact-origin dom-boxes \
+  --root=<fse-html-artifact-root> \
+  --entrypoint=index.html \
+  --report=<fse-dom-box-report.json>
+
+HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
+homeboy tunnel artifact-origin dom-boxes \
+  --root=<tt5-html-artifact-root> \
+  --entrypoint=index.html \
+  --report=<tt5-dom-box-report.json>
+```
+
+The report is repeatable when the artifact root, entrypoint, browser version, viewport defaults, and node identity attributes stay fixed. Attach the JSON report to the Homeboy run, issue, or PR evidence surface so the next operator can compare generated HTML structure and positions without re-running the full transform.
+
 ```sh
 HOMEBOY_DOM_BOX_BASE_URL=https://example.test \
 HOMEBOY_DOM_BOX_PAGE_PATHS_JSON='["/index.html"]' \
