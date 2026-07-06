@@ -4637,8 +4637,9 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        $offsets = $this->cssPositioningResolver()->effectiveOffsets($box, $parentNode, $node);
+        $left = $offsets['x'];
+        $top = $offsets['y'];
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
         $parentWidth = isset($parentBox['width']) && is_numeric($parentBox['width']) ? (float) $parentBox['width'] : null;

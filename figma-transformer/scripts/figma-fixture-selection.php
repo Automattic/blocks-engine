@@ -205,8 +205,10 @@ function matrix_candidate_rank(array $candidate): int
     } elseif ( in_array($type, array('COMPONENT', 'INSTANCE'), true) ) {
         $score -= 400;
     }
-    if ( in_array($parentType, array('CANVAS', 'SECTION'), true) ) {
-        $score += 100;
+    if ( 'CANVAS' === $parentType ) {
+        $score += 500;
+    } elseif ( 'SECTION' === $parentType ) {
+        $score += 80;
     }
     if ( 1 === preg_match('/\b(home|homepage|desktop|page|website|landing|lp|archive|single|blog|theme|build|hosts?|agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name . ' ' . $pageName) ) {
         $score += 200;
@@ -336,7 +338,7 @@ function matrix_is_page_like_candidate(array $candidate): bool
         }
     }
 
-    return $width >= 900.0 && $width <= 2048.0 && $height >= 700.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
+    return $width >= 900.0 && $width <= 2560.0 && $height >= 700.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
 }
 
 function matrix_is_reference_page_name(string $pageName): bool
