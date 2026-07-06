@@ -39,6 +39,7 @@ final class ScenegraphFrameClassifier
     public const PAGE_TYPE_FRONT_PAGE = 'front_page';
     public const PAGE_TYPE_SINGLE     = 'single';
     public const PAGE_TYPE_ARCHIVE    = 'archive';
+    public const PAGE_TYPE_404        = '404';
     public const PAGE_TYPE_PAGE       = 'page';
     public const PAGE_TYPE_UNKNOWN    = 'unknown';
 
@@ -246,6 +247,10 @@ final class ScenegraphFrameClassifier
 
         if ( 1 === preg_match('/\b(archive|blog|index|news|articles|posts|category|categories|tag|search\s*results|listing)\b/i', $name) ) {
             return self::PAGE_TYPE_ARCHIVE;
+        }
+
+        if ( 1 === preg_match('/\b(404|not\s+found|error\s+page)\b/i', $name) ) {
+            return self::PAGE_TYPE_404;
         }
 
         if ( 1 === preg_match('/\b(about|contact|pricing|services?|team|faq|privacy|terms|page|portfolio|gallery|product|shop)\b/i', $name) ) {
