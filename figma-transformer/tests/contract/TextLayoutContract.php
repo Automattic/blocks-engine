@@ -19,6 +19,23 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $multilineTextCss = $fileContent($multilineTextResult, 'style.css');
     $assert(str_contains($multilineTextCss, '.figma-node-text-multiline-checklist-text{font-size:16px;white-space:pre-line}'), 'multiline-text-preserves-line-breaks');
 
+    $edgeWhitespaceTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Edge Whitespace Text Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:edge-whitespace',
+                'type'       => 'TEXT',
+                'name'       => 'Padded Text',
+                'characters' => "  One\nTwo   ",
+                'fontSize'   => 16,
+            ),
+        ),
+    ));
+    $edgeWhitespaceTextHtml = $fileContent($edgeWhitespaceTextResult, 'index.html');
+    $assert(str_contains($edgeWhitespaceTextHtml, '>One' . "\n" . 'Two<'), 'text-content-trims-edge-whitespace');
+    $assert(! str_contains($edgeWhitespaceTextHtml, '>  One'), 'text-content-trims-leading-whitespace');
+    $assert(! str_contains($edgeWhitespaceTextHtml, 'Two   <'), 'text-content-trims-trailing-whitespace');
+
     $styleTokenFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
         array(
             'family' => 'Skolar Latin',
