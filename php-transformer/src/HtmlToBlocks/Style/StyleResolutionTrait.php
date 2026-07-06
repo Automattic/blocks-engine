@@ -25,6 +25,8 @@ trait StyleResolutionTrait
 {
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
+    private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
+
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -54,6 +56,11 @@ trait StyleResolutionTrait
     private function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
+    }
+
+    private function highValueStyleBoundaryPolicy(): HighValueStyleBoundaryPolicy
+    {
+        return $this->highValueStyleBoundaryPolicy ??= new HighValueStyleBoundaryPolicy();
     }
 
     /**
@@ -216,56 +223,7 @@ trait StyleResolutionTrait
 
     private function isHighValueStyledElement(DOMElement $element): bool
     {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'button', 'header', 'footer', 'main', 'nav', 'article', 'aside', 'section', 'svg' ), true) ) {
-            return true;
-        }
-
-        if ( 'li' === $tagName && $this->hasMultipleStyledInlineChildren($element) ) {
-            return true;
-        }
-
-        $tokens = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'role'),
-        ))));
-
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|logo|brand|branding|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|badge|chip|pill|status|indicator|marker|dot|orb|media|image|photo|gallery|cover|thumb|thumbnail|art|artwork|illustration)(?:[^a-z0-9]|$)/', $tokens) ) {
-            return true;
-        }
-
-        if ( 'a' === $tagName ) {
-            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
-                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function hasMultipleStyledInlineChildren(DOMElement $element): bool
-    {
-        $styledInlineChildren = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
-                continue;
-            }
-
-            if ( '' !== trim($this->attr($child, 'class')) || '' !== trim($this->attr($child, 'style')) ) {
-                ++$styledInlineChildren;
-            }
-        }
-
-        return $styledInlineChildren >= 2;
+        return $this->highValueStyleBoundaryPolicy()->matches($element);
     }
 
     /**
