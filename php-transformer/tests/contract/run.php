@@ -963,6 +963,18 @@ $assert(array() === ($asideContainer['fallbacks'] ?? array()), 'semantic aside c
 $assert(str_contains($asideSerialized, 'sidebar'), 'semantic aside container preserves CSS-addressable sidebar class');
 $assert(str_contains($asideSerialized, '<!-- wp:navigation'), 'semantic aside container preserves nested navigation patterns');
 
+$sidebarFormLayout = ( new HtmlTransformer() )->transform(
+    '<main><div class="contact-content"><!-- left rail --><aside class="contact-sidebar"><h2>Booking</h2><p>Email us.</p></aside><!-- form pane --><div class="contact-form-wrap"><h2>Contact</h2><form><label>Name<input name="name"></label><button type="submit">Send</button></form></div></div></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => true,
+    )
+)->toArray();
+$sidebarFormSerialized = (string) ($sidebarFormLayout['serialized_blocks'] ?? '');
+$assert(str_contains($sidebarFormSerialized, '<!-- wp:columns'), 'sidebar plus form layouts convert to native columns instead of one raw HTML island');
+$assert(str_contains($sidebarFormSerialized, 'contact-sidebar'), 'sidebar plus form layout preserves sidebar class on the column wrapper');
+$assert(str_contains($sidebarFormSerialized, 'contact-form-wrap'), 'sidebar plus form layout preserves form-side class on the column wrapper');
+
 $nonprofitNavigation = ( new HtmlTransformer() )->transform(
     '<header><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li><li><a href="/the-measure/">The Measure</a></li><li><a href="/supporters/">Supporters</a></li><li><a href="/volunteer/">Volunteer</a></li><li><a href="/donate/">Donate</a></li><li><a href="/faq/">FAQ</a></li><li><a href="/vote-yes/">Vote YES</a></li></ul></nav></header><main><h1>Campaign</h1></main><footer>Paid for by neighbors.</footer>',
     array(

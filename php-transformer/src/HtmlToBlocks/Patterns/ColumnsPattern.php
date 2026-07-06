@@ -57,6 +57,10 @@ final class ColumnsPattern
                 continue;
             }
 
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
             if ( ! $child instanceof DOMElement ) {
                 return null;
             }
@@ -170,8 +174,8 @@ final class ColumnsPattern
 
             $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
             $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
-            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main' ), true)
-                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
+            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'form', 'main' ), true)
+                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|form|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
         }
 
         return $hasSidebar && $hasContent;
