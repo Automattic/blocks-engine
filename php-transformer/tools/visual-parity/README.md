@@ -63,6 +63,29 @@ node bin/dom-box-provider.mjs --node-id-attr=data-node-id --node-name-attr=data-
 
 The node id attribute drives element enumeration, selector generation, and id reads. Node name attributes are tried in order; `aria-label` is always appended as a final generic fallback. The defaults stay backward-compatible with the figma-transformer's `data-figma-*` output, so existing figma callers work with no changes; non-figma consumers override the attributes to match their own emitter.
 
+## Screenshot provider
+
+`bin/screenshot-provider.mjs` captures PNG screenshots for static HTML pages served from an artifact-origin base URL and writes a JSON manifest to stdout.
+
+```sh
+HOMEBOY_SCREENSHOT_BASE_URL=https://example.test \
+HOMEBOY_SCREENSHOT_PAGE_PATHS_JSON='["/index.html"]' \
+HOMEBOY_SCREENSHOT_OUTPUT_DIR=tmp/screenshots \
+node bin/screenshot-provider.mjs --viewport=1440x900
+```
+
+Equivalent flag-only form:
+
+```sh
+node bin/screenshot-provider.mjs \
+  --base-url=https://example.test \
+  --page-path=/index.html \
+  --output-dir=tmp/screenshots \
+  --viewport=1440x900
+```
+
+Expected PNG paths are deterministic from page paths, for example `tmp/screenshots/index.html.png`. The stdout manifest uses schema `blocks-engine.visual-parity.screenshots.v1` and records each `page_path`, `page_url`, PNG `path`, `filename`, and `exists` flag.
+
 ## Output
 
 The JSON report includes normalized config, source and target probe snapshots, and a deterministic comparison summary. Default probes cover button, link, nav/menu, and card-like candidates. Each match records text, href, bounding box, and computed styles for display, color, background color, border, border radius, padding, font size, and font weight.

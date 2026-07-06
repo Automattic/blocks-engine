@@ -6,7 +6,8 @@
   "type": "module",
   "bin": {
     "blocks-engine-visual-parity": "bin/visual-parity.mjs",
-    "blocks-engine-dom-box-provider": "bin/dom-box-provider.mjs"
+    "blocks-engine-dom-box-provider": "bin/dom-box-provider.mjs",
+    "blocks-engine-screenshot-provider": "bin/screenshot-provider.mjs"
   },
   "scripts": {
     "install:browsers": "playwright install chromium",
