@@ -301,6 +301,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
 
+        if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
+            $baseAttrs['style']['typography']['textDecoration'] = 'underline';
+        }
+
         // The anchor/submenu CSS rides on the preserved classNames + companion CSS;
         // a raw inline `style` string on the navigation-link/submenu inner markup
         // would diverge from the block save() output, so it is not emitted (#261).
@@ -346,6 +350,21 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $attrs['className'] = implode(' ', $classNames);
         return $attrs;
+    }
+
+    private function hasCurrentNavigationSignal(DOMElement $element): bool
+    {
+        if ( '' !== trim($this->attr($element, 'aria-current')) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'))) ?: array() as $token ) {
+            if ( in_array($token, array( 'active', 'current', 'current-menu-item', 'current-page-item', 'current_page_item', 'is-active', 'selected' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
