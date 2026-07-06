@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use DOMDocument;
@@ -1713,11 +1714,7 @@ final class ArtifactCompiler
 
     private function templatePartArea(string $path, string $role): string
     {
-        if ( preg_match('/\b(header|footer|sidebar|navigation)\b/i', $path . ' ' . $role, $match) ) {
-            return strtolower($match[1]);
-        }
-
-        return 'uncategorized';
+        return ShellLandmarkPolicy::templatePartArea($path, $role);
     }
 
     /**
