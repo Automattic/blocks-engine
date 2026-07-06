@@ -86,6 +86,17 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $singleTemplateHtml = $fileContent($templateArtifactResult, 'single.html');
     $assert(str_contains($singleTemplateHtml, 'data-template-type="single"') && str_contains($singleTemplateHtml, 'data-template-slug="single"'), 'single-template-root-carries-template-metadata');
     $assert(str_contains($singleTemplateHtml, 'data-template-area="header"') && str_contains($singleTemplateHtml, 'data-template-area="content"') && str_contains($singleTemplateHtml, 'data-template-area="comments"') && str_contains($singleTemplateHtml, 'data-template-area="footer"'), 'single-template-carries-semantic-area-metadata');
+    $singleHtmlFile = null;
+    foreach ( $templateArtifactResult['files'] ?? array() as $file ) {
+        if ( is_array($file) && 'single.html' === ($file['path'] ?? null) ) {
+            $singleHtmlFile = $file;
+            break;
+        }
+    }
+    $assert('single' === ($singleHtmlFile['page_type'] ?? null), 'single-template-html-file-carries-page-type');
+    $assert('single' === ($singleHtmlFile['template_slug'] ?? null), 'single-template-html-file-carries-template-slug');
+    $assert('single.html' === ($singleHtmlFile['canonical_template_path'] ?? null), 'single-template-html-file-carries-canonical-template-path');
+    $assert('template:single' === ($singleHtmlFile['source_frame_identity']['primary_frame_id'] ?? null), 'single-template-html-file-carries-source-frame-identity');
     $reportedTemplatePaths = array();
     foreach ( $templateArtifactResult['source_reports']['figma']['html']['pages'] ?? array() as $pageReport ) {
         if ( is_array($pageReport) && isset($pageReport['canonical_template_path'], $pageReport['page_type']) ) {
@@ -93,6 +104,29 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         }
     }
     $assert('single' === ($reportedTemplatePaths['single.html'] ?? null) && 'archive' === ($reportedTemplatePaths['archive.html'] ?? null) && '404' === ($reportedTemplatePaths['404.html'] ?? null), 'template-source-report-preserves-page-types');
+
+    $singlePageArtifactResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Single Page Artifact Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'single-page:archive-like',
+                'type'     => 'FRAME',
+                'name'     => 'Updates',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array('id' => 'single-page:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Updates', 'fontSize' => 48),
+                    array('id' => 'single-page:card-1', 'type' => 'TEXT', 'name' => 'Card', 'text' => 'One', 'fontSize' => 18),
+                    array('id' => 'single-page:card-2', 'type' => 'TEXT', 'name' => 'Card', 'text' => 'Two', 'fontSize' => 18),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true));
+    $singlePageHtmlPaths = array_values(array_map(
+        static fn (array $file): string => (string) ($file['path'] ?? ''),
+        array_filter($singlePageArtifactResult['files'] ?? array(), static fn (array $file): bool => 'text/html' === ($file['mime_type'] ?? null))
+    ));
+    $assert(array('index.html') === $singlePageHtmlPaths, 'single-page-artifact-does-not-emit-template-alias-html');
 
     $qualityAssets = array();
     for ( $i = 1; $i <= 20; $i++ ) {

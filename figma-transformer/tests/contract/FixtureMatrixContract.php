@@ -104,6 +104,19 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
                 'page'       => array('name' => 'Templates'),
             ),
             array(
+                'id'         => 'frame:screenshot',
+                'name'       => 'screenshot',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'page',
+                'score'      => 1200,
+                'width'      => 1200,
+                'height'     => 900,
+                'text_count' => 12,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Templates'),
+            ),
+            array(
                 'id'         => 'frame:component-front-page',
                 'name'       => 'Business Homepage',
                 'type'       => 'FRAME',
@@ -214,7 +227,7 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     );
-    $canonicalTemplateSelection = matrix_select_frame_ids($canonicalTemplateSelectionInspection, 3);
+    $canonicalTemplateSelection = matrix_select_frame_ids($canonicalTemplateSelectionInspection, 5);
     $canonicalTemplateOmissions = matrix_omitted_page_candidate_records($canonicalTemplateSelectionInspection, $canonicalTemplateSelection);
 
     $matrixSelectionLockPath = $matrixFixtureDir . '/selection-lock.json';
@@ -293,6 +306,7 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(array('frame:fisiostetic-home') === $wideRootSelection, 'fixture-matrix-selection-prefers-wide-root-page-over-section-frame');
     $assert('frame:component-front-page' === ($componentComposedFrontPageSelection[0] ?? null), 'fixture-matrix-selection-keeps-component-composed-front-page');
     $assert(! in_array('frame:comments-utility', $componentComposedFrontPageSelection, true), 'fixture-matrix-selection-skips-utility-template-frame');
+    $assert(! in_array('frame:screenshot', $componentComposedFrontPageSelection, true), 'fixture-matrix-selection-skips-screenshot-utility-frame');
     $assert(array('frame:home-desktop', 'frame:single-desktop', 'frame:archive-desktop', 'frame:404-desktop', 'frame:page-desktop') === $canonicalTemplateSelection, 'fixture-matrix-selection-preserves-canonical-template-coverage-under-page-cap');
     $assert('frame:contact-desktop' === ($canonicalTemplateOmissions[0]['id'] ?? null), 'fixture-matrix-selection-reports-omitted-page-candidates');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
