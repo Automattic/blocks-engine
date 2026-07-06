@@ -1657,12 +1657,13 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     }
     $assert('success' === ($responsiveEmitResult['status'] ?? null), 'responsive-emit-status-success');
     $assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
-    // Two narrower breakpoints => exactly two media blocks, keyed at the MIDPOINT
-    // between adjacent variant widths (not the narrow variant's own width).
+    // Two narrower breakpoints plus one wide desktop-only page fallback => three
+    // media blocks. Variant breakpoints are keyed at the MIDPOINT between
+    // adjacent variant widths (not the narrow variant's own width).
     // desktop=1440, tablet=834, mobile=390:
     //   tablet breakpoint = round((1440+834)/2) = 1137
     //   mobile breakpoint = round((834+390)/2)  = 612
-    $assert(2 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-media-blocks');
+    $assert(3 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:1137px){'), 'responsive-emit-tablet-media-query');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:612px){'), 'responsive-emit-mobile-media-query');
     // Base layout uses the primary (desktop) variant styles, emitted before media.
@@ -1685,8 +1686,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
     $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
     $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
-    // The single-variant About page contributes NO media override for its nodes.
-    $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
+    // The single-variant About page contributes only a conservative desktop-only
+    // fallback media block.
+    $assert(1 === preg_match('/@media \(max-width:767px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-desktop-fallback-media');
 
     $responsiveMismatchScenegraph = array(
         'name'  => 'Responsive Mismatched Mobile Site',
@@ -2076,8 +2078,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(preg_match('/\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*margin-left:auto[^}]*margin-right:auto/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-base-centered');
     $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*width:calc\(100% - 48px\)[^}]*grid-template-columns:1fr/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-keeps-centered-fluid-role');
 
-    // SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
-    // SAME CSS as today — zero `@media` queries.
+    // SINGLE-VARIANT PAGE RESPONSIVENESS: a page plan with only a primary wide
+    // desktop frame gets a conservative mobile fallback media query rather than
+    // shipping a fixed-width canvas with no responsive layer.
     $singleVariantPagePlan = array(
         'pages' => array(
             array(
@@ -2101,7 +2104,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         }
     }
     $assert('' !== $singleVariantCss, 'responsive-emit-single-variant-stylesheet-present');
-    $assert(! str_contains($singleVariantCss, '@media'), 'responsive-emit-single-variant-no-media-query');
+    $assert(str_contains($singleVariantCss, '@media (max-width:767px)'), 'responsive-emit-single-variant-mobile-fallback-media-query');
+    $assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-frame-about-about\{[^}]*max-width:100%/s', $singleVariantCss) === 1, 'responsive-emit-single-variant-root-fallback-width');
     
     $planDiagnosticByCode = static function (array $plan, string $code): ?array {
         foreach ( $plan['diagnostics'] ?? array() as $diagnostic ) {
@@ -2814,9 +2818,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(true === ($responsiveLivePagePlan['pages'][0]['responsive'] ?? null), 'responsive-live-plan-flagged-responsive');
     $assert(2 === ($responsiveLivePagePlan['pages'][0]['breakpoint_count'] ?? null), 'responsive-live-plan-two-breakpoints');
     
-    // SINGLE-FRAME PARITY: a source with one frame still produces ONE
-    // non-responsive page with NO `@media` block (the live wiring only fires for
-    // detected responsive variant-groups).
+    // SINGLE-FRAME RESPONSIVENESS: a source with one wide desktop frame still
+    // produces one non-responsive page, plus a conservative mobile fallback
+    // media block for the fixed-width canvas.
     $singleFrameLiveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Single Frame Live Fixture',
         'nodes' => array(
@@ -2847,6 +2851,6 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(in_array($singleFrameLiveResult['status'] ?? null, array('success', 'success_with_warnings'), true), 'single-frame-live-transform-success');
     $assert(1 === ($singleFrameLiveResult['metrics']['page_count'] ?? null), 'single-frame-live-single-page');
     $assert('' !== $singleFrameLiveStyle, 'single-frame-live-stylesheet-emitted');
-    $assert(! str_contains($singleFrameLiveStyle, '@media'), 'single-frame-live-no-media-block');
+    $assert(str_contains($singleFrameLiveStyle, '@media (max-width:767px)'), 'single-frame-live-desktop-fallback-media-block');
     $assert(false === ($singleFrameLiveResult['source_reports']['figma']['pages']['pages'][0]['responsive'] ?? true), 'single-frame-live-plan-not-responsive');
 }
