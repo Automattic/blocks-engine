@@ -70,10 +70,10 @@ final class ButtonsPattern
      */
     public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
     {
-		$wrappedAnchor = $this->singleSimpleAnchorChild($element);
-		if ( null !== $wrappedAnchor && $this->hasButtonSignal($element) ) {
-			return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
-		}
+        $wrappedAnchor = $this->singleSimpleAnchorChild($element);
+        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element) ) {
+            return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
+        }
 
 		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
@@ -359,10 +359,22 @@ final class ButtonsPattern
 			&& preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
 	}
 
-	private function hasContainerButtonSignal(DOMElement $element): bool
-	{
-		return $this->hasAnyToken($element, array( 'buttons', 'button', 'btns', 'cta', 'actions' )) || $this->hasPhrase($element, array( 'button-group', 'button-row', 'cta-group', 'call-to-action' ));
-	}
+    private function hasContainerButtonSignal(DOMElement $element): bool
+    {
+        return $this->hasAnyToken($element, array( 'buttons', 'button', 'btns', 'cta', 'actions' )) || $this->hasPhrase($element, array( 'button-group', 'button-row', 'cta-group', 'call-to-action' ));
+    }
+
+    private function hasWrapperButtonSignal(DOMElement $element): bool
+    {
+        if ( 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
+            return true;
+        }
+
+        return $this->hasButtonClassSignal($element)
+            || $this->hasAnyToken($element, array( 'cta', 'action' ))
+            || $this->hasPhrase($element, array( 'call-to-action', 'primary-action', 'secondary-action' ))
+            || $this->hasButtonStyleSignal($element);
+    }
 
 	private function isDirectAnchorRow(DOMElement $element): bool
 	{
