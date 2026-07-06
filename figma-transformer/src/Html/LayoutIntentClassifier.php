@@ -9,6 +9,16 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class LayoutIntentClassifier
 {
+    public const LAYOUT_INTENT_FLOW_SECTION = 'flow-section';
+    public const LAYOUT_INTENT_STACK = 'stack';
+    public const LAYOUT_INTENT_NAV_ROW = 'nav-row';
+    public const LAYOUT_INTENT_CARD_ROW = 'card-row';
+    public const LAYOUT_INTENT_CARD_GRID = 'card-grid';
+    public const LAYOUT_INTENT_PRICING_GRID = 'pricing-grid';
+    public const LAYOUT_INTENT_SERVICE_GRID = 'service-grid';
+    public const LAYOUT_INTENT_ARTICLE_GRID = 'article-grid';
+    public const LAYOUT_INTENT_CTA = 'cta';
+
     public const STACK_REASON_ABSOLUTE_CHILD = StackingContextPolicy::STACK_REASON_ABSOLUTE_CHILD;
     public const STACK_REASON_DECORATIVE_UNDERLAY = StackingContextPolicy::STACK_REASON_DECORATIVE_UNDERLAY;
     public const STACK_REASON_FREEFORM_CONTAINER = StackingContextPolicy::STACK_REASON_FREEFORM_CONTAINER;
@@ -288,11 +298,254 @@ final class LayoutIntentClassifier
     }
 
     /**
+     * Classifies broad layout intent for static HTML artifacts. This stays at
+     * the HTML/CSS seam so downstream importers can consume intent without this
+     * transformer knowing about any block system.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array{intent: string, display: string, direction: string, collection: string|null, item_count: int, column_count: int|null, gap: float|null, confidence: string}|null
+     */
+    public function layoutIntent(array $node, ?array $parentNode = null): ?array
+    {
+        $children = $this->layoutContentChildren($node);
+        if ( count($children) < 2 ) {
+            return null;
+        }
+
+        $role = $this->chromeGroupRole($node, $parentNode, null === $parentNode ? 0 : 1);
+        if ( self::CHROME_GROUP_ROLE_NAVIGATION === $role || $this->isNavigationContainer($children) ) {
+            return $this->layoutIntentResult(self::LAYOUT_INTENT_NAV_ROW, 'flex', 'row', null, $children, 1, $this->averageMainAxisGap($children, 'row'), 'high');
+        }
+        if ( in_array($role, array(self::CHROME_GROUP_ROLE_HEADER, self::CHROME_GROUP_ROLE_FOOTER, self::CHROME_GROUP_ROLE_SOCIAL), true) ) {
+            return null;
+        }
+        if ( self::CHROME_GROUP_ROLE_CTA === $role ) {
+            return $this->layoutIntentResult(self::LAYOUT_INTENT_CTA, 'flex', 'column', null, $children, 1, $this->averageMainAxisGap($children, 'column'), 'medium');
+        }
+
+        $shape = $this->childFlowShape($children);
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $text = strtolower($this->subtreePlainText($node));
+        $haystack = $name . ' ' . $text;
+        $hasRepeatedContent = $this->hasRichRepeatedContent($children) || $this->repeatedChildShape($children);
+        $collection = null;
+        $intent = null;
+
+        if ( $hasRepeatedContent && $this->matchesAny($haystack, array('pricing', 'prices', 'plans', 'plan ', '$', '/mo', '/month', 'per month')) ) {
+            $intent = self::LAYOUT_INTENT_PRICING_GRID;
+            $collection = 'pricing';
+        } elseif ( $hasRepeatedContent && $this->matchesAny($name, array('services', 'service', 'treatments', 'treatment', 'features', 'feature')) ) {
+            $intent = self::LAYOUT_INTENT_SERVICE_GRID;
+            $collection = 'services';
+        } elseif ( $hasRepeatedContent && $this->matchesAny($name, array('articles', 'article', 'blog', 'posts', 'post ', 'news', 'journal', 'stories')) ) {
+            $intent = self::LAYOUT_INTENT_ARTICLE_GRID;
+            $collection = 'articles';
+        } elseif ( $hasRepeatedContent && $this->matchesAny($name, array('cards', 'card', 'grid', 'columns')) ) {
+            $intent = 'grid' === $shape['display'] ? self::LAYOUT_INTENT_CARD_GRID : self::LAYOUT_INTENT_CARD_ROW;
+            $collection = 'cards';
+        } elseif ( 'column' === $shape['direction'] && $this->looksLikeSectionName($name) ) {
+            $intent = self::LAYOUT_INTENT_FLOW_SECTION;
+        } elseif ( 'column' === $shape['direction'] ) {
+            $intent = self::LAYOUT_INTENT_STACK;
+        }
+
+        if ( null === $intent ) {
+            return null;
+        }
+
+        $display = in_array($intent, array(self::LAYOUT_INTENT_CARD_GRID, self::LAYOUT_INTENT_PRICING_GRID, self::LAYOUT_INTENT_SERVICE_GRID, self::LAYOUT_INTENT_ARTICLE_GRID), true) ? 'grid' : 'flex';
+        $direction = 'grid' === $display ? 'grid' : $shape['direction'];
+        return $this->layoutIntentResult($intent, $display, $direction, $collection, $children, 'grid' === $display ? $shape['column_count'] : 1, $shape['gap'], null !== $collection ? 'high' : 'medium');
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function hasNoDeclaredDisplay(array $node): bool
     {
         return empty($node['layout']['display'] ?? null);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     * @return array{display: string, direction: string, column_count: int, gap: float|null}
+     */
+    private function childFlowShape(array $children): array
+    {
+        $rows = array();
+        $columns = array();
+        foreach ( $children as $child ) {
+            $x = $this->boxValue($child, 'x');
+            $y = $this->boxValue($child, 'y');
+            if ( null === $x || null === $y ) {
+                continue;
+            }
+            $this->appendClusterValue($rows, $y);
+            $this->appendClusterValue($columns, $x);
+        }
+
+        $rowCount = count($rows);
+        $columnCount = max(1, count($columns));
+        if ( $rowCount >= 2 && $columnCount >= 2 ) {
+            return array('display' => 'grid', 'direction' => 'grid', 'column_count' => $columnCount, 'gap' => $this->averageGridGap($children));
+        }
+
+        $direction = $columnCount >= 2 && $rowCount <= 1 ? 'row' : 'column';
+        return array('display' => 'flex', 'direction' => $direction, 'column_count' => $columnCount, 'gap' => $this->averageMainAxisGap($children, $direction));
+    }
+
+    /** @param array<int, float> $clusters */
+    private function appendClusterValue(array &$clusters, float $value): void
+    {
+        foreach ( $clusters as $cluster ) {
+            if ( abs($cluster - $value) <= 8.0 ) {
+                return;
+            }
+        }
+        $clusters[] = $value;
+        sort($clusters, SORT_NUMERIC);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function averageGridGap(array $children): ?float
+    {
+        return $this->averageMainAxisGap($children, 'row') ?? $this->averageMainAxisGap($children, 'column');
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function averageMainAxisGap(array $children, string $direction): ?float
+    {
+        $axis = 'row' === $direction ? 'x' : 'y';
+        $size = 'row' === $direction ? 'width' : 'height';
+        $items = array();
+        foreach ( $children as $child ) {
+            $start = $this->boxValue($child, $axis);
+            $length = $this->boxValue($child, $size);
+            if ( null !== $start && null !== $length ) {
+                $items[] = array('start' => $start, 'end' => $start + $length);
+            }
+        }
+        if ( count($items) < 2 ) {
+            return null;
+        }
+        usort($items, static fn (array $a, array $b): int => $a['start'] <=> $b['start']);
+        $gaps = array();
+        for ( $i = 1; $i < count($items); $i++ ) {
+            $gap = $items[$i]['start'] - $items[$i - 1]['end'];
+            if ( $gap >= 0.0 && $gap <= 160.0 ) {
+                $gaps[] = $gap;
+            }
+        }
+        if ( empty($gaps) ) {
+            return null;
+        }
+
+        return array_sum($gaps) / count($gaps);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function repeatedChildShape(array $children): bool
+    {
+        if ( count($children) < 2 ) {
+            return false;
+        }
+        $widths = array();
+        $heights = array();
+        foreach ( $children as $child ) {
+            $width = $this->boxValue($child, 'width');
+            $height = $this->boxValue($child, 'height');
+            if ( null === $width || null === $height || ! $this->subtreeHasText($child) ) {
+                return false;
+            }
+            $widths[] = $width;
+            $heights[] = $height;
+        }
+
+        return $this->valuesAreNearUniform($widths, 0.35) && $this->valuesAreNearUniform($heights, 0.45);
+    }
+
+    /** @param array<int, float> $values */
+    private function valuesAreNearUniform(array $values, float $tolerance): bool
+    {
+        $min = min($values);
+        $max = max($values);
+        if ( $min <= 0.0 ) {
+            return false;
+        }
+
+        return (($max - $min) / $min) <= $tolerance;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function layoutContentChildren(array $node): array
+    {
+        $children = array();
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || false === ($child['visible'] ?? null) ) {
+                continue;
+            }
+            if ( $this->isPrimitiveVisualOnly($child) && ! $this->subtreeHasLink($child) ) {
+                continue;
+            }
+            if ( ! $this->subtreeHasText($child) && ! $this->subtreeHasLink($child) ) {
+                continue;
+            }
+            $children[] = $child;
+        }
+
+        return $children;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isPrimitiveVisualOnly(array $node): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        return in_array($type, self::PRIMITIVE_VECTOR_SHAPE_TYPES, true) && ! $this->subtreeHasText($node);
+    }
+
+    /** @param array<int, string> $needles */
+    private function matchesAny(string $haystack, array $needles): bool
+    {
+        foreach ( $needles as $needle ) {
+            if ( str_contains($haystack, $needle) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function looksLikeSectionName(string $name): bool
+    {
+        return $this->matchesAny($name, array('section', 'hero', 'content', 'intro', 'main', 'cta', 'call to action'));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     * @return array{intent: string, display: string, direction: string, collection: string|null, item_count: int, column_count: int|null, gap: float|null, confidence: string}
+     */
+    private function layoutIntentResult(string $intent, string $display, string $direction, ?string $collection, array $children, ?int $columnCount, ?float $gap, string $confidence): array
+    {
+        return array(
+            'intent'       => $intent,
+            'display'      => $display,
+            'direction'    => $direction,
+            'collection'   => $collection,
+            'item_count'   => count($children),
+            'column_count' => $columnCount,
+            'gap'          => null === $gap ? null : round($gap, 3),
+            'confidence'   => $confidence,
+        );
     }
 
     /**

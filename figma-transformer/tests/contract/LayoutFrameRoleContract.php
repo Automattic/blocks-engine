@@ -271,4 +271,52 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
         'children' => array(array('id' => 'chrome:cta-label', 'type' => 'TEXT', 'characters' => 'Book now')),
     );
     $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_CTA === $intent->chromeGroupRole($cta, null, 1), 'layout-intent-cta-group-classifies-cta');
+
+    $pricingGrid = array(
+        'id'       => 'layout:pricing',
+        'type'     => 'FRAME',
+        'name'     => 'Pricing plans grid',
+        'box'      => array('x' => 0, 'y' => 0, 'width' => 960, 'height' => 420),
+        'children' => array(
+            array('id' => 'layout:basic', 'type' => 'FRAME', 'name' => 'Basic plan card', 'box' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 180), 'children' => array(array('id' => 'layout:basic-title', 'type' => 'TEXT', 'characters' => 'Basic'), array('id' => 'layout:basic-price', 'type' => 'TEXT', 'characters' => '$19/mo'))),
+            array('id' => 'layout:pro', 'type' => 'FRAME', 'name' => 'Pro plan card', 'box' => array('x' => 330, 'y' => 0, 'width' => 300, 'height' => 180), 'children' => array(array('id' => 'layout:pro-title', 'type' => 'TEXT', 'characters' => 'Pro'), array('id' => 'layout:pro-price', 'type' => 'TEXT', 'characters' => '$49/mo'))),
+            array('id' => 'layout:team', 'type' => 'FRAME', 'name' => 'Team plan card', 'box' => array('x' => 0, 'y' => 220, 'width' => 300, 'height' => 180), 'children' => array(array('id' => 'layout:team-title', 'type' => 'TEXT', 'characters' => 'Team'), array('id' => 'layout:team-price', 'type' => 'TEXT', 'characters' => '$99/mo'))),
+            array('id' => 'layout:enterprise', 'type' => 'FRAME', 'name' => 'Enterprise plan card', 'box' => array('x' => 330, 'y' => 220, 'width' => 300, 'height' => 180), 'children' => array(array('id' => 'layout:enterprise-title', 'type' => 'TEXT', 'characters' => 'Enterprise'), array('id' => 'layout:enterprise-price', 'type' => 'TEXT', 'characters' => 'Contact us'))),
+        ),
+    );
+    $pricingIntent = $intent->layoutIntent($pricingGrid);
+    $assert(LayoutIntentClassifier::LAYOUT_INTENT_PRICING_GRID === ($pricingIntent['intent'] ?? null), 'layout-intent-pricing-grid-classifies');
+    $assert('grid' === ($pricingIntent['display'] ?? null), 'layout-intent-pricing-grid-display');
+    $assert(2 === ($pricingIntent['column_count'] ?? null), 'layout-intent-pricing-grid-columns');
+
+    $navIntent = $intent->layoutIntent($nav);
+    $assert(LayoutIntentClassifier::LAYOUT_INTENT_NAV_ROW === ($navIntent['intent'] ?? null), 'layout-intent-nav-row-classifies');
+
+    $artifactResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Layout Intent Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'intent:root',
+                'type'     => 'FRAME',
+                'name'     => 'Pricing section',
+                'width'    => 960,
+                'height'   => 420,
+                'children' => array(
+                    array('id' => 'intent:basic', 'type' => 'FRAME', 'name' => 'Basic pricing card', 'x' => 0, 'y' => 0, 'width' => 300, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(array('id' => 'intent:basic-title', 'type' => 'TEXT', 'text' => 'Basic'), array('id' => 'intent:basic-price', 'type' => 'TEXT', 'text' => '$19/mo'))),
+                    array('id' => 'intent:pro', 'type' => 'FRAME', 'name' => 'Pro pricing card', 'x' => 330, 'y' => 0, 'width' => 300, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(array('id' => 'intent:pro-title', 'type' => 'TEXT', 'text' => 'Pro'), array('id' => 'intent:pro-price', 'type' => 'TEXT', 'text' => '$49/mo'))),
+                    array('id' => 'intent:team', 'type' => 'FRAME', 'name' => 'Team pricing card', 'x' => 0, 'y' => 220, 'width' => 300, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(array('id' => 'intent:team-title', 'type' => 'TEXT', 'text' => 'Team'), array('id' => 'intent:team-price', 'type' => 'TEXT', 'text' => '$99/mo'))),
+                    array('id' => 'intent:enterprise', 'type' => 'FRAME', 'name' => 'Enterprise pricing card', 'x' => 330, 'y' => 220, 'width' => 300, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(array('id' => 'intent:enterprise-title', 'type' => 'TEXT', 'text' => 'Enterprise'), array('id' => 'intent:enterprise-price', 'type' => 'TEXT', 'text' => 'Contact us'))),
+                ),
+            ),
+        ),
+    ));
+    $artifactHtml = blocks_engine_figma_transformer_contract_file_content($artifactResult, 'index.html');
+    $artifactCss = blocks_engine_figma_transformer_contract_file_content($artifactResult, 'style.css');
+    $pricingRule = blocks_engine_figma_transformer_contract_css_rule($artifactCss, '.figma-node-intent-root-pricing-section');
+    $basicRule = blocks_engine_figma_transformer_contract_css_rule($artifactCss, '.figma-node-intent-basic-basic-pricing-card');
+    $assert(str_contains($artifactHtml, 'data-figma-layout-intent="pricing-grid"'), 'layout-intent-artifact-emits-intent-attribute');
+    $assert(str_contains($artifactHtml, 'data-figma-layout-display="grid"'), 'layout-intent-artifact-emits-layout-display');
+    $assert(str_contains($artifactHtml, 'data-figma-collection="pricing"'), 'layout-intent-artifact-emits-collection');
+    $assert(str_contains($pricingRule, 'display:grid') && str_contains($pricingRule, 'grid-template-columns:repeat(2,minmax(0,1fr))') && str_contains($pricingRule, 'min-height:420px') && ! str_contains($pricingRule, ';height:420px'), 'layout-intent-artifact-grid-flow-css');
+    $assert(! str_contains($basicRule, 'position:absolute'), 'layout-intent-artifact-grid-child-uses-flow-positioning');
 }
