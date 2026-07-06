@@ -409,7 +409,8 @@ export function collectSourceAssets(
   // dir. Then strip Google-Fonts @imports: WP_COMPAT_CSS contains no @imports so
   // startsWith(WP_COMPAT_CSS) is preserved; Google imports only exist in cssParts.
   const { parts: localizedParts, mediaAssets } = localizeCssImages(cssParts, dir);
-  const baseCss = (WP_COMPAT_CSS + localizedParts.join('\n\n')).replace(GOOGLE_IMPORT_RE, '');
+  const sourceCss = localizedParts.join('\n\n').replace(GOOGLE_IMPORT_RE, '');
+  const baseCss = WP_COMPAT_CSS + sourceCss + buildNavigationAnchorCompatCss(sourceCss);
   // Append admin-bar accommodation LAST: scan the assembled source CSS for
   // top-anchored fixed/sticky chrome and shift it below the WP admin bar for
   // logged-in viewers (the bar otherwise overlays a `position:fixed; top:0`
@@ -428,4 +429,56 @@ export function collectSourceAssets(
     imgAssets,
     imgRewritesByPage,
   };
+}
+
+export function buildNavigationAnchorCompatCss(sourceCss: string): string {
+  const rules: string[] = [];
+  for (const match of sourceCss.matchAll(/([^{}@][^{}]*)\{([^{}]*)\}/g)) {
+    const body = match[2]?.trim();
+    if (!body) continue;
+
+    const mappedSelectors = splitSelectorList(match[1] ?? '')
+      .map(mapNavigationAnchorSelector)
+      .filter((selector): selector is string => Boolean(selector));
+    if (mappedSelectors.length === 0) continue;
+
+    rules.push(`${Array.from(new Set(mappedSelectors)).join(', ')} { ${body} }`);
+  }
+
+  if (rules.length === 0) return '';
+
+  return `\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n${rules.join('\n')}`;
+}
+
+function splitSelectorList(selectorList: string): string[] {
+  const selectors: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (const char of selectorList) {
+    if (char === '(' || char === '[') depth += 1;
+    if (char === ')' || char === ']') depth = Math.max(0, depth - 1);
+    if (char === ',' && depth === 0) {
+      selectors.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.trim()) selectors.push(current.trim());
+  return selectors;
+}
+
+function mapNavigationAnchorSelector(selector: string): string | undefined {
+  if (!/(?:^|[\s>+~])a(?=$|[\s:.#\[])/.test(selector)) return undefined;
+  if (!/[.#\[]/.test(selector.replace(/(?:^|[\s>+~])a(?=$|[\s:.#\[]).*/, ''))) return undefined;
+
+  return selector
+    .replace(/(\s*[>+~]?\s*)a:first-child\b/g, '$1.wp-block-navigation-item:first-child > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a:last-child\b/g, '$1.wp-block-navigation-item:last-child > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a:nth-child\(([^)]*)\)/g, '$1.wp-block-navigation-item:nth-child($2) > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a(?![A-Za-z0-9_-])/g, '$1.wp-block-navigation-item__content')
+    .replace(/(^|[\s>+~])((?:[#.][A-Za-z0-9_-]+|\[[^\]]+\])+)(?=[\s>+~])/,
+      '$1$2.wp-block-navigation');
 }

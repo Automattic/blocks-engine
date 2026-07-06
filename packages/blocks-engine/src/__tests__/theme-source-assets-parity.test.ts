@@ -8,6 +8,7 @@ import * as theme from '../theme/index.js';
 import {
   collectHtmlImages,
   collectSourceAssets,
+  buildNavigationAnchorCompatCss,
   localizeCssImages,
   REVEAL_NEUTRALIZER_CSS,
   rewriteHtmlImageSrcs,
@@ -107,6 +108,24 @@ describe('source assets DLA parity', () => {
 
   it('keeps the WP compat CSS byte-for-byte equal to the DLA golden string', () => {
     expect(WP_COMPAT_CSS).toBe(DLA_WP_COMPAT_CSS);
+  });
+
+  it('replays source nav anchor rules against core/navigation wrapper markup', () => {
+    const css = buildNavigationAnchorCompatCss(`
+.jumpnav a { padding: 0.35rem 0.85rem; color: var(--muted); text-decoration: none; }
+.jumpnav a:first-child { padding-left: 0; }
+.contact a { text-decoration: underline; }
+`);
+
+    expect(css).toContain(
+      '.jumpnav.wp-block-navigation .wp-block-navigation-item__content { padding: 0.35rem 0.85rem; color: var(--muted); text-decoration: none; }'
+    );
+    expect(css).toContain(
+      '.jumpnav.wp-block-navigation .wp-block-navigation-item:first-child > .wp-block-navigation-item__content { padding-left: 0; }'
+    );
+    expect(css).toContain(
+      '.contact.wp-block-navigation .wp-block-navigation-item__content { text-decoration: underline; }'
+    );
   });
 
   it('rewrites exact quoted HTML image refs globally using the theme asset URL', () => {
