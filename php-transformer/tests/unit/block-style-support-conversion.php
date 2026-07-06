@@ -64,29 +64,46 @@ $cardShellAttrs = is_array($cardShell['attrs'] ?? null) ? $cardShell['attrs'] : 
 $cardAttrs = is_array($card['attrs'] ?? null) ? $card['attrs'] : array();
 $cardMarkup = (string) ($cardResult['serialized_blocks'] ?? '');
 
-$assert('1120px' === ($cardShellAttrs['style']['dimensions']['maxWidth'] ?? ''), '17: section max-width maps to dimensions support', json_encode($cardShellAttrs['style']['dimensions'] ?? array()));
-$assert('360px' === ($cardAttrs['style']['dimensions']['maxWidth'] ?? ''), '18: card max-width maps to dimensions support', json_encode($cardAttrs['style']['dimensions'] ?? array()));
-$assert(str_contains($cardMarkup, 'max-width:1120px'), '19: rendered section preserves max-width geometry', $cardMarkup);
-$assert(str_contains($cardMarkup, 'max-width:360px'), '20: rendered card preserves max-width geometry', $cardMarkup);
+$assert(! isset($cardShellAttrs['style']['dimensions']['maxWidth']), '17: core/group omits max-width attr that Gutenberg save does not reproduce', json_encode($cardShellAttrs['style']['dimensions'] ?? array()));
+$assert(! isset($cardAttrs['style']['dimensions']['maxWidth']), '18: nested core/group omits max-width attr that Gutenberg save does not reproduce', json_encode($cardAttrs['style']['dimensions'] ?? array()));
+$assert(! str_contains($cardMarkup, 'max-width:1120px'), '19: rendered core/group wrapper omits unsupported max-width style', $cardMarkup);
+$assert(! str_contains($cardMarkup, 'max-width:360px'), '20: rendered nested core/group wrapper omits unsupported max-width style', $cardMarkup);
 $assert(! str_contains($cardMarkup, 'style="max-width:1120px;margin:0 auto;padding:5rem 2rem"'), '21: rendered section does not keep unsupported raw style wholesale', $cardMarkup);
+
+$columnsMaxWidthHtml = '<div class="feature-row" style="display:flex;max-width:var(--max-w);margin:0 auto"><div><p>A</p></div><div><p>B</p></div></div>';
+$columnsMaxWidthResult = ( new HtmlTransformer() )->transform($columnsMaxWidthHtml, array())->toArray();
+$columnsMaxWidthBlock = $columnsMaxWidthResult['blocks'][0] ?? array();
+$columnsMaxWidthAttrs = is_array($columnsMaxWidthBlock['attrs'] ?? null) ? $columnsMaxWidthBlock['attrs'] : array();
+$columnsMaxWidthMarkup = (string) ($columnsMaxWidthResult['serialized_blocks'] ?? '');
+
+$assert('core/columns' === ($columnsMaxWidthBlock['blockName'] ?? ''), '22: horizontal flex wrapper still becomes columns', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
+$assert(! isset($columnsMaxWidthAttrs['style']['dimensions']['maxWidth']), '23: core/columns omits max-width attr that Gutenberg save does not reproduce', json_encode($columnsMaxWidthAttrs['style']['dimensions'] ?? array()));
+$assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '24: rendered core/columns wrapper omits unsupported max-width style', $columnsMaxWidthMarkup);
 
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();
 $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '22: class-owned section badge stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-name'), '23: class-owned card tier label stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '24: class-owned card price row stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '25: class-owned card result row stays a group wrapper', $labelMarkup);
-$assert(! str_contains($labelMarkup, '<p class="tier-name"'), '26: card label is not flattened into a paragraph that breaks wrapper CSS', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: class-owned section badge stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-name'), '26: class-owned card tier label stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27: class-owned card price row stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: class-owned card result row stays a group wrapper', $labelMarkup);
+$assert(! str_contains($labelMarkup, '<p class="tier-name"'), '29: card label is not flattened into a paragraph that breaks wrapper CSS', $labelMarkup);
 
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';
 $stackResult = ( new HtmlTransformer() )->transform($stackHtml, array())->toArray();
 $stack = $stackResult['blocks'][0] ?? array();
 
-$assert('core/group' === ($stack['blockName'] ?? ''), '27: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
-$assert('hero-content' === (($stack['attrs']['className'] ?? '')), '28: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
+$assert('core/group' === ($stack['blockName'] ?? ''), '30: multi-child hero content stack stays a group, not columns', (string) ($stack['blockName'] ?? '(none)'));
+$assert('hero-content' === (($stack['attrs']['className'] ?? '')), '31: multi-child hero content stack keeps source class for stylesheet materialization', json_encode($stack['attrs'] ?? array()));
+
+$paragraphColorHtml = '<p class="has-text-color hero-tagline" style="color:var(--wp--preset--color--contrast)">Steeped daily.</p>';
+$paragraphColorResult = ( new HtmlTransformer() )->transform($paragraphColorHtml, array())->toArray();
+$paragraphColorMarkup = (string) ($paragraphColorResult['serialized_blocks'] ?? '');
+
+$assert(str_contains($paragraphColorMarkup, '<p class="has-contrast-color has-text-color hero-tagline">Steeped daily.</p>'), '32: paragraph preset text color emits one has-text-color token plus source class', $paragraphColorMarkup);
+$assert(! str_contains($paragraphColorMarkup, 'has-text-color has-text-color'), '33: paragraph color support never duplicates has-text-color', $paragraphColorMarkup);
 
 $paintCss = '.pricing-card{background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4);background-position:center top;background-size:120% 80%,100% 100%;background-repeat:no-repeat;box-shadow:0 28px 80px rgba(20,12,4,.18);padding:2rem;border-radius:24px}';
 $paintHtml = '<main><section class="pricing-card"><h2>Roast Club</h2><p>Fresh coffee every week.</p></section></main>';
@@ -94,19 +111,19 @@ $paintResult = ( new HtmlTransformer() )->transform($paintHtml, array('static_cs
 $paintBlock = $paintResult['blocks'][0] ?? array();
 $paintAttrs = is_array($paintBlock['attrs'] ?? null) ? $paintBlock['attrs'] : array();
 
-$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '29: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
-$assert(! isset($paintAttrs['style']['box-shadow']), '30: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
-$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '31: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
+$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '34: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
+$assert(! isset($paintAttrs['style']['box-shadow']), '35: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
+$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '36: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
 $rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
 $paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
-$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '32: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '33: background-position survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '34: background-size survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '35: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '36: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '37: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '38: background-position survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '39: background-size survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '40: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '41: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
