@@ -89,7 +89,7 @@ async function main() {
         page_path: pagePath,
         page_url: page.url(),
         viewport: DEFAULT_VIEWPORT,
-        elements: await extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs),
+        ...(await extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs)),
       });
       await page.close();
     }
@@ -332,7 +332,7 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       };
     }
 
-    return Array.from(document.querySelectorAll(`[${idAttr}]`)).map((element) => {
+    function serializeElement(element) {
       const rect = element.getBoundingClientRect();
       const nodeId = element.getAttribute(idAttr) || '';
       const nodeName = readNodeName(element);
@@ -352,7 +352,31 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
         asset_state: serializeAssetState(element, computedStyle),
         visibility: serializeVisibility(element, rect, computedStyle),
       };
-    });
+    }
+
+    function serializeUnidentifiedElement(element) {
+      const rect = element.getBoundingClientRect();
+      return {
+        page_path: currentPagePath,
+        selector: element.tagName.toLowerCase(),
+        tag: element.tagName.toLowerCase(),
+        text_sample: normalizeText(element.textContent),
+        boundingClientRect: serializeBoundingClientRect(rect),
+      };
+    }
+
+    const elements = Array.from(document.querySelectorAll(`[${idAttr}]`)).map(serializeElement);
+    const unidentifiedElements = Array.from(document.body?.querySelectorAll('*') ?? [])
+      .filter((element) => !element.hasAttribute(idAttr))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 1 && rect.height > 1 && style.display !== 'none' && style.visibility !== 'hidden';
+      })
+      .slice(0, 50)
+      .map(serializeUnidentifiedElement);
+
+    return { elements, unidentified_elements: unidentifiedElements };
   }, {
     pagePath,
     limit: textSampleLimit,

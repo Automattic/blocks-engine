@@ -105,6 +105,7 @@ try {
   assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].complete === true, 'DOM provider captures image complete state');
   assert(domReport.entrypoints[0].elements[0].visibility.visible === true, 'DOM provider captures visible state');
   assert(domReport.entrypoints[0].elements[0].visibility.clipped === true, 'DOM provider captures clipped-ish overflow state');
+  assert(domReport.entrypoints[0].unidentified_elements.some((element) => element.tag === 'img'), 'DOM provider reports visible elements without node ids');
 
   const genericEnvReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
     ...process.env,

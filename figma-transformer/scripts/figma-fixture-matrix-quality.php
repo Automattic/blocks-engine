@@ -37,12 +37,18 @@ function matrix_quality_matrix(array $fixtures): array
         'clipped_visual_node_count',
         'fixed_width_over_desktop_uncovered_count',
         'uncomposed_vector_child_nodes',
+        'dom_horizontal_overflow_count',
+        'dom_viewport_width_leak_count',
+        'dom_huge_vertical_spacing_count',
+        'dom_collapsed_box_count',
+        'dom_offscreen_box_count',
+        'dom_missing_node_id_box_count',
     );
     $totals = array_fill_keys($keys, 0);
     $qualityStatuses = array();
     $signalCounts = array();
     $riskBucketCounts = array_fill_keys(array('low', 'medium', 'high', 'critical', 'unknown'), 0);
-    $riskCategoryTotals = array_fill_keys(array('responsive_coverage', 'absolute_scaffolding', 'text_wrapping_leaks', 'image_geometry_fidelity', 'form_validity', 'route_coverage', 'unsupported_vectors'), 0);
+    $riskCategoryTotals = array_fill_keys(array('responsive_coverage', 'absolute_scaffolding', 'text_wrapping_leaks', 'image_geometry_fidelity', 'form_validity', 'route_coverage', 'unsupported_vectors', 'rendered_dom_boxes'), 0);
     $perFixtureReadiness = array();
     $coverageNumerator = 0;
     $coverageDenominator = 0;
@@ -54,8 +60,9 @@ function matrix_quality_matrix(array $fixtures): array
             continue;
         }
         $summary = is_array($fixture['quality_summary'] ?? null) ? $fixture['quality_summary'] : array();
+        $domSummary = matrix_fixture_dom_box_quality_summary($fixture);
         foreach ( $keys as $key ) {
-            $totals[$key] += matrix_quality_summary_int($summary, $key);
+            $totals[$key] += matrix_quality_summary_int($summary, $key) + matrix_quality_summary_int($domSummary, $key);
         }
         $coverageNumerator += (int) ($summary['fixed_width_with_responsive_override_count'] ?? 0);
         $coverageDenominator += (int) ($summary['fixed_width_declaration_count'] ?? 0);
@@ -165,6 +172,15 @@ function matrix_fixture_visual_readiness(array $fixture): array
                 + ((float) ($summary['vector_decode_coverage_ratio'] ?? 1.0) < 1.0 ? 1 : 0),
             array('vector_placeholders', 'uncomposed_vector_child_nodes', 'vector_decode_coverage_ratio')
         ),
+        'rendered_dom_boxes' => matrix_risk_category(
+            matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_horizontal_overflow_count')
+                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_viewport_width_leak_count')
+                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_huge_vertical_spacing_count')
+                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_collapsed_box_count')
+                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_offscreen_box_count')
+                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_missing_node_id_box_count'),
+            array('dom_horizontal_overflow_count', 'dom_viewport_width_leak_count', 'dom_huge_vertical_spacing_count', 'dom_collapsed_box_count', 'dom_offscreen_box_count', 'dom_missing_node_id_box_count')
+        ),
     );
 
     $riskPoints = 0;
@@ -180,6 +196,236 @@ function matrix_fixture_visual_readiness(array $fixture): array
         'route_coverage_ratio' => $routeCoverageRatio,
         'risk_categories' => $categories,
     );
+}
+
+/**
+ * @param array<string, mixed> $fixture
+ * @return array<string, mixed>
+ */
+function matrix_fixture_dom_box_quality_summary(array $fixture): array
+{
+    if ( is_array($fixture['dom_box_quality']['summary'] ?? null) ) {
+        return $fixture['dom_box_quality']['summary'];
+    }
+
+    return array();
+}
+
+/**
+ * @return array<string, mixed>|null
+ */
+function matrix_dom_box_quality_report(string $path): ?array
+{
+    if ( ! is_readable($path) ) {
+        return null;
+    }
+
+    $report = json_decode((string) file_get_contents($path), true);
+    if ( ! is_array($report) ) {
+        return null;
+    }
+
+    return matrix_analyze_dom_box_report($report, $path);
+}
+
+/**
+ * @param array<string, mixed> $report
+ * @return array<string, mixed>
+ */
+function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): array
+{
+    $pageReports = array();
+    $summary = matrix_dom_box_empty_summary();
+
+    foreach ( is_array($report['entrypoints'] ?? null) ? $report['entrypoints'] : array() as $entrypoint ) {
+        if ( ! is_array($entrypoint) ) {
+            continue;
+        }
+
+        $pageReport = matrix_analyze_dom_box_entrypoint($entrypoint);
+        $pageReports[] = $pageReport;
+        foreach ( $summary as $key => $value ) {
+            if ( is_int($value) && isset($pageReport['summary'][$key]) && is_numeric($pageReport['summary'][$key]) ) {
+                $summary[$key] += (int) $pageReport['summary'][$key];
+            }
+        }
+    }
+
+    $summary['page_count'] = count($pageReports);
+    $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
+
+    return array_filter(array(
+        'schema' => 'blocks-engine/figma-transformer/dom-box-quality/v1',
+        'source_path' => $sourcePath ?: null,
+        'summary' => $summary,
+        'pages' => $pageReports,
+    ), static fn (mixed $value): bool => null !== $value);
+}
+
+/**
+ * @param array<string, mixed> $entrypoint
+ * @return array<string, mixed>
+ */
+function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
+{
+    $viewport = is_array($entrypoint['viewport'] ?? null) ? $entrypoint['viewport'] : array();
+    $viewportWidth = isset($viewport['width']) && is_numeric($viewport['width']) ? (float) $viewport['width'] : 1440.0;
+    $viewportHeight = isset($viewport['height']) && is_numeric($viewport['height']) ? (float) $viewport['height'] : 900.0;
+    $elements = is_array($entrypoint['elements'] ?? null) ? array_values($entrypoint['elements']) : array();
+    $unidentified = is_array($entrypoint['unidentified_elements'] ?? null) ? array_values($entrypoint['unidentified_elements']) : array();
+    $summary = matrix_dom_box_empty_summary();
+    $findings = array();
+    $previousBottom = null;
+
+    usort($elements, static function (mixed $a, mixed $b): int {
+        $aRect = is_array($a) && is_array($a['boundingClientRect'] ?? null) ? $a['boundingClientRect'] : array();
+        $bRect = is_array($b) && is_array($b['boundingClientRect'] ?? null) ? $b['boundingClientRect'] : array();
+        return ((float) ($aRect['top'] ?? 0)) <=> ((float) ($bRect['top'] ?? 0));
+    });
+
+    foreach ( $elements as $element ) {
+        if ( ! is_array($element) ) {
+            continue;
+        }
+
+        $summary['dom_element_count']++;
+        $rect = is_array($element['boundingClientRect'] ?? null) ? $element['boundingClientRect'] : array();
+        $left = matrix_dom_box_number($rect, 'left', matrix_dom_box_number($rect, 'x', 0.0));
+        $right = matrix_dom_box_number($rect, 'right', $left + matrix_dom_box_number($rect, 'width', 0.0));
+        $top = matrix_dom_box_number($rect, 'top', matrix_dom_box_number($rect, 'y', 0.0));
+        $bottom = matrix_dom_box_number($rect, 'bottom', $top + matrix_dom_box_number($rect, 'height', 0.0));
+        $width = matrix_dom_box_number($rect, 'width', max(0.0, $right - $left));
+        $height = matrix_dom_box_number($rect, 'height', max(0.0, $bottom - $top));
+        $textMetrics = is_array($element['text_metrics'] ?? null) ? $element['text_metrics'] : array();
+        $scrollWidth = matrix_dom_box_number($textMetrics, 'scroll_width', 0.0);
+        $clientWidth = matrix_dom_box_number($textMetrics, 'client_width', 0.0);
+        $nodeId = isset($element['node_id']) && is_scalar($element['node_id']) ? trim((string) $element['node_id']) : '';
+        $node = matrix_dom_box_node_summary($element);
+
+        if ( $right > $viewportWidth + 1.0 || $left < -1.0 || ($scrollWidth > 0.0 && $clientWidth > 0.0 && $scrollWidth > $clientWidth + 1.0) ) {
+            $summary['dom_horizontal_overflow_count']++;
+            $findings[] = matrix_dom_box_finding('dom_horizontal_overflow', $node, array('left' => $left, 'right' => $right, 'viewport_width' => $viewportWidth, 'scroll_width' => $scrollWidth, 'client_width' => $clientWidth));
+        }
+
+        if ( $width > $viewportWidth + 1.0 || $right > $viewportWidth + 24.0 ) {
+            $summary['dom_viewport_width_leak_count']++;
+            $findings[] = matrix_dom_box_finding('dom_viewport_width_leak', $node, array('width' => $width, 'right' => $right, 'viewport_width' => $viewportWidth));
+        }
+
+        if ( $width <= 1.0 || $height <= 1.0 ) {
+            $summary['dom_collapsed_box_count']++;
+            $findings[] = matrix_dom_box_finding('dom_collapsed_box', $node, array('width' => $width, 'height' => $height));
+        }
+
+        if ( $left < -1.0 || $right < -1.0 || $top < -1.0 || $left > $viewportWidth + 1.0 ) {
+            $summary['dom_offscreen_box_count']++;
+            $findings[] = matrix_dom_box_finding('dom_offscreen_box', $node, array('left' => $left, 'right' => $right, 'top' => $top, 'viewport_width' => $viewportWidth));
+        }
+
+        if ( '' === $nodeId ) {
+            $summary['dom_missing_node_id_box_count']++;
+            $findings[] = matrix_dom_box_finding('dom_missing_node_id_box', $node, array());
+        }
+
+        if ( null !== $previousBottom && $top - $previousBottom > $viewportHeight ) {
+            $summary['dom_huge_vertical_spacing_count']++;
+            $findings[] = matrix_dom_box_finding('dom_huge_vertical_spacing', $node, array('gap' => round($top - $previousBottom, 3), 'viewport_height' => $viewportHeight));
+        }
+        $previousBottom = null === $previousBottom ? $bottom : max($previousBottom, $bottom);
+    }
+
+    foreach ( $unidentified as $element ) {
+        if ( ! is_array($element) ) {
+            continue;
+        }
+        $summary['dom_missing_node_id_box_count']++;
+        $findings[] = matrix_dom_box_finding('dom_missing_node_id_box', matrix_dom_box_node_summary($element), array('source' => 'unidentified_elements'));
+    }
+
+    $summary['risk_score'] = $summary['dom_horizontal_overflow_count']
+        + $summary['dom_viewport_width_leak_count']
+        + $summary['dom_huge_vertical_spacing_count']
+        + $summary['dom_collapsed_box_count']
+        + $summary['dom_offscreen_box_count']
+        + $summary['dom_missing_node_id_box_count'];
+    $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
+
+    return array(
+        'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
+        'viewport' => $viewport,
+        'summary' => $summary,
+        'findings' => array_slice($findings, 0, 50),
+    );
+}
+
+/**
+ * @return array<string, int|string>
+ */
+function matrix_dom_box_empty_summary(): array
+{
+    return array(
+        'page_count' => 0,
+        'dom_element_count' => 0,
+        'dom_horizontal_overflow_count' => 0,
+        'dom_viewport_width_leak_count' => 0,
+        'dom_huge_vertical_spacing_count' => 0,
+        'dom_collapsed_box_count' => 0,
+        'dom_offscreen_box_count' => 0,
+        'dom_missing_node_id_box_count' => 0,
+        'risk_score' => 0,
+        'risk_bucket' => 'low',
+    );
+}
+
+/**
+ * @param array<string, mixed> $values
+ */
+function matrix_dom_box_number(array $values, string $key, float $fallback): float
+{
+    return isset($values[$key]) && is_numeric($values[$key]) ? (float) $values[$key] : $fallback;
+}
+
+/**
+ * @param array<string, mixed> $element
+ * @return array<string, mixed>
+ */
+function matrix_dom_box_node_summary(array $element): array
+{
+    return array_filter(array(
+        'id' => isset($element['node_id']) && is_scalar($element['node_id']) ? (string) $element['node_id'] : null,
+        'name' => isset($element['node_name']) && is_scalar($element['node_name']) ? (string) $element['node_name'] : null,
+        'selector' => isset($element['selector']) && is_scalar($element['selector']) ? (string) $element['selector'] : null,
+        'tag' => isset($element['tag']) && is_scalar($element['tag']) ? (string) $element['tag'] : null,
+    ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+}
+
+/**
+ * @param array<string, mixed> $node
+ * @param array<string, mixed> $metrics
+ * @return array<string, mixed>
+ */
+function matrix_dom_box_finding(string $code, array $node, array $metrics): array
+{
+    return array_filter(array(
+        'code' => $code,
+        'node' => $node,
+        'metrics' => $metrics,
+    ), static fn (mixed $value): bool => array() !== $value);
+}
+
+function matrix_dom_box_risk_bucket(int $riskScore): string
+{
+    if ( $riskScore >= 25 ) {
+        return 'critical';
+    }
+    if ( $riskScore >= 10 ) {
+        return 'high';
+    }
+    if ( $riskScore >= 1 ) {
+        return 'medium';
+    }
+
+    return 'low';
 }
 
 function matrix_visual_risk_bucket(int $readinessScore): string
