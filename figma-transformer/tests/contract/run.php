@@ -7433,6 +7433,16 @@ $responsiveBreakpointSafetyPolicy = new Automattic\BlocksEngine\FigmaTransformer
     $breakpointDimensionPolicy,
     new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
 );
+$rowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array('id' => 'policy:row', 'type' => 'FRAME', 'name' => 'Card Row', 'box' => array('width' => 960, 'height' => 360), 'children' => array(array('id' => 'policy:card', 'type' => 'FRAME'))),
+    array('id' => 'policy:section', 'type' => 'FRAME', 'name' => 'Section'),
+    array('width' => '960px', 'height' => '360px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_oversized_desktop_geometry_safety' === ($rowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-row-stack-decision');
+$assert(in_array('height:auto', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-keeps-auto-height');
+$assert(in_array('flex-wrap:wrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-wraps');
+$assert(! in_array('min-height:360px', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-drops-min-height');
 $assert(
     array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
         array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),
@@ -7664,6 +7674,58 @@ $assert(str_contains($mobileSafetyBreakpointCss, '@media (max-width:390px){'), '
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\)/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-leak-to-midpoint');
 $assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\);max-width:342px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-clamps-source-max-width-to-phone-content');
 $assert(! preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*max-width:900px/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-emit-desktop-source-max-width');
+
+$rowStackBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Row Stack Breakpoint Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'rs:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
+                'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'rs:row', 'type' => 'FRAME', 'name' => 'Card Row',
+                        'box' => array('width' => 960, 'height' => 360),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row'),
+                        'children' => array(
+                            array('id' => 'rs:a', 'type' => 'RECTANGLE', 'name' => 'Card A', 'box' => array('width' => 280, 'height' => 320), 'background' => '#ff0000'),
+                            array('id' => 'rs:b', 'type' => 'RECTANGLE', 'name' => 'Card B', 'box' => array('width' => 280, 'height' => 320), 'background' => '#00ff00'),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'rs:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
+                'box' => array('width' => 390, 'height' => 900),
+                'children' => array(),
+            ),
+        ),
+    ),
+    array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'rs:desktop',
+                'name'       => 'Home',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'variants'   => array(
+                    array('frame_id' => 'rs:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'rs:mobile',  'viewport_width' => 390.0,  'primary' => false),
+                ),
+            ),
+        ),
+    )
+);
+$rowStackBreakpointCss = '';
+foreach ( $rowStackBreakpointResult['files'] ?? array() as $rowStackBreakpointFile ) {
+    if ( is_array($rowStackBreakpointFile) && 'style.css' === ($rowStackBreakpointFile['path'] ?? null) ) {
+        $rowStackBreakpointCss = (string) ($rowStackBreakpointFile['content'] ?? '');
+    }
+}
+$assert('success' === ($rowStackBreakpointResult['status'] ?? null), 'row-stack-breakpoint-transform-success');
+$assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-rs-row-card-row\{[^}]*height:auto[^}]*flex-wrap:wrap[^}]*align-content:flex-start/', $rowStackBreakpointCss), 'row-stack-breakpoint-wraps-with-auto-height');
+$assert(! preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-rs-row-card-row\{[^}]*min-height:/', $rowStackBreakpointCss), 'row-stack-breakpoint-drops-source-min-height');
 
 $paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Pagination Semantics Fixture',

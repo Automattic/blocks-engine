@@ -126,12 +126,15 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         $declarations = array('width:100%', 'max-width:100%', 'box-sizing:border-box');
+        $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
         if ( null !== $height && $height > 240.0 ) {
             $declarations[] = 'height:auto';
-            $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+            if ( ! $wrapsRow ) {
+                $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+            }
         }
 
-        if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) ) {
+        if ( $wrapsRow ) {
             $declarations[] = 'flex-wrap:wrap';
             $declarations[] = 'align-content:flex-start';
             if ( $viewportWidth <= 480.0 && $this->hasContainerChild($node) ) {
