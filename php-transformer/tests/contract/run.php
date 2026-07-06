@@ -600,6 +600,13 @@ $roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks
 $assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button preserves an explicit source border radius');
 $assert(! str_contains($roundedOutlineButtonMarkup, 'border-radius:0'), 'outline button does not override an explicit source border radius');
 
+$fullWidthButton = ( new HtmlTransformer() )->transform(
+    '<style>.tier-cta{width:100%;justify-content:center}.btn{display:inline-flex;padding:9px 20px;background:#e8a020;color:#050d1a;border-radius:6px}</style><main><a class="btn tier-cta" href="/signup">Start free</a></main>'
+)->toArray();
+$fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
+$assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), 'full-width source CTA maps to native core/button width');
+$assert(str_contains($fullWidthButtonMarkup, 'has-custom-width wp-block-button__width-100'), 'full-width source CTA emits canonical core/button width classes');
+
 $separatorResult = ( new HtmlTransformer() )->transform('<main><hr class="wp-block-separator has-alpha-channel-opacity has-css-opacity divider"></main>')->toArray();
 $separatorMarkup = (string) ($separatorResult['serialized_blocks'] ?? '');
 $separatorAttrs = $separatorResult['blocks'][0]['attrs'] ?? array();
