@@ -27,6 +27,8 @@ use DOMElement;
  */
 final class ColumnsPattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
@@ -175,34 +177,4 @@ final class ColumnsPattern
         return $hasSidebar && $hasContent;
     }
 
-    /**
-     * Replicated generic DOM helper (host HtmlTransformer::hasClass) so the
-     * recognizer is self-contained.
-     */
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        return in_array($className, preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
-    }
-
-    /**
-     * Replicated generic DOM helper (host HtmlTransformer::attr).
-     */
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
-    }
-
-    /**
-     * Replicated generic DOM helper (host HtmlTransformer::hasDirectChildElement).
-     */
-    private function hasDirectChildElement(DOMElement $element, string $tagName): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $tagName === strtolower($child->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

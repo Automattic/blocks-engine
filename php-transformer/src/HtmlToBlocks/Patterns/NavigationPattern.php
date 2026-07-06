@@ -7,6 +7,8 @@ use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
 {
+    use PatternDomHelpersTrait;
+
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
     /**
@@ -344,11 +346,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $attrs['className'] = implode(' ', $classNames);
         return $attrs;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement

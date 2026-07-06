@@ -7,6 +7,8 @@ use DOMElement;
 
 final class ParameterTablePattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml
@@ -55,11 +57,6 @@ final class ParameterTablePattern
             ) ) ),
             'body' => $rows,
         )), array(), $element);
-    }
-
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        return in_array($className, preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array(), true);
     }
 
     private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement

@@ -9,6 +9,8 @@ use const XML_TEXT_NODE;
 
 final class GalleryPattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param callable(DOMElement, DOMElement|null, DOMElement|null, DOMElement|null): (array<string, mixed>|null) $convertImageElement
      * @param callable(DOMElement, DOMElement|null, DOMElement|null): (array<string, mixed>|null) $convertPictureElement
@@ -91,14 +93,4 @@ final class GalleryPattern
         return $createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
     }
 
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
 }

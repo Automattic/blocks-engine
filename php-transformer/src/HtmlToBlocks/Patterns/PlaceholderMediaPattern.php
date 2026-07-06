@@ -7,6 +7,8 @@ use DOMElement;
 
 final class PlaceholderMediaPattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(string): string $escapeHtml
@@ -73,11 +75,6 @@ final class PlaceholderMediaPattern
 
         $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
         return strlen($directText) <= 80 ? $directText : '';
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 
     private function mergeClassNames(string ...$classNames): string
