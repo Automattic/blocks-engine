@@ -80,7 +80,7 @@ final class ConversionFindingContract
         'conversion_classification', 'loss_class', 'diagnostic_class', 'preservation_strategy',
         'runtime_requirement', 'recoverability', 'actionability',
         'repair_bucket', 'suggested_repair_class', 'suggested_generic_repair_class',
-        'suggested_primitive', 'materialization_hint',
+        'suggested_primitive', 'materialization_hint', 'runtime_island_type',
         'script_role', 'block_name', 'path',
     );
 
@@ -340,6 +340,9 @@ final class ConversionFindingContract
             'runtime_dom_target'            => 'runtime_dom_target_preservation',
             'runtime_script'                => 'runtime_script_materialization',
             'runtime_interactive_behavior'  => 'runtime_interactive_behavior_restoration',
+            'commerce_product_grid'         => 'materialize_commerce_products',
+            'commerce_controls'             => 'materialize_commerce_runtime',
+            'interactive_control'           => 'restore_interactive_behavior',
             'runtime_template', 'runtime_island', 'interactive_form' => 'preserve_runtime_island',
             'inert_template_metadata', 'static_script_metadata' => 'preserve_static_metadata',
             'inline_svg'                    => 'materialize_static_asset',

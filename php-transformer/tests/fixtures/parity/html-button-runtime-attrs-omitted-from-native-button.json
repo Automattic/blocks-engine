@@ -22,6 +22,7 @@
   "expected_fallbacks": [
     {
       "pattern_family": "interactive_control",
+      "runtime_island_type": "unsupported_custom_app_control",
       "diagnostic_code": "interactive_control_behavior_lost",
       "severity": "warning",
       "controlled_target": "#donation-form"
@@ -34,6 +35,9 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-label" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-controls" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
-    { "path": "fallbacks", "assert": "count", "count": 1 }
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" },
+    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "unsupported_custom_app_control" },
+    { "path": "diagnostics.1.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" }
   ]
 }

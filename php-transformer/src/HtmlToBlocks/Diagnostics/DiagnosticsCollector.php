@@ -83,11 +83,16 @@ final class DiagnosticsCollector
                     'selector'                        => $fallback['selector'] ?? null,
                     'pattern_family'                  => $fallback['pattern_family'] ?? null,
                     'pattern_family_detail'           => $fallback['pattern_family_detail'] ?? null,
+                    'runtime_island_type'             => $fallback['runtime_island_type'] ?? null,
                     'source_selector'                 => $fallback['source_selector'] ?? null,
                     'source_selector_specificity'     => $fallback['source_selector_specificity'] ?? null,
                     'parent_reason'                   => $fallback['parent_reason'] ?? null,
                     'ancestor_reason'                 => $fallback['ancestor_reason'] ?? null,
                     'suggested_generic_repair_class' => $fallback['suggested_generic_repair_class'] ?? null,
+                    'materialization_target'          => $fallback['materialization_target'] ?? null,
+                    'products'                        => $fallback['products'] ?? null,
+                    'controls'                        => $fallback['controls'] ?? null,
+                    'form'                            => $fallback['form'] ?? null,
                 );
             }
         }
@@ -113,11 +118,15 @@ final class DiagnosticsCollector
                 'selector'            => $island['selector'] ?? null,
                 'pattern_family'                  => $island['pattern_family'] ?? null,
                 'pattern_family_detail'           => $island['pattern_family_detail'] ?? null,
+                'runtime_island_type'             => $island['runtime_island_type'] ?? null,
                 'source_selector'                 => $island['source_selector'] ?? null,
                 'source_selector_specificity'     => $island['source_selector_specificity'] ?? null,
                 'parent_reason'                   => $island['parent_reason'] ?? null,
                 'ancestor_reason'                 => $island['ancestor_reason'] ?? null,
                 'suggested_generic_repair_class' => $island['suggested_generic_repair_class'] ?? null,
+                'controls'                        => $island['controls'] ?? null,
+                'control'                         => $island['control'] ?? null,
+                'form'                            => $island['form'] ?? null,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 

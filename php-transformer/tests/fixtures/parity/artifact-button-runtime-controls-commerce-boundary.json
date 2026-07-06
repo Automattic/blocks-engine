@@ -37,7 +37,11 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "data-lightbox=\"Foggy cliff portrait\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "Add to cart" },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.runtime_islands.0.runtime_island_type", "assert": "equals", "value": "runtime_js" },
     { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": ".tile" },
-    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "dom" }
+    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "dom" },
+    { "path": "source_reports.runtime_islands.1.runtime_island_type", "assert": "equals", "value": "runtime_js" },
+    { "path": "diagnostics.0.runtime_island_type", "assert": "equals", "value": "runtime_js" },
+    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "runtime_js" }
   ]
 }
