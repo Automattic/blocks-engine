@@ -1562,6 +1562,11 @@ final class HtmlTransformer
                 return $inlineTokenGroup;
             }
 
+            $visualTextWrapper = $this->visualTextWrapperBlockFromElement($element);
+            if ( null !== $visualTextWrapper ) {
+                return $visualTextWrapper;
+            }
+
             $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
             if ( null !== $inlineContent ) {
                 return $inlineContent;
@@ -2586,6 +2591,50 @@ final class HtmlTransformer
         ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
+    }
+
+    private function visualTextWrapperBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || $this->hasBlockContentChildren($element) ) {
+            return null;
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallback($content) ) {
+            return null;
+        }
+
+        if ( ! $this->hasVisualTextWrapperSignal($element) ) {
+            return null;
+        }
+
+        return $this->createBlock(
+            'core/group',
+            $this->presentationAttributes($element),
+            array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+            $element
+        );
+    }
+
+    private function hasVisualTextWrapperSignal(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        if ( preg_match('/(?:^|[\s_-])(?:badge|tag|label|eyebrow|kicker|meta|pill|chip|stat|num|price|amount|result|caption|title|name)(?:$|[\s_-])/', $className) ) {
+            return true;
+        }
+
+        if ( 0 < $this->childElementCount($element) ) {
+            return false;
+        }
+
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'display', 'gap', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
