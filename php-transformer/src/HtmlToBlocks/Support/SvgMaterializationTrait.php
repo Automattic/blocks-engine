@@ -89,6 +89,11 @@ trait SvgMaterializationTrait
             'url'          => $path,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->attr($element, 'class'),
+            'style'        => array(
+                'typography' => array(
+                    'lineHeight' => '0',
+                ),
+            ),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);
