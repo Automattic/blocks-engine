@@ -87,8 +87,9 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         $contentWidth = max(1.0, $viewportWidth - 48.0);
+        $mobileContentWidth = min($contentWidth, 340.0);
         $height = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
-        $isOverwide = $width > $contentWidth || $width > 767.0;
+        $isOverwide = $width > $contentWidth || $width > 767.0 || ($viewportWidth <= 767.0 && $width > $mobileContentWidth);
         $hasBackgroundImage = isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(');
 
         if ( 'TEXT' === $type ) {

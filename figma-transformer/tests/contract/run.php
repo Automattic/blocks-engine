@@ -8054,6 +8054,13 @@ $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abstext-c
 $responsiveSafetyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
         'name' => 'Responsive Safety Fixture',
+        'assets' => array(
+            'safety-photo' => array(
+                'name' => 'Safety Photo',
+                'mime_type' => 'image/jpeg',
+                'content' => 'safety image bytes',
+            ),
+        ),
         'nodes' => array(
             array(
                 'id' => 'safety:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 900),
@@ -8078,6 +8085,7 @@ $responsiveSafetyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\St
                             array('id' => 'safety:footer-row', 'type' => 'FRAME', 'name' => 'Frame 19', 'box' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131), 'layout' => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center')),
                         ),
                     ),
+                    array('id' => 'safety:service-image', 'type' => 'RECTANGLE', 'name' => 'Service Image', 'box' => array('width' => 538, 'height' => 381), 'asset_id' => 'safety-photo'),
                 ),
             ),
             array(
@@ -8104,7 +8112,44 @@ $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-head
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:342px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
 $assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-service-image-service-image\{[^}]*width:100%[^}]*max-width:100%[^}]*height:auto[^}]*aspect-ratio:538 \/ 381/s', $responsiveSafetyCss) === 1, 'responsive-safety-clamps-mobile-image-leaf');
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)/s', $responsiveSafetyCss), 'responsive-safety-fallbacks-do-not-leak-to-midpoint');
+
+$desktopOnlyImageFallbackResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Desktop-only image fallback fixture',
+        'assets' => array(
+            'desktop-only-photo' => array(
+                'name' => 'Desktop Only Photo',
+                'mime_type' => 'image/jpeg',
+                'content' => 'desktop-only image bytes',
+            ),
+        ),
+        'nodes' => array(
+            array(
+                'id' => 'desktop-only:root', 'type' => 'FRAME', 'name' => 'Desktop page', 'box' => array('width' => 1440, 'height' => 800),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'desktop-only:image', 'type' => 'RECTANGLE', 'name' => 'Service Image', 'box' => array('width' => 538, 'height' => 381), 'asset_id' => 'desktop-only-photo'),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'desktop-only:root', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true)))
+);
+$desktopOnlyImageFallbackCss = '';
+foreach ( $desktopOnlyImageFallbackResult['files'] ?? array() as $desktopOnlyImageFallbackFile ) {
+    if ( is_array($desktopOnlyImageFallbackFile) && 'style.css' === ($desktopOnlyImageFallbackFile['path'] ?? null) ) {
+        $desktopOnlyImageFallbackCss = (string) ($desktopOnlyImageFallbackFile['content'] ?? '');
+    }
+}
+$assert('success' === ($desktopOnlyImageFallbackResult['status'] ?? null), 'desktop-only-image-fallback-transform-success');
+$desktopOnlyWideFallbackBlock = '';
+if ( preg_match('/@media \(max-width:1439px\)\{(?<block>[\s\S]*?)\n\}/', $desktopOnlyImageFallbackCss, $desktopOnlyWideFallbackMatch) ) {
+    $desktopOnlyWideFallbackBlock = (string) ($desktopOnlyWideFallbackMatch['block'] ?? '');
+}
+$assert(! str_contains($desktopOnlyWideFallbackBlock, '.figma-node-desktop-only-image-service-image{'), 'desktop-only-image-fallback-not-clamped-at-desktop');
+$assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-only-image-service-image\{[^}]*width:100%[^}]*max-width:100%[^}]*height:auto[^}]*aspect-ratio:538 \/ 381/s', $desktopOnlyImageFallbackCss) === 1, 'desktop-only-image-fallback-clamped-at-mobile');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
