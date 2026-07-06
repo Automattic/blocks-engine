@@ -43,6 +43,10 @@ function matrix_quality_matrix(array $fixtures): array
         'dom_collapsed_box_count',
         'dom_offscreen_box_count',
         'dom_missing_node_id_box_count',
+        'dom_capture_valid_count',
+        'dom_capture_invalid_count',
+        'dom_css_loaded_count',
+        'dom_css_not_loaded_count',
     );
     $totals = array_fill_keys($keys, 0);
     $qualityStatuses = array();
@@ -92,6 +96,8 @@ function matrix_quality_matrix(array $fixtures): array
             'readiness_score' => $readiness['readiness_score'] ?? null,
             'visual_risk_bucket' => $readiness['visual_risk_bucket'] ?? 'unknown',
             'route_coverage_ratio' => $readiness['route_coverage_ratio'] ?? null,
+            'dom_css_loaded' => $domSummary['dom_css_loaded'] ?? null,
+            'dom_capture_valid' => $domSummary['dom_capture_valid'] ?? null,
             'risk_categories' => $readiness['risk_categories'] ?? array(),
         );
     }
@@ -172,15 +178,7 @@ function matrix_fixture_visual_readiness(array $fixture): array
                 + ((float) ($summary['vector_decode_coverage_ratio'] ?? 1.0) < 1.0 ? 1 : 0),
             array('vector_placeholders', 'uncomposed_vector_child_nodes', 'vector_decode_coverage_ratio')
         ),
-        'rendered_dom_boxes' => matrix_risk_category(
-            matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_horizontal_overflow_count')
-                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_viewport_width_leak_count')
-                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_huge_vertical_spacing_count')
-                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_collapsed_box_count')
-                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_offscreen_box_count')
-                + matrix_quality_summary_int(matrix_fixture_dom_box_quality_summary($fixture), 'dom_missing_node_id_box_count'),
-            array('dom_horizontal_overflow_count', 'dom_viewport_width_leak_count', 'dom_huge_vertical_spacing_count', 'dom_collapsed_box_count', 'dom_offscreen_box_count', 'dom_missing_node_id_box_count')
-        ),
+        'rendered_dom_boxes' => matrix_dom_box_risk_category(matrix_fixture_dom_box_quality_summary($fixture)),
     );
 
     $riskPoints = 0;
@@ -252,6 +250,8 @@ function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): 
     }
 
     $summary['page_count'] = count($pageReports);
+    $summary['dom_capture_valid'] = $summary['page_count'] > 0 && 0 === $summary['dom_capture_invalid_count'];
+    $summary['dom_css_loaded'] = $summary['page_count'] > 0 && 0 === $summary['dom_css_not_loaded_count'];
     $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
 
     return array_filter(array(
@@ -276,6 +276,32 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
     $summary = matrix_dom_box_empty_summary();
     $findings = array();
     $previousBottom = null;
+    $domCssLoaded = true === ($entrypoint['dom_css_loaded'] ?? null);
+    $domCaptureValid = true === ($entrypoint['dom_capture_valid'] ?? null) && $domCssLoaded;
+
+    if ( $domCaptureValid ) {
+        $summary['dom_capture_valid_count'] = 1;
+    } else {
+        $summary['dom_capture_invalid_count'] = 1;
+    }
+    if ( $domCssLoaded ) {
+        $summary['dom_css_loaded_count'] = 1;
+    } else {
+        $summary['dom_css_not_loaded_count'] = 1;
+    }
+
+    if ( ! $domCaptureValid ) {
+        $summary['risk_bucket'] = 'low';
+        $summary['dom_capture_valid'] = false;
+        $summary['dom_css_loaded'] = $domCssLoaded;
+        return array_filter(array(
+            'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
+            'viewport' => $viewport,
+            'summary' => $summary,
+            'stylesheet_status' => is_array($entrypoint['stylesheet_status'] ?? null) ? $entrypoint['stylesheet_status'] : null,
+            'findings' => array(matrix_dom_box_finding('dom_capture_invalid', array(), array('dom_css_loaded' => $domCssLoaded))),
+        ), static fn (mixed $value): bool => null !== $value);
+    }
 
     usort($elements, static function (mixed $a, mixed $b): int {
         $aRect = is_array($a) && is_array($a['boundingClientRect'] ?? null) ? $a['boundingClientRect'] : array();
@@ -349,11 +375,14 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
         + $summary['dom_offscreen_box_count']
         + $summary['dom_missing_node_id_box_count'];
     $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
+    $summary['dom_capture_valid'] = true;
+    $summary['dom_css_loaded'] = true;
 
     return array(
         'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
         'viewport' => $viewport,
         'summary' => $summary,
+        'stylesheet_status' => is_array($entrypoint['stylesheet_status'] ?? null) ? $entrypoint['stylesheet_status'] : null,
         'findings' => array_slice($findings, 0, 50),
     );
 }
@@ -372,6 +401,10 @@ function matrix_dom_box_empty_summary(): array
         'dom_collapsed_box_count' => 0,
         'dom_offscreen_box_count' => 0,
         'dom_missing_node_id_box_count' => 0,
+        'dom_capture_valid_count' => 0,
+        'dom_capture_invalid_count' => 0,
+        'dom_css_loaded_count' => 0,
+        'dom_css_not_loaded_count' => 0,
         'risk_score' => 0,
         'risk_bucket' => 'low',
     );
@@ -452,6 +485,28 @@ function matrix_risk_category(int $count, array $signals): array
     return array(
         'count' => $count,
         'signals' => $signals,
+    );
+}
+
+/**
+ * @param array<string, mixed> $domSummary
+ * @return array{count: int, signals: array<int, string>}
+ */
+function matrix_dom_box_risk_category(array $domSummary): array
+{
+    $signals = array('dom_horizontal_overflow_count', 'dom_viewport_width_leak_count', 'dom_huge_vertical_spacing_count', 'dom_collapsed_box_count', 'dom_offscreen_box_count', 'dom_missing_node_id_box_count');
+    if ( false === ($domSummary['dom_capture_valid'] ?? true) ) {
+        return matrix_risk_category(0, array_merge(array('dom_capture_invalid'), $signals));
+    }
+
+    return matrix_risk_category(
+        matrix_quality_summary_int($domSummary, 'dom_horizontal_overflow_count')
+            + matrix_quality_summary_int($domSummary, 'dom_viewport_width_leak_count')
+            + matrix_quality_summary_int($domSummary, 'dom_huge_vertical_spacing_count')
+            + matrix_quality_summary_int($domSummary, 'dom_collapsed_box_count')
+            + matrix_quality_summary_int($domSummary, 'dom_offscreen_box_count')
+            + matrix_quality_summary_int($domSummary, 'dom_missing_node_id_box_count'),
+        $signals
     );
 }
 

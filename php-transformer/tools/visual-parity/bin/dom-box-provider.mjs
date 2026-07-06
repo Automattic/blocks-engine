@@ -242,6 +242,18 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       return Object.fromEntries(computedStyleProperties.map((property) => [property, computed.getPropertyValue(property)]));
     }
 
+    function stylesheetStatus() {
+      const bodyStyle = document.body ? window.getComputedStyle(document.body) : null;
+      const bodyMargin = bodyStyle ? bodyStyle.getPropertyValue('margin') : '';
+      const linkStylesheets = Array.from(document.querySelectorAll('link[rel~="stylesheet"]'));
+      return {
+        stylesheet_count: document.styleSheets.length,
+        stylesheet_link_count: linkStylesheets.length,
+        body_margin: bodyMargin,
+        body_margin_reset: bodyMargin === '0px',
+      };
+    }
+
     function estimateLineCount(element, computedStyle, textLength) {
       if (textLength === 0 || element.clientHeight <= 0) {
         return 0;
@@ -376,7 +388,14 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       .slice(0, 50)
       .map(serializeUnidentifiedElement);
 
-    return { elements, unidentified_elements: unidentifiedElements };
+    const cssStatus = stylesheetStatus();
+    return {
+      dom_css_loaded: cssStatus.body_margin_reset,
+      dom_capture_valid: cssStatus.body_margin_reset,
+      stylesheet_status: cssStatus,
+      elements,
+      unidentified_elements: unidentifiedElements,
+    };
   }, {
     pagePath,
     limit: textSampleLimit,
