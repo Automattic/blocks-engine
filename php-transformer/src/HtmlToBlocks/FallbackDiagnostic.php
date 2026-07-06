@@ -51,6 +51,7 @@ final class FallbackDiagnostic
     private static function defaults(array $fields): array
     {
         $code = (string) ($fields['diagnostic_code'] ?? '');
+        $formHasControls = 'html_form_fallback' === $code && ! empty($fields['controls']) && is_array($fields['controls']);
 
         return match ( $code ) {
             'html_form_fallback' => array(
@@ -60,11 +61,17 @@ final class FallbackDiagnostic
                 'diagnostic_class'      => 'runtime_island_preserved',
                 'preservation_strategy' => 'fallback_metadata_with_readable_blocks',
                 'runtime_requirement'   => 'server_or_client_form_handler',
-                'recoverability'        => 'recoverable_with_runtime_mapping',
-                'actionability'         => 'map_form_action_controls_and_submission_handler',
-                'suggested_repair_class' => 'preserve_runtime_island',
+                'recoverability'        => $formHasControls ? 'recoverable_with_form_provider_materialization' : 'recoverable_with_runtime_mapping',
+                'actionability'         => $formHasControls ? 'materialize_detected_form_with_form_provider' : 'map_form_runtime_or_preserve_handler',
+                'suggested_repair_class' => $formHasControls ? 'materialize_form_provider' : 'preserve_runtime_island',
                 'suggested_primitive'   => 'form',
-                'materialization_hint'  => 'preserve_form_markup_or_replace_with_form_block_integration',
+                'materialization_hint'  => $formHasControls ? 'map_form_action_controls_labels_options_and_submit_text_to_a_form_provider' : 'preserve_form_runtime_source_until_controls_can_be_mapped',
+                'materialization_target' => $formHasControls ? array(
+                    'capability'    => 'form',
+                    'entity'        => 'form',
+                    'provider_role' => 'form_provider',
+                    'requires'      => array( 'controls', 'form' ),
+                ) : array(),
             ),
             'html_product_grid_fallback' => array(
                 'severity'              => 'info',
@@ -77,7 +84,32 @@ final class FallbackDiagnostic
                 'actionability'         => 'materialize_detected_products_in_a_commerce_provider',
                 'suggested_repair_class' => 'materialize_commerce_products',
                 'suggested_primitive'   => 'product_grid',
-                'materialization_hint'  => 'layout_blocks_are_emitted_as_is; map_each_detected_product_name_price_and_cart_control_onto_a_commerce_provider',
+                'materialization_hint'  => 'layout_blocks_are_emitted_as_is; map_detected_product_names_prices_images_and_descriptions_to_a_shop_provider',
+                'materialization_target' => array(
+                    'capability'    => 'shop',
+                    'entity'        => 'product',
+                    'provider_role' => 'commerce_product_provider',
+                    'requires'      => array( 'products' ),
+                ),
+            ),
+            'html_commerce_controls_fallback' => array(
+                'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'loss_class'            => 'runtime_island_preserved',
+                'diagnostic_class'      => 'commerce_runtime_controls_detected',
+                'preservation_strategy' => 'layout_blocks_with_commerce_control_metadata',
+                'runtime_requirement'   => 'commerce_cart_runtime',
+                'recoverability'        => 'recoverable_with_commerce_cart_runtime_binding',
+                'actionability'         => 'bind_quantity_and_add_to_cart_controls_to_cart_runtime_after_product_materialization',
+                'suggested_repair_class' => 'materialize_commerce_runtime',
+                'suggested_primitive'   => 'commerce_controls',
+                'materialization_hint'  => 'product_data_can_be_seeded_by_a_shop_provider; core_blocks_cannot_provide_cart_state_or_quantity_mutation_without_runtime_binding',
+                'materialization_target' => array(
+                    'capability'    => 'shop',
+                    'entity'        => 'commerce_controls',
+                    'provider_role' => 'commerce_cart_runtime',
+                    'requires'      => array( 'controls', 'seeded_products' ),
+                ),
             ),
             'html_script_fallback' => array(
                 'severity'              => 'warning',
@@ -225,6 +257,7 @@ final class FallbackDiagnostic
         return match ( $code ) {
             'html_form_fallback' => 'interactive_form',
             'html_product_grid_fallback' => 'commerce_product_grid',
+            'html_commerce_controls_fallback' => 'commerce_controls',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
             'html_iframe_embed_fallback' => 'external_embed',

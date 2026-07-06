@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-product-card-svg-price-grid",
-  "description": "Preserves product cards with passive inline SVG imagery as native core/image blocks, product names, prices, and CTA buttons inside a card grid.",
+  "description": "Preserves product cards with passive inline SVG imagery as native core/image blocks, product names, prices, and CTA buttons inside a card grid while reporting CTA controls as commerce runtime requirements.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-product-card-svg-price-grid.json",
-    "notes": "Generic product-card coverage for image/name/price/action semantics."
+    "notes": "Generic product-card coverage for image/name/price/action semantics. Product CTAs are surfaced as commerce controls because core blocks cannot provide cart runtime behavior."
   },
   "legacy_comparison": {
     "skip": true,
@@ -25,7 +25,8 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "product-cta", "text": "Buy now", "url": "/products/bowl" } }
   ],
   "expected_fallbacks": [
-    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 },
+    { "type": "html", "reason": "commerce_controls_require_runtime", "tag": "div", "diagnostic_code": "html_commerce_controls_fallback", "kind": "html_commerce_controls_fallback", "control_count": 2 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
@@ -37,7 +38,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "product-price" },
     { "path": "source_reports.html.structure_signals.3.signals.price_like", "assert": "equals", "value": true },
     { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "div:nth-of-type(1)" },
     { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
@@ -46,6 +47,12 @@
     { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": true },
     { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Linen Towel" },
     { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$18" },
-    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_commerce_controls_fallback" },
+    { "path": "fallbacks.1.pattern_family", "assert": "equals", "value": "commerce_controls" },
+    { "path": "fallbacks.1.runtime_requirement", "assert": "equals", "value": "commerce_cart_runtime" },
+    { "path": "fallbacks.1.controls", "assert": "count", "count": 2 },
+    { "path": "fallbacks.1.controls.0.product_name", "assert": "equals", "value": "Ceramic Bowl" },
+    { "path": "fallbacks.1.controls.1.product_name", "assert": "equals", "value": "Linen Towel" }
   ]
 }
