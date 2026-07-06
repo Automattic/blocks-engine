@@ -213,14 +213,26 @@ final class BreakpointMediaDiffBuilder
             $declarations[] = 'max-width:100%';
             if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
                 $declarations[] = 'height:auto';
-                if ( ! $wrapsRow ) {
+                if ( ! $wrapsRow && ! $this->hasContainerChild($node) ) {
                     $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
                 }
             }
             if ( $wrapsRow ) {
-                $declarations[] = 'flex-wrap:wrap';
-                $declarations[] = 'align-content:flex-start';
+                if ( $this->hasContainerChild($node) ) {
+                    $declarations[] = 'flex-direction:column';
+                    $declarations[] = 'align-items:stretch';
+                    $declarations[] = 'flex-wrap:nowrap';
+                } else {
+                    $declarations[] = 'flex-wrap:wrap';
+                    $declarations[] = 'align-content:flex-start';
+                }
             }
+
+            if ( in_array($display, array('grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
+                $declarations[] = 'grid-template-columns:1fr';
+            }
+
+            array_push($declarations, ...$this->responsivePaddingClampDeclarations($baseMap));
         }
 
         if ( 'TEXT' === $type && null !== $width && $width > 320.0 ) {
@@ -240,6 +252,43 @@ final class BreakpointMediaDiffBuilder
         }
 
         return array_values(array_unique($declarations));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasContainerChild(array $node): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION'), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function responsivePaddingClampDeclarations(array $baseMap): array
+    {
+        $declarations = array();
+        foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+            $property = 'padding-' . $edge;
+            $padding = $this->cssPixelValue($baseMap[$property] ?? '');
+            if ( null !== $padding && $padding > 24.0 ) {
+                $declarations[] = $property . ':24px';
+            }
+        }
+
+        return $declarations;
     }
 
     /**
