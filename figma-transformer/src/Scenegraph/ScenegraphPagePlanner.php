@@ -76,7 +76,7 @@ final class ScenegraphPagePlanner
      * downstream `@media`-aware emitter consumes):
      *
      *     array(
-     *         // Primary (widest/desktop) variant drives these page-level fields.
+     *         // Primary (desktop/page-depth) variant drives these page-level fields.
      *         'frame_id'              => string,   // primary variant frame id
      *         'name'                  => string,
      *         'slug'                  => string,   // deduped, derived from primary
@@ -113,13 +113,13 @@ final class ScenegraphPagePlanner
      *             device_hint: string,    // desktop|tablet|mobile|unknown
      *             viewport_width: float|null,
      *             viewport_height: float|null,
-     *             primary: bool,          // true for the widest/desktop variant
-     *             order: int,             // 0-based, widest first
+     *             primary: bool,          // true for the selected desktop/page-depth variant
+     *             order: int,             // 0-based, primary first
      *         }>,
      *         'diagnostics'           => array<int, array<string, mixed>>,
      *     )
      *
-     * Variants are ordered widest-first (desktop, tablet, mobile, unknown), so
+     * Variants are ordered primary-first (desktop/page-depth, then breakpoint width), so
      * `variants[0]` is always the primary that drives the page slug/identity.
      *
      * @param array<string, mixed> $source Decoded Figma scenegraph source array.
@@ -1814,7 +1814,7 @@ final class ScenegraphPagePlanner
     }
 
     /**
-     * Order group members widest-first so the primary variant sorts first.
+     * Order group members primary-first so the emitted page identity sorts first.
      *
      * @param array<int, string>                  $ids
      * @param array<string, array<string, mixed>> $candidates
@@ -1826,36 +1826,67 @@ final class ScenegraphPagePlanner
         usort(
             $ids,
             function (string $left, string $right) use ($candidates, $detectionById): int {
+                $leftPrimaryScore = $this->variantPrimaryScore($left, $candidates, $detectionById);
+                $rightPrimaryScore = $this->variantPrimaryScore($right, $candidates, $detectionById);
+                if ( $leftPrimaryScore !== $rightPrimaryScore ) {
+                    return $rightPrimaryScore <=> $leftPrimaryScore;
+                }
+
                 $leftWidth = (float) ($candidates[$left]['dimensions']['width'] ?? 0);
                 $rightWidth = (float) ($candidates[$right]['dimensions']['width'] ?? 0);
                 if ( $leftWidth !== $rightWidth ) {
                     return $rightWidth <=> $leftWidth;
                 }
 
-                $leftRank = $this->deviceRank((string) ($detectionById[$left]['device_hint'] ?? 'unknown'));
-                $rightRank = $this->deviceRank((string) ($detectionById[$right]['device_hint'] ?? 'unknown'));
-
-                return $leftRank <=> $rightRank ?: strcmp($left, $right);
+                return strcmp($left, $right);
             }
         );
 
         return array_values($ids);
     }
 
-    private function deviceRank(string $deviceHint): int
+    /**
+     * Score responsive siblings for primary selection. Device class is the first
+     * signal, then route/page content depth. This lets a real long desktop page
+     * beat a shallow ultra-wide exploration/mockup board without dropping that
+     * wide board or mobile frame from the responsive variants.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     */
+    private function variantPrimaryScore(string $id, array $candidates, array $detectionById): int
     {
-        return match ( $deviceHint ) {
-            'desktop' => 0,
-            'tablet'  => 1,
-            'mobile'  => 2,
-            default   => 3,
+        $deviceScore = match ( (string) ($detectionById[$id]['device_hint'] ?? 'unknown') ) {
+            'desktop' => 6000,
+            'tablet'  => 4000,
+            'unknown' => 3000,
+            'mobile'  => 1000,
+            default   => 0,
         };
+
+        $candidate = $candidates[$id] ?? array();
+        $dimensions = is_array($candidate['dimensions'] ?? null) ? $candidate['dimensions'] : array();
+        $stats = is_array($candidate['stats'] ?? null) ? $candidate['stats'] : array();
+        $width = (float) ($dimensions['width'] ?? 0);
+        $height = (float) ($dimensions['height'] ?? 0);
+        $textCount = (int) ($stats['texts'] ?? 0);
+        $nodeCount = (int) ($stats['nodes'] ?? 0);
+
+        $depthScore = min(900, (int) round($height / 8.0))
+            + min(400, $textCount * 8)
+            + min(240, intdiv($nodeCount, 4));
+        $shallowWidePenalty = $width >= 1600.0 && $height > 0.0 && $height < max(1200.0, $width * 0.65) ? 500 : 0;
+
+        return $deviceScore
+            + (int) ($candidate['score'] ?? 0)
+            + $depthScore
+            - $shallowWidePenalty;
     }
 
     /**
      * Build the ordered breakpoint-variant list for one page plan.
      *
-     * @param array<int, string>                  $members Ordered frame ids (widest first).
+     * @param array<int, string>                  $members Ordered frame ids (primary first).
      * @param array<string, array<string, mixed>> $candidates
      * @param array<string, array<string, mixed>> $detectionById
      * @return array<int, array<string, mixed>>

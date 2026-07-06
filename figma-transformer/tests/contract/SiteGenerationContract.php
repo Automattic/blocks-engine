@@ -105,6 +105,60 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     }
     $assert('single' === ($reportedTemplatePaths['single.html'] ?? null) && 'archive' === ($reportedTemplatePaths['archive.html'] ?? null) && '404' === ($reportedTemplatePaths['404.html'] ?? null), 'template-source-report-preserves-page-types');
 
+    $responsivePrimaryResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Primary Selection Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-primary:wide-short',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page Desktop',
+                'width'    => 2238,
+                'height'   => 869,
+                'children' => array(
+                    array('id' => 'responsive-primary:wide-title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Wide exploration', 'fontSize' => 48),
+                    array('id' => 'responsive-primary:wide-card', 'type' => 'TEXT', 'name' => 'Preview card', 'text' => 'Short preview', 'fontSize' => 18),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-primary:desktop-long',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page Desktop',
+                'width'    => 1440,
+                'height'   => 4421,
+                'children' => array(
+                    array('id' => 'responsive-primary:desktop-hero', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Full homepage', 'fontSize' => 56),
+                    array('id' => 'responsive-primary:desktop-intro', 'type' => 'TEXT', 'name' => 'Intro', 'text' => 'Intro copy', 'fontSize' => 20),
+                    array('id' => 'responsive-primary:desktop-service-1', 'type' => 'TEXT', 'name' => 'Service', 'text' => 'Service one', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-service-2', 'type' => 'TEXT', 'name' => 'Service', 'text' => 'Service two', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-service-3', 'type' => 'TEXT', 'name' => 'Service', 'text' => 'Service three', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-feature-1', 'type' => 'TEXT', 'name' => 'Feature', 'text' => 'Feature one', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-feature-2', 'type' => 'TEXT', 'name' => 'Feature', 'text' => 'Feature two', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-feature-3', 'type' => 'TEXT', 'name' => 'Feature', 'text' => 'Feature three', 'fontSize' => 18),
+                    array('id' => 'responsive-primary:desktop-quote', 'type' => 'TEXT', 'name' => 'Quote', 'text' => 'Testimonial', 'fontSize' => 22),
+                    array('id' => 'responsive-primary:desktop-footer', 'type' => 'TEXT', 'name' => 'Footer', 'text' => 'Footer copy', 'fontSize' => 16),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-primary:mobile',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page Mobile',
+                'width'    => 390,
+                'height'   => 8142,
+                'children' => array(
+                    array('id' => 'responsive-primary:mobile-hero', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Full homepage', 'fontSize' => 36),
+                    array('id' => 'responsive-primary:mobile-copy', 'type' => 'TEXT', 'name' => 'Intro', 'text' => 'Mobile copy', 'fontSize' => 18),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true));
+    $responsivePrimaryPage = $responsivePrimaryResult['source_reports']['figma']['pages']['pages'][0] ?? array();
+    $responsivePrimaryVariantIds = array_values(array_map(
+        static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''),
+        is_array($responsivePrimaryPage['variants'] ?? null) ? $responsivePrimaryPage['variants'] : array()
+    ));
+    $assert('responsive-primary:desktop-long' === ($responsivePrimaryPage['frame_id'] ?? null), 'responsive-primary-selection-prefers-long-desktop-page');
+    $assert(in_array('responsive-primary:mobile', $responsivePrimaryVariantIds, true), 'responsive-primary-selection-preserves-mobile-variant');
+
     $singlePageArtifactResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Single Page Artifact Fixture',
         'nodes' => array(
