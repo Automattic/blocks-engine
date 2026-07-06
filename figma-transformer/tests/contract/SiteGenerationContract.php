@@ -491,6 +491,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'height'   => 1200,
                 'layoutMode' => 'VERTICAL',
                 'layoutSizingHorizontal' => 'FILL',
+                'paddingLeft' => 112,
+                'paddingRight' => 112,
                 'children' => array(
                     array(
                         'id'       => 'fluid-band:hero',
@@ -517,7 +519,9 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         ),
     ));
     $fullWidthBandCss = $fileContent($fullWidthBandResult, 'style.css');
-    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band{width:100%;height:520px;'), 'quality-diagnostics-full-width-band-renders-fluid');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $fullWidthBandCss, '.figma-node-fluid-band-root-desktop-page', array('width:100%', 'padding-right:clamp(24px,calc((100% - 1216px) / 2),112px)', 'padding-left:clamp(24px,calc((100% - 1216px) / 2),112px)'), 'quality-diagnostics-fluid-root-uses-clamped-gutters');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $fullWidthBandCss, '.figma-node-fluid-band-root-desktop-page', array('min-height:1200px'), 'quality-diagnostics-normal-fluid-root-keeps-source-height-floor');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band', array('width:100%'), 'quality-diagnostics-full-width-band-renders-fluid');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100vw;height:520px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-breaks-out-to-viewport');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
@@ -595,8 +599,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $responsiveRootRule = blocks_engine_figma_transformer_contract_css_rule($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page');
     $assert(str_contains($responsiveRootRule, 'width:100%') && ! str_contains($responsiveRootRule, 'max-width:1440px'), 'quality-diagnostics-responsive-shell-root-fills-viewport-without-implicit-canvas-cap');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;min-height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
-    $assert(str_contains($responsiveShellCss, 'padding-right:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-right-gutter');
-    $assert(str_contains($responsiveShellCss, 'padding-left:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-left-gutter');
+    $assert(str_contains($responsiveShellCss, 'padding-right:clamp(24px,calc((100% - 1170px) / 2),135px)'), 'quality-diagnostics-responsive-shell-band-uses-responsive-right-gutter');
+    $assert(str_contains($responsiveShellCss, 'padding-left:clamp(24px,calc((100% - 1170px) / 2),135px)'), 'quality-diagnostics-responsive-shell-band-uses-responsive-left-gutter');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-centered-centered-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-centered-flow-shell-renders-responsive-width');
     $assert(str_contains($responsiveShellCss, 'margin-left:auto;margin-right:auto'), 'quality-diagnostics-centered-flow-shell-centers-with-auto-margins');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');

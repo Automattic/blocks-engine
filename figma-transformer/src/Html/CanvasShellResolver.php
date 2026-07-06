@@ -102,6 +102,23 @@ final class CanvasShellResolver
     }
 
     /**
+     * Root/page shells and full-width section shells should grow from content; the
+     * fixed Figma canvas height is provenance, not base CSS layout.
+     */
+    public function nodeShouldUseContentDrivenHeight(string $type, CanvasShellDecision $decision, ?float $sourceHeight): bool
+    {
+        if ( ! in_array($type, array('FRAME', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
+            return false;
+        }
+
+        if ( null === $sourceHeight || $sourceHeight < 1800.0 ) {
+            return false;
+        }
+
+        return in_array($decision->frameWidthRole, array(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_ROOT, LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND), true);
+    }
+
+    /**
      * @return array<int, string>
      */
     public function fullBleedViewportBreakoutStyles(CanvasShellDecision $decision): array
