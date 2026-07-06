@@ -10,10 +10,12 @@ final class ButtonsPattern
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
     private readonly ButtonStyleResolver $styleResolver;
+    private readonly ButtonSignalClassifier $signalClassifier;
 
     public function __construct()
     {
         $this->styleResolver = new ButtonStyleResolver();
+        $this->signalClassifier = new ButtonSignalClassifier();
     }
 
     /**
@@ -306,58 +308,8 @@ final class ButtonsPattern
 
     private function hasButtonSignal(DOMElement $anchor): bool
     {
-        if ( 'button' === strtolower($anchor->hasAttribute('role') ? $anchor->getAttribute('role') : '') ) {
-            return true;
-        }
-
-		return $this->hasButtonClassSignal($anchor)
-			|| $this->hasAnyToken($anchor, array( 'cta', 'action' ))
-			|| $this->hasPhrase($anchor, array( 'call-to-action', 'primary-action', 'secondary-action' ))
-			|| $this->hasActionText($anchor)
-			|| $this->hasButtonStyleSignal($anchor);
+        return $this->signalClassifier->hasTransformSignal($anchor);
     }
-
-	/**
-	 * Detect button-like class/id tokens generically.
-	 *
-	 * Keys off the generic "btn"/"button" substring rather than any one specific
-	 * class string, so framework variants are all recognized: btn, btn-primary,
-	 * hero-btn, link-btn, btnPrimary, actionButton, icon-button, roundedbtn, etc.
-	 */
-	private function hasButtonClassSignal(DOMElement $element): bool
-	{
-		foreach ( array( 'class', 'id' ) as $attribute ) {
-			$value = strtolower($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
-			if ( str_contains($value, 'btn') || str_contains($value, 'button') ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Detect button-like inline styling.
-	 *
-	 * Treats an element as a button when it carries padding plus a button shape
-	 * signal (a filled, non-transparent background or a border radius). This lets
-	 * styled anchors with no recognizable class still be promoted to buttons,
-	 * while plain text links (no padding/fill) stay links.
-	 */
-	private function hasButtonStyleSignal(DOMElement $element): bool
-	{
-		$style = strtolower($element->hasAttribute('style') ? $element->getAttribute('style') : '');
-		if ( '' === $style || ! preg_match('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*[^;]+/', $style) ) {
-			return false;
-		}
-
-		if ( preg_match('/(?:^|;)\s*border[a-z-]*radius\s*:\s*[^;]+/', $style) ) {
-			return true;
-		}
-
-		return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1
-			&& preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
-	}
 
     private function hasContainerButtonSignal(DOMElement $element): bool
     {
@@ -370,10 +322,10 @@ final class ButtonsPattern
             return true;
         }
 
-        return $this->hasButtonClassSignal($element)
+        return $this->signalClassifier->hasClassSignal($element)
             || $this->hasAnyToken($element, array( 'cta', 'action' ))
             || $this->hasPhrase($element, array( 'call-to-action', 'primary-action', 'secondary-action' ))
-            || $this->hasButtonStyleSignal($element);
+            || $this->signalClassifier->hasStyleSignal($element);
     }
 
 	private function isDirectAnchorRow(DOMElement $element): bool
@@ -481,24 +433,4 @@ final class ButtonsPattern
 		return false;
 	}
 
-	private function hasActionText(DOMElement $element): bool
-	{
-		$text = strtolower(trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? ''));
-		if ( '' === $text ) {
-			return false;
-		}
-
-		return in_array($text, array(
-			'add to cart',
-			'buy now',
-			'checkout',
-			'shop now',
-			'get started',
-			'sign up',
-			'subscribe',
-			'donate',
-			'register',
-			'book now',
-		), true);
-	}
 }

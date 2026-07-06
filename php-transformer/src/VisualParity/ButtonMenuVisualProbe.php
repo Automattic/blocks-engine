@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonSignalClassifier;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -11,6 +12,8 @@ use DOMXPath;
 final class ButtonMenuVisualProbe
 {
     public const SCHEMA = 'blocks-engine/php-transformer/visual-parity-probes/v1';
+
+    private readonly ButtonSignalClassifier $buttonSignalClassifier;
 
     private const STYLE_FIELDS = array(
         'background',
@@ -63,6 +66,11 @@ final class ButtonMenuVisualProbe
         'text-transform',
         'width',
     );
+
+    public function __construct()
+    {
+        $this->buttonSignalClassifier = new ButtonSignalClassifier();
+    }
 
     /**
      * @return array<string, mixed>
@@ -260,16 +268,7 @@ final class ButtonMenuVisualProbe
 
     private function hasButtonSignal(DOMElement $element): bool
     {
-        // Generic button-token detection: any class/id containing the "btn" or
-        // "button" substring (covers btn, btn-primary, hero-btn, btnPrimary,
-        // actionButton, roundedbtn, wp-element-button, etc.). Kept consistent with
-        // the HTML transformer's button-signal heuristic.
-        $value = strtolower(
-            ( $element->hasAttribute('class') ? $element->getAttribute('class') : '' ) . ' '
-            . ( $element->hasAttribute('id') ? $element->getAttribute('id') : '' )
-        );
-
-        return str_contains($value, 'btn') || str_contains($value, 'button');
+        return $this->buttonSignalClassifier->hasClassSignal($element);
     }
 
     private function hasRegressionRiskSignal(DOMElement $element): bool
