@@ -38,7 +38,7 @@ final class PositioningStyleResolver
         $styles = array();
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
-        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
+        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || ('absolute' === ($layout['positioning'] ?? null) && ! $parentFreeformUsesFlow) || $isDecorativeFlexUnderlay;
         $stackingContextPlan = $this->layoutIntentClassifier->stackingContextPlan($node, $parentNode);
         $effectiveZIndex = isset($stackingContextPlan['z_index']) && is_int($stackingContextPlan['z_index']) ? $stackingContextPlan['z_index'] : null;
         $zIndexReason = isset($stackingContextPlan['z_index_reason']) && is_string($stackingContextPlan['z_index_reason']) ? $stackingContextPlan['z_index_reason'] : null;
@@ -98,7 +98,7 @@ final class PositioningStyleResolver
             $reasonCode = 'decorative_flex_underlay_absolute';
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
             $reasonCode = 'freeform_parent_absolute_child';
-        } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
+        } elseif ( 'absolute' === ($layout['positioning'] ?? null) && ! $parentFreeformUsesFlow ) {
             $reasonCode = 'explicit_absolute_positioning';
         }
 

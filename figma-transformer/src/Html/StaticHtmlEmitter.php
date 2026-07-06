@@ -1015,11 +1015,15 @@ final class StaticHtmlEmitter
             }
         }
 
+        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
         $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
         $semanticRole = $this->semanticRoleMetadata($node, $tag, $type, $name);
         if ( null !== $semanticRole ) {
             $attributes .= ' data-figma-semantic-role="' . $this->sanitizeAttribute($semanticRole) . '"';
+        }
+        if ( $this->layoutIntentShouldEmitClass($layoutIntent) ) {
+            $attributes .= $this->layoutIntentAttributes($layoutIntent);
         }
         $anchorId = $this->headingAnchorId($node, $tag);
         if ( null !== $anchorId ) {
@@ -2144,10 +2148,23 @@ final class StaticHtmlEmitter
      */
     private function freeformContainerShouldUseFlow(array $node): bool
     {
-        if ( ! $this->isFreeformContainer($node) ) {
+        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( empty($layout['display'] ?? null) && is_array($layoutIntent) && in_array($layoutIntent['intent'] ?? '', array(
+            LayoutIntentClassifier::LAYOUT_INTENT_CARD_ROW,
+            LayoutIntentClassifier::LAYOUT_INTENT_CARD_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_PRICING_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_SERVICE_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_ARTICLE_GRID,
+        ), true) ) {
+            return true;
+        }
+
+        if ( ! empty($this->listItemIds($node)) ) {
             return false;
         }
-        if ( ! empty($this->listItemIds($node)) ) {
+
+        if ( ! $this->isFreeformContainer($node) ) {
             return false;
         }
 
@@ -6133,7 +6150,7 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
-            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->canvasShellResolver()->nodeShouldUseFlowHeight($type, $layout, $canvasShell) ) {
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && ($this->canvasShellResolver()->nodeShouldUseFlowHeight($type, $layout, $canvasShell) || $this->freeformContainerShouldUseFlow($node) || (empty($layout['display'] ?? null) && $this->layoutIntentShouldEmitClass($this->layoutIntentClassifier()->layoutIntent($node, $parentNode)))) ) {
                 $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
                 continue;
             }
@@ -6285,6 +6302,13 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
+        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
+        if ( empty($layout['display'] ?? null) && $this->layoutIntentShouldEmitClass($layoutIntent) ) {
+            foreach ( $this->layoutIntentStyles($layoutIntent) as $style ) {
+                $styles[] = $style;
+            }
+        }
+
         foreach ( array(
             'display'         => 'display',
             'flex_direction'  => 'flex-direction',
@@ -6368,6 +6392,56 @@ final class StaticHtmlEmitter
         }
 
         return $scaled;
+    }
+
+    /**
+     * @param array{intent: string, display: string, direction: string, collection: string|null, item_count: int, column_count: int|null, gap: float|null, confidence: string} $layoutIntent
+     * @return array<int, string>
+     */
+    private function layoutIntentStyles(array $layoutIntent): array
+    {
+        $styles = array();
+        if ( 'grid' === ($layoutIntent['display'] ?? null) ) {
+            $columns = isset($layoutIntent['column_count']) && is_int($layoutIntent['column_count']) && $layoutIntent['column_count'] > 1 ? $layoutIntent['column_count'] : 2;
+            $styles[] = 'display:grid';
+            $styles[] = 'grid-template-columns:repeat(' . (string) $columns . ',minmax(0,1fr))';
+        } else {
+            $styles[] = 'display:flex';
+            $styles[] = 'flex-direction:' . ('row' === ($layoutIntent['direction'] ?? null) ? 'row' : 'column');
+            if ( in_array($layoutIntent['intent'] ?? '', array(LayoutIntentClassifier::LAYOUT_INTENT_CARD_ROW, LayoutIntentClassifier::LAYOUT_INTENT_NAV_ROW), true) ) {
+                $styles[] = 'align-items:center';
+            }
+        }
+
+        if ( isset($layoutIntent['gap']) && is_numeric($layoutIntent['gap']) && (float) $layoutIntent['gap'] > 0.0 ) {
+            $styles[] = 'gap:' . $this->number((float) $layoutIntent['gap']) . 'px';
+        }
+
+        return $styles;
+    }
+
+    /** @param array<string, mixed>|null $layoutIntent */
+    private function layoutIntentShouldEmitClass(?array $layoutIntent): bool
+    {
+        return is_array($layoutIntent) && null !== ($layoutIntent['collection'] ?? null);
+    }
+
+    /**
+     * @param array{intent: string, display: string, direction: string, collection: string|null, item_count: int, column_count: int|null, gap: float|null, confidence: string} $layoutIntent
+     */
+    private function layoutIntentAttributes(array $layoutIntent): string
+    {
+        $attributes = ' data-figma-layout-intent="' . $this->sanitizeAttribute((string) ($layoutIntent['intent'] ?? '')) . '"';
+        $attributes .= ' data-figma-layout-display="' . $this->sanitizeAttribute((string) ($layoutIntent['display'] ?? '')) . '"';
+        $attributes .= ' data-figma-layout-direction="' . $this->sanitizeAttribute((string) ($layoutIntent['direction'] ?? '')) . '"';
+        if ( null !== ($layoutIntent['collection'] ?? null) ) {
+            $attributes .= ' data-figma-collection="' . $this->sanitizeAttribute((string) $layoutIntent['collection']) . '"';
+        }
+        if ( isset($layoutIntent['column_count']) && is_int($layoutIntent['column_count']) && $layoutIntent['column_count'] > 1 ) {
+            $attributes .= ' data-figma-layout-columns="' . $this->sanitizeAttribute((string) $layoutIntent['column_count']) . '"';
+        }
+
+        return $attributes;
     }
 
     private function scaleFullBleedImageCropDeclaration(string $style, float $sourceWidth, string $kind): string
