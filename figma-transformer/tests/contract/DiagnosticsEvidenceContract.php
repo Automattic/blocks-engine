@@ -546,6 +546,29 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(0 === ($assetOmissionDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-asset-missing-render-no-source-loss-gap');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $assetOmissionResult, 'source_loss_coverage_gap', 'diagnostics-evidence-asset-missing-render-no-source-loss-signal');
 
+    $assetContentOmittedResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'   => 'Diagnostics Asset Content Omitted Fixture',
+        'assets' => array(
+            'archive-present' => array('id' => 'archive-present', 'hash' => 'archive-present', 'path' => 'images/archive-present', 'content_omitted' => true),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'diag:asset-content-omitted-page',
+                'type'     => 'FRAME',
+                'name'     => 'Asset Content Omitted Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:content-omitted-asset', 'type' => 'RECTANGLE', 'name' => 'Content Omitted Asset', 'asset_id' => 'archive-present', 'width' => 80, 'height' => 60),
+                ),
+            ),
+        ),
+    ));
+    $assetContentOmittedDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($assetContentOmittedResult);
+    $assetContentOmittedReasons = $assetContentOmittedDiagnostics['images']['asset_node_reason_categories'] ?? array();
+    $assert(1 === ($assetContentOmittedReasons['archive_asset_content_omitted'] ?? null), 'diagnostics-evidence-asset-content-omitted-reason');
+    $assert('archive_asset_content_omitted' === ($assetContentOmittedDiagnostics['images']['asset_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-asset-content-omitted-node-reason');
+
     $hiddenAssetResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Hidden Asset Fixture',
         'assets' => array(

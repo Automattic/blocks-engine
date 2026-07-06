@@ -163,6 +163,7 @@ final class FigmaTransformer
 
         $scenegraphCandidate = $this->decodedScenegraphCandidate($archive);
         if ( null !== $scenegraphCandidate ) {
+            $options['archive_asset_content_resolver'] = fn (array $asset): ?array => $this->archiveReader->hydrateAssetContent($path, $asset, $options);
             $scenegraph = $this->withArchiveAssets($scenegraphCandidate['payload'], $archive['assets']);
             $scenegraphResult = $this->transformScenegraph($scenegraph, $options)->toArray();
             $scenegraphStatus = (string) ($scenegraphResult['status'] ?? 'success_with_warnings');

@@ -127,7 +127,23 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(in_array('figma_transformer_decoded_scenegraph_missing', $pendingDiagnosticCodes, true), 'pending-decoder-diagnostic');
 
     $assetPreflightFixture = SyntheticFigKiwiFixtureBuilder::jsonFigArchive(
-        SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Asset Preflight'),
+        array(
+            'name'         => 'Asset Preflight Node Changes Fixture',
+            'NODE_CHANGES' => array(
+                '4:1' => array(
+                    'node' => array(
+                        'id'       => '4:1',
+                        'type'     => 'FRAME',
+                        'name'     => 'Asset Preflight Landing',
+                        'width'    => 320,
+                        'height'   => 180,
+                        'children' => array(
+                            array('id' => '4:2', 'type' => 'RECTANGLE', 'name' => 'Referenced Oversized Asset', 'asset_id' => 'oversized-a', 'width' => 80, 'height' => 60),
+                        ),
+                    ),
+                ),
+            ),
+        ),
         array(
             'images/oversized-a' => str_repeat('a', 12),
             'images/oversized-b' => str_repeat('b', 12),
@@ -145,6 +161,8 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(24 === ($assetPreflightResult['source_reports']['figma']['archive']['metrics']['total_asset_bytes'] ?? null), 'asset-preflight-total-asset-bytes');
     $assert(false === ($assetPreflightResult['source_reports']['figma']['archive']['metrics']['asset_content_included'] ?? null), 'asset-preflight-content-omitted-metric');
     $assert(! array_key_exists('content', $assetPreflightResult['source_reports']['figma']['assets'][0] ?? array()), 'asset-preflight-source-asset-content-omitted');
+    $assert('assets/oversized-a.bin' === ($assetPreflightResult['assets'][0]['path'] ?? null), 'asset-preflight-referenced-asset-lazily-hydrated');
+    $assert(12 === strlen((string) ($assetPreflightResult['files'][2]['content'] ?? '')), 'asset-preflight-lazy-asset-content-emitted');
 
     $canvasPreflightFixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Canvas Preflight'))))
