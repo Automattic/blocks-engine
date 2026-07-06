@@ -838,6 +838,10 @@ final class StaticHtmlEmitter
             );
         }
         $children = $this->nodeList($node);
+        $imageElement = $this->imageElementMetadata($node, $type, $children);
+        if ( null !== $imageElement ) {
+            $tag = 'img';
+        }
         $content = $text;
         $nodeIntroducesLink = $this->nodeIntroducesLinkContext($node, $parentNode, $insideLink);
         $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
@@ -984,7 +988,8 @@ final class StaticHtmlEmitter
             }
         }
 
-        $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
+        $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
+        $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
         $semanticRole = $this->semanticRoleMetadata($node, $tag, $type, $name);
         if ( null !== $semanticRole ) {
             $attributes .= ' data-figma-semantic-role="' . $this->sanitizeAttribute($semanticRole) . '"';
@@ -992,6 +997,13 @@ final class StaticHtmlEmitter
         $anchorId = $this->headingAnchorId($node, $tag);
         if ( null !== $anchorId ) {
             $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
+        }
+        if ( null !== $imageElement ) {
+            $attributes .= $this->imageElementAttributes($imageElement);
+        }
+        $semanticHintAttributes = $this->semanticHintAttributes($node, $tag, $parentNode, $grandParentNode);
+        if ( '' !== $semanticHintAttributes ) {
+            $attributes .= $semanticHintAttributes;
         }
         if ( in_array($tag, array('input', 'textarea'), true) ) {
             $attributes .= $this->formControlAttributes($node, $tag, $parentNode);
@@ -1002,7 +1014,7 @@ final class StaticHtmlEmitter
         } elseif ( 'form' === $tag ) {
             $attributes .= $this->formAttributes($node);
         }
-        if ( 'RECTANGLE' === $type && '' === $content ) {
+        if ( 'RECTANGLE' === $type && '' === $content && null === $imageElement ) {
             $attributes .= ' aria-hidden="true"';
         }
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
@@ -1011,7 +1023,9 @@ final class StaticHtmlEmitter
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
 
-        if ( 'input' === $tag ) {
+        if ( 'img' === $tag ) {
+            $element = sprintf("<img%1\$s>\n", $attributes);
+        } elseif ( 'input' === $tag ) {
             $element = sprintf("<input%1\$s>\n", $attributes);
         } else {
             $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
@@ -1037,6 +1051,136 @@ final class StaticHtmlEmitter
             'vector_svg' => $vectorSvg,
             'has_vector_asset_fallback' => $this->isUnsupportedVectorType($type) && null !== $assetPath,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed>    $children
+     * @return array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null}|null
+     */
+    private function imageElementMetadata(array $node, string $type, array $children): ?array
+    {
+        if ( ! in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE', 'FRAME', 'GROUP', 'INSTANCE'), true) ) {
+            return null;
+        }
+        if ( ! empty(array_filter($children, 'is_array')) || '' !== trim($this->textContent($node)) || $this->nodeHasCssMaskImage($node) ) {
+            return null;
+        }
+
+        $layers = $this->nodeImagePaintLayers($node);
+        $assetPath = null;
+        $paint = array();
+        if ( ! empty($layers) ) {
+            $assetPath = (string) ($layers[0]['path'] ?? '');
+            $paint = is_array($layers[0]['paint'] ?? null) ? $layers[0]['paint'] : array();
+        } else {
+            $assetPath = $this->nodeAssetPath($node);
+        }
+        if ( null === $assetPath || '' === $assetPath ) {
+            return null;
+        }
+
+        $scaleMode = empty($paint) ? $this->nodeImageScaleMode($node) : $this->imagePaintScaleMode($paint);
+        $backgroundStyles = empty($paint) ? array() : $this->imagePaintLayerBackgroundStyles($node, $paint, $scaleMode);
+
+        return array(
+            'src'                 => $assetPath,
+            'alt'                 => $this->imageAltText($node, $paint),
+            'scale_mode'          => $scaleMode,
+            'background_size'     => isset($backgroundStyles['size']) ? (string) $backgroundStyles['size'] : null,
+            'background_position' => isset($backgroundStyles['position']) ? (string) $backgroundStyles['position'] : null,
+            'crop_rect'           => empty($paint) ? null : $this->imagePaintCropRect($paint),
+        );
+    }
+
+    /** @param array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null} $metadata */
+    private function imageElementAttributes(array $metadata): string
+    {
+        $attributes = ' src="' . $this->sanitizeAttribute($metadata['src']) . '"';
+        $attributes .= ' alt="' . $this->sanitizeAttribute($metadata['alt']) . '"';
+        $attributes .= ' loading="lazy" decoding="async"';
+        $attributes .= ' data-figma-image-fill="true" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
+        if ( null !== $metadata['background_size'] ) {
+            $attributes .= ' data-figma-image-background-size="' . $this->sanitizeAttribute($metadata['background_size']) . '"';
+        }
+        if ( null !== $metadata['background_position'] ) {
+            $attributes .= ' data-figma-image-background-position="' . $this->sanitizeAttribute($metadata['background_position']) . '"';
+        }
+        if ( is_array($metadata['crop_rect']) ) {
+            $attributes .= ' data-figma-image-crop-rect="' . $this->sanitizeAttribute((string) json_encode($metadata['crop_rect'])) . '"';
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $paint
+     */
+    private function imageAltText(array $node, array $paint): string
+    {
+        foreach ( array('altText', 'alt', 'description', 'name', 'imageName') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== trim((string) $paint[$key]) ) {
+                return $this->humanImageLabel((string) $paint[$key]);
+            }
+        }
+
+        return $this->humanImageLabel((string) ($node['name'] ?? ''));
+    }
+
+    private function humanImageLabel(string $value): string
+    {
+        $label = preg_replace('/\.(jpe?g|png|gif|webp|svg)$/i', '', $value) ?? $value;
+        $label = preg_replace('/[-_]+/', ' ', $label) ?? $label;
+        $label = preg_replace('/\s+/', ' ', $label) ?? $label;
+        return trim($label);
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function semanticHintAttributes(array $node, string $tag, ?array $parentNode, ?array $grandParentNode): string
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $attributes = '';
+        if ( in_array($tag, array('section', 'div'), true) && $this->hasQueryContainerName($name) ) {
+            $attributes .= ' data-figma-collection="posts"';
+            $attributes .= ' data-figma-template-hint="archive"';
+        }
+        if ( 'article' === $tag && $this->hasPostCardName($name) ) {
+            $inQueryContainer = false;
+            foreach ( array($parentNode, $grandParentNode) as $ancestor ) {
+                if ( ! is_array($ancestor) ) {
+                    continue;
+                }
+                $ancestorName = strtolower((string) ($ancestor['name'] ?? ''));
+                if ( $this->hasQueryContainerName($ancestorName) ) {
+                    $inQueryContainer = true;
+                    break;
+                }
+            }
+            $attributes .= ' data-figma-content-kind="' . ( $inQueryContainer ? 'post-card' : 'post' ) . '"';
+            if ( $inQueryContainer ) {
+                $attributes .= ' data-figma-query-item="true"';
+            }
+        }
+
+        return $attributes;
+    }
+
+    private function hasQueryContainerName(string $name): bool
+    {
+        return 1 === preg_match('/(^|[^a-z])(query|archive|index|search results)([^a-z]|$)/', $name);
+    }
+
+    private function hasPostCardName(string $name): bool
+    {
+        if ( str_contains($name, 'comment') || str_contains($name, 'navigation') || str_contains($name, 'content') ) {
+            return false;
+        }
+
+        return 1 === preg_match('/(^|[^a-z])(post|article|preview|card)([^a-z]|$)/', $name);
     }
 
     /**

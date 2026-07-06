@@ -9,8 +9,11 @@ declare(strict_types=1);
 function blocks_engine_figma_transformer_run_image_paint_contract(callable $assert, array $result, string $css, callable $fileContent): void
 {
     $assert(2 === ($result['metrics']['asset_count'] ?? null), 'asset-count');
+    $html = $fileContent($result, 'index.html');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-4-hero-image-rectangle', array('width:320px', 'height:180px', 'position:absolute', 'left:10px', 'top:20px', 'background:#ff0000', 'background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-5-nested-image-paint', array('background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
+    $assert(str_contains($html, '<img class="figma-node-1-4-hero-image-rectangle figma-image-asset"') && str_contains($html, 'src="assets/hero-image.svg"') && str_contains($html, 'data-figma-image-fill="true"'), 'asset-backed-rectangle-emits-img-element');
+    $assert(str_contains($html, '<img class="figma-node-1-5-nested-image-paint figma-image-asset"') && str_contains($html, 'src="assets/fixture-photo.jpg"') && str_contains($html, 'data-figma-image-scale-mode="FILL"') && str_contains($html, 'data-figma-image-background-size='), 'image-paint-emits-img-with-crop-metadata');
     $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
 
     $imageUnderlayGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -74,6 +77,39 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(str_contains($imageBackedVectorHtml, 'data-figma-node-id="imagevector:photo"') && ! str_contains($imageBackedVectorHtml, 'data-figma-vector="true"'), 'image-backed-vector-does-not-emit-vector-svg');
     $assert(0 === ($imageBackedVectorDiagnostics['vectors']['placeholders'] ?? null), 'image-backed-vector-not-counted-as-placeholder');
     $assert(1 === ($imageBackedVectorDiagnostics['images']['paint_refs'] ?? null), 'image-backed-vector-image-paint-evidence-counted');
+
+    $queryCardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Query Card Semantics Fixture',
+        'assets' => array(
+            'card-photo' => array('mime_type' => 'image/jpeg', 'content' => 'card photo'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'query:root',
+                'type'     => 'FRAME',
+                'name'     => 'Query Loop',
+                'width'    => 640,
+                'height'   => 360,
+                'children' => array(
+                    array(
+                        'id'       => 'query:post',
+                        'type'     => 'FRAME',
+                        'name'     => 'post',
+                        'width'    => 320,
+                        'height'   => 240,
+                        'children' => array(
+                            array('id' => 'query:image', 'type' => 'RECTANGLE', 'name' => 'Featured image', 'width' => 320, 'height' => 160, 'asset_id' => 'card-photo'),
+                            array('id' => 'query:category', 'type' => 'TEXT', 'name' => 'Category', 'text' => 'News'),
+                            array('id' => 'query:title', 'type' => 'TEXT', 'name' => 'Post title', 'text' => 'A real article card'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $queryCardHtml = $fileContent($queryCardResult, 'index.html');
+    $assert(str_contains($queryCardHtml, '<section class="figma-node-query-root-query-loop"') && str_contains($queryCardHtml, 'data-figma-collection="posts"') && str_contains($queryCardHtml, 'data-figma-template-hint="archive"'), 'query-container-emits-archive-hints');
+    $assert(str_contains($queryCardHtml, '<article class="figma-node-query-post-post"') && str_contains($queryCardHtml, 'data-figma-content-kind="post-card"') && str_contains($queryCardHtml, 'data-figma-query-item="true"'), 'image-title-card-emits-article-hints');
 
     $imageMaskOverlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Image Mask Overlay Fixture',

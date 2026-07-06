@@ -684,7 +684,16 @@ final class StaticHtmlSemanticClassifier
         }
 
         if ( preg_match('/(^|\s)(post|preview|card)(\s|$)/', $lowerName) ) {
-            return ($this->textDescendantCount)($node) >= 3;
+            $textCount = ($this->textDescendantCount)($node);
+            if ( $textCount >= 3 ) {
+                return true;
+            }
+
+            foreach ( $this->children($node) as $child ) {
+                if ( null !== ($this->nodeAssetPath)($child) ) {
+                    return $textCount >= 2;
+                }
+            }
         }
 
         return false;

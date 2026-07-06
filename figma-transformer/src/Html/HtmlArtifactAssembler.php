@@ -32,6 +32,7 @@ final class HtmlArtifactAssembler
             'img{display:block;max-width:100%;height:auto}',
             'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
+            '.figma-image-asset{display:block;width:100%;height:100%;max-width:none;object-fit:cover;object-position:center}',
         );
         if ( $renderTextGlyphPaths ) {
             $rules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';

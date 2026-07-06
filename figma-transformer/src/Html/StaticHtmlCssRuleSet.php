@@ -108,6 +108,7 @@ final class StaticHtmlCssRuleSet
             'figma-link'         => true,
             'figma-text-glyphs'  => true,
             'figma-vector-asset' => true,
+            'figma-image-asset'  => true,
         );
         $usedNames         = array();
         $bodyToSharedClass = array();
