@@ -33,7 +33,7 @@ trait ButtonLinkDispatchTrait
             $element,
             fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
             fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -73,7 +73,7 @@ trait ButtonLinkDispatchTrait
         return $this->buttonsPattern->matchButton(
             $element,
             fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
         );
