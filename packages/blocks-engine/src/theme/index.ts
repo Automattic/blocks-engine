@@ -53,7 +53,6 @@ export { preserveDomStrategy } from './preserve-dom/strategy.js';
 export {
   collectHtmlImages,
   collectSourceAssets,
-  buildNavigationAnchorCompatCss,
   localizeCssImages,
   rewriteHtmlImageSrcs,
   WP_COMPAT_CSS,
