@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMedi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
@@ -130,6 +131,8 @@ final class HtmlTransformer
     );
 
     private readonly BlockFactory $blockFactory;
+
+    private readonly BackgroundImageExtractor $backgroundImageExtractor;
 
     private readonly ButtonsPattern $buttonsPattern;
 
@@ -329,6 +332,7 @@ final class HtmlTransformer
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
         $this->blockFactory      = new BlockFactory();
+        $this->backgroundImageExtractor = new BackgroundImageExtractor();
         $this->buttonsPattern    = new ButtonsPattern();
         $this->codeWindowPattern = new CodeWindowPattern();
         $this->columnsPattern    = new ColumnsPattern();
@@ -5940,42 +5944,16 @@ final class HtmlTransformer
      */
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
     {
-        $url = $this->backgroundImageUrlFromStyle($this->mergedPresentationStyle($element));
+        $url = $this->backgroundImageExtractor->urlFromStyle($this->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
         }
 
         return $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
-            'alt'       => $this->backgroundImageAlt($element),
+            'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
             'className' => 'blocks-engine-background-image',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
-    }
-
-    private function backgroundImageUrlFromStyle(string $style): string
-    {
-        if ( ! preg_match('/(?:^|;)\s*background(?:-image)?\s*:\s*[^;]*url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $style, $matches) ) {
-            return '';
-        }
-
-        $url = trim(html_entity_decode((string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
-    private function backgroundImageAlt(DOMElement $element): string
-    {
-        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $value = trim($this->attr($element, $attribute));
-            if ( '' !== $value ) {
-                return $value;
-            }
-        }
-
-        return '';
     }
 
     private function hasDirectMediaChild(DOMElement $element): bool
