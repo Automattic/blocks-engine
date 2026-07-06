@@ -1346,7 +1346,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+        if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
             if ( $this->shouldPreserveRuntimeAppShell($element) ) {
                 $targets = $this->runtimeTargetsInSubtree($element, 8);
                 $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
@@ -2083,25 +2083,11 @@ final class HtmlTransformer
         $parent->removeChild($element);
     }
 
-    /**
-     * Semantic HTML5 container tags core's `core/group` block can render as its
-     * wrapper via the `tagName` attribute. A source `<header>`/`<section>`/etc.
-     * collapsed to a group keeps its real tag so tag-qualified source CSS
-     * (`header { ... }`, `section { ... }`) still matches the rendered output.
-     *
-     * `figure` is intentionally excluded — it has its own conversion path and is
-     * not a core/group wrapper option. Nav link lists are handled separately by
-     * the navigation path and never reach here.
-     *
-     * @var array<int, string>
-     */
-    private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
-
     private function semanticGroupTagName(DOMElement $element): ?string
     {
         $tag = strtolower($element->tagName);
 
-        return in_array($tag, self::SEMANTIC_GROUP_TAGS, true) ? $tag : null;
+        return ShellLandmarkPolicy::isSemanticGroupTag($tag) ? $tag : null;
     }
 
     /**
@@ -2282,7 +2268,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
@@ -2453,7 +2439,7 @@ final class HtmlTransformer
 
     private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+        if ( ! ShellLandmarkPolicy::isInlineTokenContainerTag($element->tagName) ) {
             return null;
         }
 
@@ -2587,7 +2573,7 @@ final class HtmlTransformer
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
     {
-        if ( ! in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'section' ), true) ) {
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) ) {
             return null;
         }
 
@@ -4466,7 +4452,7 @@ final class HtmlTransformer
         }
 
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'header', 'footer', 'nav' ), true) ) {
+        if ( ShellLandmarkPolicy::isGlobalShellLandmarkTag($tagName) ) {
             return false;
         }
 

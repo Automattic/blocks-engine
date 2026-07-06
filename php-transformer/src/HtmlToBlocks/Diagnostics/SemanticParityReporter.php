@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TypographyParityAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -122,22 +123,11 @@ final class SemanticParityReporter
 
     private function landmarkKindForElement(DOMElement $element): string
     {
-        $tagName = strtolower($element->tagName);
-        if ( 'footer' === $tagName && $this->hasAncestorTag($element, array( 'blockquote', 'figure' )) ) {
-            return '';
-        }
-
-        if ( in_array($tagName, array( 'header', 'nav', 'main', 'footer' ), true) ) {
-            return 'nav' === $tagName ? 'nav' : $tagName;
-        }
-
-        return match ( strtolower($this->attr($element, 'role')) ) {
-            'banner' => 'header',
-            'navigation' => 'nav',
-            'main' => 'main',
-            'contentinfo' => 'footer',
-            default => '',
-        };
+        return ShellLandmarkPolicy::landmarkKind(
+            $element->tagName,
+            $this->attr($element, 'role'),
+            $this->hasAncestorTag($element, array( 'blockquote', 'figure' ))
+        );
     }
 
     /**
