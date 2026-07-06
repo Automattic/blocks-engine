@@ -636,6 +636,7 @@ final class FigmaTransformer
         $cssChunks = array();
         $cssChunkIndexesByPath = array();
         $pageReports = array();
+        $emitTemplateAliases = count($pages) > 1;
         $visualNodeMap = array();
         $fontFamilies = array();
         $fontUsage = array();
@@ -724,20 +725,29 @@ final class FigmaTransformer
             }
 
             if ( '' !== $html ) {
+                $sourceFrameIdentity = is_array($page['source_frame_identity'] ?? null) ? $page['source_frame_identity'] : array();
+                $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
                 $files[] = array(
-                    'path'      => $path,
-                    'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
-                    'mime_type' => 'text/html',
-                    'content'   => $html,
+                    'path'                    => $path,
+                    'role'                    => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
+                    'mime_type'               => 'text/html',
+                    'content'                 => $html,
+                    'page_type'               => $pageType,
+                    'template_slug'           => $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? ''),
+                    'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
+                    'source_frame_identity'   => $sourceFrameIdentity,
                 );
 
-                $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
-                if ( '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path ) {
+                if ( $emitTemplateAliases && '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path ) {
                     $files[] = array(
-                        'path'      => $canonicalTemplatePath,
-                        'role'      => 'template-alias',
-                        'mime_type' => 'text/html',
-                        'content'   => str_replace('data-page-path="' . $this->sanitizeAttribute($path) . '"', 'data-page-path="' . $this->sanitizeAttribute($canonicalTemplatePath) . '"', $html),
+                        'path'                    => $canonicalTemplatePath,
+                        'role'                    => 'template-alias',
+                        'mime_type'               => 'text/html',
+                        'content'                 => str_replace('data-page-path="' . $this->sanitizeAttribute($path) . '"', 'data-page-path="' . $this->sanitizeAttribute($canonicalTemplatePath) . '"', $html),
+                        'page_type'               => $pageType,
+                        'template_slug'           => $this->canonicalTemplateSlug($pageType),
+                        'canonical_template_path' => $canonicalTemplatePath,
+                        'source_frame_identity'   => array_merge($sourceFrameIdentity, array('path' => $canonicalTemplatePath, 'alias_for_path' => $path)),
                     );
                 }
             }
@@ -760,8 +770,8 @@ final class FigmaTransformer
                 'path'       => $path,
                 'entrypoint' => true === ($page['entrypoint'] ?? false),
                 'page_type'  => $pageType,
-                'canonical_template_path' => $this->canonicalTemplatePath($pageType) ?: null,
-                'template_aliases' => ('' !== $this->canonicalTemplatePath($pageType) && $this->canonicalTemplatePath($pageType) !== $path) ? array($this->canonicalTemplatePath($pageType)) : array(),
+                'canonical_template_path' => $emitTemplateAliases ? ($this->canonicalTemplatePath($pageType) ?: null) : null,
+                'template_aliases' => ($emitTemplateAliases && '' !== $this->canonicalTemplatePath($pageType) && $this->canonicalTemplatePath($pageType) !== $path) ? array($this->canonicalTemplatePath($pageType)) : array(),
                 'node_count' => (int) ($pageResult['metrics']['node_count'] ?? 0),
                 'text_node_count' => (int) ($pageResult['metrics']['text_node_count'] ?? 0),
                 'asset_reference_count' => (int) ($pageResult['metrics']['asset_reference_count'] ?? 0),
