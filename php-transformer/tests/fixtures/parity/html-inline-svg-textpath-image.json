@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-textpath-image",
+  "description": "Passive SVG badges that use local textPath references materialize as editable core/image assets instead of falling back to core/html.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-textpath-image.json",
+    "notes": "Generic coverage for standalone decorative badges/seals with local textPath geometry."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<svg viewBox=\"0 0 110 110\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"55\" cy=\"55\" r=\"50\" stroke=\"rgba(184,137,58,0.55)\" stroke-width=\"1.5\" stroke-dasharray=\"4 3\"/><defs><path id=\"ct\" d=\"M 55,55 m -36,0 a 36,36 0 1,1 72,0 a 36,36 0 1,1 -72,0\"/></defs><text font-family=\"monospace\" font-size=\"9\" fill=\"rgba(184,137,58,0.65)\" letter-spacing=\"3.5\"><textPath href=\"#ct\">HAND ROASTED</textPath></text><text x=\"55\" y=\"62\" text-anchor=\"middle\" font-family=\"Georgia, serif\" font-size=\"22\" fill=\"rgba(184,137,58,0.5)\">DR</text></svg>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "width": "110px", "height": "110px" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "assets.0.content", "assert": "contains", "value": "textPath" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

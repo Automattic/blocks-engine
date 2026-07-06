@@ -17,7 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "nav" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "#home", "linkDestination": "custom" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-track" } },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "ticker-item" } },
@@ -29,9 +30,10 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 3 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"brand-logo\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"brand-name\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "viewBox=\"0 0 10 10\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group brand-logo" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "#home" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-track" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item\">Small Batch</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item ticker-dot\">•</p>" },

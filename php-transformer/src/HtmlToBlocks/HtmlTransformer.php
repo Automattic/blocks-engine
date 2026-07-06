@@ -1601,6 +1601,11 @@ final class HtmlTransformer
                 return $linkedImage;
             }
 
+            $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
+            if ( null !== $linkedLogo ) {
+                return $linkedLogo;
+            }
+
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -2262,7 +2267,17 @@ final class HtmlTransformer
             }
         }
 
-        return $hasStyling;
+        if ( $hasStyling ) {
+            return true;
+        }
+
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isRichTextInlineStylingHookElement(DOMElement $element): bool
@@ -2276,14 +2291,18 @@ final class HtmlTransformer
             return false;
         }
 
+        $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
             if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
                 return false;
             }
+            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+                $hasStyling = true;
+            }
         }
 
-        return true;
+        return $hasStyling;
     }
 
     /**
@@ -2356,14 +2375,14 @@ final class HtmlTransformer
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($sourceInline) ) {
+            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $sourceInlines[] = $sourceInline;
             }
         }
 
         $targetInlines = array();
         foreach ( $body->getElementsByTagName('*') as $targetInline ) {
-            if ( $targetInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($targetInline) ) {
+            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $targetInlines[] = $targetInline;
             }
         }
@@ -2395,6 +2414,7 @@ final class HtmlTransformer
             'background-color',
             'color',
             'display',
+            'font-family',
             'font-size',
             'font-style',
             'font-weight',
@@ -2417,14 +2437,20 @@ final class HtmlTransformer
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
-        $declarations = $this->richTextInlineVisualDeclarations($element);
-        $hasUsefulInlineStyle = isset($declarations['color']) || isset($declarations['background-color']) || 'block' === strtolower(trim((string) ($declarations['display'] ?? '')));
-        if ( ! $hasUsefulInlineStyle ) {
+        if ( $element->getElementsByTagName('mark')->length > 0 ) {
             return false;
         }
 
-        if ( isset($declarations['color']) && ! isset($declarations['background-color']) ) {
+        $declarations = $this->richTextInlineVisualDeclarations($element);
+        if ( array() === $declarations ) {
+            return false;
+        }
+
+        if ( ! isset($declarations['background-color']) ) {
             $declarations['background-color'] = 'transparent';
+        }
+        if ( ! isset($declarations['color']) ) {
+            $declarations['color'] = 'inherit';
         }
 
         $document = $element->ownerDocument;
@@ -2723,6 +2749,32 @@ final class HtmlTransformer
             $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
             if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function linkedSvgLogoBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
+    {
+        if ( ! $this->hasLogoBrandSignal($anchor) || 0 === $anchor->getElementsByTagName('svg')->length ) {
+            return null;
+        }
+
+        return $this->convertLinkWrapperGroup($anchor, $fallbacks);
+    }
+
+    private function hasLogoBrandSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+                if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
+                    return true;
+                }
             }
         }
 
@@ -6680,10 +6732,14 @@ final class HtmlTransformer
             return array();
         }
 
+        $declarations = $this->presentationDeclarations($anchor);
+        $textDecoration = strtolower(trim((string) ($declarations['text-decoration'] ?? '')));
+
         return array_filter(array(
-            'href'   => $href,
-            'target' => $this->attr($anchor, 'target'),
-            'rel'    => $this->attr($anchor, 'rel'),
+            'href'           => $href,
+            'target'         => $this->attr($anchor, 'target'),
+            'rel'            => $this->attr($anchor, 'rel'),
+            'textDecoration' => 'none' === $textDecoration ? 'none' : '',
         ), static fn (string $value): bool => '' !== trim($value));
     }
 
@@ -6801,7 +6857,16 @@ final class HtmlTransformer
             return false;
         }
 
-        $block = $this->rebuildBlock($block, array_merge($attrs, array( 'content' => $wrapped )));
+        $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
+        if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
+            $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
+            $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+            $typography['textDecoration'] = 'none';
+            $style['typography'] = $typography;
+            $replacementAttrs['style'] = $style;
+        }
+
+        $block = $this->rebuildBlock($block, $replacementAttrs);
         return true;
     }
 
