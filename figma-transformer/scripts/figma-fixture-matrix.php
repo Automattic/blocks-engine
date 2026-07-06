@@ -174,6 +174,7 @@ foreach ( $fixtures as $fixture ) {
     $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
     $record['selected_frame_ids'] = $frameIds;
     $record['selected_frames'] = matrix_selected_frame_records(is_array($inspection) ? $inspection : array(), $frameIds);
+    $record['omitted_page_candidates'] = matrix_omitted_page_candidate_records(is_array($inspection) ? $inspection : array(), $frameIds);
     $record['entry_frame_id'] = (string) ($fixture['entry_frame_id'] ?? ($frameIds[0] ?? ''));
     $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, $record['selected_frames']);
 

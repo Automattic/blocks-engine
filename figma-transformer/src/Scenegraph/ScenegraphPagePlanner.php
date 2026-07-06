@@ -794,6 +794,7 @@ final class ScenegraphPagePlanner
             ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE => 0,
             ScenegraphFrameClassifier::PAGE_TYPE_SINGLE     => 0,
             ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE    => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_404        => 0,
             ScenegraphFrameClassifier::PAGE_TYPE_PAGE       => 0,
             ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN    => 0,
         );

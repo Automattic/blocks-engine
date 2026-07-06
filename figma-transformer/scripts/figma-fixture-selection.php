@@ -40,7 +40,7 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
     $selectedBuckets = array();
     $deferred = array();
     foreach ( $candidates as $candidate ) {
-        if ( count($selected) >= $maxPages || ! is_array($candidate) ) {
+        if ( ! is_array($candidate) ) {
             break;
         }
 
@@ -60,7 +60,7 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
     }
 
     foreach ( $deferred as $candidate ) {
-        if ( count($selected) >= $maxPages || ! is_array($candidate) ) {
+        if ( ! is_array($candidate) ) {
             break;
         }
 
@@ -69,6 +69,8 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
             $selected[] = $id;
         }
     }
+
+    $selected = matrix_preserve_canonical_template_frame_ids($selected, $candidates, $maxPages);
 
     if ( empty($selected) ) {
         $fallbackCandidates = ! empty($pageLikeCandidates) ? $pageLikeCandidates : $candidates;
@@ -85,6 +87,96 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
     }
 
     return matrix_order_selected_frame_ids($selected, $candidates);
+}
+
+/**
+ * Preserve canonical WordPress template families under a matrix page cap.
+ *
+ * @param array<int, string> $selected
+ * @param array<int, mixed>  $candidates
+ * @return array<int, string>
+ */
+function matrix_preserve_canonical_template_frame_ids(array $selected, array $candidates, int $maxPages): array
+{
+    if ( $maxPages < 1 || count($selected) <= $maxPages ) {
+        return array_slice(array_values($selected), 0, max(1, $maxPages));
+    }
+
+    $selectedSet = array_fill_keys($selected, true);
+    $candidateById = array();
+    foreach ( $candidates as $candidate ) {
+        if ( ! is_array($candidate) || ! isset($candidate['id']) || ! is_scalar($candidate['id']) ) {
+            continue;
+        }
+        $candidateById[(string) $candidate['id']] = $candidate;
+    }
+
+    $canonicalTypes = array('front_page', 'single', 'archive', '404', 'page');
+    $required = array();
+    foreach ( $canonicalTypes as $pageType ) {
+        foreach ( $candidates as $candidate ) {
+            if ( ! is_array($candidate) || ! isset($candidate['id']) || ! is_scalar($candidate['id']) ) {
+                continue;
+            }
+            $id = (string) $candidate['id'];
+            if ( ! isset($selectedSet[$id]) || $pageType !== (string) ($candidate['page_type'] ?? '') ) {
+                continue;
+            }
+            $required[] = $id;
+            break;
+        }
+    }
+
+    if ( count($required) >= $maxPages ) {
+        if ( $maxPages < 3 ) {
+            return array_slice($required, 0, $maxPages);
+        }
+
+        return $required;
+    }
+
+    foreach ( $selected as $id ) {
+        if ( count($required) >= $maxPages ) {
+            break;
+        }
+        if ( isset($candidateById[$id]) && ! in_array($id, $required, true) ) {
+            $required[] = $id;
+        }
+    }
+
+    return $required;
+}
+
+/**
+ * @param array<string, mixed> $inspection
+ * @param array<int, string>   $selectedFrameIds
+ * @return array<int, array<string, mixed>>
+ */
+function matrix_omitted_page_candidate_records(array $inspection, array $selectedFrameIds): array
+{
+    $selected = array_fill_keys($selectedFrameIds, true);
+    $omitted = array();
+    foreach ( is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array() as $candidate ) {
+        if ( ! is_array($candidate) || ! isset($candidate['id']) || ! is_scalar($candidate['id']) ) {
+            continue;
+        }
+        $id = (string) $candidate['id'];
+        if ( isset($selected[$id]) || ! matrix_is_page_like_candidate($candidate) ) {
+            continue;
+        }
+        $omitted[] = array(
+            'id' => $id,
+            'name' => (string) ($candidate['name'] ?? ''),
+            'page_type' => (string) ($candidate['page_type'] ?? ''),
+            'bucket' => matrix_candidate_bucket($candidate),
+            'rank' => matrix_candidate_rank($candidate),
+            'reason' => 'max_pages_or_route_selection',
+        );
+    }
+
+    usort($omitted, static fn (array $a, array $b): int => ((int) ($b['rank'] ?? 0)) <=> ((int) ($a['rank'] ?? 0)));
+
+    return $omitted;
 }
 
 /**
@@ -191,7 +283,7 @@ function matrix_candidate_rank(array $candidate): int
     $pageType = (string) ($candidate['page_type'] ?? '');
     if ( 'front_page' === $pageType ) {
         $score += 300;
-    } elseif ( in_array($pageType, array('single', 'archive', 'page'), true) ) {
+    } elseif ( in_array($pageType, array('single', 'archive', '404', 'page'), true) ) {
         $score += 120;
     }
 
@@ -263,6 +355,7 @@ function matrix_candidate_bucket(array $candidate): string
         'about' => '/\babout\b/',
         'contact' => '/\bcontact\b/',
         'archive' => '/\barchive\b/',
+        'not_found' => '/\b(404|not\s+found)\b/',
         'single' => '/\b(single|post page)\b/',
         'theme' => '/\b(theme|build)\b/',
         'landing' => '/\b(landing|lp)\b/',
@@ -295,7 +388,7 @@ function matrix_candidate_selection_reasons(array $candidate): array
     if ( in_array($parentType, array('CANVAS', 'SECTION'), true) ) {
         $reasons[] = 'top_level_candidate';
     }
-    if ( 1 === preg_match('/\b(home|homepage|website|landing|lp|archive|single|blog|theme|build|hosts?|agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name . ' ' . $pageName) ) {
+    if ( 1 === preg_match('/\b(home|homepage|website|landing|lp|archive|single|blog|theme|build|404|not\s+found|hosts?|agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name . ' ' . $pageName) ) {
         $reasons[] = 'page_like_name';
     }
     if ( ! matrix_is_reference_page_name($pageName) && 1 === preg_match('/\b(website comps?|pages?|screens?|final|production|dev handoff)\b/', $pageName) ) {
