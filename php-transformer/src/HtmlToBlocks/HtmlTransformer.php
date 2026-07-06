@@ -454,6 +454,7 @@ final class HtmlTransformer
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks);
+        $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
@@ -3487,6 +3488,52 @@ final class HtmlTransformer
     }
 
     /**
+     * Surface commerce-specific runtime controls separately from the surrounding
+     * product-grid structure. The transformer can emit editable layout/product
+     * metadata, but quantity and add-to-cart controls require a commerce runtime.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $emitted = 0;
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
+                return;
+            }
+
+            if ( ! $this->isProductGridContainer($element) ) {
+                continue;
+            }
+
+            $controlGroups = $this->commerceControlGroupsForContainer($element);
+            if ( array() === $controlGroups ) {
+                continue;
+            }
+
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'              => 'html',
+                'reason'            => 'commerce_controls_require_runtime',
+                'diagnostic_code'   => 'html_commerce_controls_fallback',
+                'kind'              => 'html_commerce_controls_fallback',
+                'message'           => 'Commerce quantity and add-to-cart controls were detected; they require a commerce runtime rather than a static core block approximation.',
+                'source_format'     => 'html',
+                'tag'               => strtolower($element->tagName),
+                'selector'          => $this->elementSelector($element),
+                'container_selector' => $this->elementSelector($element),
+                'context'           => $this->sourceContext($element),
+                'controls'          => $controlGroups,
+                'control_count'     => count($controlGroups),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ++$emitted;
+        }
+    }
+
+    /**
      * Whether an element is a plausible product-grid container: a list (ul/ol) or
      * an element the structure classifier already flags as grid_like.
      */
@@ -3523,6 +3570,35 @@ final class HtmlTransformer
         }
 
         return $products;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function commerceControlGroupsForContainer(DOMElement $container): array
+    {
+        $groups = array();
+        foreach ( $container->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $product = $this->productCardData($child);
+            if ( null === $product || empty($product['has_cart_control']) ) {
+                continue;
+            }
+
+            $hasQuantity = $this->hasQuantityControl($child);
+            $groups[] = array_filter(array(
+                'product_name'         => $product['name'] ?? '',
+                'source_selector'      => $this->elementSelector($child),
+                'has_quantity_control' => $hasQuantity,
+                'has_cart_control'     => true,
+                'runtime_requirement'  => 'commerce_cart_runtime',
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return $groups;
     }
 
     /**
@@ -3758,6 +3834,46 @@ final class HtmlTransformer
             // "add" alone is ambiguous, so require it to co-occur with a commerce
             // context word ("cart"/"bag"/"basket") to count as a cart control.
             if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the card contains quantity UI: number input, spinbutton, +/- controls,
+     * or explicit quantity labels/classes/ARIA. This is diagnostic only.
+     */
+    private function hasQuantityControl(DOMElement $card): bool
+    {
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            $role = strtolower($this->attr($descendant, 'role'));
+            if ( 'input' === $tagName && 'number' === strtolower($this->attr($descendant, 'type')) ) {
+                return true;
+            }
+            if ( 'spinbutton' === $role ) {
+                return true;
+            }
+
+            $haystack = strtolower(implode(' ', array(
+                $this->attr($descendant, 'class'),
+                $this->attr($descendant, 'id'),
+                $this->attr($descendant, 'name'),
+                $this->attr($descendant, 'aria-label'),
+                implode(' ', $this->safeDataAttributes($descendant)),
+                $this->collapsedText($descendant),
+            )));
+
+            if ( preg_match('/\b(?:qty|quantity|decrease|increase)\b/', $haystack) ) {
+                return true;
+            }
+            if ( in_array($tagName, array( 'button', 'a' ), true) && preg_match('/^[+\x{2212}-]$/u', trim($this->collapsedText($descendant))) ) {
                 return true;
             }
         }

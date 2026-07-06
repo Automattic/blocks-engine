@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "generated-store-inferred-html",
-  "description": "Converts compact generated-store product-card HTML inferred from a product fixture into core blocks without store-runtime validation.",
+  "description": "Converts compact generated-store product-card HTML inferred from a product fixture into core blocks and reports commerce runtime controls without store-runtime validation.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/generated-store-inferred/index.html",
-    "notes": "Compact transformer-level fixture covering visible product-card structure and actions, not WooCommerce dependency or product inference validation."
+    "notes": "Compact transformer-level fixture covering visible product-card structure and actions, not WooCommerce dependency or product inference validation. Add-to-cart controls are reported as commerce runtime requirements rather than approximated with static core blocks."
   },
   "legacy_comparison": {
     "skip": true,
@@ -26,7 +26,8 @@
     { "path": "blocks.0.innerBlocks.2.innerBlocks.2", "name": "core/buttons" }
   ],
   "expected_fallbacks": [
-    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "section", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "section", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 },
+    { "type": "html", "reason": "commerce_controls_require_runtime", "tag": "section", "diagnostic_code": "html_commerce_controls_fallback", "kind": "html_commerce_controls_fallback", "control_count": 2 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
@@ -34,7 +35,7 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" },
     { "path": "serialized_blocks", "assert": "contains", "value": "#signal-hoodie" },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.kind", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.reason_code", "assert": "equals", "value": "html_product_grid_fallback" },
@@ -50,6 +51,13 @@
     { "path": "fallbacks.0.products.0.source_selector", "assert": "equals", "value": "section:nth-of-type(1) > article:nth-of-type(1)" },
     { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Field Notes" },
     { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$12" },
-    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_commerce_controls_fallback" },
+    { "path": "fallbacks.1.pattern_family", "assert": "equals", "value": "commerce_controls" },
+    { "path": "fallbacks.1.repair_bucket", "assert": "equals", "value": "materialize_commerce_runtime" },
+    { "path": "fallbacks.1.runtime_requirement", "assert": "equals", "value": "commerce_cart_runtime" },
+    { "path": "fallbacks.1.controls", "assert": "count", "count": 2 },
+    { "path": "fallbacks.1.controls.0.product_name", "assert": "equals", "value": "Signal Hoodie" },
+    { "path": "fallbacks.1.controls.1.product_name", "assert": "equals", "value": "Field Notes" }
   ]
 }

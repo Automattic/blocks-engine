@@ -79,6 +79,19 @@ final class FallbackDiagnostic
                 'suggested_primitive'   => 'product_grid',
                 'materialization_hint'  => 'layout_blocks_are_emitted_as_is; map_each_detected_product_name_price_and_cart_control_onto_a_commerce_provider',
             ),
+            'html_commerce_controls_fallback' => array(
+                'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'loss_class'            => 'runtime_island_preserved',
+                'diagnostic_class'      => 'commerce_runtime_controls_detected',
+                'preservation_strategy' => 'layout_blocks_with_commerce_control_metadata',
+                'runtime_requirement'   => 'commerce_cart_runtime',
+                'recoverability'        => 'recoverable_with_commerce_provider_runtime',
+                'actionability'         => 'map_quantity_and_cart_controls_to_a_commerce_provider_or_custom_runtime',
+                'suggested_repair_class' => 'materialize_commerce_runtime',
+                'suggested_primitive'   => 'commerce_controls',
+                'materialization_hint'  => 'core_blocks_cannot_provide_cart_state; bind_detected_quantity_and_cart_controls_to_a_commerce_runtime',
+            ),
             'html_script_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
@@ -225,6 +238,7 @@ final class FallbackDiagnostic
         return match ( $code ) {
             'html_form_fallback' => 'interactive_form',
             'html_product_grid_fallback' => 'commerce_product_grid',
+            'html_commerce_controls_fallback' => 'commerce_controls',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
             'html_iframe_embed_fallback' => 'external_embed',

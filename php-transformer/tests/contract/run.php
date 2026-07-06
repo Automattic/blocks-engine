@@ -497,6 +497,35 @@ $formRuntimeIslands = array_values(array_filter($formFallback['source_reports'][
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
 
+$newsletterFallback = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
+)->toArray();
+$newsletterFallbackDiagnostic = $newsletterFallback['fallbacks'][0] ?? array();
+$assert('html_form_fallback' === ($newsletterFallbackDiagnostic['diagnostic_code'] ?? ''), 'static newsletter form stays classified as a form runtime mapping need');
+$assert('interactive_form' === ($newsletterFallbackDiagnostic['pattern_family'] ?? ''), 'static newsletter form uses the interactive_form family');
+$assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''), 'static newsletter form suggests a form primitive, not a fake native layout');
+$assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
+
+$commerceControls = ( new HtmlTransformer() )->transform(
+    '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li></ul></main>'
+)->toArray();
+$commerceDiagnostics = array();
+foreach ( $commerceControls['fallbacks'] ?? array() as $fallback ) {
+    $commerceDiagnostics[(string) ($fallback['diagnostic_code'] ?? '')] = $fallback;
+}
+$assert(isset($commerceDiagnostics['html_product_grid_fallback']), 'commerce cards still expose product-grid materialization metadata');
+$assert(isset($commerceDiagnostics['html_commerce_controls_fallback']), 'commerce quantity/cart controls expose a dedicated runtime diagnostic');
+$assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['pattern_family'] ?? ''), 'commerce controls use the commerce_controls pattern family');
+$assert('commerce_cart_runtime' === ($commerceDiagnostics['html_commerce_controls_fallback']['runtime_requirement'] ?? ''), 'commerce controls require a commerce cart runtime');
+$assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['suggested_primitive'] ?? ''), 'commerce controls do not pretend to have a native core block path');
+$assert(true === ($commerceDiagnostics['html_commerce_controls_fallback']['controls'][0]['has_quantity_control'] ?? null), 'commerce controls preserve quantity-control evidence');
+
+$contactLayout = ( new HtmlTransformer() )->transform(
+    '<main><section class="contact-layout"><div><h2>Booking</h2><p>For shows, email <a href="mailto:booking@example.com">booking@example.com</a>.</p></div><div><h2>Follow</h2><p><a href="https://example.com">Instagram</a></p></div></section></main>'
+)->toArray();
+$assert(array() === ($contactLayout['fallbacks'] ?? array()), 'static contact layout decomposes without fallback diagnostics');
+$assert(0 === substr_count((string) ($contactLayout['serialized_blocks'] ?? ''), '<!-- wp:html'), 'static contact layout emits native blocks only');
+
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
 )->toArray();
