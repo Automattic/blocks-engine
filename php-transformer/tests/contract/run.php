@@ -804,6 +804,24 @@ $assert(! str_contains($canonicalWrapperAttrsSerialized, 'style="display:grid'),
 $assert(str_contains($canonicalWrapperAttrsSerialized, '<h2 class="wp-block-heading has-text-color section-title" style="color:red">Menu</h2>'), 'heading wrappers include canonical and support classes with supported color style');
 $assert(str_contains($canonicalWrapperAttrsSerialized, '<p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p>'), 'paragraph wrappers preserve runtime-addressable classes and supported margin style');
 
+$paragraphGeneratedClassLeakResult = ( new HtmlTransformer() )->transform(
+    '<main><p class="has-text-color has-text-color hero-tagline" style="color:red">Slow roasted daily.</p></main>'
+)->toArray();
+$paragraphGeneratedClassLeakBlock = $paragraphGeneratedClassLeakResult['blocks'][0] ?? array();
+$paragraphGeneratedClassLeakSerialized = (string) ($paragraphGeneratedClassLeakResult['serialized_blocks'] ?? '');
+$assert('hero-tagline' === ($paragraphGeneratedClassLeakBlock['attrs']['className'] ?? ''), 'paragraph className strips duplicate generated color classes while preserving custom classes');
+$assert(str_contains($paragraphGeneratedClassLeakSerialized, '<p class="has-text-color hero-tagline" style="color:red">Slow roasted daily.</p>'), 'paragraph serialization emits generated has-text-color once before custom classes');
+$assert(1 === substr_count($paragraphGeneratedClassLeakSerialized, 'has-text-color'), 'paragraph serialization emits has-text-color exactly once');
+$assert('pass' === ($paragraphGeneratedClassLeakResult['source_reports']['wp_block_validity']['status'] ?? ''), 'paragraph with stripped generated className passes generated block validity checks');
+
+$paragraphFactoryGeneratedClassLeakBlock = ( new BlockFactory() )->create('core/paragraph', array(
+    'content'   => 'Slow roasted daily.',
+    'className' => 'has-text-color has-text-color hero-tagline',
+    'style'     => array('color' => array('text' => 'red')),
+));
+$assert('hero-tagline' === ($paragraphFactoryGeneratedClassLeakBlock['attrs']['className'] ?? ''), 'BlockFactory strips generated classes from direct paragraph className attrs');
+$assert(str_contains((string) ($paragraphFactoryGeneratedClassLeakBlock['innerHTML'] ?? ''), '<p class="has-text-color hero-tagline" style="color:red">Slow roasted daily.</p>'), 'BlockFactory paragraph innerHTML emits a single generated color class');
+
 $paragraphSvgResult = ( new HtmlTransformer() )->transform(
     '<main><p class="social-link"><a class="social-link" href="#" aria-label="Follow"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h10v10H0z"></path></svg></a></p></main>'
 )->toArray();
