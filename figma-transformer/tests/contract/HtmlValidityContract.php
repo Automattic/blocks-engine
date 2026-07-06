@@ -94,6 +94,50 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
                             array('id' => 'validity:footer-privacy', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Privacy Policy', 'fontSize' => 16, 'height' => 20),
                         ),
                     ),
+                    array(
+                        'id'       => 'validity:services',
+                        'type'     => 'FRAME',
+                        'name'     => 'Services Section',
+                        'width'    => 1200,
+                        'height'   => 320,
+                        'children' => array(
+                            array('id' => 'validity:services-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Services', 'fontSize' => 48),
+                            array('id' => 'validity:services-copy', 'type' => 'TEXT', 'name' => 'Description', 'characters' => 'Treatment options', 'fontSize' => 18),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'validity:pricing',
+                        'type'     => 'FRAME',
+                        'name'     => 'Pricing',
+                        'width'    => 1200,
+                        'height'   => 320,
+                        'children' => array(
+                            array('id' => 'validity:pricing-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Prices', 'fontSize' => 48),
+                            array('id' => 'validity:pricing-copy', 'type' => 'TEXT', 'name' => 'Description', 'characters' => 'Plans and prices', 'fontSize' => 18),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'validity:contact-map',
+                        'type'     => 'FRAME',
+                        'name'     => 'Contact Map',
+                        'width'    => 1200,
+                        'height'   => 320,
+                        'children' => array(
+                            array('id' => 'validity:contact-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Contact', 'fontSize' => 48),
+                            array('id' => 'validity:contact-copy', 'type' => 'TEXT', 'name' => 'Description', 'characters' => 'Visit our map location', 'fontSize' => 18),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'validity:final-cta',
+                        'type'     => 'FRAME',
+                        'name'     => 'Final CTA',
+                        'width'    => 1200,
+                        'height'   => 320,
+                        'children' => array(
+                            array('id' => 'validity:cta-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Book an appointment', 'fontSize' => 48),
+                            array('id' => 'validity:cta-copy', 'type' => 'TEXT', 'name' => 'Description', 'characters' => 'Reserve now', 'fontSize' => 18),
+                        ),
+                    ),
                 ),
             ),
             array(
@@ -141,6 +185,11 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $html = $fileContent($result, 'index.html');
     $links = $result['source_report']['transform_diagnostics']['links'] ?? array();
     $assert(str_contains($html, '<main class="figma-root" data-figma-root="true" data-page-title="Home Page" aria-label="Home Page" data-page-path="index.html"'), 'html-validity-document-root-carries-page-legibility-metadata');
+    $assert(str_contains($html, 'data-figma-node-id="validity:nav" data-figma-node-name="Navigation" data-figma-semantic-role="nav"'), 'html-validity-nav-carries-semantic-role-metadata');
+    $assert(str_contains($html, 'data-figma-node-id="validity:services" data-figma-node-name="Services Section" data-figma-semantic-role="services"'), 'html-validity-services-section-carries-semantic-role-metadata');
+    $assert(str_contains($html, 'data-figma-node-id="validity:pricing" data-figma-node-name="Pricing" data-figma-semantic-role="pricing"'), 'html-validity-pricing-section-carries-semantic-role-metadata');
+    $assert(str_contains($html, 'data-figma-node-id="validity:contact-map" data-figma-node-name="Contact Map" data-figma-semantic-role="map"'), 'html-validity-map-section-carries-semantic-role-metadata');
+    $assert(str_contains($html, 'data-figma-node-id="validity:final-cta" data-figma-node-name="Final CTA" data-figma-semantic-role="cta"'), 'html-validity-cta-section-carries-semantic-role-metadata');
     $assert(str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><div class="figma-node-validity-news-item-menu-item"'), 'html-validity-menu-item-container-linked');
     $assert(str_contains($html, 'class="figma-node-validity-packed-nav-main-nav-links" data-figma-node-id="validity:packed-nav" data-figma-node-name="Main Nav Links"><a class="figma-link" href="archive.html" data-figma-link-type="implicit-route">News</a>      <a class="figma-link" href="page.html" data-figma-link-type="implicit-route">About</a>      <a class="figma-link" href="contact.html" data-figma-link-type="implicit-route">Contact</a>'), 'html-validity-packed-route-text-preserves-spacing-with-inline-links');
     $assert(! str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><span class="figma-node-validity-news-text-text"'), 'html-validity-linked-menu-item-suppresses-descendant-anchor');

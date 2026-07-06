@@ -181,7 +181,15 @@ final class BreakpointMediaDiffBuilder
             return array();
         }
 
-        return array($this->mediaBlock(767, array_values(array_unique($rules))));
+        $rules = array_values(array_unique($rules));
+        $breakpoints = array(767);
+        if ( $rootWidth > 1200.0 ) {
+            $breakpoints[] = (int) floor($rootWidth - 1.0);
+        }
+        $breakpoints = array_values(array_unique(array_filter($breakpoints, static fn (int $breakpoint): bool => $breakpoint > 0)));
+        rsort($breakpoints, SORT_NUMERIC);
+
+        return array_map(fn (int $breakpoint): string => $this->mediaBlock($breakpoint, $rules), $breakpoints);
     }
 
     /**

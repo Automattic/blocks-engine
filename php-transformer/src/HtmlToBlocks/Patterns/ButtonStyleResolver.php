@@ -90,11 +90,33 @@ final class ButtonStyleResolver
             $style['typography'] = $typography;
         }
 
+        $width = $this->buttonWidth($declarations);
+        if ( null !== $width ) {
+            return array_filter(array(
+                'style' => $style,
+                'width' => $width,
+            ), static fn ($value): bool => is_array($value) ? array() !== $value : null !== $value);
+        }
+
         if ( array() === $style ) {
             return array();
         }
 
         return array( 'style' => $style );
+    }
+
+    private function buttonWidth(array $declarations): ?int
+    {
+        $width = trim((string) ($declarations['width'] ?? ''));
+        if ( '' === $width ) {
+            return null;
+        }
+
+        if ( preg_match('/^100(?:\.0+)?%$/', $width) ) {
+            return 100;
+        }
+
+        return null;
     }
 
     /**

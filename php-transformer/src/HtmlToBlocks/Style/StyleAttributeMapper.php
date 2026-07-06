@@ -188,6 +188,9 @@ final class StyleAttributeMapper
         if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
             $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
         }
+        if ( '' !== trim((string) ($dimensions['maxWidth'] ?? '')) ) {
+            $declarations[] = 'max-width:' . trim((string) $dimensions['maxWidth']);
+        }
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
         $typographyMap = array(
@@ -321,14 +324,21 @@ final class StyleAttributeMapper
      */
     private function dimensions(array $declarations, array &$consumed): array
     {
+        $dimensions = array();
+
         $minHeight = trim((string) ($declarations['min-height'] ?? ''));
-        if ( '' === $minHeight || ! $this->isCssLengthLike($minHeight) ) {
-            return array();
+        if ( '' !== $minHeight && $this->isCssLengthLike($minHeight) ) {
+            $dimensions['minHeight'] = $minHeight;
+            $consumed['min-height']  = true;
         }
 
-        $consumed['min-height'] = true;
+        $maxWidth = trim((string) ($declarations['max-width'] ?? ''));
+        if ( '' !== $maxWidth && $this->isCssLengthLike($maxWidth) ) {
+            $dimensions['maxWidth'] = $maxWidth;
+            $consumed['max-width']  = true;
+        }
 
-        return array( 'minHeight' => $minHeight );
+        return $dimensions;
     }
 
     private function isCssLengthLike(string $value): bool
