@@ -141,6 +141,7 @@ final class ButtonMenuVisualProbe
                     'classes' => $this->tokens($node->hasAttribute('class') ? $node->getAttribute('class') : ''),
                     'signals' => $this->signals($node),
                     'hierarchy' => $this->hierarchy($node),
+                    'wrapper_chrome' => $this->wrapperChrome($node, $rules),
                     'style' => $this->computedStyle($node, $rules),
                     'geometry' => $this->geometry($node, $rules),
                 ), static fn ($value): bool => null !== $value && array() !== $value && '' !== $value);
@@ -516,6 +517,59 @@ final class ButtonMenuVisualProbe
         }
 
         return $geometry;
+    }
+
+    /**
+     * @param array<int, array{selector: string, declarations: array<string, string>}> $rules
+     * @return array<string, mixed>|null
+     */
+    private function wrapperChrome(DOMElement $element, array $rules): ?array
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'body' === strtolower($node->tagName) ) {
+                break;
+            }
+
+            $style = $this->visualChromeStyle($this->computedStyle($node, $rules));
+            if ( array() === $style ) {
+                continue;
+            }
+
+            return array_filter(array(
+                'tag' => strtolower($node->tagName),
+                'selector' => $this->selector($node),
+                'classes' => $this->tokens($node->hasAttribute('class') ? $node->getAttribute('class') : ''),
+                'style' => $style,
+            ), static fn ($value): bool => array() !== $value && '' !== $value);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, string> $style
+     * @return array<string, string>
+     */
+    private function visualChromeStyle(array $style): array
+    {
+        $fields = array(
+            'background',
+            'background-color',
+            'border',
+            'border-color',
+            'border-radius',
+            'box-shadow',
+            'padding',
+            'padding-bottom',
+            'padding-left',
+            'padding-right',
+            'padding-top',
+        );
+
+        $chrome = array_intersect_key($style, array_flip($fields));
+        ksort($chrome);
+
+        return array_filter($chrome, static fn (string $value): bool => '' !== trim($value));
     }
 
     private function childElementCount(DOMElement $element): int
