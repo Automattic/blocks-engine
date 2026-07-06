@@ -565,6 +565,8 @@ final class FigmaTransformer
                     'name'       => '' !== $pageName ? $pageName : ($normalized['name'] ?? $primaryFrameId),
                     'path'       => $pagePath,
                     'entrypoint' => true,
+                    'page_type'  => isset($options['static_site_template_type']) && is_scalar($options['static_site_template_type']) ? (string) $options['static_site_template_type'] : '',
+                    'slug'       => isset($options['static_site_template_slug']) && is_scalar($options['static_site_template_slug']) ? (string) $options['static_site_template_slug'] : '',
                     'responsive' => true,
                     'variants'   => $variants,
                 ),
@@ -662,6 +664,9 @@ final class FigmaTransformer
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
             $pageOptions['static_site_page_path'] = $path;
+            $pageType = isset($page['page_type']) && is_scalar($page['page_type']) ? (string) $page['page_type'] : '';
+            $pageOptions['static_site_template_type'] = $pageType;
+            $pageOptions['static_site_template_slug'] = $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? '');
             $pageOptions['implicit_route_page_plan'] = $pagePlan;
             $pageOptions['inline_css'] = false;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map'], $pageOptions['responsive_variants'], $pageOptions['page_name']);
@@ -725,6 +730,16 @@ final class FigmaTransformer
                     'mime_type' => 'text/html',
                     'content'   => $html,
                 );
+
+                $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
+                if ( '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path ) {
+                    $files[] = array(
+                        'path'      => $canonicalTemplatePath,
+                        'role'      => 'template-alias',
+                        'mime_type' => 'text/html',
+                        'content'   => str_replace('data-page-path="' . $this->sanitizeAttribute($path) . '"', 'data-page-path="' . $this->sanitizeAttribute($canonicalTemplatePath) . '"', $html),
+                    );
+                }
             }
 
             foreach ( is_array($pageResult['files'] ?? null) ? $pageResult['files'] : array() as $file ) {
@@ -744,6 +759,9 @@ final class FigmaTransformer
                 'slug'       => (string) ($page['slug'] ?? ''),
                 'path'       => $path,
                 'entrypoint' => true === ($page['entrypoint'] ?? false),
+                'page_type'  => $pageType,
+                'canonical_template_path' => $this->canonicalTemplatePath($pageType) ?: null,
+                'template_aliases' => ('' !== $this->canonicalTemplatePath($pageType) && $this->canonicalTemplatePath($pageType) !== $path) ? array($this->canonicalTemplatePath($pageType)) : array(),
                 'node_count' => (int) ($pageResult['metrics']['node_count'] ?? 0),
                 'text_node_count' => (int) ($pageResult['metrics']['text_node_count'] ?? 0),
                 'asset_reference_count' => (int) ($pageResult['metrics']['asset_reference_count'] ?? 0),
@@ -885,6 +903,8 @@ final class FigmaTransformer
                         'name'       => $pageName,
                         'path'       => $pagePath,
                         'entrypoint' => true === ($page['entrypoint'] ?? false),
+                        'page_type'  => isset($page['page_type']) && is_scalar($page['page_type']) ? (string) $page['page_type'] : '',
+                        'slug'       => isset($page['slug']) && is_scalar($page['slug']) ? (string) $page['slug'] : '',
                         'responsive' => true,
                         'variants'   => $responsiveVariants,
                     ),
@@ -2552,5 +2572,27 @@ final class FigmaTransformer
                 'font_usage' => $fontUsage,
             ), static fn (mixed $value): bool => array() !== $value && '' !== $value),
         ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
+    }
+
+    private function canonicalTemplateSlug(string $templateType): string
+    {
+        return match ( $templateType ) {
+            'single' => 'single',
+            'archive' => 'archive',
+            '404' => '404',
+            default => '',
+        };
+    }
+
+    private function canonicalTemplatePath(string $templateType): string
+    {
+        $slug = $this->canonicalTemplateSlug($templateType);
+
+        return '' === $slug ? '' : $slug . '.html';
+    }
+
+    private function sanitizeAttribute(string $text): string
+    {
+        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }

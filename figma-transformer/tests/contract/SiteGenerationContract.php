@@ -13,6 +13,87 @@ use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
  */
 function blocks_engine_figma_transformer_run_site_generation_quality_contract(callable $assert, callable $fileContent, callable $artifactQualitySignalCodes, callable $artifactQualitySignal): void
 {
+    $templateArtifactResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Template Artifact Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'template:home',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page Desktop',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'template:home:header', 'type' => 'FRAME', 'name' => 'Header', 'width' => 1440, 'height' => 80),
+                    array('id' => 'template:home:hero', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Welcome Home', 'fontSize' => 48),
+                    array('id' => 'template:home:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 1440, 'height' => 120),
+                ),
+            ),
+            array(
+                'id'       => 'template:single',
+                'type'     => 'FRAME',
+                'name'     => 'Blog Post Desktop',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array('id' => 'template:single:header', 'type' => 'FRAME', 'name' => 'Header', 'width' => 1440, 'height' => 80),
+                    array('id' => 'template:single:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Single Post Title', 'fontSize' => 48),
+                    array(
+                        'id'       => 'template:single:content',
+                        'type'     => 'FRAME',
+                        'name'     => 'Entry Content',
+                        'width'    => 760,
+                        'height'   => 640,
+                        'children' => array(
+                            array('id' => 'template:single:p1', 'type' => 'TEXT', 'name' => 'Paragraph', 'text' => 'Article paragraph one.', 'fontSize' => 18),
+                            array('id' => 'template:single:p2', 'type' => 'TEXT', 'name' => 'Paragraph', 'text' => 'Article paragraph two.', 'fontSize' => 18),
+                        ),
+                    ),
+                    array('id' => 'template:single:comments', 'type' => 'FRAME', 'name' => 'Comments', 'width' => 760, 'height' => 220),
+                    array('id' => 'template:single:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 1440, 'height' => 120),
+                ),
+            ),
+            array(
+                'id'       => 'template:archive',
+                'type'     => 'FRAME',
+                'name'     => 'Archive Desktop',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'template:archive:header', 'type' => 'FRAME', 'name' => 'Header', 'width' => 1440, 'height' => 80),
+                    array('id' => 'template:archive:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Archive', 'fontSize' => 44),
+                    array('id' => 'template:archive:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 1440, 'height' => 120),
+                ),
+            ),
+            array(
+                'id'       => 'template:404',
+                'type'     => 'FRAME',
+                'name'     => '404 Page Desktop',
+                'width'    => 1440,
+                'height'   => 720,
+                'children' => array(
+                    array('id' => 'template:404:header', 'type' => 'FRAME', 'name' => 'Header', 'width' => 1440, 'height' => 80),
+                    array('id' => 'template:404:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Page not found', 'fontSize' => 44),
+                    array('id' => 'template:404:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 1440, 'height' => 120),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'max_pages' => 10));
+    $templatePaths = array_values(array_map(
+        static fn (array $file): string => (string) ($file['path'] ?? ''),
+        array_filter($templateArtifactResult['files'] ?? array(), static fn (array $file): bool => 'text/html' === ($file['mime_type'] ?? null))
+    ));
+    $assert(array_values(array_intersect(array('index.html', 'single.html', 'archive.html', '404.html'), $templatePaths)) === array('index.html', 'single.html', 'archive.html', '404.html'), 'multi-template-artifact-emits-canonical-html-paths');
+    $singleTemplateHtml = $fileContent($templateArtifactResult, 'single.html');
+    $assert(str_contains($singleTemplateHtml, 'data-template-type="single"') && str_contains($singleTemplateHtml, 'data-template-slug="single"'), 'single-template-root-carries-template-metadata');
+    $assert(str_contains($singleTemplateHtml, 'data-template-area="header"') && str_contains($singleTemplateHtml, 'data-template-area="content"') && str_contains($singleTemplateHtml, 'data-template-area="comments"') && str_contains($singleTemplateHtml, 'data-template-area="footer"'), 'single-template-carries-semantic-area-metadata');
+    $reportedTemplatePaths = array();
+    foreach ( $templateArtifactResult['source_reports']['figma']['html']['pages'] ?? array() as $pageReport ) {
+        if ( is_array($pageReport) && isset($pageReport['canonical_template_path'], $pageReport['page_type']) ) {
+            $reportedTemplatePaths[(string) $pageReport['canonical_template_path']] = (string) $pageReport['page_type'];
+        }
+    }
+    $assert('single' === ($reportedTemplatePaths['single.html'] ?? null) && 'archive' === ($reportedTemplatePaths['archive.html'] ?? null) && '404' === ($reportedTemplatePaths['404.html'] ?? null), 'template-source-report-preserves-page-types');
+
     $qualityAssets = array();
     for ( $i = 1; $i <= 20; $i++ ) {
         $qualityAssets['quality-image-' . $i] = array('mime_type' => 'image/png', 'content' => 'image ' . $i);

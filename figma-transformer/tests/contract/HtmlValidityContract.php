@@ -140,7 +140,7 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
 
     $html = $fileContent($result, 'index.html');
     $links = $result['source_report']['transform_diagnostics']['links'] ?? array();
-    $assert(str_contains($html, '<main class="figma-root" data-figma-root="true" data-page-title="Home Page" aria-label="Home Page" data-page-path="index.html">'), 'html-validity-document-root-carries-page-legibility-metadata');
+    $assert(str_contains($html, '<main class="figma-root" data-figma-root="true" data-page-title="Home Page" aria-label="Home Page" data-page-path="index.html"'), 'html-validity-document-root-carries-page-legibility-metadata');
     $assert(str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><div class="figma-node-validity-news-item-menu-item"'), 'html-validity-menu-item-container-linked');
     $assert(str_contains($html, 'class="figma-node-validity-packed-nav-main-nav-links" data-figma-node-id="validity:packed-nav" data-figma-node-name="Main Nav Links"><a class="figma-link" href="archive.html" data-figma-link-type="implicit-route">News</a>      <a class="figma-link" href="page.html" data-figma-link-type="implicit-route">About</a>      <a class="figma-link" href="contact.html" data-figma-link-type="implicit-route">Contact</a>'), 'html-validity-packed-route-text-preserves-spacing-with-inline-links');
     $assert(! str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><span class="figma-node-validity-news-text-text"'), 'html-validity-linked-menu-item-suppresses-descendant-anchor');

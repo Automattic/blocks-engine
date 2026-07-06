@@ -338,6 +338,10 @@ final class StaticHtmlEmitter
 
     private string $currentPagePath = 'index.html';
 
+    private string $currentTemplateType = '';
+
+    private string $currentTemplateSlug = '';
+
     /**
      * Memoized list-item id sets keyed by container node id, so list-container
      * (<ul>) and list-item (<li>) decisions stay consistent within a page.
@@ -399,6 +403,8 @@ final class StaticHtmlEmitter
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $pagePath = (string) ($options['static_site_page_path'] ?? 'index.html');
+        $this->currentTemplateType = is_scalar($options['static_site_template_type'] ?? null) ? (string) $options['static_site_template_type'] : '';
+        $this->currentTemplateSlug = is_scalar($options['static_site_template_slug'] ?? null) ? (string) $options['static_site_template_slug'] : $this->templateSlugFromPath($pagePath);
         $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
@@ -447,7 +453,7 @@ final class StaticHtmlEmitter
                 'path'      => 'index.html',
                 'role'      => 'entrypoint',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, $pagePath, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, $pagePath, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $this->currentTemplateType, $this->currentTemplateSlug)),
             ),
             array(
                 'path'      => 'style.css',
@@ -636,6 +642,8 @@ final class StaticHtmlEmitter
             $seenPaths[$path] = true;
 
             $this->listItemIdCache = array();
+            $this->currentTemplateType = is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '';
+            $this->currentTemplateSlug = is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path);
             $this->prepareHeadingRanking(array($frameNode));
             $this->prepareHeadingAnchors(array($frameNode), $path);
             // A planned page is a single wrapping frame; its bands are its
@@ -643,12 +651,25 @@ final class StaticHtmlEmitter
             $this->sectionDepth = 1;
             $this->inlineVectorSvgBytes = 0;
             $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
+            $pageHtml = $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $pageName, $this->currentTemplateType, $this->currentTemplateSlug));
             $files[] = array(
                 'path'      => $path,
                 'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $pageName)),
+                'content'   => $pageHtml,
             );
+            $canonicalTemplatePath = $this->canonicalTemplatePath($this->currentTemplateType);
+            $templateAliases = array();
+            if ( '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path && ! isset($seenPaths[$canonicalTemplatePath]) ) {
+                $templateAliases[] = $canonicalTemplatePath;
+                $seenPaths[$canonicalTemplatePath] = true;
+                $files[] = array(
+                    'path'      => $canonicalTemplatePath,
+                    'role'      => 'template-alias',
+                    'mime_type' => 'text/html',
+                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($canonicalTemplatePath), $body, $this->headMetadata($options, $canonicalTemplatePath, $pageName, $this->currentTemplateType, $this->templateSlugFromPath($canonicalTemplatePath))),
+                );
+            }
             $renderedNodes[] = $frameNode;
 
             foreach ( $this->breakpointMediaDiffBuilder()->buildMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
@@ -660,12 +681,18 @@ final class StaticHtmlEmitter
                 'name'       => $pageName,
                 'path'       => $path,
                 'entrypoint' => true === ($page['entrypoint'] ?? false),
+                'page_type'  => $this->currentTemplateType,
+                'slug'       => $this->currentTemplateSlug,
+                'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
+                'template_aliases' => $templateAliases,
                 'node_count' => $this->countNodes(array($frameNode)),
             );
         }
 
         if ( empty($files) ) {
             $this->currentPagePath = 'index.html';
+            $this->currentTemplateType = '';
+            $this->currentTemplateSlug = 'index';
             $fallbackNodes = $this->nodeList($scenegraph);
             $this->prepareHeadingRanking($fallbackNodes);
             $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
@@ -680,7 +707,7 @@ final class StaticHtmlEmitter
                     'path'      => 'index.html',
                     'role'      => 'entrypoint',
                     'mime_type' => 'text/html',
-                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, 'index.html', html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
+                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, 'index.html', html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $this->currentTemplateType, $this->currentTemplateSlug)),
                 );
                 $renderedNodes[] = $node;
             }
@@ -1000,6 +1027,13 @@ final class StaticHtmlEmitter
         }
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
+        }
+        $semanticArea = $this->semanticArea($tag, $node, $parentNode);
+        if ( '' !== $semanticArea ) {
+            $attributes .= ' data-template-area="' . $this->sanitizeAttribute($semanticArea) . '"';
+        }
+        if ( 0 === $depth && '' !== $this->currentTemplateType ) {
+            $attributes .= ' data-template-type="' . $this->sanitizeAttribute($this->currentTemplateType) . '"';
         }
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $attributes .= ' data-figma-unsupported-vector="true" aria-hidden="true"';
@@ -9427,6 +9461,62 @@ final class StaticHtmlEmitter
         return str_repeat('../', $depth) . 'style.css';
     }
 
+    private function templateSlugFromPath(string $pagePath): string
+    {
+        $base = basename(str_replace('\\', '/', $pagePath));
+        $slug = preg_replace('/\.html?$/i', '', $base) ?? $base;
+        $slug = trim($slug);
+
+        return '' === $slug ? 'index' : $slug;
+    }
+
+    private function canonicalTemplatePath(string $templateType): string
+    {
+        return match ( $templateType ) {
+            'single' => 'single.html',
+            'archive' => 'archive.html',
+            '404' => '404.html',
+            default => '',
+        };
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function semanticArea(string $tag, array $node, ?array $parentNode): string
+    {
+        if ( in_array($tag, array('header', 'footer', 'nav', 'article', 'form'), true) ) {
+            return 'nav' === $tag ? 'navigation' : $tag;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $isStructuralContainer = ! in_array($tag, array('p', 'span', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'input', 'textarea', 'button'), true);
+        if ( $isStructuralContainer ) {
+            if ( str_contains($name, 'header') || str_contains($name, 'site head') ) {
+                return 'header';
+            }
+            if ( str_contains($name, 'footer') || str_contains($name, 'site foot') ) {
+                return 'footer';
+            }
+            if ( str_contains($name, 'navigation') || str_contains($name, 'nav menu') || str_contains($name, 'main nav') ) {
+                return 'navigation';
+            }
+        }
+        if ( str_contains($name, 'entry content') || str_contains($name, 'post content') || str_contains($name, 'page content') || str_contains($name, 'content area') ) {
+            return 'content';
+        }
+
+        if ( null !== $parentNode ) {
+            $parentName = strtolower((string) ($parentNode['name'] ?? ''));
+            if ( str_contains($parentName, 'comments') || str_contains($name, 'comment') ) {
+                return 'comments';
+            }
+        }
+
+        return '';
+    }
+
     /**
      * Build deterministic production head metadata from explicit transform inputs.
      * No descriptions or social text are inferred from visual copy.
@@ -9434,7 +9524,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
-    private function headMetadata(array $options, string $pagePath, string $title): array
+    private function headMetadata(array $options, string $pagePath, string $title, string $templateType = '', string $templateSlug = ''): array
     {
         $global = is_array($options['site_metadata'] ?? null) ? $options['site_metadata'] : array();
         $pages = is_array($options['page_metadata'] ?? null) ? $options['page_metadata'] : array();
@@ -9457,6 +9547,8 @@ final class StaticHtmlEmitter
 
         return array_filter(array(
             'page_path' => $pagePath,
+            'template_type' => $templateType,
+            'template_slug' => $templateSlug,
             'description' => $description,
             'canonical_url' => $canonicalUrl,
             'favicon_href' => $this->metadataString($metadata, 'favicon_href'),
