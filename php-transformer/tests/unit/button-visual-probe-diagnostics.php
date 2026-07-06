@@ -112,6 +112,18 @@ $shadowReport = $compare(
 );
 $assert(in_array('button_shadow_missing', $causeCodes($shadowReport), true), 'reports missing button shadow/glow', json_encode($shadowReport['matches'][0] ?? array()));
 
+$borderLonghandReport = $compare(
+    '<style>.cta{border:1px solid rgba(255,255,255,0.2);padding:12px 24px;background:#111;color:#fff}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{border-color:rgba(255,255,255,0.2);border-style:solid;border-width:1px;padding:12px 24px;background:#111;color:#fff}</style><a class="wp-block-button__link" href="/demo">Start</a>'
+);
+$assert(! in_array('button_border_mismatch', $causeCodes($borderLonghandReport), true), 'treats equivalent border shorthand and longhand as matching', json_encode($borderLonghandReport['matches'][0] ?? array()));
+
+$wrapperLonghandReport = $compare(
+    '<style>.card{border:1px solid rgba(255,255,255,0.2);padding:12px 24px}.cta{background:#111;color:#fff}</style><div class="card"><a class="cta" href="/demo">Start</a></div>',
+    '<style>.card{border:1px solid rgba(255,255,255,0.2);padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px}.wp-block-button__link{background:#111;color:#fff}</style><div class="card"><a class="wp-block-button__link" href="/demo">Start</a></div>'
+);
+$assert(! in_array('button_wrapper_chrome_mismatch', $causeCodes($wrapperLonghandReport), true), 'treats equivalent wrapper chrome shorthand and longhand as matching', json_encode($wrapperLonghandReport['matches'][0] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button visual probe diagnostic tests: {$failures} failed, {$passes} passed\n");
     exit(1);
