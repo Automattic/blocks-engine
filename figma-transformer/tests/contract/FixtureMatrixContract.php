@@ -254,6 +254,85 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     ));
+    $domBoxQuality = matrix_analyze_dom_box_report(array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 1440, 'height' => 900, 'device_scale_factor' => 1),
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'stylesheet_status' => array('body_margin' => '0px', 'body_margin_reset' => true),
+                'elements' => array(
+                    array(
+                        'node_id' => 'frame:root',
+                        'node_name' => 'Root',
+                        'selector' => 'main[data-figma-node-id="frame:root"]',
+                        'tag' => 'main',
+                        'boundingClientRect' => array('left' => 0, 'right' => 1488, 'top' => 0, 'bottom' => 100, 'width' => 1488, 'height' => 100),
+                        'text_metrics' => array('scroll_width' => 1500, 'client_width' => 1440),
+                    ),
+                    array(
+                        'node_id' => 'frame:collapsed-image',
+                        'node_name' => 'Collapsed image',
+                        'selector' => 'img[data-figma-node-id="frame:collapsed-image"]',
+                        'tag' => 'img',
+                        'boundingClientRect' => array('left' => 16, 'right' => 16, 'top' => 112, 'bottom' => 112, 'width' => 0, 'height' => 0),
+                    ),
+                    array(
+                        'node_id' => 'frame:offscreen',
+                        'node_name' => 'Offscreen',
+                        'selector' => 'section[data-figma-node-id="frame:offscreen"]',
+                        'tag' => 'section',
+                        'boundingClientRect' => array('left' => -42, 'right' => 20, 'top' => 130, 'bottom' => 220, 'width' => 62, 'height' => 90),
+                    ),
+                    array(
+                        'node_id' => 'frame:later',
+                        'node_name' => 'Later section',
+                        'selector' => 'section[data-figma-node-id="frame:later"]',
+                        'tag' => 'section',
+                        'boundingClientRect' => array('left' => 20, 'right' => 300, 'top' => 1300, 'bottom' => 1400, 'width' => 280, 'height' => 100),
+                    ),
+                    array(
+                        'node_id' => '',
+                        'node_name' => 'Missing id',
+                        'selector' => 'div',
+                        'tag' => 'div',
+                        'boundingClientRect' => array('left' => 20, 'right' => 100, 'top' => 1420, 'bottom' => 1500, 'width' => 80, 'height' => 80),
+                    ),
+                ),
+                'unidentified_elements' => array(
+                    array(
+                        'selector' => 'aside',
+                        'tag' => 'aside',
+                        'boundingClientRect' => array('left' => 20, 'right' => 100, 'top' => 1520, 'bottom' => 1600, 'width' => 80, 'height' => 80),
+                    ),
+                ),
+            ),
+        ),
+    ), '/tmp/dom-boxes.json');
+    $invalidDomBoxQuality = matrix_analyze_dom_box_report(array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 1440, 'height' => 900, 'device_scale_factor' => 1),
+                'dom_css_loaded' => false,
+                'dom_capture_valid' => false,
+                'stylesheet_status' => array('body_margin' => '8px', 'body_margin_reset' => false),
+                'elements' => array(
+                    array(
+                        'node_id' => 'frame:root',
+                        'node_name' => 'Root',
+                        'selector' => 'main[data-figma-node-id="frame:root"]',
+                        'tag' => 'main',
+                        'boundingClientRect' => array('left' => 0, 'right' => 1488, 'top' => 0, 'bottom' => 100, 'width' => 1488, 'height' => 100),
+                        'text_metrics' => array('scroll_width' => 1500, 'client_width' => 1440),
+                    ),
+                ),
+            ),
+        ),
+    ), '/tmp/dom-boxes-invalid.json');
     $matrixQualitySummary = matrix_quality_matrix(array(
         array(
             'id' => 'ready-fixture',
@@ -289,6 +368,15 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
                 array('code' => 'responsive_fixed_width_without_override'),
                 array('code' => 'fallback_prone_html_islands'),
             )),
+            'dom_box_quality' => $domBoxQuality,
+        ),
+    ));
+    $invalidDomBoxMatrixSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'invalid-dom-capture-fixture',
+            'status' => 'completed',
+            'selected_frame_ids' => array('frame:home'),
+            'dom_box_quality' => $invalidDomBoxQuality,
         ),
     ));
 
@@ -375,11 +463,33 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(0.5 === ($matrixVisualReadiness['route_coverage_ratio'] ?? null), 'fixture-matrix-visual-readiness-route-coverage');
     $assert(4 === ($matrixVisualReadiness['risk_categories']['responsive_coverage']['count'] ?? null), 'fixture-matrix-visual-readiness-responsive-risk-count');
     $assert(7 === ($matrixVisualReadiness['risk_categories']['text_wrapping_leaks']['count'] ?? null), 'fixture-matrix-visual-readiness-text-risk-count');
+    $assert('blocks-engine/figma-transformer/dom-box-quality/v1' === ($domBoxQuality['schema'] ?? null), 'fixture-matrix-dom-box-quality-schema');
+    $assert(2 === ($domBoxQuality['summary']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-dom-box-quality-horizontal-overflow');
+    $assert(true === ($domBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-dom-box-quality-css-loaded');
+    $assert(true === ($domBoxQuality['summary']['dom_capture_valid'] ?? null), 'fixture-matrix-dom-box-quality-capture-valid');
+    $assert(1 === ($domBoxQuality['summary']['dom_viewport_width_leak_count'] ?? null), 'fixture-matrix-dom-box-quality-viewport-width-leak');
+    $assert(1 === ($domBoxQuality['summary']['dom_huge_vertical_spacing_count'] ?? null), 'fixture-matrix-dom-box-quality-huge-vertical-spacing');
+    $assert(1 === ($domBoxQuality['summary']['dom_collapsed_box_count'] ?? null), 'fixture-matrix-dom-box-quality-collapsed-box');
+    $assert(1 === ($domBoxQuality['summary']['dom_offscreen_box_count'] ?? null), 'fixture-matrix-dom-box-quality-offscreen-box');
+    $assert(2 === ($domBoxQuality['summary']['dom_missing_node_id_box_count'] ?? null), 'fixture-matrix-dom-box-quality-missing-node-id-boxes');
+    $assert(false === ($invalidDomBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-invalid-dom-box-css-not-loaded');
+    $assert(false === ($invalidDomBoxQuality['summary']['dom_capture_valid'] ?? null), 'fixture-matrix-invalid-dom-box-capture-invalid');
+    $assert(1 === ($invalidDomBoxQuality['summary']['dom_capture_invalid_count'] ?? null), 'fixture-matrix-invalid-dom-box-invalid-count');
+    $assert(0 === ($invalidDomBoxQuality['summary']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-invalid-dom-box-does-not-score-horizontal-overflow');
+    $assert('dom_capture_invalid' === ($invalidDomBoxQuality['pages'][0]['findings'][0]['code'] ?? null), 'fixture-matrix-invalid-dom-box-finding');
     $assert('blocks-engine/figma-transformer/fixture-matrix-quality/v1' === ($matrixQualitySummary['schema'] ?? null), 'fixture-matrix-quality-schema');
     $assert(0.625 === ($matrixQualitySummary['effective_responsive_coverage_ratio'] ?? null), 'fixture-matrix-quality-responsive-coverage-ratio');
     $assert(0.75 === ($matrixQualitySummary['route_coverage_ratio'] ?? null), 'fixture-matrix-quality-route-coverage-ratio');
     $assert(2 === ($matrixQualitySummary['totals']['breakpoint_override_leak_count'] ?? null), 'fixture-matrix-quality-nested-html-artifact-total');
+    $assert(2 === ($matrixQualitySummary['totals']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-quality-dom-horizontal-overflow-total');
+    $assert(2 === ($matrixQualitySummary['totals']['dom_missing_node_id_box_count'] ?? null), 'fixture-matrix-quality-dom-missing-node-id-total');
     $assert(3 === ($matrixQualitySummary['risk_category_totals']['responsive_coverage'] ?? null), 'fixture-matrix-quality-risk-category-total');
+    $assert(8 === ($matrixQualitySummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-rendered-dom-risk-category-total');
+    $assert(1 === ($invalidDomBoxMatrixSummary['totals']['dom_capture_invalid_count'] ?? null), 'fixture-matrix-quality-invalid-dom-capture-total');
+    $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_capture_valid'] ?? null), 'fixture-matrix-quality-invalid-dom-capture-readiness-flag');
+    $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_css_loaded'] ?? null), 'fixture-matrix-quality-invalid-dom-css-loaded-flag');
+    $assert(0 === ($invalidDomBoxMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-invalid-dom-not-scored-as-rendered-risk');
+    $assert(in_array('dom_capture_invalid', $invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['risk_categories']['rendered_dom_boxes']['signals'] ?? array(), true), 'fixture-matrix-quality-invalid-dom-risk-signal');
     $assert(2 === count($matrixQualitySummary['per_fixture_readiness'] ?? array()), 'fixture-matrix-quality-per-fixture-readiness');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
     $assert('/opt/homeboy-alias' === ($matrixAliasSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-bin-alias');

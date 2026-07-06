@@ -226,6 +226,13 @@ foreach ( $fixtures as $fixture ) {
                 $record['status'] = 'dom_box_capture_failed';
             }
             if ( 0 === $captureExitCode && is_file($domBoxesPath) ) {
+                $domBoxQualityPath = $fixtureOutputDir . '/dom-box-quality.json';
+                $domBoxQuality = matrix_dom_box_quality_report($domBoxesPath);
+                if ( is_array($domBoxQuality) ) {
+                    file_put_contents($domBoxQualityPath, json_encode($domBoxQuality, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+                    $record['dom_box_quality'] = $domBoxQuality;
+                    $record['dom_box_capture']['quality_report_path'] = $domBoxQualityPath;
+                }
                 $capturedEvidenceOptions = matrix_merge_evidence_templates($evidenceOptions, array(
                     'dom_boxes_path' => $domBoxesPath,
                 ));

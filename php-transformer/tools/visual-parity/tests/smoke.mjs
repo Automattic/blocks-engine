@@ -36,6 +36,7 @@ assert(report.source.snapshots[0].probes[0].matches[0].padding.top === '10px', '
 assert(report.comparison[0].probes[0].count_delta === 0, 'compares source and target counts');
 
 await writeFile(domFixture, `<!doctype html><html><head><style>
+  body { margin: 0; }
   .hero {
     color: rgb(12, 34, 56);
     background-color: rgb(240, 241, 242);
@@ -59,6 +60,7 @@ await writeFile(domFixture, `<!doctype html><html><head><style>
   }
 </style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
 await writeFile(domFixtureGeneric, `<!doctype html><html><head><style>
+  body { margin: 0; }
   .hero { color: rgb(12, 34, 56); font-size: 20px; width: 120px; height: 24px; }
 </style></head><body><main class="hero" data-node-id="n-1" data-node-name="Generic Hero">Hello generic</main></body></html>`);
 const server = createServer(async (request, response) => {
@@ -88,6 +90,9 @@ try {
     HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT: '20',
   });
   assert(domReport.entrypoints.length === 1, 'DOM provider captures one entrypoint');
+  assert(domReport.entrypoints[0].dom_css_loaded === true, 'DOM provider reports CSS loaded when reset is applied');
+  assert(domReport.entrypoints[0].dom_capture_valid === true, 'DOM provider reports capture valid when CSS reset is applied');
+  assert(domReport.entrypoints[0].stylesheet_status.body_margin === '0px', 'DOM provider captures body margin reset status');
   assert(domReport.entrypoints[0].elements[0].node_id === '12:34', 'DOM provider captures node id');
   assert(domReport.entrypoints[0].elements[0].node_name === 'Hero', 'DOM provider captures node name');
   assert(domReport.entrypoints[0].elements[0].selector === 'main[data-figma-node-id="12:34"]', 'DOM provider keys selector off default figma attribute');
@@ -106,6 +111,7 @@ try {
   assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].complete === true, 'DOM provider captures image complete state');
   assert(domReport.entrypoints[0].elements[0].visibility.visible === true, 'DOM provider captures visible state');
   assert(domReport.entrypoints[0].elements[0].visibility.clipped === true, 'DOM provider captures clipped-ish overflow state');
+  assert(domReport.entrypoints[0].unidentified_elements.some((element) => element.tag === 'img'), 'DOM provider reports visible elements without node ids');
 
   const genericEnvReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
     ...process.env,
