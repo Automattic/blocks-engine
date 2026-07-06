@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../scripts/figma-fixture-matrix-quality.php';
+
 /**
  * @param callable(bool, string): void $assert
  */
@@ -229,6 +231,66 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     );
     $canonicalTemplateSelection = matrix_select_frame_ids($canonicalTemplateSelectionInspection, 5);
     $canonicalTemplateOmissions = matrix_omitted_page_candidate_records($canonicalTemplateSelectionInspection, $canonicalTemplateSelection);
+    $matrixVisualReadiness = matrix_fixture_visual_readiness(array(
+        'id'                 => 'risk-fixture',
+        'selected_frame_ids' => array('frame:home'),
+        'omitted_page_candidates' => array(array('id' => 'frame:contact')),
+        'quality_summary'    => array(
+            'fixed_width_without_responsive_override_count' => 2,
+            'fixed_width_over_desktop_uncovered_count' => 1,
+            'desktop_canvas_without_responsive_breakpoints' => true,
+            'large_absolute_offset_count' => 3,
+            'large_css_offset_count' => 1,
+            'missing_emitted_text_nodes' => 4,
+            'layout_mismatch_count' => 2,
+            'missing_asset_nodes' => 1,
+            'fallback_prone_form_island_count' => 1,
+            'fallback_prone_input_island_count' => 2,
+            'link_targets_unresolved' => 1,
+            'vector_placeholders' => 2,
+            'vector_decode_coverage_ratio' => 0.8,
+            'html_artifact' => array(
+                'breakpoint_override_leak_count' => 1,
+            ),
+        ),
+    ));
+    $matrixQualitySummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'ready-fixture',
+            'status' => 'completed',
+            'quality_status' => 'pass',
+            'selected_frame_ids' => array('frame:home', 'frame:about'),
+            'omitted_page_candidates' => array(),
+            'quality_summary' => array(
+                'fixed_width_declaration_count' => 4,
+                'fixed_width_with_responsive_override_count' => 4,
+                'vector_decode_coverage_ratio' => 1.0,
+            ),
+            'artifact_quality' => array('signals' => array()),
+        ),
+        array(
+            'id' => 'risk-fixture',
+            'status' => 'completed',
+            'quality_status' => 'warn',
+            'selected_frame_ids' => array('frame:home'),
+            'omitted_page_candidates' => array(array('id' => 'frame:contact')),
+            'quality_summary' => array(
+                'fixed_width_declaration_count' => 4,
+                'fixed_width_with_responsive_override_count' => 1,
+                'fixed_width_without_responsive_override_count' => 3,
+                'fallback_prone_input_island_count' => 2,
+                'link_targets_unresolved' => 1,
+                'vector_placeholders' => 1,
+                'html_artifact' => array(
+                    'breakpoint_override_leak_count' => 2,
+                ),
+            ),
+            'artifact_quality' => array('signals' => array(
+                array('code' => 'responsive_fixed_width_without_override'),
+                array('code' => 'fallback_prone_html_islands'),
+            )),
+        ),
+    ));
 
     $matrixSelectionLockPath = $matrixFixtureDir . '/selection-lock.json';
     file_put_contents($matrixSelectionLockPath, json_encode(array(
@@ -309,6 +371,16 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(! in_array('frame:screenshot', $componentComposedFrontPageSelection, true), 'fixture-matrix-selection-skips-screenshot-utility-frame');
     $assert(array('frame:home-desktop', 'frame:single-desktop', 'frame:archive-desktop', 'frame:404-desktop', 'frame:page-desktop') === $canonicalTemplateSelection, 'fixture-matrix-selection-preserves-canonical-template-coverage-under-page-cap');
     $assert('frame:contact-desktop' === ($canonicalTemplateOmissions[0]['id'] ?? null), 'fixture-matrix-selection-reports-omitted-page-candidates');
+    $assert('medium' === ($matrixVisualReadiness['visual_risk_bucket'] ?? null), 'fixture-matrix-visual-readiness-buckets-risk');
+    $assert(0.5 === ($matrixVisualReadiness['route_coverage_ratio'] ?? null), 'fixture-matrix-visual-readiness-route-coverage');
+    $assert(4 === ($matrixVisualReadiness['risk_categories']['responsive_coverage']['count'] ?? null), 'fixture-matrix-visual-readiness-responsive-risk-count');
+    $assert(7 === ($matrixVisualReadiness['risk_categories']['text_wrapping_leaks']['count'] ?? null), 'fixture-matrix-visual-readiness-text-risk-count');
+    $assert('blocks-engine/figma-transformer/fixture-matrix-quality/v1' === ($matrixQualitySummary['schema'] ?? null), 'fixture-matrix-quality-schema');
+    $assert(0.625 === ($matrixQualitySummary['effective_responsive_coverage_ratio'] ?? null), 'fixture-matrix-quality-responsive-coverage-ratio');
+    $assert(0.75 === ($matrixQualitySummary['route_coverage_ratio'] ?? null), 'fixture-matrix-quality-route-coverage-ratio');
+    $assert(2 === ($matrixQualitySummary['totals']['breakpoint_override_leak_count'] ?? null), 'fixture-matrix-quality-nested-html-artifact-total');
+    $assert(3 === ($matrixQualitySummary['risk_category_totals']['responsive_coverage'] ?? null), 'fixture-matrix-quality-risk-category-total');
+    $assert(2 === count($matrixQualitySummary['per_fixture_readiness'] ?? array()), 'fixture-matrix-quality-per-fixture-readiness');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
     $assert('/opt/homeboy-alias' === ($matrixAliasSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-bin-alias');
     $assert(true === ($matrixAliasSummary['dom_box_provider_command_configured'] ?? null), 'fixture-matrix-dom-box-command-alias-configured');
