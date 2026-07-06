@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -39,6 +40,7 @@ use DOMNode;
 final class HtmlTransformer
 {
     use DomHelpersTrait;
+    use FormDispatchTrait;
     use NavigationToggleSuppressionTrait;
     use StyleResolutionTrait;
     use SvgMaterializationTrait;
@@ -1341,59 +1343,7 @@ final class HtmlTransformer
         }
 
         if ( 'form' === $tagName ) {
-            $searchBlock = $this->searchBlockFromForm($element);
-            if ( null !== $searchBlock ) {
-                return $searchBlock;
-            }
-
-            $readableFormBlock = $this->readableFormBlockFromForm($element);
-            if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
-                if ( $this->formHasDataEntryControls($element) ) {
-                    $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
-                }
-
-                return $readableFormBlock;
-            }
-
-            if ( $this->formHasDataEntryControls($element) ) {
-                $controls = $this->formControls($element);
-                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
-                $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
-                    'form'             => $this->formMetadata($element),
-                    'controls'         => $controls,
-                    'control_count'    => count($controls),
-                    'events'           => $this->eventMetadata($element),
-                    'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-                    'required_scripts' => $this->requiredScriptsForElement($element),
-                ));
-
-                return $this->htmlPreservationBlock($element);
-            }
-
-            $controls = $this->formControls($element);
-            $readableFormBlock = $this->readableFormBlockFromForm($element, true);
-            $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
-                'form'            => $this->formMetadata($element),
-                'controls'        => $controls,
-                'control_count'   => count($controls),
-                'events'          => $this->eventMetadata($element),
-                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-                'required_scripts' => $this->requiredScriptsForElement($element),
-            ));
-
-            // Surface a form fallback finding so a downstream consumer can map the
-            // preserved control structure onto a working form provider. This fires
-            // when the form has no readable representation (legacy behavior) and
-            // also when the form collects user input, so a standard data-entry
-            // <form> that still renders as readable fallback content is detectable
-            // as a materializable form rather than silently flattened into prose.
-            // Carrying the generic control list (tag/type/name/required/options)
-            // keeps the transformer free of any provider or plugin knowledge.
-            if ( null === $readableFormBlock || $this->formHasDataEntryControls($element) ) {
-                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
-            }
-
-            return $readableFormBlock;
+            return $this->convertFormDispatchElement($element, $fallbacks);
         }
 
         if ( 'nav' === $tagName ) {
@@ -1417,18 +1367,7 @@ final class HtmlTransformer
                 return $this->htmlPreservationBlock($element);
             }
 
-            // Div-based pseudo-form (issue #315 follow-up): some signup/contact
-            // widgets pair data-entry controls with a submit-like control inside a
-            // plain container and never wrap them in a <form>. Without a <form>
-            // element the form-detection path above never fires, so the controls
-            // flatten into prose plus a dead button. When the tightest container
-            // pairs a data-entry control with a submit-like control (and no real
-            // <form> owns the subtree), emit the SAME html_form_fallback finding so
-            // the downstream materializer treats it identically to a real form. The
-            // readable content still renders below; this only adds the finding.
-            if ( $this->isDivBasedPseudoForm($element) ) {
-                $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
-            }
+            $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
             $logo = $this->logoPattern->match(
                 $element,
