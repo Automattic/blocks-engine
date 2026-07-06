@@ -82,6 +82,18 @@ $nestedTarget = '<nav><ul><li><ul><li><a href="/demo">Get started</a></li></ul><
 $nestedReport = $compare($nestedSource, $nestedTarget);
 $assert(in_array('button_nesting_mismatch', $causeCodes($nestedReport), true), 'reports nesting depth mismatch', json_encode($nestedReport['matches'][0] ?? array()));
 
+$borderlessReport = $compare(
+    '<style>.cta{border:none;padding:12px 20px;background:#111;color:#fff}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{padding:12px 20px;background:#111;color:#fff}</style><a class="wp-block-button__link" href="/demo">Start</a>'
+);
+$assert(! in_array('button_border_missing', $causeCodes($borderlessReport), true), 'ignores non-visual border:none declarations', json_encode($borderlessReport['matches'][0] ?? array()));
+
+$zeroBorderReport = $compare(
+    '<style>.cta{border:0;padding:12px 20px;background:#111;color:#fff}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{padding:12px 20px;background:#111;color:#fff}</style><a class="wp-block-button__link" href="/demo">Start</a>'
+);
+$assert(! in_array('button_border_missing', $causeCodes($zeroBorderReport), true), 'ignores non-visual border:0 declarations', json_encode($zeroBorderReport['matches'][0] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button visual probe diagnostic tests: {$failures} failed, {$passes} passed\n");
     exit(1);
