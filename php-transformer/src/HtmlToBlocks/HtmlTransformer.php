@@ -468,6 +468,9 @@ final class HtmlTransformer
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        if ( true !== ($options['skip_author_stylesheet_materialization'] ?? false) ) {
+            $this->materializeAuthorStylesheet($html, (string) ($options['static_css'] ?? ''));
+        }
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
@@ -545,6 +548,49 @@ final class HtmlTransformer
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($output),
+        );
+    }
+
+    private function materializeAuthorStylesheet(string $html, string $staticCss): void
+    {
+        $cssParts = array();
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            foreach ( $matches[1] as $styleBlock ) {
+                $styleBlock = trim(html_entity_decode((string) $styleBlock, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ( '' !== $styleBlock ) {
+                    $cssParts[] = $styleBlock;
+                }
+            }
+        }
+
+        $staticCss = trim($staticCss);
+        if ( '' !== $staticCss ) {
+            $cssParts[] = $staticCss;
+        }
+
+        $css = trim(implode("\n\n", $cssParts));
+        if ( '' === $css ) {
+            return;
+        }
+
+        $hash = hash('sha256', $css);
+        $path = 'assets/css/source-author-' . substr($hash, 0, 16) . '.css';
+
+        $this->generatedAssets[$path] = array(
+            'source'      => 'author-css',
+            'source_path' => '',
+            'path'        => $path,
+            'target_path' => $path,
+            'kind'        => 'css',
+            'role'        => 'stylesheet',
+            'mime_type'   => 'text/css',
+            'media_type'  => 'text/css',
+            'content'     => $css . "\n",
+            'bytes'       => strlen($css) + 1,
+            'encoding'    => 'utf-8',
+            'binary'      => false,
+            'hash'        => $hash,
+            'source_hash' => $hash,
         );
     }
 
