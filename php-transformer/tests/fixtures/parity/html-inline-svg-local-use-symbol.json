@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-local-use-symbol",
-  "description": "Preserves an inline SVG that references in-document artwork via a local <use href=\"#id\"> pointing at an in-document <symbol>/<defs>. The symbol definition and the local <use> instance both survive faithfully in the emitted core/html so the referenced shapes still render. By contrast a <use> that points at an external sprite file (href=\"sprite.svg#id\") cannot be inlined \u2014 the referenced symbol lives in another file that does not travel with the imported markup \u2014 so an SVG whose only artwork is an external-sprite reference carries no inlinable drawable content and is reported through the bounded inline-SVG fallback rather than emitted as a broken external reference.",
+  "description": "Materializes an inline SVG that references in-document artwork via local <use href=\"#id\"> while reporting an external-sprite <use> as a bounded fallback because that artwork cannot travel in the static SVG file.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-local-use-symbol.json",
@@ -29,7 +29,7 @@
     },
     {
       "path": "blocks.0.innerBlocks.0.innerBlocks.0",
-      "name": "core/html"
+      "name": "core/image"
     }
   ],
   "expect": [
@@ -39,22 +39,22 @@
       "value": "success"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "path": "assets.0.content",
       "assert": "contains",
       "value": "<symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "path": "assets.0.content",
       "assert": "contains",
       "value": "<use href=\"#valve\" x=\"0\" y=\"0\"></use>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "path": "assets.0.content",
       "assert": "contains",
       "value": "<use href=\"#valve\" x=\"24\" y=\"0\"></use>"
     },
     {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "path": "assets.0.content",
       "assert": "not_contains",
       "value": "icons.svg#gear"
     },

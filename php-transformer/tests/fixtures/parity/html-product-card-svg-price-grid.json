@@ -30,10 +30,10 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.alt", "assert": "equals", "value": "Ceramic bowl" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.className", "assert": "equals", "value": "product-image" },
-    { "path": "assets", "assert": "count", "count": 0 },
+    { "path": "assets", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "product-price" },
     { "path": "source_reports.html.structure_signals.3.signals.price_like", "assert": "equals", "value": true },
     { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true },

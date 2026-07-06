@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-image-namespace-parity",
-  "description": "Safe inline SVGs converted to native core/image data URIs include an SVG namespace so browser image documents render instead of failing while remaining editable as image blocks.",
+  "description": "Safe inline SVGs converted to native core/image materialized assets include an SVG namespace so browser image documents render while remaining editable as image blocks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-image-namespace-parity.json",
@@ -22,8 +22,8 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/image" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "data:image/svg+xml" },
+    { "path": "assets.0.content", "assert": "contains", "value": "xmlns=\"http://www.w3.org/2000/svg\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
