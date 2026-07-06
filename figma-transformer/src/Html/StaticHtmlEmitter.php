@@ -6199,6 +6199,17 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->canvasShellResolver()->nodeShouldUseContentDrivenHeight($type, $canvasShell, (float) $box['height']) ) {
+                $this->recordDecisionTrace('layout_geometry', 'content_driven_canvas_shell_height', $node, 'omit_source_canvas_height', $parentNode, array(
+                    'source_box' => $this->visualGeometryResolver()->nodeSourceBoxEvidence($node),
+                    'canvas_shell' => array(
+                        'frame_width_role' => $canvasShell->frameWidthRole,
+                        'canvas_child_role' => $canvasShell->canvasChildRole,
+                    ),
+                    'omitted_css_box' => array('height' => (float) $box['height']),
+                ));
+                continue;
+            }
             if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && ($this->canvasShellResolver()->nodeShouldUseFlowHeight($type, $layout, $canvasShell) || $this->freeformContainerShouldUseFlow($node) || (empty($layout['display'] ?? null) && $this->layoutIntentShouldEmitClass($this->layoutIntentClassifier()->layoutIntent($node, $parentNode)))) ) {
                 $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
                 continue;
@@ -6994,7 +7005,8 @@ final class StaticHtmlEmitter
         }
 
         $contentWidth = $width - $left - $right;
-        return 'max(0px,calc((100% - ' . $this->number($contentWidth) . 'px) / 2))';
+        $sourceGutter = 'left' === $edge ? $left : $right;
+        return 'clamp(24px,calc((100% - ' . $this->number($contentWidth) . 'px) / 2),' . $this->number($sourceGutter) . 'px)';
     }
 
     /**
