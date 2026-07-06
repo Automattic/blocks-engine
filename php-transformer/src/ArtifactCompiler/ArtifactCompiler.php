@@ -202,13 +202,14 @@ final class ArtifactCompiler
         }
 
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
-            'source'       => $sourcePath,
-            'source_scope' => $sourceScope,
+            'source'                    => $sourcePath,
+            'source_scope'              => $sourceScope,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
-            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
         ))->toArray();
 

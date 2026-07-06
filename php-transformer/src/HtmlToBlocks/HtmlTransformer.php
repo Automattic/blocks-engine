@@ -382,7 +382,6 @@ final class HtmlTransformer
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
-        $this->materializeAuthorStylesheet($html, (string) ($options['static_css'] ?? ''));
         $this->gutenbergIncompatibilities = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
@@ -467,6 +466,9 @@ final class HtmlTransformer
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        if ( true !== ($options['skip_author_stylesheet_materialization'] ?? false) ) {
+            $this->materializeAuthorStylesheet($html, (string) ($options['static_css'] ?? ''));
+        }
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
