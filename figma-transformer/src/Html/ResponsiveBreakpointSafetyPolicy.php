@@ -52,6 +52,13 @@ final class ResponsiveBreakpointSafetyPolicy
             return $namedShellDecision;
         }
 
+        if ( $viewportWidth <= 900.0 ) {
+            $oversizedDeclarations = $this->oversizedDesktopGeometrySafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth, $type, $isContainer, $width, $positioning, $display);
+            if ( ! empty($oversizedDeclarations) ) {
+                return array('reason_code' => 'responsive_oversized_desktop_geometry_safety', 'declarations' => $oversizedDeclarations);
+            }
+        }
+
         if ( $viewportWidth <= 480.0 ) {
             $mobileTextDeclarations = $this->mobileCenteredTextFallbackDecision($node, $parentNode, $baseMap, $viewportWidth, $type, $width, $positioning, $variantNode);
             if ( ! empty($mobileTextDeclarations) ) {
@@ -65,6 +72,81 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         return array('reason_code' => '', 'declarations' => array());
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function oversizedDesktopGeometrySafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, string $type, bool $isContainer, ?float $width, string $positioning, string $display): array
+    {
+        if ( null === $parentNode || null === $width || 'absolute' === $positioning ) {
+            return array();
+        }
+
+        $contentWidth = max(1.0, $viewportWidth - 48.0);
+        $height = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
+        $isOverwide = $width > $contentWidth || $width > 767.0;
+        $hasBackgroundImage = isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(');
+
+        if ( 'TEXT' === $type ) {
+            $declarations = array();
+            if ( $isOverwide ) {
+                $declarations[] = 'width:100%';
+                $declarations[] = 'max-width:100%';
+                if ( null !== $height && $height > 0.0 ) {
+                    $declarations[] = 'height:auto';
+                }
+            }
+            if ( $isOverwide || in_array($baseMap['white-space'] ?? '', array('pre', 'pre-line', 'nowrap'), true) ) {
+                $declarations[] = 'white-space:normal';
+                $declarations[] = 'overflow-wrap:anywhere';
+            }
+
+            return array_values(array_unique($declarations));
+        }
+
+        if ( ! $isOverwide ) {
+            return array();
+        }
+
+        if ( $hasBackgroundImage && null !== $height && $height > 0.0 ) {
+            $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'aspect-ratio:' . ($this->number)($width) . ' / ' . ($this->number)($height));
+            if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
+                $declarations[] = 'background-size:cover';
+            }
+
+            return $declarations;
+        }
+
+        if ( ! $isContainer ) {
+            return array('max-width:100%');
+        }
+
+        $declarations = array('width:100%', 'max-width:100%', 'box-sizing:border-box');
+        if ( null !== $height && $height > 240.0 ) {
+            $declarations[] = 'height:auto';
+            $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+        }
+
+        if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) ) {
+            $declarations[] = 'flex-wrap:wrap';
+            $declarations[] = 'align-content:flex-start';
+            if ( $viewportWidth <= 480.0 && $this->hasContainerChild($node) ) {
+                $declarations[] = 'flex-direction:column';
+                $declarations[] = 'align-items:stretch';
+            }
+        }
+
+        if ( in_array($display, array('grid', 'inline-grid'), true) && $viewportWidth <= 480.0 ) {
+            $declarations[] = 'grid-template-columns:1fr';
+        }
+
+        array_push($declarations, ...$this->mobilePaddingClampDeclarations($baseMap));
+
+        return array_values(array_unique($declarations));
     }
 
     /**

@@ -222,6 +222,16 @@ final class TransformDiagnosticsBuilder
                 'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
             );
         }
+        if ( ! empty($htmlArtifact['fixed_width_over_desktop_uncovered_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'uncovered_fixed_desktop_widths',
+                'count' => (int) $htmlArtifact['fixed_width_over_desktop_uncovered_count'],
+                'raw_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'covered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_covered_count'] ?? 0),
+                'sample_classes' => array_slice(is_array($htmlArtifact['fixed_width_over_desktop_uncovered_classes'] ?? null) ? $htmlArtifact['fixed_width_over_desktop_uncovered_classes'] : array(), 0, 10),
+            );
+        }
         if ( ! empty($htmlArtifact['overlarge_inline_svg_ratio']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -317,6 +327,9 @@ final class TransformDiagnosticsBuilder
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
                 'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'fixed_width_over_desktop_class_count' => (int) ($htmlArtifact['fixed_width_over_desktop_class_count'] ?? 0),
+                'fixed_width_over_desktop_covered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_covered_count'] ?? 0),
+                'fixed_width_over_desktop_uncovered_count' => (int) ($htmlArtifact['fixed_width_over_desktop_uncovered_count'] ?? 0),
                 'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
                 'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),

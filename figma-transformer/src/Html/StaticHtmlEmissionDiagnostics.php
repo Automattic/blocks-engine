@@ -187,6 +187,7 @@ final class StaticHtmlEmissionDiagnostics
                 }
             }
         }
+        $fixedWidthCoverage = $this->fixedDesktopWidthCoverage($css);
         $largeFixedCanvasHeight = false;
         if ( preg_match_all('/\b(?:height|min-height):([0-9.]+)px\b/i', $css, $heightMatches) ) {
             foreach ( is_array($heightMatches[1] ?? null) ? $heightMatches[1] : array() as $height ) {
@@ -214,12 +215,68 @@ final class StaticHtmlEmissionDiagnostics
             'overlarge_inline_svg_ratio' => $htmlBytes >= 2048 && $inlineSvgBytes >= 32768 && $inlineSvgRatio >= 0.35,
             'media_query_count' => $mediaQueryCount,
             'fixed_width_over_desktop_count' => $fixedWidthOverDesktopCount,
+            'fixed_width_over_desktop_class_count' => $fixedWidthCoverage['class_count'],
+            'fixed_width_over_desktop_covered_count' => $fixedWidthCoverage['covered_count'],
+            'fixed_width_over_desktop_uncovered_count' => $fixedWidthCoverage['uncovered_count'],
+            'fixed_width_over_desktop_covered_classes' => array_slice($fixedWidthCoverage['covered_classes'], 0, 25),
+            'fixed_width_over_desktop_uncovered_classes' => array_slice($fixedWidthCoverage['uncovered_classes'], 0, 25),
             'large_fixed_canvas_height' => $largeFixedCanvasHeight,
             'desktop_canvas_without_responsive_breakpoints' => 0 === $mediaQueryCount && $largeFixedCanvasHeight && $structuralElementCount >= 80,
             'breakpoint_override_leak_count' => count($breakpointLeaks),
             'breakpoint_override_leaks' => array_slice($breakpointLeaks, 0, 25),
             'absolute_to_flow_conversion_count' => count($absoluteToFlowConversions),
             'absolute_to_flow_conversions' => array_slice($absoluteToFlowConversions, 0, 25),
+        );
+    }
+
+    /**
+     * @return array{class_count: int, covered_count: int, uncovered_count: int, covered_classes: array<int, string>, uncovered_classes: array<int, string>}
+     */
+    private function fixedDesktopWidthCoverage(string $css): array
+    {
+        $fixedClasses = array();
+        if ( preg_match_all('/\.([a-z0-9_-]+)\{([^{}]*)\}/i', $css, $ruleMatches, PREG_SET_ORDER) ) {
+            foreach ( $ruleMatches as $ruleMatch ) {
+                $class = (string) ($ruleMatch[1] ?? '');
+                $body = (string) ($ruleMatch[2] ?? '');
+                if ( '' === $class || ! preg_match('/\bwidth:([0-9.]+)px\b/i', $body, $widthMatch) ) {
+                    continue;
+                }
+
+                if ( (float) $widthMatch[1] > 1440.0 ) {
+                    $fixedClasses[$class] = true;
+                }
+            }
+        }
+
+        $coveredClasses = array();
+        if ( preg_match_all('/@media\s*\(max-width:[^)]+\)\s*\{(.*?)\n\}/is', $css, $mediaMatches) ) {
+            foreach ( is_array($mediaMatches[1] ?? null) ? $mediaMatches[1] : array() as $mediaBody ) {
+                if ( ! preg_match_all('/\.([a-z0-9_-]+)\{([^{}]*)\}/i', (string) $mediaBody, $ruleMatches, PREG_SET_ORDER) ) {
+                    continue;
+                }
+
+                foreach ( $ruleMatches as $ruleMatch ) {
+                    $class = (string) ($ruleMatch[1] ?? '');
+                    $body = (string) ($ruleMatch[2] ?? '');
+                    if ( '' === $class || ! isset($fixedClasses[$class]) ) {
+                        continue;
+                    }
+                    if ( preg_match('/\bwidth:(?:100%|calc\(100%\s*-)/i', $body) || preg_match('/\bmax-width:100%\b/i', $body) ) {
+                        $coveredClasses[$class] = true;
+                    }
+                }
+            }
+        }
+
+        $uncoveredClasses = array_diff_key($fixedClasses, $coveredClasses);
+
+        return array(
+            'class_count' => count($fixedClasses),
+            'covered_count' => count($coveredClasses),
+            'uncovered_count' => count($uncoveredClasses),
+            'covered_classes' => array_keys($coveredClasses),
+            'uncovered_classes' => array_keys($uncoveredClasses),
         );
     }
 
