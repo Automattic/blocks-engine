@@ -88,6 +88,50 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
         ),
     ), 1);
 
+    $componentComposedFrontPageSelection = matrix_select_frame_ids(array(
+        'candidates' => array(
+            array(
+                'id'         => 'frame:archive-template',
+                'name'       => 'News blog with various grids',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'archive',
+                'score'      => 722,
+                'width'      => 1440,
+                'height'     => 3328,
+                'text_count' => 28,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Templates'),
+            ),
+            array(
+                'id'         => 'frame:component-front-page',
+                'name'       => 'Business Homepage',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'front_page',
+                'score'      => 480,
+                'width'      => 1440,
+                'height'     => 3875,
+                'text_count' => 0,
+                'parent'     => array('type' => 'SECTION'),
+                'page'       => array('name' => 'Patterns'),
+            ),
+            array(
+                'id'         => 'frame:comments-utility',
+                'name'       => 'Comments',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'page',
+                'score'      => 900,
+                'width'      => 1440,
+                'height'     => 1800,
+                'text_count' => 3,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Templates'),
+            ),
+        ),
+    ), 2);
+
     $canonicalTemplateSelectionInspection = array(
         'candidates' => array(
             array(
@@ -247,6 +291,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(! in_array('frame:title-card', $matrixSelection, true), 'fixture-matrix-selection-skips-dev-marked-title-card');
     $assert(array('frame:home-desktop', 'frame:single-desktop') === $matrixSelection, 'fixture-matrix-selection-falls-back-to-page-like-frames');
     $assert(array('frame:fisiostetic-home') === $wideRootSelection, 'fixture-matrix-selection-prefers-wide-root-page-over-section-frame');
+    $assert('frame:component-front-page' === ($componentComposedFrontPageSelection[0] ?? null), 'fixture-matrix-selection-keeps-component-composed-front-page');
+    $assert(! in_array('frame:comments-utility', $componentComposedFrontPageSelection, true), 'fixture-matrix-selection-skips-utility-template-frame');
     $assert(array('frame:home-desktop', 'frame:single-desktop', 'frame:archive-desktop', 'frame:404-desktop', 'frame:page-desktop') === $canonicalTemplateSelection, 'fixture-matrix-selection-preserves-canonical-template-coverage-under-page-cap');
     $assert('frame:contact-desktop' === ($canonicalTemplateOmissions[0]['id'] ?? null), 'fixture-matrix-selection-reports-omitted-page-candidates');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');

@@ -421,6 +421,12 @@ function matrix_is_page_like_candidate(array $candidate): bool
     if ( 'design_system' === matrix_candidate_role($candidate) ) {
         return false;
     }
+    if ( matrix_is_utility_template_candidate($candidate) ) {
+        return false;
+    }
+    if ( in_array((string) ($candidate['page_type'] ?? ''), array('front_page', 'single', 'archive', 'page'), true) ) {
+        return $width >= 900.0 && $width <= 2560.0 && $height >= 700.0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
+    }
     // Fallback name-based exclusion for frames without role classification.
     if ( null === matrix_candidate_role($candidate) ) {
         if ( 1 === preg_match('/\b(style guide|style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
@@ -432,6 +438,16 @@ function matrix_is_page_like_candidate(array $candidate): bool
     }
 
     return $width >= 900.0 && $width <= 2560.0 && $height >= 700.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
+}
+
+/**
+ * @param array<string, mixed> $candidate
+ */
+function matrix_is_utility_template_candidate(array $candidate): bool
+{
+    $name = strtolower(trim((string) ($candidate['name'] ?? '')));
+
+    return in_array($name, array('comments', 'post content', 'query loop'), true);
 }
 
 function matrix_is_reference_page_name(string $pageName): bool

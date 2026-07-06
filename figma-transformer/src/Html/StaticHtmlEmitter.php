@@ -4898,6 +4898,9 @@ final class StaticHtmlEmitter
             if ( $this->isContainedCssOffset($className, $visualNodeMapByClass, $visualNodeMapById) ) {
                 continue;
             }
+            if ( $this->isPlausibleInCanvasCssOffset($left, $top, $body) ) {
+                continue;
+            }
             $sample = array_filter(array(
                 'node_id' => (string) ($node['node_id'] ?? ''),
                 'name' => (string) ($node['name'] ?? ''),
@@ -4915,6 +4918,26 @@ final class StaticHtmlEmitter
         }
 
         return array_values($samples);
+    }
+
+    private function isPlausibleInCanvasCssOffset(?float $left, ?float $top, string $body): bool
+    {
+        if ( null !== $left && $left < 0.0 ) {
+            return false;
+        }
+        if ( null !== $top && $top < 0.0 ) {
+            return false;
+        }
+
+        $width = $this->cssPixelDeclarationValue($body, 'width');
+        if ( null !== $left && $left > 1440.0 ) {
+            return false;
+        }
+        if ( null !== $left && null !== $width && ($left + $width) > 2560.0 ) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -5577,6 +5600,14 @@ final class StaticHtmlEmitter
             return 'decorative_zero_height_separator';
         }
 
+        if ( $height <= 80.0 && 1 === preg_match('/\b(spacer|gap)\b/i', $name) ) {
+            return 'layout_spacer';
+        }
+
+        if ( $height <= 12.0 && $width >= 600.0 ) {
+            return 'layout_spacer';
+        }
+
         if ( $this->isFormControlChrome($node, $parentNode, $width, $height) ) {
             return 'form_control_chrome';
         }
@@ -5590,7 +5621,7 @@ final class StaticHtmlEmitter
 
     private function isNonBlockingEmptyVisibleContainerCategory(string $category): bool
     {
-        return in_array($category, array('decorative_zero_height_separator', 'form_control_chrome'), true);
+        return in_array($category, array('decorative_zero_height_separator', 'form_control_chrome', 'layout_spacer'), true);
     }
 
     /**
