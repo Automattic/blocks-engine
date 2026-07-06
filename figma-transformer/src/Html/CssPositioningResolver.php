@@ -46,10 +46,10 @@ final class CssPositioningResolver
             unset($constraints['horizontal'], $constraints['vertical']);
         }
 
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $parentNode, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $parentNode, $node, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
             $styles[] = $style;
         }
-        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout, $parentNode) as $style ) {
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout, $parentNode, $node, false, $parentIsFreeform) as $style ) {
             $styles[] = $style;
         }
 
@@ -246,7 +246,7 @@ final class CssPositioningResolver
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, ?array $parentNode, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, ?array $parentNode, ?array $node, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
     {
         $isHorizontal = 'horizontal' === $axis;
         $startProp = $isHorizontal ? 'left' : 'top';
@@ -259,6 +259,23 @@ final class CssPositioningResolver
         $constraint = null === $constraint ? null : strtoupper($constraint);
 
         $styles = array();
+
+        if ( null !== $offset && null !== $parentSize && null !== $boxSize && $this->shouldUseProportionalOverlayOffset($axis, $constraint, $parentBox, $box, $parentNode, $node, $parentIsFreeform) ) {
+            $percent = $this->number(( $offset / $parentSize ) * 100.0) . '%';
+            $trailing = $parentSize - $offset - $boxSize;
+            $trailingPercent = $this->number(( max(0.0, $trailing) / $parentSize ) * 100.0) . '%';
+
+            if ( $farPin === $constraint ) {
+                $styles[] = $endProp . ':' . $trailingPercent;
+                return $styles;
+            }
+
+            $styles[] = $startProp . ':' . $percent;
+            if ( $bothPin === $constraint && $trailing >= -0.5 ) {
+                $styles[] = $endProp . ':' . $trailingPercent;
+            }
+            return $styles;
+        }
 
         // Far-edge-only pin (REST RIGHT/BOTTOM, Kiwi MAX): anchor to the trailing
         // edge and drop the leading offset so the node stays glued on resize.
@@ -329,6 +346,119 @@ final class CssPositioningResolver
 
         $trailing = $parentSize - $offset - $boxSize;
         return abs($offset - $trailing) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $box
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $node
+     */
+    private function shouldUseProportionalOverlayOffset(string $axis, ?string $constraint, array $parentBox, array $box, ?array $parentNode, ?array $node, bool $parentIsFreeform): bool
+    {
+        if ( null === $parentNode || null === $node || ! $parentIsFreeform || ! $this->isFluidMediaContainer($parentNode) || ! $this->isOverlayLikeChild($node, $box, $parentBox) ) {
+            return false;
+        }
+
+        $constraint = null === $constraint ? null : strtoupper($constraint);
+        $allowed = 'horizontal' === $axis ? array(null, 'LEFT', 'RIGHT', 'LEFT_RIGHT', 'SCALE') : array(null, 'TOP', 'BOTTOM', 'TOP_BOTTOM', 'SCALE');
+        return in_array($constraint, $allowed, true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isFluidMediaContainer(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( 1 === preg_match('/\b(map|image|photo|picture|media)\b/', $name) ) {
+            return true;
+        }
+
+        $parentBox = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentArea = $this->area($parentBox);
+        if ( $parentArea <= 0.0 ) {
+            return false;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || ! $this->isMediaSurfaceNode($child) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : $child;
+            if ( $this->area($childBox) >= $parentArea * 0.5 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function isOverlayLikeChild(array $node, array $box, array $parentBox): bool
+    {
+        if ( $this->isImageBackedNode($node) ) {
+            return false;
+        }
+
+        $parentArea = $this->area($parentBox);
+        $childArea = $this->area($box);
+        if ( $parentArea <= 0.0 || $childArea <= 0.0 ) {
+            return false;
+        }
+
+        return $childArea <= $parentArea * 0.35;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isMediaSurfaceNode(array $node): bool
+    {
+        if ( $this->isImageBackedNode($node) ) {
+            return true;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        return 1 === preg_match('/\b(map|image|photo|picture|media)\b/', $name);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isImageBackedNode(array $node): bool
+    {
+        if ( isset($node['asset_id']) || isset($node['image_hash']) || isset($node['imageHash']) ) {
+            return true;
+        }
+
+        foreach ( array('fillPaints', 'fills') as $paintKey ) {
+            $paints = is_array($node[$paintKey] ?? null) ? $node[$paintKey] : array();
+            foreach ( $paints as $paint ) {
+                if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function area(array $box): float
+    {
+        if ( ! isset($box['width'], $box['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
+            return 0.0;
+        }
+
+        return max(0.0, (float) $box['width']) * max(0.0, (float) $box['height']);
     }
 
     /**
