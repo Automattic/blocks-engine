@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics;
+use Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder;
 
 /**
  * @param callable(bool, string): void $assert
@@ -212,6 +214,42 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(0 === $xpath->query('//a[.//a]')->length, 'html-validity-no-nested-anchors');
     $assert(0 === $xpath->query('//a[.//button]')->length, 'html-validity-no-anchor-wrapped-buttons');
     $assert(0 === $xpath->query('//ul/*[not(self::li)]')->length, 'html-validity-ul-direct-children-are-li');
+
+    $artifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><section class="hero"><div>Hero</div></section><ul><a href="#">Bad direct link</a><li>Good</li></ul><form><input type="email"><svg><path d="M0 0H10V10Z"></path></svg></form></main>',
+        '.hero{width:1600px;height:2400px;overflow:hidden}.card{width:640px}.media{width:480px}.tile-a{width:360px}.tile-b{width:360px}.tile-c{width:360px}.tile-d{width:360px}.tile-e{width:360px}@media (max-width: 767px){.media{width:100%}}'
+    );
+    $assert(8 === ($artifactDiagnostics['fixed_width_declaration_count'] ?? null), 'html-validity-artifact-diagnostics-counts-fixed-width-declarations');
+    $assert(1 === ($artifactDiagnostics['fixed_width_with_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-counts-responsive-covered-widths');
+    $assert(7 === ($artifactDiagnostics['fixed_width_without_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-counts-uncovered-fixed-widths');
+    $assert(0.125 === ($artifactDiagnostics['effective_responsive_coverage_ratio'] ?? null), 'html-validity-artifact-diagnostics-reports-effective-responsive-coverage');
+    $assert(1 === ($artifactDiagnostics['giant_fixed_section_count'] ?? null), 'html-validity-artifact-diagnostics-flags-giant-fixed-section');
+    $assert(1 === ($artifactDiagnostics['large_overflow_risk_count'] ?? null), 'html-validity-artifact-diagnostics-flags-large-overflow-risk');
+    $assert(1 === ($artifactDiagnostics['fallback_prone_form_island_count'] ?? null), 'html-validity-artifact-diagnostics-counts-form-islands');
+    $assert(1 === ($artifactDiagnostics['fallback_prone_svg_island_count'] ?? null), 'html-validity-artifact-diagnostics-counts-svg-islands');
+    $assert(1 === ($artifactDiagnostics['fallback_prone_input_island_count'] ?? null), 'html-validity-artifact-diagnostics-counts-input-islands');
+    $assert(1 === ($artifactDiagnostics['invalid_list_child_count'] ?? null), 'html-validity-artifact-diagnostics-detects-invalid-list-children');
+    $assert(2 === ($artifactDiagnostics['missing_semantic_role_count'] ?? null), 'html-validity-artifact-diagnostics-detects-missing-semantic-role');
+
+    $artifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
+        array('missing_assets' => array(), 'image_block_count' => 0, 'total_node_count' => 0),
+        array('placeholders' => 0, 'rendered_asset_fallbacks' => 0),
+        array('missing_css' => array(), 'usage' => array()),
+        array('emitted_files' => 0),
+        array('count' => 0, 'bytes' => 0),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        $artifactDiagnostics
+    );
+    $artifactSignalCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $artifactQuality['signals'] ?? array());
+    foreach ( array('low_effective_responsive_coverage', 'giant_fixed_section_risk', 'large_overflow_risk', 'fallback_prone_html_islands', 'invalid_list_children', 'missing_semantic_roles') as $code ) {
+        $assert(in_array($code, $artifactSignalCodes, true), 'html-validity-artifact-quality-signal-' . $code);
+    }
 
     $entrypointFallbackResult = (new StaticHtmlEmitter())->emitSite(array(
         'name'  => 'Implicit Entrypoint Fallback Fixture',

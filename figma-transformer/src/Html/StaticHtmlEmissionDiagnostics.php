@@ -179,23 +179,12 @@ final class StaticHtmlEmissionDiagnostics
         $breakpointLeaks = $this->breakpointOverrideLeaks($css);
         $absoluteToFlowConversions = $this->absoluteToFlowConversions($css);
         $mediaQueryCount = preg_match_all('/@media\s*\(max-width:[^)]+\)/i', $css) ?: 0;
-        $fixedWidthOverDesktopCount = 0;
-        if ( preg_match_all('/\bwidth:([0-9.]+)px\b/i', $css, $widthMatches) ) {
-            foreach ( is_array($widthMatches[1] ?? null) ? $widthMatches[1] : array() as $width ) {
-                if ( (float) $width > 1440.0 ) {
-                    ++$fixedWidthOverDesktopCount;
-                }
-            }
-        }
-        $largeFixedCanvasHeight = false;
-        if ( preg_match_all('/\b(?:height|min-height):([0-9.]+)px\b/i', $css, $heightMatches) ) {
-            foreach ( is_array($heightMatches[1] ?? null) ? $heightMatches[1] : array() as $height ) {
-                if ( (float) $height >= 3000.0 ) {
-                    $largeFixedCanvasHeight = true;
-                    break;
-                }
-            }
-        }
+        $fixedWidthCoverage = $this->fixedWidthCoverage($css);
+        $fixedWidthOverDesktopCount = (int) $fixedWidthCoverage['fixed_width_over_desktop_count'];
+        $largeFixedSections = $this->largeFixedSections($css);
+        $largeOverflowRules = $this->largeOverflowRules($css);
+        $htmlSemantics = $this->htmlSemanticRiskDiagnostics($html);
+        $largeFixedCanvasHeight = ! empty($largeFixedSections['giant_fixed_section_count']);
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
@@ -214,12 +203,230 @@ final class StaticHtmlEmissionDiagnostics
             'overlarge_inline_svg_ratio' => $htmlBytes >= 2048 && $inlineSvgBytes >= 32768 && $inlineSvgRatio >= 0.35,
             'media_query_count' => $mediaQueryCount,
             'fixed_width_over_desktop_count' => $fixedWidthOverDesktopCount,
+            'effective_responsive_coverage_ratio' => (float) $fixedWidthCoverage['effective_responsive_coverage_ratio'],
+            'fixed_width_declaration_count' => (int) $fixedWidthCoverage['fixed_width_declaration_count'],
+            'fixed_width_with_responsive_override_count' => (int) $fixedWidthCoverage['fixed_width_with_responsive_override_count'],
+            'fixed_width_without_responsive_override_count' => (int) $fixedWidthCoverage['fixed_width_without_responsive_override_count'],
+            'fixed_width_samples' => $fixedWidthCoverage['fixed_width_samples'],
             'large_fixed_canvas_height' => $largeFixedCanvasHeight,
             'desktop_canvas_without_responsive_breakpoints' => 0 === $mediaQueryCount && $largeFixedCanvasHeight && $structuralElementCount >= 80,
+            'giant_fixed_section_count' => (int) $largeFixedSections['giant_fixed_section_count'],
+            'giant_fixed_sections' => $largeFixedSections['giant_fixed_sections'],
+            'large_overflow_risk_count' => count($largeOverflowRules),
+            'large_overflow_risks' => array_slice($largeOverflowRules, 0, 25),
+            'fallback_prone_form_island_count' => (int) $htmlSemantics['fallback_prone_form_island_count'],
+            'fallback_prone_svg_island_count' => (int) $htmlSemantics['fallback_prone_svg_island_count'],
+            'fallback_prone_input_island_count' => (int) $htmlSemantics['fallback_prone_input_island_count'],
+            'invalid_list_child_count' => (int) $htmlSemantics['invalid_list_child_count'],
+            'missing_semantic_role_count' => (int) $htmlSemantics['missing_semantic_role_count'],
+            'semantic_role_samples' => $htmlSemantics['semantic_role_samples'],
             'breakpoint_override_leak_count' => count($breakpointLeaks),
             'breakpoint_override_leaks' => array_slice($breakpointLeaks, 0, 25),
             'absolute_to_flow_conversion_count' => count($absoluteToFlowConversions),
             'absolute_to_flow_conversions' => array_slice($absoluteToFlowConversions, 0, 25),
+        );
+    }
+
+    /**
+     * @return array{fixed_width_declaration_count: int, fixed_width_over_desktop_count: int, fixed_width_with_responsive_override_count: int, fixed_width_without_responsive_override_count: int, effective_responsive_coverage_ratio: float, fixed_width_samples: array<int, array<string, mixed>>}
+     */
+    private function fixedWidthCoverage(string $css): array
+    {
+        $rules = $this->cssRuleDeclarations($css);
+        $base = array();
+        $responsive = array();
+        $samples = array();
+        $fixedWidthOverDesktopCount = 0;
+
+        foreach ( $rules as $rule ) {
+            $selector = (string) ($rule['selector'] ?? '');
+            $declarations = (string) ($rule['declarations'] ?? '');
+            $classes = $this->selectorClassNames($selector);
+            if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*width\s*:/i', $declarations) ) {
+                foreach ( $classes as $class ) {
+                    $responsive[$class] = true;
+                }
+                continue;
+            }
+
+            $width = $this->cssNumericDeclaration($declarations, 'width');
+            if ( null === $width || $width < 320.0 ) {
+                continue;
+            }
+
+            foreach ( $classes as $class ) {
+                $base[$class] = true;
+                if ( $width > 1440.0 ) {
+                    ++$fixedWidthOverDesktopCount;
+                }
+                if ( count($samples) < 25 ) {
+                    $samples[] = array(
+                        'class' => $class,
+                        'width' => $width,
+                        'selector' => $selector,
+                    );
+                }
+            }
+        }
+
+        $baseClasses = array_keys($base);
+        $coveredCount = count(array_filter($baseClasses, static fn (string $class): bool => isset($responsive[$class])));
+        $totalCount = count($baseClasses);
+
+        return array(
+            'fixed_width_declaration_count' => $totalCount,
+            'fixed_width_over_desktop_count' => $fixedWidthOverDesktopCount,
+            'fixed_width_with_responsive_override_count' => $coveredCount,
+            'fixed_width_without_responsive_override_count' => max(0, $totalCount - $coveredCount),
+            'effective_responsive_coverage_ratio' => $totalCount > 0 ? round($coveredCount / $totalCount, 3) : 1.0,
+            'fixed_width_samples' => $samples,
+        );
+    }
+
+    /**
+     * @return array<int, array{selector: string, declarations: string, media: string}>
+     */
+    private function cssRuleDeclarations(string $css): array
+    {
+        $rules = array();
+        $mediaRanges = array();
+        if ( preg_match_all('/@media\s*([^{}]+)\s*\{((?:[^{}]+\{[^{}]*\}\s*)+)\}/is', $css, $mediaMatches, PREG_OFFSET_CAPTURE) ) {
+            foreach ( $mediaMatches[0] as $index => $match ) {
+                $mediaRanges[] = array(
+                    'start' => (int) $match[1],
+                    'end' => (int) $match[1] + strlen((string) $match[0]),
+                    'media' => trim((string) ($mediaMatches[1][$index][0] ?? '')),
+                );
+            }
+        }
+
+        if ( preg_match_all('/([^{}@]+)\{([^{}]*)\}/s', $css, $matches, PREG_OFFSET_CAPTURE) ) {
+            foreach ( $matches[0] as $index => $match ) {
+                $offset = (int) $match[1];
+                $media = '';
+                foreach ( $mediaRanges as $range ) {
+                    if ( $offset >= $range['start'] && $offset <= $range['end'] ) {
+                        $media = $range['media'];
+                        break;
+                    }
+                }
+                $rules[] = array(
+                    'selector' => trim((string) ($matches[1][$index][0] ?? '')),
+                    'declarations' => (string) ($matches[2][$index][0] ?? ''),
+                    'media' => $media,
+                );
+            }
+        }
+
+        return $rules;
+    }
+
+    private function cssNumericDeclaration(string $declarations, string $property): ?float
+    {
+        if ( 1 !== preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([0-9.]+)px\b/i', $declarations, $match) ) {
+            return null;
+        }
+
+        return (float) $match[1];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function selectorClassNames(string $selector): array
+    {
+        if ( ! preg_match_all('/\.([a-zA-Z0-9_-]+)/', $selector, $matches) ) {
+            return array();
+        }
+
+        return array_values(array_unique(array_map('strval', $matches[1])));
+    }
+
+    /**
+     * @return array{giant_fixed_section_count: int, giant_fixed_sections: array<int, array<string, mixed>>}
+     */
+    private function largeFixedSections(string $css): array
+    {
+        $sections = array();
+        foreach ( $this->cssRuleDeclarations($css) as $rule ) {
+            $height = $this->cssNumericDeclaration((string) $rule['declarations'], 'height') ?? $this->cssNumericDeclaration((string) $rule['declarations'], 'min-height');
+            $width = $this->cssNumericDeclaration((string) $rule['declarations'], 'width');
+            if ( null === $height || $height < 1800.0 || (null !== $width && $width < 960.0) || '' !== (string) $rule['media'] ) {
+                continue;
+            }
+            $sections[] = array(
+                'selector' => (string) $rule['selector'],
+                'width' => $width,
+                'height' => $height,
+            );
+        }
+
+        return array(
+            'giant_fixed_section_count' => count($sections),
+            'giant_fixed_sections' => array_slice($sections, 0, 25),
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function largeOverflowRules(string $css): array
+    {
+        $risks = array();
+        foreach ( $this->cssRuleDeclarations($css) as $rule ) {
+            $declarations = (string) $rule['declarations'];
+            $width = $this->cssNumericDeclaration($declarations, 'width') ?? 0.0;
+            if ( $width < 960.0 || ! preg_match('/(?:^|;)\s*overflow(?:-x)?\s*:\s*(hidden|clip|scroll)\b/i', $declarations, $match) ) {
+                continue;
+            }
+            $risks[] = array(
+                'selector' => (string) $rule['selector'],
+                'width' => $width,
+                'overflow' => strtolower((string) $match[1]),
+            );
+        }
+
+        return $risks;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function htmlSemanticRiskDiagnostics(string $html): array
+    {
+        $invalidListChildren = 0;
+        if ( preg_match_all('/<(ul|ol)\b[^>]*>(.*?)<\/\1>/is', $html, $listMatches) ) {
+            foreach ( is_array($listMatches[2] ?? null) ? $listMatches[2] : array() as $innerHtml ) {
+                $withoutValidItems = preg_replace('/<li\b[^>]*>.*?<\/li>/is', '', (string) $innerHtml) ?? (string) $innerHtml;
+                $invalidListChildren += preg_match_all('/<([a-z][a-z0-9:-]*)\b/i', $withoutValidItems) ?: 0;
+            }
+        }
+
+        $semanticRoleSamples = array();
+        $missingSemanticRoleCount = 0;
+        if ( preg_match_all('/<(section|article|aside|nav|header|footer|main)\b([^>]*)>/i', $html, $roleMatches, PREG_SET_ORDER) ) {
+            foreach ( $roleMatches as $match ) {
+                $attributes = (string) ($match[2] ?? '');
+                if ( str_contains($attributes, 'data-figma-semantic-role=') || str_contains($attributes, 'aria-label=') ) {
+                    continue;
+                }
+                ++$missingSemanticRoleCount;
+                if ( count($semanticRoleSamples) < 25 ) {
+                    $semanticRoleSamples[] = array(
+                        'tag' => strtolower((string) ($match[1] ?? '')),
+                        'attributes' => trim($attributes),
+                    );
+                }
+            }
+        }
+
+        return array(
+            'fallback_prone_form_island_count' => preg_match_all('/<form\b[^>]*>.*?<\/(?:form)>/is', $html) ?: 0,
+            'fallback_prone_svg_island_count' => preg_match_all('/<svg\b[^>]*>.*?<\/svg>/is', $html) ?: 0,
+            'fallback_prone_input_island_count' => preg_match_all('/<(?:input|textarea|select)\b/i', $html) ?: 0,
+            'invalid_list_child_count' => $invalidListChildren,
+            'missing_semantic_role_count' => $missingSemanticRoleCount,
+            'semantic_role_samples' => $semanticRoleSamples,
         );
     }
 

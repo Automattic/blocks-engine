@@ -222,6 +222,57 @@ final class TransformDiagnosticsBuilder
                 'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
             );
         }
+        if ( (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0) >= 8 && (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0) < 0.35 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'low_effective_responsive_coverage',
+                'coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 0.0),
+                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
+                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
+                'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['giant_fixed_section_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'giant_fixed_section_risk',
+                'count' => (int) $htmlArtifact['giant_fixed_section_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['giant_fixed_sections'] ?? null) ? $htmlArtifact['giant_fixed_sections'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['large_overflow_risk_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_overflow_risk',
+                'count' => (int) $htmlArtifact['large_overflow_risk_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['large_overflow_risks'] ?? null) ? $htmlArtifact['large_overflow_risks'] : array(), 0, 10),
+            );
+        }
+        $fallbackProneIslandCount = (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0);
+        if ( $fallbackProneIslandCount >= 3 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'fallback_prone_html_islands',
+                'form_islands' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
+                'svg_islands' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
+                'input_islands' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
+            );
+        }
+        if ( ! empty($htmlArtifact['invalid_list_child_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'invalid_list_children',
+                'count' => (int) $htmlArtifact['invalid_list_child_count'],
+            );
+        }
+        if ( (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0) >= 2 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'missing_semantic_roles',
+                'count' => (int) $htmlArtifact['missing_semantic_role_count'],
+                'sample_nodes' => array_slice(is_array($htmlArtifact['semantic_role_samples'] ?? null) ? $htmlArtifact['semantic_role_samples'] : array(), 0, 10),
+            );
+        }
         if ( ! empty($htmlArtifact['overlarge_inline_svg_ratio']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -317,7 +368,18 @@ final class TransformDiagnosticsBuilder
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
                 'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
+                'effective_responsive_coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0),
+                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
+                'fixed_width_with_responsive_override_count' => (int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0),
+                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
                 'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
+                'giant_fixed_section_count' => (int) ($htmlArtifact['giant_fixed_section_count'] ?? 0),
+                'large_overflow_risk_count' => (int) ($htmlArtifact['large_overflow_risk_count'] ?? 0),
+                'fallback_prone_form_island_count' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
+                'fallback_prone_svg_island_count' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
+                'fallback_prone_input_island_count' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
+                'invalid_list_child_count' => (int) ($htmlArtifact['invalid_list_child_count'] ?? 0),
+                'missing_semantic_role_count' => (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
                 'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
                 'intentionally_suppressed_text_nodes' => (int) ($text['intentionally_suppressed_text_node_count'] ?? 0),

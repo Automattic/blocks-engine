@@ -112,6 +112,13 @@ function summarizeBench(summary, runtime) {
     failed_fixture_count: fixtures.filter((fixture) => !['completed', 'inspected', 'planned'].includes(String(fixture.status || ''))).length,
     vector_placeholder_count: sumQuality(fixtures, vectorPlaceholderCount),
     missing_asset_count: sumQuality(fixtures, missingAssetCount),
+    fixed_width_without_responsive_override_count: sumSummary(fixtures, 'fixed_width_without_responsive_override_count'),
+    giant_fixed_section_count: sumSummary(fixtures, 'giant_fixed_section_count'),
+    large_overflow_risk_count: sumSummary(fixtures, 'large_overflow_risk_count'),
+    fallback_prone_html_island_count: sumSummary(fixtures, 'fallback_prone_form_island_count') + sumSummary(fixtures, 'fallback_prone_svg_island_count') + sumSummary(fixtures, 'fallback_prone_input_island_count'),
+    invalid_list_child_count: sumSummary(fixtures, 'invalid_list_child_count'),
+    missing_semantic_role_count: sumSummary(fixtures, 'missing_semantic_role_count'),
+    effective_responsive_coverage_ratio: numberOr(summary.quality_matrix?.effective_responsive_coverage_ratio, aggregateResponsiveCoverage(fixtures)),
   };
 
   for (const fixture of fixtures) {
@@ -128,6 +135,12 @@ function summarizeBench(summary, runtime) {
     const fixtureMissingAssets = missingAssetCount(fixture);
     if (fixtureMissingAssets > 0) {
       metrics[`fixture_${id}_missing_asset_count`] = fixtureMissingAssets;
+    }
+    for (const key of ['fixed_width_without_responsive_override_count', 'giant_fixed_section_count', 'large_overflow_risk_count', 'invalid_list_child_count', 'missing_semantic_role_count']) {
+      const value = summaryValue(fixture, key);
+      if (value > 0) {
+        metrics[`fixture_${id}_${key}`] = value;
+      }
     }
   }
 
@@ -195,6 +208,24 @@ function sumMetric(fixtures, key) {
 
 function sumQuality(fixtures, getter) {
   return fixtures.reduce((total, fixture) => total + getter(fixture), 0);
+}
+
+function sumSummary(fixtures, key) {
+  return fixtures.reduce((total, fixture) => total + summaryValue(fixture, key), 0);
+}
+
+function summaryValue(fixture, key) {
+  return numberOr(fixture.quality_summary?.[key] ?? fixture.artifact_quality?.summary?.[key]);
+}
+
+function aggregateResponsiveCoverage(fixtures) {
+  let covered = 0;
+  let total = 0;
+  for (const fixture of fixtures) {
+    covered += summaryValue(fixture, 'fixed_width_with_responsive_override_count');
+    total += summaryValue(fixture, 'fixed_width_declaration_count');
+  }
+  return total > 0 ? Number((covered / total).toFixed(3)) : 1;
 }
 
 function firstNumber(values) {
