@@ -484,7 +484,10 @@ $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime 
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
+$assert('form' === ($formFallbackDiagnostic['materialization_target']['capability'] ?? ''), 'data-entry runtime form targets a form materializer capability');
+$assert('form_provider' === ($formFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'data-entry runtime form targets a form provider role');
 $assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('form_provider' === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['materialization_target']['provider_role'] ?? ''), 'conversion report preserves form provider materialization target');
 $assert('core/html' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'data-entry form materializes as preserved form HTML');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<form action="/contact" method="post"'), 'data-entry form serialized markup keeps the form element');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<input id="email"'), 'data-entry form serialized markup keeps input controls');
@@ -501,9 +504,10 @@ $newsletterFallback = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
 )->toArray();
 $newsletterFallbackDiagnostic = $newsletterFallback['fallbacks'][0] ?? array();
-$assert('html_form_fallback' === ($newsletterFallbackDiagnostic['diagnostic_code'] ?? ''), 'static newsletter form stays classified as a form runtime mapping need');
+$assert('html_form_fallback' === ($newsletterFallbackDiagnostic['diagnostic_code'] ?? ''), 'static newsletter form stays classified as a provider-materializable form target');
 $assert('interactive_form' === ($newsletterFallbackDiagnostic['pattern_family'] ?? ''), 'static newsletter form uses the interactive_form family');
 $assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''), 'static newsletter form suggests a form primitive, not a fake native layout');
+$assert('form_provider' === ($newsletterFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'static newsletter form declares the form provider materialization role');
 $assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
 
 $commerceControls = ( new HtmlTransformer() )->transform(
@@ -515,9 +519,19 @@ foreach ( $commerceControls['fallbacks'] ?? array() as $fallback ) {
 }
 $assert(isset($commerceDiagnostics['html_product_grid_fallback']), 'commerce cards still expose product-grid materialization metadata');
 $assert(isset($commerceDiagnostics['html_commerce_controls_fallback']), 'commerce quantity/cart controls expose a dedicated runtime diagnostic');
+$assert('commerce_product_provider' === ($commerceDiagnostics['html_product_grid_fallback']['materialization_target']['provider_role'] ?? ''), 'commerce product grid targets product materialization through a shop provider');
+$assert('product' === ($commerceDiagnostics['html_product_grid_fallback']['materialization_target']['entity'] ?? ''), 'commerce product grid materialization target is product data');
+$commerceReportDiagnostics = array();
+foreach ( $commerceControls['source_reports']['conversion_report']['fallback_diagnostics'] ?? array() as $diagnostic ) {
+    $commerceReportDiagnostics[(string) ($diagnostic['diagnostic_code'] ?? '')] = $diagnostic;
+}
+$assert(2 === ($commerceReportDiagnostics['html_product_grid_fallback']['product_count'] ?? 0), 'conversion report preserves product-grid product count');
+$assert('Tour Tee' === ($commerceReportDiagnostics['html_product_grid_fallback']['products'][0]['name'] ?? ''), 'conversion report preserves product data for shop-provider materialization');
+$assert('commerce_product_provider' === ($commerceReportDiagnostics['html_product_grid_fallback']['materialization_target']['provider_role'] ?? ''), 'conversion report preserves shop-provider product target');
 $assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['pattern_family'] ?? ''), 'commerce controls use the commerce_controls pattern family');
 $assert('commerce_cart_runtime' === ($commerceDiagnostics['html_commerce_controls_fallback']['runtime_requirement'] ?? ''), 'commerce controls require a commerce cart runtime');
 $assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['suggested_primitive'] ?? ''), 'commerce controls do not pretend to have a native core block path');
+$assert('commerce_cart_runtime' === ($commerceDiagnostics['html_commerce_controls_fallback']['materialization_target']['provider_role'] ?? ''), 'commerce controls target cart runtime binding, not product data seeding');
 $assert(true === ($commerceDiagnostics['html_commerce_controls_fallback']['controls'][0]['has_quantity_control'] ?? null), 'commerce controls preserve quantity-control evidence');
 
 $contactLayout = ( new HtmlTransformer() )->transform(
