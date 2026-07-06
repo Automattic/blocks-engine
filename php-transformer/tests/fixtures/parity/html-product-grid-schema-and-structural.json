@@ -26,6 +26,7 @@
     { "path": "fallbacks.0.kind", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.reason_code", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.pattern_family", "assert": "equals", "value": "commerce_product_grid" },
+    { "path": "fallbacks.0.runtime_island_type", "assert": "equals", "value": "provider_materializable_products" },
     { "path": "fallbacks.0.repair_bucket", "assert": "equals", "value": "materialize_commerce_products" },
     { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "main:nth-of-type(1) > ul:nth-of-type(1)" },
     { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
@@ -44,10 +45,17 @@
     { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_commerce_controls_fallback" },
     { "path": "fallbacks.1.kind", "assert": "equals", "value": "html_commerce_controls_fallback" },
     { "path": "fallbacks.1.pattern_family", "assert": "equals", "value": "commerce_controls" },
+    { "path": "fallbacks.1.runtime_island_type", "assert": "equals", "value": "commerce_cart_controls" },
     { "path": "fallbacks.1.repair_bucket", "assert": "equals", "value": "materialize_commerce_runtime" },
     { "path": "fallbacks.1.runtime_requirement", "assert": "equals", "value": "commerce_cart_runtime" },
     { "path": "fallbacks.1.controls", "assert": "count", "count": 2 },
     { "path": "fallbacks.1.controls.0.product_name", "assert": "equals", "value": "Desk Lamp" },
-    { "path": "fallbacks.1.controls.1.product_name", "assert": "equals", "value": "Wall Clock" }
+    { "path": "fallbacks.1.controls.1.product_name", "assert": "equals", "value": "Wall Clock" },
+    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "provider_materializable_products" },
+    { "path": "diagnostics.1.materialization_target.provider_role", "assert": "equals", "value": "commerce_product_provider" },
+    { "path": "diagnostics.1.products", "assert": "count", "count": 2 },
+    { "path": "diagnostics.2.runtime_island_type", "assert": "equals", "value": "commerce_cart_controls" },
+    { "path": "diagnostics.2.controls.0.has_cart_control", "assert": "equals", "value": true },
+    { "path": "diagnostics.2.materialization_target.provider_role", "assert": "equals", "value": "commerce_cart_runtime" }
   ]
 }

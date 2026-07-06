@@ -25,7 +25,7 @@
   ],
   "expected_fallbacks": [
     { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" },
-    { "type": "html", "reason": "interactive_control_behavior_lost", "diagnostic_code": "interactive_control_behavior_lost", "severity": "warning", "conversion_classification": "behavior_loss", "suggested_repair_class": "restore_interactive_behavior", "pattern_family": "interactive_control", "tag": "x-widget" }
+    { "type": "html", "reason": "interactive_control_behavior_lost", "diagnostic_code": "interactive_control_behavior_lost", "severity": "warning", "conversion_classification": "behavior_loss", "suggested_repair_class": "restore_interactive_behavior", "pattern_family": "interactive_control", "runtime_island_type": "unsupported_custom_app_control", "tag": "x-widget" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
@@ -37,6 +37,8 @@
     { "path": "fallbacks.0.context.data_attributes.data-action", "assert": "equals", "value": "open" },
     { "path": "fallbacks.0.events.0.type", "assert": "equals", "value": "declared" },
     { "path": "fallbacks.0.events.1.type", "assert": "equals", "value": "click" },
+    { "path": "fallbacks.1.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" },
+    { "path": "diagnostics.2.runtime_island_type", "assert": "equals", "value": "unsupported_custom_app_control" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<code><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code>" },
     { "path": "source_reports.html.source_provenance.0.context.structure_signals.grid_like", "assert": "equals", "value": true },
     { "path": "source_reports.html.source_provenance.0.context.structure_signals.repeated_card_children", "assert": "equals", "value": 2 },

@@ -20,6 +20,7 @@ final class FallbackFindingNormalizer
         $metadata = array_filter(array(
             'pattern_family'                 => $patternFamily,
             'pattern_family_detail'          => self::patternFamilyDetail($fields),
+            'runtime_island_type'            => self::runtimeIslandType($fields, $patternFamily),
             'source_selector'                => $selector,
             'source_selector_specificity'    => '' !== $selector ? self::selectorSpecificity($selector) : array(),
             'parent_reason'                  => self::parentReason($context),
@@ -138,6 +139,18 @@ final class FallbackFindingNormalizer
             return (string) $fields['suggested_repair_class'];
         }
 
+        if ( 'commerce_product_grid' === $patternFamily ) {
+            return 'materialize_commerce_products';
+        }
+
+        if ( 'commerce_controls' === $patternFamily ) {
+            return 'materialize_commerce_runtime';
+        }
+
+        if ( 'interactive_control' === $patternFamily ) {
+            return 'restore_interactive_behavior';
+        }
+
         if ( str_starts_with($patternFamily, 'runtime_') || in_array($patternFamily, array('interactive_form', 'external_embed', 'inline_semantic_html'), true) ) {
             return 'preserve_runtime_island';
         }
@@ -151,6 +164,38 @@ final class FallbackFindingNormalizer
         }
 
         return 'review_generic_mapping';
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function runtimeIslandType(array $fields, string $patternFamily): string
+    {
+        $runtimeRequirement = (string) ($fields['runtime_requirement'] ?? '');
+        $code = (string) ($fields['diagnostic_code'] ?? $fields['code'] ?? '');
+        $kind = (string) ($fields['kind'] ?? '');
+
+        if ( 'html_product_grid_fallback' === $code || 'commerce_product_grid' === $patternFamily ) {
+            return 'provider_materializable_products';
+        }
+
+        if ( 'html_commerce_controls_fallback' === $code || 'commerce_controls' === $patternFamily || 'commerce_cart_runtime' === $runtimeRequirement ) {
+            return 'commerce_cart_controls';
+        }
+
+        if ( 'html_form_fallback' === $code || 'form' === $kind || 'server_or_client_form_handler' === $runtimeRequirement ) {
+            return 'provider_materializable_form';
+        }
+
+        if ( 'interactive_control_behavior_lost' === $code || 'interactive_control' === $patternFamily ) {
+            return 'unsupported_custom_app_control';
+        }
+
+        if ( in_array($runtimeRequirement, array('client_script_execution', 'canvas_element_and_client_script_execution', 'client_template_instantiation'), true) || str_starts_with($patternFamily, 'runtime_') ) {
+            return 'runtime_js';
+        }
+
+        return '';
     }
 
     /**
