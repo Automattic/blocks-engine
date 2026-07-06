@@ -1090,7 +1090,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      * @param array<int, mixed>    $children
-     * @return array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null}|null
+     * @return array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, object_fit: string, object_position: string, crop_rect: array<string, mixed>|null}|null
      */
     private function imageElementMetadata(array $node, string $type, array $children): ?array
     {
@@ -1123,17 +1123,21 @@ final class StaticHtmlEmitter
             'scale_mode'          => $scaleMode,
             'background_size'     => isset($backgroundStyles['size']) ? (string) $backgroundStyles['size'] : null,
             'background_position' => isset($backgroundStyles['position']) ? (string) $backgroundStyles['position'] : null,
+            'object_fit'          => $this->imageObjectFit($scaleMode),
+            'object_position'     => $this->imageObjectPosition(isset($backgroundStyles['position']) ? (string) $backgroundStyles['position'] : null),
             'crop_rect'           => empty($paint) ? null : $this->imagePaintCropRect($paint),
         );
     }
 
-    /** @param array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, crop_rect: array<string, mixed>|null} $metadata */
+    /** @param array{src: string, alt: string, scale_mode: string, background_size: string|null, background_position: string|null, object_fit: string, object_position: string, crop_rect: array<string, mixed>|null} $metadata */
     private function imageElementAttributes(array $metadata): string
     {
         $attributes = ' src="' . $this->sanitizeAttribute($metadata['src']) . '"';
         $attributes .= ' alt="' . $this->sanitizeAttribute($metadata['alt']) . '"';
         $attributes .= ' loading="lazy" decoding="async"';
-        $attributes .= ' data-figma-image-fill="true" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
+        $attributes .= ' style="object-fit:' . $this->sanitizeAttribute($metadata['object_fit']) . ';object-position:' . $this->sanitizeAttribute($metadata['object_position']) . '"';
+        $attributes .= ' data-figma-image-fill="true" data-figma-image-rendering="semantic-img" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
+        $attributes .= ' data-figma-image-object-fit="' . $this->sanitizeAttribute($metadata['object_fit']) . '" data-figma-image-object-position="' . $this->sanitizeAttribute($metadata['object_position']) . '"';
         if ( null !== $metadata['background_size'] ) {
             $attributes .= ' data-figma-image-background-size="' . $this->sanitizeAttribute($metadata['background_size']) . '"';
         }
@@ -1145,6 +1149,25 @@ final class StaticHtmlEmitter
         }
 
         return $attributes;
+    }
+
+    private function imageObjectFit(string $scaleMode): string
+    {
+        return match ( strtoupper($scaleMode) ) {
+            'FIT' => 'contain',
+            'STRETCH' => 'fill',
+            'TILE' => 'none',
+            default => 'cover',
+        };
+    }
+
+    private function imageObjectPosition(?string $backgroundPosition): string
+    {
+        if ( null === $backgroundPosition || '' === trim($backgroundPosition) ) {
+            return 'center';
+        }
+
+        return $backgroundPosition;
     }
 
     /**
