@@ -1022,7 +1022,7 @@ final class StaticHtmlEmitter
         if ( null !== $semanticRole ) {
             $attributes .= ' data-figma-semantic-role="' . $this->sanitizeAttribute($semanticRole) . '"';
         }
-        if ( $this->layoutIntentShouldEmitClass($layoutIntent) ) {
+        if ( is_array($layoutIntent) && ($this->layoutIntentShouldEmitClass($layoutIntent) || ($this->freeformContainerShouldUseFlow($node) && ! $this->nodeWillPositionAbsolute($node, $parentNode))) ) {
             $attributes .= $this->layoutIntentAttributes($layoutIntent);
         }
         $anchorId = $this->headingAnchorId($node, $tag);
@@ -2173,13 +2173,7 @@ final class StaticHtmlEmitter
     {
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( empty($layout['display'] ?? null) && is_array($layoutIntent) && in_array($layoutIntent['intent'] ?? '', array(
-            LayoutIntentClassifier::LAYOUT_INTENT_CARD_ROW,
-            LayoutIntentClassifier::LAYOUT_INTENT_CARD_GRID,
-            LayoutIntentClassifier::LAYOUT_INTENT_PRICING_GRID,
-            LayoutIntentClassifier::LAYOUT_INTENT_SERVICE_GRID,
-            LayoutIntentClassifier::LAYOUT_INTENT_ARTICLE_GRID,
-        ), true) ) {
+        if ( empty($layout['display'] ?? null) && $this->layoutIntentCanUseFlow($layoutIntent) && $this->isContentOnlyFlowScaffold($node) ) {
             return true;
         }
 
@@ -6331,7 +6325,7 @@ final class StaticHtmlEmitter
         }
 
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
-        if ( empty($layout['display'] ?? null) && $this->layoutIntentShouldEmitClass($layoutIntent) ) {
+        if ( empty($layout['display'] ?? null) && is_array($layoutIntent) && ($this->layoutIntentShouldEmitClass($layoutIntent) || ($this->freeformContainerShouldUseFlow($node) && ! $positioningStyleDecision->willPositionAbsolute)) ) {
             foreach ( $this->layoutIntentStyles($layoutIntent) as $style ) {
                 $styles[] = $style;
             }
@@ -6452,6 +6446,96 @@ final class StaticHtmlEmitter
     private function layoutIntentShouldEmitClass(?array $layoutIntent): bool
     {
         return is_array($layoutIntent) && null !== ($layoutIntent['collection'] ?? null);
+    }
+
+    /** @param array<string, mixed>|null $layoutIntent */
+    private function layoutIntentCanUseFlow(?array $layoutIntent): bool
+    {
+        return is_array($layoutIntent) && in_array($layoutIntent['intent'] ?? '', array(
+            LayoutIntentClassifier::LAYOUT_INTENT_FLOW_SECTION,
+            LayoutIntentClassifier::LAYOUT_INTENT_STACK,
+            LayoutIntentClassifier::LAYOUT_INTENT_NAV_ROW,
+            LayoutIntentClassifier::LAYOUT_INTENT_CARD_ROW,
+            LayoutIntentClassifier::LAYOUT_INTENT_CARD_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_PRICING_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_SERVICE_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_ARTICLE_GRID,
+            LayoutIntentClassifier::LAYOUT_INTENT_CTA,
+        ), true);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isContentOnlyFlowScaffold(array $node): bool
+    {
+        if ( in_array(strtoupper((string) ($node['type'] ?? '')), array('COMPONENT', 'INSTANCE'), true) ) {
+            return false;
+        }
+
+        if ( $this->subtreeHasComponentCloneGeometry($node) || $this->hasDecorativeFlexUnderlayChild($node) || null !== $this->layoutIntentClassifier()->chromeGroupRole($node, null, 1) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( ! preg_match('/\b(section|content|main|hero|intro|cards?|grid|columns?|services?|features?|articles?|posts?|pricing|plans?|cta|call to action)\b/', $name) ) {
+            return false;
+        }
+
+        $contentChildren = 0;
+        foreach ( array_values(array_filter($this->nodeList($node), 'is_array')) as $child ) {
+            if ( $this->subtreeIsDecorativeSeparator($child) || $this->isFullyClippedDecorativeChild($child, $node) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+            if ( $this->subtreeHasComponentCloneGeometry($child) ) {
+                return false;
+            }
+            if ( ! $this->subtreeHasText($child) && ! $this->subtreeHasLink($child) ) {
+                return false;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' !== ($layout['positioning'] ?? null) ) {
+                return false;
+            }
+            ++$contentChildren;
+        }
+
+        return $contentChildren >= 2;
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeWillPositionAbsolute(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return ($this->isFreeformContainer($parentNode) && ! $this->freeformContainerShouldUseFlow($parentNode))
+            || ('absolute' === ($layout['positioning'] ?? null) && ! $this->freeformContainerShouldUseFlow($parentNode))
+            || $this->isDecorativeFlexUnderlay($node, $parentNode);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function subtreeHasComponentCloneGeometry(array $node): bool
+    {
+        if ( true === ($node['_component_source_clone_geometry'] ?? false) || isset($node['figma_component_source_id']) ) {
+            return true;
+        }
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( 'component_source_clone' === ($box['geometry_semantics'] ?? null) ) {
+                return true;
+            }
+        }
+        foreach ( array_values(array_filter($this->nodeList($node), 'is_array')) as $child ) {
+            if ( $this->subtreeHasComponentCloneGeometry($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
