@@ -1275,13 +1275,14 @@ final class ScenegraphPagePlanner
             $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
             $parentId = $parentIndex[$id] ?? null;
             $frames[] = array(
-                'id'         => $id,
-                'name'       => (string) ($node['name'] ?? ''),
-                'width'      => $candidate['dimensions']['width'] ?? null,
-                'height'     => $candidate['dimensions']['height'] ?? null,
-                'page_id'    => $page['id'] ?? null,
-                'section_id' => $section['id'] ?? null,
-                'parent_id'  => is_string($parentId) ? $parentId : null,
+                'id'           => $id,
+                'name'         => (string) ($node['name'] ?? ''),
+                'width'        => $candidate['dimensions']['width'] ?? null,
+                'height'       => $candidate['dimensions']['height'] ?? null,
+                'page_id'      => $page['id'] ?? null,
+                'section_id'   => $section['id'] ?? null,
+                'parent_id'    => is_string($parentId) ? $parentId : null,
+                'ancestor_ids' => $this->ancestorIds($id, $nodes, $parentIndex),
             );
         }
 
@@ -2125,6 +2126,23 @@ final class ScenegraphPagePlanner
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>         $parentIndex
+     * @return array<int, string>
+     */
+    private function ancestorIds(string $id, array $nodes, array $parentIndex): array
+    {
+        $ancestors = array();
+        $parent = $parentIndex[$id] ?? null;
+        while ( is_string($parent) && isset($nodes[$parent]) && is_array($nodes[$parent]) ) {
+            $ancestors[] = $parent;
+            $parent = $parentIndex[$parent] ?? null;
+        }
+
+        return $ancestors;
     }
 
     /**

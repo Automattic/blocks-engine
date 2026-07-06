@@ -55,6 +55,7 @@ final class ScenegraphFrameInspector
                     'page'                  => $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex),
                     'section'               => 'SECTION' === $type ? null : $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex),
                     'parent'                => $this->parentSummary($id, $nodes, $parentIndex),
+                    'ancestor_ids'          => $this->ancestorIds($id, $nodes, $parentIndex),
                     'child_count'           => count(is_array($childrenIndex[$id] ?? null) ? $childrenIndex[$id] : array()),
                     'subtree_node_count'    => $stats['nodes'],
                     'text_count'            => $stats['texts'],
@@ -70,8 +71,30 @@ final class ScenegraphFrameInspector
             );
         }
 
+        $diagnostics = is_array($index['diagnostics'] ?? null) ? $index['diagnostics'] : array();
+        $rejectionCount = 0;
+        $rejectionSamples = array();
         foreach ( $candidates as $id => $candidate ) {
-            $candidates[$id]['responsive_siblings'] = $this->responsiveSiblings($id, $candidate, $candidates);
+            $assessment = $this->responsiveSiblingAssessment($id, $candidate, $candidates);
+            $candidates[$id]['responsive_siblings'] = $assessment['siblings'];
+            if ( array() !== $assessment['rejections'] ) {
+                $candidates[$id]['responsive_sibling_rejections'] = $assessment['rejections'];
+                foreach ( $assessment['rejections'] as $rejection ) {
+                    ++$rejectionCount;
+                    if ( count($rejectionSamples) < 25 ) {
+                        $rejectionSamples[] = $this->responsiveSiblingRejectionSample($id, $candidate, $rejection);
+                    }
+                }
+            }
+        }
+        if ( $rejectionCount > 0 ) {
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code' => 'responsive_sibling_candidates_rejected',
+                'message' => 'Rejected implausible responsive sibling candidates.',
+                'count' => $rejectionCount,
+                'sample_nodes' => $rejectionSamples,
+            );
         }
 
         $candidates = array_values($candidates);
@@ -89,7 +112,7 @@ final class ScenegraphFrameInspector
             'candidate_count' => count($candidates),
             'returned_count'  => min($limit, count($candidates)),
             'candidates'      => array_slice($candidates, 0, $limit),
-            'diagnostics'     => is_array($index['diagnostics'] ?? null) ? $index['diagnostics'] : array(),
+            'diagnostics'     => $diagnostics,
         );
     }
 
@@ -242,6 +265,23 @@ final class ScenegraphFrameInspector
     }
 
     /**
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>              $parentIndex
+     * @return array<int, string>
+     */
+    private function ancestorIds(string $id, array $nodes, array $parentIndex): array
+    {
+        $ancestors = array();
+        $parent = $parentIndex[$id] ?? null;
+        while ( is_string($parent) && isset($nodes[$parent]) && is_array($nodes[$parent]) ) {
+            $ancestors[] = $parent;
+            $parent = $parentIndex[$parent] ?? null;
+        }
+
+        return $ancestors;
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @return array<string, string>
      */
@@ -363,6 +403,13 @@ final class ScenegraphFrameInspector
             $pageId = isset($frame['page_id']) && is_scalar($frame['page_id']) && '' !== (string) $frame['page_id'] ? (string) $frame['page_id'] : null;
             $sectionId = isset($frame['section_id']) && is_scalar($frame['section_id']) && '' !== (string) $frame['section_id'] ? (string) $frame['section_id'] : null;
             $parentId = isset($frame['parent_id']) && is_scalar($frame['parent_id']) && '' !== (string) $frame['parent_id'] ? (string) $frame['parent_id'] : null;
+            $ancestorIds = array_values(array_filter(
+                array_map(
+                    static fn (mixed $value): string => is_scalar($value) ? (string) $value : '',
+                    is_array($frame['ancestor_ids'] ?? null) ? $frame['ancestor_ids'] : array()
+                ),
+                static fn (string $value): bool => '' !== $value
+            ));
 
             $candidates[$id] = array_filter(
                 array(
@@ -373,6 +420,7 @@ final class ScenegraphFrameInspector
                     'page'              => null !== $pageId ? array('id' => $pageId) : null,
                     'section'           => null !== $sectionId ? array('id' => $sectionId) : null,
                     'parent'            => null !== $parentId ? array('id' => $parentId) : null,
+                    'ancestor_ids'      => $ancestorIds,
                     'device_hint'       => $this->deviceHint($name, $dimensions),
                     'sibling_group_key' => $this->siblingGroupKeyFor($name, $pageId, $sectionId),
                 ),
@@ -382,7 +430,11 @@ final class ScenegraphFrameInspector
 
         $detection = array();
         foreach ( $candidates as $id => $candidate ) {
-            $candidate['responsive_siblings'] = $this->responsiveSiblings((string) $id, $candidate, $candidates);
+            $assessment = $this->responsiveSiblingAssessment((string) $id, $candidate, $candidates);
+            $candidate['responsive_siblings'] = $assessment['siblings'];
+            if ( array() !== $assessment['rejections'] ) {
+                $candidate['responsive_sibling_rejections'] = $assessment['rejections'];
+            }
             $detection[(string) $id] = $candidate;
         }
 
@@ -421,9 +473,10 @@ final class ScenegraphFrameInspector
      * @param array<string, array<string, mixed>> $candidates
      * @return array<int, array<string, mixed>>
      */
-    private function responsiveSiblings(string $id, array $candidate, array $candidates): array
+    private function responsiveSiblingAssessment(string $id, array $candidate, array $candidates): array
     {
         $siblings = array();
+        $rejections = array();
         $groupKey = (string) ($candidate['sibling_group_key'] ?? '');
         $deviceHint = (string) ($candidate['device_hint'] ?? 'unknown');
         $pageId = (string) ($candidate['page']['id'] ?? '');
@@ -443,6 +496,23 @@ final class ScenegraphFrameInspector
             $siblingDeviceHint = (string) ($sibling['device_hint'] ?? 'unknown');
 
             if ( ! $sameScope && ( ! $sameContainer || $nameSimilarity < 70 ) ) {
+                continue;
+            }
+
+            $rejectionReasons = $this->responsiveSiblingRejectionReasons($candidate, $sibling, $sameContainer);
+            if ( array() !== $rejectionReasons ) {
+                $rejections[] = array_filter(
+                    array(
+                        'id' => (string) ($sibling['id'] ?? $siblingId),
+                        'name' => (string) ($sibling['name'] ?? ''),
+                        'device_hint' => $siblingDeviceHint,
+                        'width' => $sibling['width'] ?? null,
+                        'height' => $sibling['height'] ?? null,
+                        'name_similarity' => $nameSimilarity,
+                        'reasons' => $rejectionReasons,
+                    ),
+                    static fn (mixed $value): bool => null !== $value
+                );
                 continue;
             }
 
@@ -471,7 +541,78 @@ final class ScenegraphFrameInspector
                 ?: strcmp((string) ($left['id'] ?? ''), (string) ($right['id'] ?? ''))
         );
 
-        return array_slice($siblings, 0, 5);
+        return array(
+            'siblings' => array_slice($siblings, 0, 5),
+            'rejections' => array_slice($rejections, 0, 10),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<string, mixed> $sibling
+     * @return array<int, string>
+     */
+    private function responsiveSiblingRejectionReasons(array $candidate, array $sibling, bool $sameContainer): array
+    {
+        $reasons = array();
+        if ( ! $this->hasPlausibleResponsiveFrameDimensions($sibling) ) {
+            $reasons[] = 'implausible_dimensions';
+        }
+        if ( ! $sameContainer || $this->hasAncestorDescendantRelationship($candidate, $sibling) ) {
+            $reasons[] = 'implausible_ancestry';
+        }
+
+        return $reasons;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function hasPlausibleResponsiveFrameDimensions(array $candidate): bool
+    {
+        $width = is_numeric($candidate['width'] ?? null) ? (float) $candidate['width'] : 0.0;
+        $height = is_numeric($candidate['height'] ?? null) ? (float) $candidate['height'] : 0.0;
+
+        return $width >= 300.0 && $height >= 300.0;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<string, mixed> $sibling
+     */
+    private function hasAncestorDescendantRelationship(array $candidate, array $sibling): bool
+    {
+        $candidateId = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
+        $siblingId = isset($sibling['id']) && is_scalar($sibling['id']) ? (string) $sibling['id'] : '';
+        $candidateAncestors = is_array($candidate['ancestor_ids'] ?? null) ? $candidate['ancestor_ids'] : array();
+        $siblingAncestors = is_array($sibling['ancestor_ids'] ?? null) ? $sibling['ancestor_ids'] : array();
+
+        return ('' !== $candidateId && in_array($candidateId, $siblingAncestors, true))
+            || ('' !== $siblingId && in_array($siblingId, $candidateAncestors, true));
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<string, mixed> $rejection
+     * @return array<string, mixed>
+     */
+    private function responsiveSiblingRejectionSample(string $id, array $candidate, array $rejection): array
+    {
+        return array_filter(
+            array(
+                'severity' => 'info',
+                'code' => 'responsive_sibling_candidate_rejected',
+                'message' => 'Rejected an implausible responsive sibling candidate.',
+                'frame_id' => $id,
+                'frame_name' => (string) ($candidate['name'] ?? ''),
+                'candidate_id' => $rejection['id'] ?? null,
+                'candidate_name' => $rejection['name'] ?? null,
+                'candidate_width' => $rejection['width'] ?? null,
+                'candidate_height' => $rejection['height'] ?? null,
+                'reasons' => $rejection['reasons'] ?? null,
+            ),
+            static fn (mixed $value): bool => null !== $value
+        );
     }
 
     /**

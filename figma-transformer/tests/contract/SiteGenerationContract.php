@@ -1578,6 +1578,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                                 'children' => array(
                                     array('id' => 'text:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Hello'),
                                     array('id' => 'image:hero', 'type' => 'RECTANGLE', 'name' => 'Hero image', 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'hero'))),
+                                    array('id' => 'frame:home-map-label', 'type' => 'FRAME', 'name' => 'Home Page', 'width' => 149.85, 'height' => 43.65),
                                 ),
                             ),
                             array(
@@ -1612,6 +1613,26 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert('desktop' === ($frameInspectionHome['device_hint'] ?? null), 'frame-inspection-desktop-device-hint');
     $assert('frame:home-mobile' === ($frameInspectionHome['responsive_siblings'][0]['id'] ?? null), 'frame-inspection-responsive-sibling-id');
     $assert('mobile' === ($frameInspectionHome['responsive_siblings'][0]['device_hint'] ?? null), 'frame-inspection-responsive-sibling-device-hint');
+    $assert(! in_array('frame:home-map-label', array_map(static fn (array $sibling): string => (string) ($sibling['id'] ?? ''), $frameInspectionHome['responsive_siblings'] ?? array()), true), 'frame-inspection-tiny-descendant-not-responsive-sibling');
+    $tinyDescendantRejection = null;
+    foreach ( $frameInspectionHome['responsive_sibling_rejections'] ?? array() as $rejection ) {
+        if ( is_array($rejection) && 'frame:home-map-label' === ($rejection['id'] ?? null) ) {
+            $tinyDescendantRejection = $rejection;
+            break;
+        }
+    }
+    $assert(null !== $tinyDescendantRejection, 'frame-inspection-tiny-descendant-rejection-recorded');
+    $assert(in_array('implausible_dimensions', $tinyDescendantRejection['reasons'] ?? array(), true), 'frame-inspection-tiny-descendant-rejects-dimensions');
+    $assert(in_array('implausible_ancestry', $tinyDescendantRejection['reasons'] ?? array(), true), 'frame-inspection-tiny-descendant-rejects-ancestry');
+    $tinyDescendantDiagnostic = null;
+    foreach ( $frameInspection['diagnostics'] ?? array() as $diagnostic ) {
+        if ( is_array($diagnostic) && 'responsive_sibling_candidates_rejected' === ($diagnostic['code'] ?? null) ) {
+            $tinyDescendantDiagnostic = $diagnostic;
+            break;
+        }
+    }
+    $tinyDescendantDiagnosticSamples = is_array($tinyDescendantDiagnostic['sample_nodes'] ?? null) ? $tinyDescendantDiagnostic['sample_nodes'] : array();
+    $assert(0 < count(array_filter($tinyDescendantDiagnosticSamples, static fn (array $sample): bool => 'frame:home-map-label' === ($sample['candidate_id'] ?? null))), 'frame-inspection-tiny-descendant-rejection-diagnostic');
     
     $responsivePagePlanSource = array(
         'nodes' => array(
