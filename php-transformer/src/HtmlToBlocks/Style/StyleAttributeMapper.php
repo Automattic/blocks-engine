@@ -93,6 +93,11 @@ final class StyleAttributeMapper
             $style['spacing'] = $spacing;
         }
 
+        $dimensions = $this->dimensions($normalized, $consumed);
+        if ( array() !== $dimensions ) {
+            $style['dimensions'] = $dimensions;
+        }
+
         $blockGap = $this->blockGap($normalized, $consumed);
         if ( '' !== $blockGap ) {
             $style['spacing']['blockGap'] = $blockGap;
@@ -177,6 +182,11 @@ final class StyleAttributeMapper
         $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
         if ( '' !== $blockGap ) {
             $declarations[] = 'gap:' . $blockGap;
+        }
+
+        $dimensions = is_array($style['dimensions'] ?? null) ? $style['dimensions'] : array();
+        if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
+            $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
         }
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
@@ -302,6 +312,41 @@ final class StyleAttributeMapper
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @param array<string, bool> $consumed
+     * @return array<string, string>
+     */
+    private function dimensions(array $declarations, array &$consumed): array
+    {
+        $minHeight = trim((string) ($declarations['min-height'] ?? ''));
+        if ( '' === $minHeight || ! $this->isCssLengthLike($minHeight) ) {
+            return array();
+        }
+
+        $consumed['min-height'] = true;
+
+        return array( 'minHeight' => $minHeight );
+    }
+
+    private function isCssLengthLike(string $value): bool
+    {
+        $value = trim($value);
+        if ( '' === $value ) {
+            return false;
+        }
+
+        if ( preg_match('/^(?:calc|min|max|clamp)\s*\(/i', $value) ) {
+            return CssValueSplitter::hasBalancedParens($value);
+        }
+
+        if ( preg_match('/^var\s*\(\s*--[a-z0-9_-]+/i', $value) ) {
+            return str_ends_with($value, ')') && CssValueSplitter::hasBalancedParens($value);
+        }
+
+        return (bool) preg_match('/^(?:0|[0-9]*\.?[0-9]+(?:px|em|rem|%|vh|vw|svh|svw|lvh|lvw|dvh|dvw|vmin|vmax|ch|ex|lh|rlh))$/i', $value);
     }
 
     /**

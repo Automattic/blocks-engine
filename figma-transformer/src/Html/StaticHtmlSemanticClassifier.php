@@ -134,9 +134,11 @@ final class StaticHtmlSemanticClassifier
 
         $children = array_values(array_filter(($this->nodeList)($node), 'is_array'));
 
-        if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
+        if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) && ! $this->isTopLevelSection($parentNode, $depth - 1, $sectionDepth, $grandParentNode, $this->children($parentNode)) ) {
             return 'li';
         }
+
+        $isTopLevelSection = 'FRAME' === $type && $this->isTopLevelSection($node, $depth, $sectionDepth, $parentNode, $children);
 
         if ( $this->isTextareaLike($node, $parentNode) ) {
             return $this->hasFormControlAccessoryChildren($node) ? 'div' : 'textarea';
@@ -162,7 +164,7 @@ final class StaticHtmlSemanticClassifier
             return 'button';
         }
 
-        if ( ! empty($this->listItemIds($node)) ) {
+        if ( ! $isTopLevelSection && ! empty($this->listItemIds($node)) ) {
             return $this->listLooksOrdered($node) ? 'ol' : 'ul';
         }
 
@@ -175,7 +177,7 @@ final class StaticHtmlSemanticClassifier
             return 'article';
         }
 
-        if ( 'FRAME' === $type && $this->isTopLevelSection($node, $depth, $sectionDepth, $parentNode, $children) ) {
+        if ( $isTopLevelSection ) {
             return 'section';
         }
 
@@ -766,6 +768,15 @@ final class StaticHtmlSemanticClassifier
     private function listLooksOrdered(array $container): bool
     {
         return ($this->listLooksOrdered)($container);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function children(array $node): array
+    {
+        return array_values(array_filter(($this->nodeList)($node), 'is_array'));
     }
 
     /**

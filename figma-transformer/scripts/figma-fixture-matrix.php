@@ -181,6 +181,10 @@ foreach ( $fixtures as $fixture ) {
     if ( isset($fixture['entry_frame_id']) ) {
         $record['entry_frame_id'] = (string) $fixture['entry_frame_id'];
     }
+    $record['omitted_page_candidates'] = matrix_omitted_page_candidate_records(is_array($inspection) ? $inspection : array(), $frameIds);
+    if ( ! isset($record['entry_frame_id']) ) {
+        $record['entry_frame_id'] = (string) ($frameIds[0] ?? '');
+    }
     $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, $record['selected_frames']);
 
     if ( $inspectOnly ) {

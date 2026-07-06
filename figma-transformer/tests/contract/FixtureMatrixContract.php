@@ -132,6 +132,91 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
         ),
     ), 2);
 
+    $canonicalTemplateSelectionInspection = array(
+        'candidates' => array(
+            array(
+                'id'         => 'frame:home-desktop',
+                'name'       => 'Home Page - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'front_page',
+                'score'      => 500,
+                'width'      => 1440,
+                'height'     => 4400,
+                'text_count' => 20,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+            array(
+                'id'         => 'frame:single-desktop',
+                'name'       => 'Blog Post - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'single',
+                'score'      => 650,
+                'width'      => 1440,
+                'height'     => 8400,
+                'text_count' => 80,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+            array(
+                'id'         => 'frame:page-desktop',
+                'name'       => 'Page - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'page',
+                'score'      => 620,
+                'width'      => 1440,
+                'height'     => 3200,
+                'text_count' => 30,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+            array(
+                'id'         => 'frame:archive-desktop',
+                'name'       => 'Archive - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'archive',
+                'score'      => 440,
+                'width'      => 1440,
+                'height'     => 3600,
+                'text_count' => 36,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+            array(
+                'id'         => 'frame:404-desktop',
+                'name'       => '404 Page - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => '404',
+                'score'      => 350,
+                'width'      => 1440,
+                'height'     => 1800,
+                'text_count' => 12,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+            array(
+                'id'         => 'frame:contact-desktop',
+                'name'       => 'Contact - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'page',
+                'score'      => 300,
+                'width'      => 1440,
+                'height'     => 1800,
+                'text_count' => 12,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups (dev handoff)'),
+            ),
+        ),
+    );
+    $canonicalTemplateSelection = matrix_select_frame_ids($canonicalTemplateSelectionInspection, 3);
+    $canonicalTemplateOmissions = matrix_omitted_page_candidate_records($canonicalTemplateSelectionInspection, $canonicalTemplateSelection);
+
     $matrixSelectionLockPath = $matrixFixtureDir . '/selection-lock.json';
     file_put_contents($matrixSelectionLockPath, json_encode(array(
         'schema'   => 'blocks-engine/figma-transformer/fixture-matrix/v1',
@@ -208,6 +293,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(array('frame:fisiostetic-home') === $wideRootSelection, 'fixture-matrix-selection-prefers-wide-root-page-over-section-frame');
     $assert('frame:component-front-page' === ($componentComposedFrontPageSelection[0] ?? null), 'fixture-matrix-selection-keeps-component-composed-front-page');
     $assert(! in_array('frame:comments-utility', $componentComposedFrontPageSelection, true), 'fixture-matrix-selection-skips-utility-template-frame');
+    $assert(array('frame:home-desktop', 'frame:single-desktop', 'frame:archive-desktop', 'frame:404-desktop', 'frame:page-desktop') === $canonicalTemplateSelection, 'fixture-matrix-selection-preserves-canonical-template-coverage-under-page-cap');
+    $assert('frame:contact-desktop' === ($canonicalTemplateOmissions[0]['id'] ?? null), 'fixture-matrix-selection-reports-omitted-page-candidates');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
     $assert('/opt/homeboy-alias' === ($matrixAliasSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-bin-alias');
     $assert(true === ($matrixAliasSummary['dom_box_provider_command_configured'] ?? null), 'fixture-matrix-dom-box-command-alias-configured');

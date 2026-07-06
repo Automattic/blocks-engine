@@ -97,6 +97,45 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($largeBodyTextHtml, '<p class="figma-node-semantic-large-body-supporting-supporting-text"'), 'semantic-accessibility-large-supporting-text-paragraph');
     $assert(! str_contains($largeBodyTextHtml, '<h2 class="figma-node-semantic-large-body-body-body"'), 'semantic-accessibility-large-body-text-not-heading');
 
+    $topLevelListLikeSectionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Top Level List Like Section Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'semantic:list-section-root',
+                'type'     => 'FRAME',
+                'name'     => 'Home',
+                'width'    => 1200,
+                'height'   => 1000,
+                'children' => array(
+                    array(
+                        'id'       => 'semantic:list-section-hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero',
+                        'width'    => 1200,
+                        'height'   => 300,
+                        'children' => array(array('id' => 'semantic:list-section-hero-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Hero', 'fontSize' => 48)),
+                    ),
+                    array(
+                        'id'       => 'semantic:pricing-section',
+                        'type'     => 'FRAME',
+                        'name'     => 'Pricing',
+                        'width'    => 1200,
+                        'height'   => 500,
+                        'children' => array(
+                            array('id' => 'semantic:pricing-card-a', 'type' => 'FRAME', 'name' => 'Basic Card', 'children' => array(array('id' => 'semantic:pricing-card-a-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Basic', 'fontSize' => 24))),
+                            array('id' => 'semantic:pricing-card-b', 'type' => 'FRAME', 'name' => 'Pro Card', 'children' => array(array('id' => 'semantic:pricing-card-b-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Pro', 'fontSize' => 24))),
+                            array('id' => 'semantic:pricing-card-c', 'type' => 'FRAME', 'name' => 'Team Card', 'children' => array(array('id' => 'semantic:pricing-card-c-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Team', 'fontSize' => 24))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $topLevelListLikeSectionHtml = $fileContent($topLevelListLikeSectionResult, 'index.html');
+    $assert(str_contains($topLevelListLikeSectionHtml, '<section class="figma-node-semantic-pricing-section-pricing"'), 'semantic-accessibility-top-level-list-like-frame-keeps-section-landmark');
+    $assert(! str_contains($topLevelListLikeSectionHtml, '<ul class="figma-node-semantic-pricing-section-pricing"'), 'semantic-accessibility-top-level-list-like-frame-not-ul');
+    $assert(! str_contains($topLevelListLikeSectionHtml, '<li class="figma-node-semantic-pricing-card-a-basic-card"'), 'semantic-accessibility-top-level-list-like-frame-children-not-li');
+
     $booleanLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Decorative Boolean Label Fixture',
         'nodes' => array(

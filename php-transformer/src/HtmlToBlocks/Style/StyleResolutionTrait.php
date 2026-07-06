@@ -427,8 +427,14 @@ trait StyleResolutionTrait
     {
         $safe = array_flip(array(
             'background',
+            'background-attachment',
+            'background-clip',
             'background-color',
             'background-image',
+            'background-origin',
+            'background-position',
+            'background-repeat',
+            'background-size',
             'aspect-ratio',
             'border',
             'border-color',
