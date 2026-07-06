@@ -174,6 +174,63 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualityRootRule = blocks_engine_figma_transformer_contract_css_rule($qualityCss, '.figma-node-quality-root-desktop-fixed-root');
     $assert(str_contains($qualityRootRule, 'width:100%') && ! str_contains($qualityRootRule, 'max-width:1440px'), 'quality-diagnostics-root-fills-viewport-without-implicit-canvas-cap');
 
+    $flowScaffoldResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Flow Scaffold Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'flow-scaffold:root',
+                'type'     => 'FRAME',
+                'name'     => 'Content Section',
+                'width'    => 720,
+                'height'   => 420,
+                'children' => array(
+                    array(
+                        'id'                => 'flow-scaffold:intro',
+                        'type'              => 'TEXT',
+                        'name'              => 'Intro heading',
+                        'text'              => 'Flow content heading',
+                        'x'                 => 48,
+                        'y'                 => 64,
+                        'width'             => 360,
+                        'height'            => 48,
+                        'layoutPositioning' => 'ABSOLUTE',
+                    ),
+                    array(
+                        'id'                => 'flow-scaffold:body',
+                        'type'              => 'TEXT',
+                        'name'              => 'Body copy',
+                        'text'              => 'Body copy that follows the heading in source order.',
+                        'x'                 => 48,
+                        'y'                 => 136,
+                        'width'             => 420,
+                        'height'            => 64,
+                        'layoutPositioning' => 'ABSOLUTE',
+                    ),
+                    array(
+                        'id'                => 'flow-scaffold:cta',
+                        'type'              => 'TEXT',
+                        'name'              => 'Call to action',
+                        'text'              => 'Read more',
+                        'x'                 => 48,
+                        'y'                 => 232,
+                        'width'             => 120,
+                        'height'            => 32,
+                        'layoutPositioning' => 'ABSOLUTE',
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $flowScaffoldHtml = $fileContent($flowScaffoldResult, 'index.html');
+    $flowScaffoldCss = $fileContent($flowScaffoldResult, 'style.css');
+    $flowScaffoldRootRule = blocks_engine_figma_transformer_contract_css_rule($flowScaffoldCss, '.figma-node-flow-scaffold-root-content-section');
+    $flowScaffoldIntroRule = blocks_engine_figma_transformer_contract_css_rule($flowScaffoldCss, '.figma-node-flow-scaffold-intro-intro-heading');
+    $flowScaffoldBodyRule = blocks_engine_figma_transformer_contract_css_rule($flowScaffoldCss, '.figma-node-flow-scaffold-body-body-copy');
+    $assert(str_contains($flowScaffoldHtml, 'data-figma-layout-intent="nav-row"'), 'flow-scaffold-section-emits-layout-intent');
+    $assert(str_contains($flowScaffoldRootRule, 'display:flex') && str_contains($flowScaffoldRootRule, 'flex-direction:row'), 'flow-scaffold-section-emits-flow-css');
+    $assert(! str_contains($flowScaffoldIntroRule, 'position:absolute') && ! str_contains($flowScaffoldIntroRule, 'left:') && ! str_contains($flowScaffoldIntroRule, 'top:'), 'flow-scaffold-absolute-heading-enters-normal-flow');
+    $assert(! str_contains($flowScaffoldBodyRule, 'position:absolute') && ! str_contains($flowScaffoldBodyRule, 'left:') && ! str_contains($flowScaffoldBodyRule, 'top:'), 'flow-scaffold-absolute-body-enters-normal-flow');
+
     $socialIconResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Social Icon Fixture',
         'assets' => array(
