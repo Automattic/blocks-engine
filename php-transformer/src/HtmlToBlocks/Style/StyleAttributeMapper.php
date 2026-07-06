@@ -291,13 +291,18 @@ final class StyleAttributeMapper
     {
         $value = trim($value);
         if ( preg_match('/^var:preset\|color\|([a-z0-9_-]+)$/i', $value, $match) ) {
-            return strtolower($match[1]);
+            return $this->safePresetColorSlug(strtolower($match[1]));
         }
         if ( preg_match('/^var\(\s*--wp--preset--color--([a-z0-9_-]+)\s*\)$/i', $value, $match) ) {
-            return strtolower($match[1]);
+            return $this->safePresetColorSlug(strtolower($match[1]));
         }
 
         return '';
+    }
+
+    private function safePresetColorSlug(string $slug): string
+    {
+        return 'text' === $slug ? '' : $slug;
     }
 
     /**

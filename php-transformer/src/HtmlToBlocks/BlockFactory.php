@@ -62,6 +62,8 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
+        $attrs = $this->normalizeClassNameForBlockSupports($attrs);
+
         if ( in_array($name, array( 'core/group', 'core/columns' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
@@ -80,6 +82,55 @@ final class BlockFactory
             if ( empty($attrs['style']) ) {
                 unset($attrs['style']);
             }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function normalizeClassNameForBlockSupports(array $attrs): array
+    {
+        if ( empty($attrs['className']) || ! is_string($attrs['className']) ) {
+            return $attrs;
+        }
+
+        $generated = array();
+        $textColor = $this->safeSlug((string) ($attrs['textColor'] ?? ''));
+        if ( '' !== $textColor ) {
+            $generated[] = 'has-' . $textColor . '-color';
+            $generated[] = 'has-text-color';
+        }
+
+        $backgroundColor = $this->safeSlug((string) ($attrs['backgroundColor'] ?? ''));
+        if ( '' !== $backgroundColor ) {
+            $generated[] = 'has-' . $backgroundColor . '-background-color';
+            $generated[] = 'has-background';
+        }
+
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $color = is_array($style['color'] ?? null) ? $style['color'] : array();
+        if ( '' !== trim((string) ($color['text'] ?? '')) ) {
+            $generated[] = 'has-text-color';
+        }
+        if ( '' !== trim((string) ($color['background'] ?? '')) || '' !== trim((string) ($color['gradient'] ?? '')) ) {
+            $generated[] = 'has-background';
+        }
+
+        if ( array() === $generated ) {
+            return $attrs;
+        }
+
+        $generated = array_values(array_unique($generated));
+        $classes = preg_split('/\s+/', trim($attrs['className'])) ?: array();
+        $classes = array_values(array_filter($classes, static fn (string $className): bool => '' !== $className && ! in_array($className, $generated, true)));
+
+        if ( array() === $classes ) {
+            unset($attrs['className']);
+        } else {
+            $attrs['className'] = implode(' ', array_values(array_unique($classes)));
         }
 
         return $attrs;
