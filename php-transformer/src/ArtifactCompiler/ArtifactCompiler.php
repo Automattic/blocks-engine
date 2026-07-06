@@ -527,7 +527,7 @@ final class ArtifactCompiler
      *
      * @param array<int, array<string, mixed>> $files
      */
-    private function themeStaticCss(array $files): string
+    private function themeStaticCss(array $files, bool $includeNavigationCompat = true): string
     {
         $blocks = array();
         foreach ( $files as $file ) {
@@ -551,7 +551,153 @@ final class ArtifactCompiler
             }
         }
 
-        return implode("\n", array_keys($blocks));
+        $css = implode("\n", array_keys($blocks));
+
+        return $includeNavigationCompat ? $css . $this->navigationAnchorCompatCss($css) : $css;
+    }
+
+    private function navigationAnchorCompatCss(string $css): string
+    {
+        $rules = array();
+        if ( ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return '';
+        }
+
+        foreach ( $matches as $match ) {
+            $body = trim((string) ($match[2] ?? ''));
+            if ( '' === $body ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+                foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
+                    $mappedSelectors[$mappedSelector] = true;
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitSelectorList(string $selectorList): array
+    {
+        $selectors = array();
+        $current = '';
+        $depth = 0;
+        $length = strlen($selectorList);
+        for ( $i = 0; $i < $length; $i++ ) {
+            $char = $selectorList[$i];
+            if ( '(' === $char || '[' === $char ) {
+                $depth++;
+            } elseif ( ')' === $char || ']' === $char ) {
+                $depth = max(0, $depth - 1);
+            }
+
+            if ( ',' === $char && 0 === $depth ) {
+                $selector = trim($current);
+                if ( '' !== $selector ) {
+                    $selectors[] = $selector;
+                }
+                $current = '';
+                continue;
+            }
+
+            $current .= $char;
+        }
+
+        $selector = trim($current);
+        if ( '' !== $selector ) {
+            $selectors[] = $selector;
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mapNavigationAnchorSelector(string $selector): array
+    {
+        if ( ! preg_match('/(^|[\s>+~])a(?=$|[\s:.#\[])/', $selector, $anchorMatch, PREG_OFFSET_CAPTURE) ) {
+            return array();
+        }
+
+        $separator = (string) ($anchorMatch[1][0] ?? '');
+        $anchorStart = (int) $anchorMatch[0][1] + strlen($separator);
+        $prefix = substr($selector, 0, $anchorStart);
+        if ( 1 !== preg_match('/[.#\[]/', $prefix) ) {
+            return array();
+        }
+
+        $mapped = preg_replace('/(\s*[>+~]?\s*)a:first-child\b/', '$1.wp-block-navigation-item:first-child > .wp-block-navigation-item__content', $selector);
+        $mapped = preg_replace('/(\s*[>+~]?\s*)a:last-child\b/', '$1.wp-block-navigation-item:last-child > .wp-block-navigation-item__content', (string) $mapped);
+        $mapped = preg_replace('/(\s*[>+~]?\s*)a:nth-child\(([^)]*)\)/', '$1.wp-block-navigation-item:nth-child($2) > .wp-block-navigation-item__content', (string) $mapped);
+        $mapped = preg_replace('/(\s*[>+~]?\s*)a(?![A-Za-z0-9_-])/', '$1.wp-block-navigation-item__content', (string) $mapped);
+        $mapped = (string) $mapped;
+
+        $selectors = array();
+        $directWrapper = $this->addNavigationClassToLastPrefixCompound($mapped, $anchorStart);
+        if ( null !== $directWrapper ) {
+            $selectors[$directWrapper] = true;
+        }
+        $descendantWrapper = $this->insertNavigationDescendantWrapper($mapped, $prefix);
+        if ( null !== $descendantWrapper ) {
+            $selectors[$descendantWrapper] = true;
+        }
+
+        return array_keys($selectors);
+    }
+
+    private function addNavigationClassToLastPrefixCompound(string $selector, int $anchorStart): ?string
+    {
+        $prefix = substr($selector, 0, $anchorStart);
+        if ( ! preg_match('/([^\s>+~]+)(\s*[>+~]?\s*)$/', $prefix, $match, PREG_OFFSET_CAPTURE) ) {
+            return null;
+        }
+
+        $compound = (string) ($match[1][0] ?? '');
+        if ( str_contains($compound, '.wp-block-navigation') ) {
+            return $selector;
+        }
+
+        $pseudoOffset = false;
+        if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
+            $pseudoOffset = (int) $pseudoMatch[0][1];
+        }
+
+        $mappedCompound = false === $pseudoOffset
+            ? $compound . '.wp-block-navigation'
+            : substr($compound, 0, $pseudoOffset) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+        $mappedPrefix = substr($prefix, 0, (int) $match[1][1]) . $mappedCompound . (string) ($match[2][0] ?? '');
+
+        return $mappedPrefix . substr($selector, $anchorStart);
+    }
+
+    private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
+    {
+        $parentPrefix = rtrim((string) preg_replace('/[\s>+~]+$/', '', $prefix));
+        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') ) {
+            return null;
+        }
+
+        $tail = ltrim((string) preg_replace('/^[\s>+~]+/', '', substr($selector, strlen($prefix))));
+        if ( '' === $tail ) {
+            return null;
+        }
+
+        return $parentPrefix . ' .wp-block-navigation ' . $tail;
     }
 
     /**
@@ -1236,7 +1382,7 @@ final class ArtifactCompiler
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $this->compiledSiteTemplateParts($artifact['files']),
-            'visual_repair' => $this->compiledSiteVisualRepair($assets),
+            'visual_repair' => $this->compiledSiteVisualRepair($assets, $artifact['files']),
             'theme'       => array_filter(
                 array(
                     'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
@@ -1489,7 +1635,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $assets
      * @return array<string, mixed>
      */
-    private function compiledSiteVisualRepair(array $assets): array
+    private function compiledSiteVisualRepair(array $assets, array $files): array
     {
         $stylesheets = array_values(array_filter($assets, fn (array $asset): bool => $this->isVisualRepairStylesheet($asset)));
         $css = '';
@@ -1497,6 +1643,10 @@ final class ArtifactCompiler
             if ( isset($asset['content']) && is_string($asset['content']) ) {
                 $css .= ('' === $css ? '' : "\n") . $asset['content'];
             }
+        }
+        $navigationCompatCss = $this->navigationAnchorCompatCss($this->themeStaticCss($files, false));
+        if ( '' !== $navigationCompatCss ) {
+            $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
 
         return array_filter(
