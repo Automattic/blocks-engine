@@ -499,7 +499,7 @@ final class ScenegraphFrameInspector
                 continue;
             }
 
-            $rejectionReasons = $this->responsiveSiblingRejectionReasons($candidate, $sibling, $sameContainer);
+            $rejectionReasons = $this->responsiveSiblingRejectionReasons($candidate, $sibling, $sameScope, $sameContainer);
             if ( array() !== $rejectionReasons ) {
                 $rejections[] = array_filter(
                     array(
@@ -552,13 +552,13 @@ final class ScenegraphFrameInspector
      * @param array<string, mixed> $sibling
      * @return array<int, string>
      */
-    private function responsiveSiblingRejectionReasons(array $candidate, array $sibling, bool $sameContainer): array
+    private function responsiveSiblingRejectionReasons(array $candidate, array $sibling, bool $sameScope, bool $sameContainer): array
     {
         $reasons = array();
         if ( ! $this->hasPlausibleResponsiveFrameDimensions($sibling) ) {
             $reasons[] = 'implausible_dimensions';
         }
-        if ( ! $sameContainer || $this->hasAncestorDescendantRelationship($candidate, $sibling) ) {
+        if ( ( ! $sameScope && ! $sameContainer ) || $this->hasAncestorDescendantRelationship($candidate, $sibling) ) {
             $reasons[] = 'implausible_ancestry';
         }
 
