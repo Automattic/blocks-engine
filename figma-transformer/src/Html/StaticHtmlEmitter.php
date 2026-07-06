@@ -945,6 +945,10 @@ final class StaticHtmlEmitter
                         }
                         continue;
                     }
+                    if ( $formControlAccessoryControl && ( $this->isInputLike($child, $node) || $this->isTextareaLike($child, $node) ) ) {
+                        $this->recordDecisionTrace('source_loss_accounting', 'nested_form_control_chrome_converted_to_parent_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
                         $this->recordDecisionTrace('source_loss_accounting', 'list_marker_text_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
