@@ -12,8 +12,8 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $html = $fileContent($result, 'index.html');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-4-hero-image-rectangle', array('width:320px', 'height:180px', 'position:absolute', 'left:10px', 'top:20px', 'background:#ff0000', 'background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-5-nested-image-paint', array('background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
-    $assert(str_contains($html, '<img class="figma-node-1-4-hero-image-rectangle figma-image-asset"') && str_contains($html, 'src="assets/hero-image.svg"') && str_contains($html, 'data-figma-image-fill="true"'), 'asset-backed-rectangle-emits-img-element');
-    $assert(str_contains($html, '<img class="figma-node-1-5-nested-image-paint figma-image-asset"') && str_contains($html, 'src="assets/fixture-photo.jpg"') && str_contains($html, 'data-figma-image-scale-mode="FILL"') && str_contains($html, 'data-figma-image-background-size='), 'image-paint-emits-img-with-crop-metadata');
+    $assert(str_contains($html, '<img class="figma-node-1-4-hero-image-rectangle figma-image-asset"') && str_contains($html, 'src="assets/hero-image.svg"') && str_contains($html, 'data-figma-image-fill="true"') && str_contains($html, 'data-figma-image-rendering="semantic-img"'), 'asset-backed-rectangle-emits-img-element');
+    $assert(str_contains($html, '<img class="figma-node-1-5-nested-image-paint figma-image-asset"') && str_contains($html, 'src="assets/fixture-photo.jpg"') && str_contains($html, 'data-figma-image-scale-mode="FILL"') && str_contains($html, 'data-figma-image-background-size=') && str_contains($html, 'data-figma-image-object-fit="cover"'), 'image-paint-emits-img-with-crop-metadata');
     $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
 
     $imageUnderlayGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -50,6 +50,7 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageUnderlayGuardCss = $fileContent($imageUnderlayGuardResult, 'style.css');
     $imageUnderlayGuardUnderlays = $imageUnderlayGuardResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $imageUnderlayGuardCss, '.figma-node-imageguard-photo-large-photo', array('width:900px', 'height:520px', 'background-image:url("assets/guard-image.svg")', 'background-size:cover', 'background-position:center', 'flex-shrink:0'), 'image-backed-child-remains-flex-child');
+    $assert(str_contains($fileContent($imageUnderlayGuardResult, 'index.html'), '<img class="figma-node-imageguard-photo-large-photo figma-image-asset"') && str_contains($fileContent($imageUnderlayGuardResult, 'index.html'), 'data-figma-image-object-fit="cover"'), 'image-backed-child-emits-semantic-img-with-fit-metadata');
     $assert(0 === ($imageUnderlayGuardUnderlays['count'] ?? null), 'image-backed-child-not-decorative-underlay-diagnostic');
 
     $imageBackedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
