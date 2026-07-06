@@ -94,6 +94,24 @@ $zeroBorderReport = $compare(
 );
 $assert(! in_array('button_border_missing', $causeCodes($zeroBorderReport), true), 'ignores non-visual border:0 declarations', json_encode($zeroBorderReport['matches'][0] ?? array()));
 
+$hoverReport = $compare(
+    '<style>.cta{background:#e8a020;color:#050d1a;padding:9px 20px}.cta:hover{background:#f0ac22}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{background:#e8a020;color:#050d1a;padding:9px 20px}</style><a class="wp-block-button__link" href="/demo">Start</a>'
+);
+$assert(! in_array('button_fill_mismatch', $causeCodes($hoverReport), true), 'ignores hover fill when comparing resting button state', json_encode($hoverReport['matches'][0] ?? array()));
+
+$widthReport = $compare(
+    '<style>.cta{width:100%;padding:9px 20px;background:#111;color:#fff}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{padding:9px 20px;background:#111;color:#fff}</style><div class="wp-block-button has-custom-width wp-block-button__width-100"><a class="wp-block-button__link" href="/demo">Start</a></div>'
+);
+$assert(! in_array('button_width_missing', $causeCodes($widthReport), true), 'recognizes core/button custom width wrapper classes', json_encode($widthReport['matches'][0] ?? array()));
+
+$shadowReport = $compare(
+    '<style>.cta{padding:9px 20px;background:#e8a020;color:#050d1a;box-shadow:0 0 24px rgba(232,160,32,0.3)}</style><a class="cta" href="/demo">Start</a>',
+    '<style>.wp-block-button__link{padding:9px 20px;background:#e8a020;color:#050d1a}</style><a class="wp-block-button__link" href="/demo">Start</a>'
+);
+$assert(in_array('button_shadow_missing', $causeCodes($shadowReport), true), 'reports missing button shadow/glow', json_encode($shadowReport['matches'][0] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button visual probe diagnostic tests: {$failures} failed, {$passes} passed\n");
     exit(1);
