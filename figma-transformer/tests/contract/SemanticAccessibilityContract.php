@@ -71,6 +71,7 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
 
     $html = $fileContent($result, 'index.html');
     $assert(str_contains($html, '<article class="figma-node-semantic-comment-comment'), 'semantic-accessibility-comment-emits-article');
+    $assert(str_contains($html, 'data-figma-node-id="semantic:comment"') && str_contains($html, 'data-figma-semantic-role="comment"'), 'semantic-accessibility-comment-article-has-role-metadata');
     $assert(str_contains($html, '<blockquote class="figma-node-semantic-quote-blockquote'), 'semantic-accessibility-blockquote-emits-blockquote');
     $assert(str_contains($html, 'data-figma-node-id="semantic:icon"') && str_contains($html, 'aria-hidden="true" focusable="false"'), 'semantic-accessibility-generic-icon-decorative');
     $assert(str_contains($html, 'data-figma-node-id="semantic:logo-icon"') && str_contains($html, 'role="img" aria-label="Logo"'), 'semantic-accessibility-logo-icon-keeps-accessible-name');
@@ -135,6 +136,40 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($topLevelListLikeSectionHtml, '<section class="figma-node-semantic-pricing-section-pricing"'), 'semantic-accessibility-top-level-list-like-frame-keeps-section-landmark');
     $assert(! str_contains($topLevelListLikeSectionHtml, '<ul class="figma-node-semantic-pricing-section-pricing"'), 'semantic-accessibility-top-level-list-like-frame-not-ul');
     $assert(! str_contains($topLevelListLikeSectionHtml, '<li class="figma-node-semantic-pricing-card-a-basic-card"'), 'semantic-accessibility-top-level-list-like-frame-children-not-li');
+
+    $articleCardRoleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Article Card Role Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'semantic:article-card-root',
+                'type'     => 'FRAME',
+                'name'     => 'Archive',
+                'children' => array(
+                    array(
+                        'id'       => 'semantic:query-loop',
+                        'type'     => 'FRAME',
+                        'name'     => 'Query Loop',
+                        'children' => array(
+                            array(
+                                'id'       => 'semantic:article-card',
+                                'type'     => 'FRAME',
+                                'name'     => 'Post Card',
+                                'children' => array(
+                                    array('id' => 'semantic:article-card-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Post title', 'fontSize' => 24),
+                                    array('id' => 'semantic:article-card-excerpt', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'Post excerpt copy.', 'fontSize' => 16),
+                                    array('id' => 'semantic:article-card-date', 'type' => 'TEXT', 'name' => 'Date', 'characters' => 'July 6, 2026', 'fontSize' => 14),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $articleCardRoleHtml = $fileContent($articleCardRoleResult, 'index.html');
+    $assert(str_contains($articleCardRoleHtml, 'data-figma-node-id="semantic:query-loop"') && str_contains($articleCardRoleHtml, 'data-figma-semantic-role="query"'), 'semantic-accessibility-query-section-has-role-metadata');
+    $assert(str_contains($articleCardRoleHtml, '<article class="figma-node-semantic-article-card-post-card'), 'semantic-accessibility-post-card-emits-article');
+    $assert(str_contains($articleCardRoleHtml, 'data-figma-node-id="semantic:article-card"') && str_contains($articleCardRoleHtml, 'data-figma-semantic-role="post-card"'), 'semantic-accessibility-post-card-article-has-role-metadata');
 
     $booleanLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Decorative Boolean Label Fixture',

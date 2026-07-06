@@ -945,6 +945,10 @@ final class StaticHtmlEmitter
                         }
                         continue;
                     }
+                    if ( $formControlAccessoryControl && ( $this->isInputLike($child, $node) || $this->isTextareaLike($child, $node) ) ) {
+                        $this->recordDecisionTrace('source_loss_accounting', 'nested_form_control_chrome_converted_to_parent_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
                         $this->recordDecisionTrace('source_loss_accounting', 'list_marker_text_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
@@ -1465,6 +1469,24 @@ final class StaticHtmlEmitter
         $nameHaystack = strtolower(trim($name));
         if ( '' === $nameHaystack ) {
             return null;
+        }
+
+        if ( 'article' === $tag ) {
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('comment', 'reply')) ) {
+                return 'comment';
+            }
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('card', 'preview')) ) {
+                return 'post-card';
+            }
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('query', 'loop')) ) {
+                return 'query-item';
+            }
+
+            return 'article';
+        }
+
+        if ( 'section' === $tag && $this->hasQueryContainerName($nameHaystack) ) {
+            return 'query';
         }
 
         if ( $this->containsSemanticRoleToken($nameHaystack, array('nav', 'navigation', 'menu')) ) {

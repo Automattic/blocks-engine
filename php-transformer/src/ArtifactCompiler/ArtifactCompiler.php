@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use DOMDocument;
@@ -395,6 +396,7 @@ final class ArtifactCompiler
     private function safeHtmlDocumentHtml(string $html, string $entryPath, array $files): string
     {
         $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
+        $html = $this->withoutGlobalTemplatePartShell($html, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
@@ -405,6 +407,93 @@ final class ArtifactCompiler
         }, $html) ?? $html;
 
         return preg_replace('/<figure\b[^>]*>\s*<\/figure>/i', '', $html) ?? $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function withoutGlobalTemplatePartShell(string $html, array $files): string
+    {
+        $areas = $this->templatePartAreas($files);
+        if ( ! in_array('footer', $areas, true) ) {
+            return $html;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if ( ! $loaded ) {
+            return $html;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return $html;
+        }
+
+        $removed = false;
+        $candidates = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $this->isGlobalFooterShellElement($element) ) {
+                $candidates[] = $element;
+            }
+        }
+
+        foreach ( $candidates as $element ) {
+            if ( null !== $element->parentNode ) {
+                $element->parentNode->removeChild($element);
+                $removed = true;
+            }
+        }
+
+        if ( ! $removed ) {
+            return $html;
+        }
+
+        $result = '';
+        foreach ( $body->childNodes as $child ) {
+            $result .= $document->saveHTML($child) ?: '';
+        }
+
+        return $result;
+    }
+
+    private function isGlobalFooterShellElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'footer' !== $tagName && 'contentinfo' !== strtolower((string) $element->getAttribute('role')) ) {
+            return false;
+        }
+
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $ancestorTag = strtolower($ancestor->tagName);
+            if ( in_array($ancestorTag, array( 'main', 'article', 'blockquote', 'figure' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function templatePartAreas(array $files): array
+    {
+        $areas = array();
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || ! $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+
+            $areas[] = $this->templatePartArea((string) ($file['path'] ?? ''), (string) ($file['role'] ?? ''));
+        }
+
+        return array_values(array_unique($areas));
     }
 
     /**
@@ -1625,11 +1714,7 @@ final class ArtifactCompiler
 
     private function templatePartArea(string $path, string $role): string
     {
-        if ( preg_match('/\b(header|footer|sidebar|navigation)\b/i', $path . ' ' . $role, $match) ) {
-            return strtolower($match[1]);
-        }
-
-        return 'uncategorized';
+        return ShellLandmarkPolicy::templatePartArea($path, $role);
     }
 
     /**

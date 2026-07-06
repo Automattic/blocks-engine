@@ -148,7 +148,8 @@ final class BreakpointMediaDiffBuilder
         $baseStyles = array();
         $this->collectVariantNodeStyles($baseNode, 0, null, null, 'r', $baseStyles);
 
-        $rules = array();
+        $desktopRules = array();
+        $mobileRules = array();
         foreach ( $baseStyles as $base ) {
             $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
             $node = is_array($base['node'] ?? null) ? $base['node'] : array();
@@ -158,38 +159,30 @@ final class BreakpointMediaDiffBuilder
             }
 
             $depth = isset($base['depth']) && is_numeric($base['depth']) ? (int) $base['depth'] : 0;
-            $declarations = $this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null);
-            $changed = array();
-            foreach ( $declarations as $declaration ) {
-                $parts = explode(':', $declaration, 2);
-                if ( 2 !== count($parts) ) {
-                    continue;
-                }
-                $property = trim($parts[0]);
-                $value = trim($parts[1]);
-                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
-                    $changed[] = $property . ':' . $value;
-                }
+            $desktopChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null), $baseMap);
+            if ( ! empty($desktopChanged) ) {
+                $desktopRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($desktopChanged))) . '}';
             }
 
-            if ( ! empty($changed) ) {
-                $rules[] = '.' . $class . '{' . implode(';', array_values(array_unique($changed))) . '}';
+            $mobileChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true), $baseMap);
+            if ( ! empty($mobileChanged) ) {
+                $mobileRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($mobileChanged))) . '}';
             }
         }
 
-        if ( empty($rules) ) {
+        if ( empty($desktopRules) && empty($mobileRules) ) {
             return array();
         }
 
-        $rules = array_values(array_unique($rules));
-        $breakpoints = array(767);
-        if ( $rootWidth > 1200.0 ) {
-            $breakpoints[] = (int) floor($rootWidth - 1.0);
+        $desktopRules = array_values(array_unique($desktopRules));
+        $mobileRules = array_values(array_unique($mobileRules));
+        $blocks = array();
+        if ( $rootWidth > 1200.0 && ! empty($desktopRules) ) {
+            $blocks[] = $this->mediaBlock((int) floor($rootWidth - 1.0), $desktopRules);
         }
-        $breakpoints = array_values(array_unique(array_filter($breakpoints, static fn (int $breakpoint): bool => $breakpoint > 0)));
-        rsort($breakpoints, SORT_NUMERIC);
+        $blocks[] = $this->mediaBlock(767, ! empty($mobileRules) ? $mobileRules : $desktopRules);
 
-        return array_map(fn (int $breakpoint): string => $this->mediaBlock($breakpoint, $rules), $breakpoints);
+        return $blocks;
     }
 
     /**
@@ -197,7 +190,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array<int, string>
      */
-    private function desktopOnlyResponsiveFallbackDeclarations(array $node, array $baseMap, int $depth, ?float $fallbackWidth = null): array
+    private function desktopOnlyResponsiveFallbackDeclarations(array $node, array $baseMap, int $depth, ?float $fallbackWidth = null, bool $mobile = false): array
     {
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $width = $this->responsiveCssWidth($baseMap) ?? $this->nodeBoxDimension($node, 'width') ?? $fallbackWidth;
@@ -251,7 +244,42 @@ final class BreakpointMediaDiffBuilder
             }
         }
 
+        if ( $mobile && null !== $width && $width > 340.0 && isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(') ) {
+            $declarations[] = 'width:100%';
+            $declarations[] = 'max-width:100%';
+            if ( null !== $height && $height > 0.0 ) {
+                $declarations[] = 'height:auto';
+                $declarations[] = 'aspect-ratio:' . ($this->number)($width) . ' / ' . ($this->number)($height);
+            }
+            if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
+                $declarations[] = 'background-size:cover';
+            }
+        }
+
         return array_values(array_unique($declarations));
+    }
+
+    /**
+     * @param array<int, string> $declarations
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function changedDeclarations(array $declarations, array $baseMap): array
+    {
+        $changed = array();
+        foreach ( $declarations as $declaration ) {
+            $parts = explode(':', $declaration, 2);
+            if ( 2 !== count($parts) ) {
+                continue;
+            }
+            $property = trim($parts[0]);
+            $value = trim($parts[1]);
+            if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                $changed[] = $property . ':' . $value;
+            }
+        }
+
+        return $changed;
     }
 
     /**

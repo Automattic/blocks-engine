@@ -62,6 +62,16 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
+        if ( in_array($name, array( 'core/group', 'core/columns' ), true) ) {
+            unset($attrs['style']['dimensions']['maxWidth']);
+            if ( empty($attrs['style']['dimensions']) ) {
+                unset($attrs['style']['dimensions']);
+            }
+            if ( empty($attrs['style']) ) {
+                unset($attrs['style']);
+            }
+        }
+
         if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true) ) {
             unset($attrs['style']['spacing']['blockGap']);
             if ( empty($attrs['style']['spacing']) ) {
@@ -551,6 +561,11 @@ final class BlockFactory
         }
         if ( '' !== $background ) {
             $declarations[] = 'background-color:' . $background;
+        }
+
+        $shadow = trim((string) ($style['shadow'] ?? ''));
+        if ( '' !== $shadow ) {
+            $declarations[] = 'box-shadow:' . $shadow;
         }
 
         $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();

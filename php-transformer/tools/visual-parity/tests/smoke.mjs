@@ -10,6 +10,7 @@ const outputDir = path.join(root, 'tmp');
 const output = path.join(outputDir, 'visual-parity-smoke.json');
 const domFixture = path.join(outputDir, 'dom-box.html');
 const domFixtureGeneric = path.join(outputDir, 'dom-box-generic.html');
+const screenshotDir = path.join(outputDir, 'screenshots');
 const missingPlaywrightDir = path.join(tmpdir(), `blocks-engine-dom-provider-missing-playwright-${process.pid}`);
 const missingPlaywrightProvider = path.join(missingPlaywrightDir, 'dom-box-provider.mjs');
 
@@ -136,6 +137,20 @@ try {
   assert(genericFlagReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (flag)');
   assert(genericFlagReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (flag)');
   assert(genericFlagReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (flag)');
+
+  const screenshotReport = await runJson(process.execPath, [
+    path.join(root, 'bin/screenshot-provider.mjs'),
+    '--base-url', `http://127.0.0.1:${address.port}`,
+    '--page-path', '/dom-box.html',
+    '--output-dir', screenshotDir,
+    '--viewport', '390x844',
+  ], root, process.env);
+  assert(screenshotReport.schema === 'blocks-engine.visual-parity.screenshots.v1', 'screenshot provider emits stable schema');
+  assert(screenshotReport.screenshots.length === 1, 'screenshot provider captures one screenshot');
+  assert(screenshotReport.screenshots[0].filename === 'dom-box.html.png', 'screenshot provider derives deterministic filename');
+  assert(screenshotReport.screenshots[0].exists === true, 'screenshot provider records written PNG');
+  const screenshotBytes = await readFile(screenshotReport.screenshots[0].path);
+  assert(screenshotBytes[0] === 0x89 && screenshotBytes[1] === 0x50 && screenshotBytes[2] === 0x4e && screenshotBytes[3] === 0x47, 'screenshot provider writes a PNG file');
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
@@ -153,6 +168,7 @@ assert(missingPlaywright.stderr.includes('install:browsers'), 'DOM provider sugg
 await rm(output, { force: true });
 await rm(domFixture, { force: true });
 await rm(domFixtureGeneric, { force: true });
+await rm(screenshotDir, { recursive: true, force: true });
 await rm(missingPlaywrightDir, { recursive: true, force: true });
 console.log('Visual parity smoke test passed.');
 

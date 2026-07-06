@@ -189,6 +189,52 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($css, '.figma-node-form-input-input{width:280px;height:46px;'), 'form-control-input-preserves-visual-css');
     $assert(str_contains($css, '.figma-node-form-comment-comment-textarea{width:420px;height:128px;'), 'form-control-textarea-preserves-visual-css');
 
+    $nestedInputShellResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Input Shell Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'nested-input:root',
+                'type'     => 'FRAME',
+                'name'     => 'Newsletter Signup',
+                'width'    => 480,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'           => 'nested-input:field',
+                        'type'         => 'FRAME',
+                        'name'         => 'Input',
+                        'width'        => 280,
+                        'height'       => 46,
+                        'layoutMode'   => 'HORIZONTAL',
+                        'cornerRadius' => 4,
+                        'fills'        => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                        'children'     => array(
+                            array(
+                                'id'           => 'nested-input:inner-field',
+                                'type'         => 'FRAME',
+                                'name'         => 'Input',
+                                'width'        => 278,
+                                'height'       => 44,
+                                'layoutMode'   => 'HORIZONTAL',
+                                'cornerRadius' => 4,
+                                'fills'        => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                                'children'     => array(
+                                    array('id' => 'nested-input:inner-placeholder', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Your email address', 'fontSize' => 16),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array('id' => 'nested-input:button', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 120, 'height' => 46, 'children' => array(
+                        array('id' => 'nested-input:button-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Subscribe'),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $nestedInputShellHtml = $fileContent($nestedInputShellResult, 'index.html');
+    $assert(1 === substr_count($nestedInputShellHtml, 'data-figma-synthetic-control="input"'), 'form-control-nested-input-shell-emits-single-control');
+    $assert(! str_contains($nestedInputShellHtml, 'data-figma-node-id="nested-input:inner-field"'), 'form-control-nested-input-shell-suppresses-child-control-shell');
+
     $nestedFormResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Nested Form Guard Fixture',
         'nodes' => array(

@@ -1805,6 +1805,26 @@ $assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_cou
 $assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
 $assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
 
+$footerShellSite = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><body><main><h1>Home</h1><p>Body copy</p></main><footer class="site-footer"><nav><a href="/privacy">Privacy</a></nav><p>Global footer copy</p></footer></body></html>',
+            'about.html' => '<!doctype html><html><body><main><article><h1>About</h1><footer class="article-footer"><p>Article byline footer</p></footer></article></main><footer class="site-footer"><p>Global footer copy</p></footer></body></html>',
+            'parts/footer.html' => '<footer class="site-footer"><nav><a href="/privacy">Privacy</a></nav><p>Global footer copy</p></footer>',
+        ),
+    )
+)->toArray();
+$footerShellPages = $footerShellSite['source_reports']['compiled_site']['pages'] ?? array();
+$footerShellTemplateParts = $footerShellSite['source_reports']['compiled_site']['template_parts'] ?? array();
+$footerShellIndexPage = array_values(array_filter($footerShellPages, static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
+$footerShellAboutPage = array_values(array_filter($footerShellPages, static fn (array $page): bool => 'about.html' === ($page['source_path'] ?? '')))[0] ?? array();
+$footerShellPart = $footerShellTemplateParts[0] ?? array();
+$assert(! str_contains((string) ($footerShellIndexPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site removes global footer shell from page body when a footer template part exists');
+$assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), 'Global footer copy'), 'compiled site preserves global footer copy in the footer template part');
+$assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content while pruning global footer shell');
+$assert(! str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site does not duplicate global footer shell on secondary page bodies');
+
 $runtimeDependencySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
