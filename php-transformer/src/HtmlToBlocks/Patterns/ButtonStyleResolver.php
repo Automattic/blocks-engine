@@ -26,7 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
  *  - Outline/ghost buttons (transparent/absent background) get style.border.* +
  *    style.color.text and never a background or gradient fill.
  *  - Buttons carry padding but not margin (inter-button spacing rides on the
- *    parent core/buttons block gap), plus a curated typography subset.
+ *    parent core/buttons block gap), plus source shadow and a curated
+ *    typography subset.
  * A button whose resolved CSS carries no paintable colors/border stays default.
  */
 final class ButtonStyleResolver
@@ -85,6 +86,11 @@ final class ButtonStyleResolver
             $style['spacing']['padding'] = $padding;
         }
 
+        $shadow = $this->buttonShadow($declarations);
+        if ( '' !== $shadow ) {
+            $style['shadow'] = $shadow;
+        }
+
         $typography = $this->buttonTypography(is_array($mapped['typography'] ?? null) ? $mapped['typography'] : array());
         if ( array() !== $typography ) {
             $style['typography'] = $typography;
@@ -117,6 +123,27 @@ final class ButtonStyleResolver
         }
 
         return null;
+    }
+
+    /**
+     * Core/button supports shadow as a canonical `style.shadow` value. Keep this
+     * button-specific instead of making every block consume `box-shadow`, because
+     * class-owned card/section shadows should continue riding on preserved CSS.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function buttonShadow(array $declarations): string
+    {
+        $shadow = trim((string) ($declarations['box-shadow'] ?? ''));
+        if ( '' === $shadow || in_array(strtolower($shadow), array( 'none', 'initial', 'inherit', 'unset' ), true) ) {
+            return '';
+        }
+
+        if ( preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $shadow) ) {
+            return '';
+        }
+
+        return $shadow;
     }
 
     /**

@@ -35,6 +35,7 @@ final class ButtonMenuVisualProbeComparator
             'border-top-right-radius',
         ),
         'padding' => array('padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top'),
+        'shadow' => array('box-shadow'),
         'text_color' => array('color'),
         'width' => array('width', 'min-width'),
     );
@@ -310,6 +311,7 @@ final class ButtonMenuVisualProbeComparator
             'padding' => 'Preserve source padding on the button/link element or its wrapper block spacing support.',
             'radius' => 'Preserve source border radius on the core/button border support.',
             'fill' => 'Preserve source fill/background color and avoid theme default fill leakage.',
+            'shadow' => 'Preserve source box-shadow/glow on the core/button shadow support.',
             'border' => 'Preserve border width/style/color together; partial border emission usually changes button shape.',
             'text_color' => 'Preserve link text color separately from fill/background color.',
             default => '',
@@ -415,6 +417,20 @@ final class ButtonMenuVisualProbeComparator
     private function styleGroupValues(array $style, string $group, array $fields): array
     {
         $values = $this->groupValues($style, $fields);
+        if ( 'fill' === $group ) {
+            $fill = trim((string) ($values['background-color'] ?? $values['background'] ?? ''));
+            return '' === $fill ? array() : array('background' => $fill);
+        }
+
+        if ( 'padding' === $group ) {
+            return $this->boxValues('padding', $values);
+        }
+
+        if ( 'radius' === $group ) {
+            $radius = trim((string) ($values['border-radius'] ?? ''));
+            return '' === $radius ? $values : array('border-radius' => $radius);
+        }
+
         if ( 'border' !== $group ) {
             return $values;
         }
@@ -439,6 +455,39 @@ final class ButtonMenuVisualProbeComparator
 
             return true;
         }, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * @param array<string, string> $values
+     * @return array<string, string>
+     */
+    private function boxValues(string $prefix, array $values): array
+    {
+        $shorthand = trim((string) ($values[$prefix] ?? ''));
+        if ( '' !== $shorthand ) {
+            $parts = preg_split('/\s+/', $shorthand) ?: array();
+            $parts = array_values(array_filter($parts, static fn (string $part): bool => '' !== $part));
+            if ( 1 === count($parts) ) {
+                $parts = array($parts[0], $parts[0], $parts[0], $parts[0]);
+            } elseif ( 2 === count($parts) ) {
+                $parts = array($parts[0], $parts[1], $parts[0], $parts[1]);
+            } elseif ( 3 === count($parts) ) {
+                $parts = array($parts[0], $parts[1], $parts[2], $parts[1]);
+            } else {
+                $parts = array_slice($parts, 0, 4);
+            }
+            $values = array(
+                $prefix . '-top' => $parts[0],
+                $prefix . '-right' => $parts[1],
+                $prefix . '-bottom' => $parts[2],
+                $prefix . '-left' => $parts[3],
+            ) + $values;
+        }
+
+        unset($values[$prefix]);
+        ksort($values);
+
+        return array_filter($values, static fn (string $value): bool => '' !== trim($value));
     }
 
     /**

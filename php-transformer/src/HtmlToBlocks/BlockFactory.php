@@ -563,6 +563,11 @@ final class BlockFactory
             $declarations[] = 'background-color:' . $background;
         }
 
+        $shadow = trim((string) ($style['shadow'] ?? ''));
+        if ( '' !== $shadow ) {
+            $declarations[] = 'box-shadow:' . $shadow;
+        }
+
         $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
             if ( isset($padding[$side]) && '' !== (string) $padding[$side] ) {

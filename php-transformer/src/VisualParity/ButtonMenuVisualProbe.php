@@ -492,10 +492,64 @@ final class ButtonMenuVisualProbe
             $style = array_merge($style, $this->declarations($element->getAttribute('style')));
         }
 
+        $style = $this->resolveCustomProperties($element, $style);
         $style = array_intersect_key($style, array_flip(self::STYLE_FIELDS));
+        $style = $this->withCoreButtonWidthClass($element, $style);
         ksort($style);
 
         return $style;
+    }
+
+    /**
+     * @param array<string, string> $style
+     * @return array<string, string>
+     */
+    private function resolveCustomProperties(DOMElement $element, array $style): array
+    {
+        if ( array() === $style ) {
+            return $style;
+        }
+
+        $customProperties = $this->customProperties($element->ownerDocument);
+        if ( array() === $customProperties ) {
+            return $style;
+        }
+
+        foreach ( $style as $property => $value ) {
+            if ( ! str_contains($value, 'var(') ) {
+                continue;
+            }
+            $style[$property] = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
+                $name = (string) ($matches[1] ?? '');
+                if ( isset($customProperties[$name]) ) {
+                    return $customProperties[$name];
+                }
+                return trim((string) ($matches[2] ?? $matches[0]));
+            }, $value) ?? $value;
+        }
+
+        return $style;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function customProperties(?DOMDocument $document): array
+    {
+        if ( ! $document instanceof DOMDocument ) {
+            return array();
+        }
+
+        $properties = array();
+        foreach ( $document->getElementsByTagName('style') as $style ) {
+            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', (string) $style->textContent, $matches, PREG_SET_ORDER) ) {
+                foreach ( $matches as $match ) {
+                    $properties[(string) $match[1]] = trim((string) $match[2]);
+                }
+            }
+        }
+
+        return $properties;
     }
 
     /**
@@ -601,6 +655,9 @@ final class ButtonMenuVisualProbe
                     if ( '' === $selector ) {
                         continue;
                     }
+                    if ( $this->selectorCarriesPseudoState($selector) ) {
+                        continue;
+                    }
                     $rules[] = array(
                         'selector' => $selector,
                         'declarations' => $this->declarations((string) $match[2]),
@@ -610,6 +667,39 @@ final class ButtonMenuVisualProbe
         }
 
         return $rules;
+    }
+
+    /**
+     * WordPress renders core/button custom width as a wrapper class. The visual
+     * probe compares the inner link/button control, so synthesize the equivalent
+     * width declaration from the nearest core/button wrapper.
+     *
+     * @param array<string, string> $style
+     * @return array<string, string>
+     */
+    private function withCoreButtonWidthClass(DOMElement $element, array $style): array
+    {
+        if ( isset($style['width']) ) {
+            return $style;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            $className = $node->hasAttribute('class') ? $node->getAttribute('class') : '';
+            if ( preg_match('/(?:^|\s)wp-block-button__width-(25|50|75|100)(?:\s|$)/', $className, $match) ) {
+                $style['width'] = $match[1] . '%';
+                return $style;
+            }
+            if ( 'body' === strtolower($node->tagName) ) {
+                break;
+            }
+        }
+
+        return $style;
+    }
+
+    private function selectorCarriesPseudoState(string $selector): bool
+    {
+        return 1 === preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selector);
     }
 
     /**
@@ -634,7 +724,11 @@ final class ButtonMenuVisualProbe
 
     private function matchesSimpleSelector(DOMElement $element, string $selector): bool
     {
-        $selector = trim(preg_replace('/:(hover|focus|active|visited|before|after)\b.*/', '', $selector) ?? $selector);
+        if ( $this->selectorCarriesPseudoState($selector) ) {
+            return false;
+        }
+
+        $selector = trim($selector);
         if ( '' === $selector || str_contains($selector, '>') || str_contains($selector, '+') || str_contains($selector, '~') ) {
             return false;
         }
