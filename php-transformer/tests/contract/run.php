@@ -621,6 +621,16 @@ $assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width
 $assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta">'), '100% source button width emits canonical core/button width wrapper classes');
 $assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
 
+$cssVariableButton = ( new HtmlTransformer() )->transform(
+    '<style>:root{--amber:#f0ac22;--ink:#050d1a;--radius:6px}.btn-primary{padding:9px 20px;border-radius:var(--radius);background:var(--amber);color:var(--ink)}</style><main><a class="btn btn-primary" href="/start">Start free</a></main>'
+)->toArray();
+$cssVariableButtonMarkup = (string) ($cssVariableButton['serialized_blocks'] ?? '');
+$assert(str_contains($cssVariableButtonMarkup, 'background-color:#f0ac22'), 'button CSS variable fill resolves to a concrete canonical background color');
+$assert(str_contains($cssVariableButtonMarkup, 'color:#050d1a'), 'button CSS variable text color resolves to a concrete canonical text color');
+$assert(str_contains($cssVariableButtonMarkup, 'border-radius:6px'), 'button CSS variable radius resolves to a concrete canonical radius');
+$assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
+$assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
+
 $plainWrappedLink = ( new HtmlTransformer() )->transform('<main><div class="card-link"><a href="/docs">Read docs</a></div></main>')->toArray();
 $assert(! str_contains((string) ($plainWrappedLink['serialized_blocks'] ?? ''), '<!-- wp:button'), 'plain single-anchor wrappers without button signals do not become buttons');
 
