@@ -78,6 +78,7 @@ final class DiagnosticsCollector
                     'suggested_repair_class'          => $fallback['suggested_repair_class'] ?? null,
                     'suggested_primitive'             => $fallback['suggested_primitive'] ?? null,
                     'materialization_hint'            => $fallback['materialization_hint'] ?? null,
+                    'materialization_target'          => $fallback['materialization_target'] ?? null,
                     'tag'                             => $fallback['tag'] ?? null,
                     'selector'                        => $fallback['selector'] ?? null,
                     'pattern_family'                  => $fallback['pattern_family'] ?? null,

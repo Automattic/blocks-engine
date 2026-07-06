@@ -92,7 +92,7 @@ final class ConversionFindingContract
      */
     private const ARRAY_FIELDS = array(
         'source_selector_specificity', 'context', 'events', 'classification',
-        'controls', 'control', 'form', 'readable_blocks', 'signals',
+        'controls', 'control', 'form', 'readable_blocks', 'signals', 'materialization_target', 'products',
         'source_items', 'block_items', 'source_item', 'block_item',
     );
 

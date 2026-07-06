@@ -19,6 +19,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
@@ -27,6 +28,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -36,6 +38,7 @@ use DOMNode;
 final class HtmlTransformer
 {
     use DomHelpersTrait;
+    use NavigationToggleSuppressionTrait;
     use StyleResolutionTrait;
     use SvgMaterializationTrait;
 
@@ -153,6 +156,8 @@ final class HtmlTransformer
     private readonly SpacerPattern $spacerPattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
+
+    private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
     private readonly DiagnosticsCollector $diagnosticsCollector;
 
@@ -290,6 +295,11 @@ final class HtmlTransformer
     private array $staticStyleRules = array();
 
     /**
+     * @var array<int, array{selector: string, pseudo: string, declarations: array<string, string>}>
+     */
+    private array $staticPseudoElementStyleRules = array();
+
+    /**
      * @var array<string, bool>
      */
     private array $runtimeDomSelectors = array();
@@ -335,6 +345,7 @@ final class HtmlTransformer
             new AccordionPattern(),
             new NavigationPattern(),
         ));
+        $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
@@ -370,6 +381,7 @@ final class HtmlTransformer
         $this->gutenbergIncompatibilities = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->cssCustomProperties = $this->cssCustomProperties($html, (string) ($options['static_css'] ?? ''));
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
@@ -447,6 +459,7 @@ final class HtmlTransformer
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks);
+        $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
@@ -760,7 +773,8 @@ final class HtmlTransformer
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
-            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags)
+            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
+            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor)
         );
     }
 
@@ -784,345 +798,6 @@ final class HtmlTransformer
     }
 
     /**
-     * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
-     * associated with a source navigation menu — whether or not that menu
-     * converts to core/navigation.
-     *
-     * The toggle is detected GENERICALLY by structural/semantic signals — never
-     * by a specific class string — so any framework's hamburger is recognized:
-     * a <button> (or <a role="button">) carrying aria-controls and/or
-     * aria-expanded whose visible content is empty/decorative bars (only empty
-     * spans or an icon, no text label). It is suppressed when it opens, lives
-     * inside, or sits beside a source navigation menu. A converted menu already
-     * ships its own responsive overlay hamburger; a menu that does NOT convert
-     * still must not gain an always-visible dead hamburger the source hid behind
-     * responsive CSS/JS the importer cannot carry (the "added UI" defect). Real
-     * labeled buttons, and toggle-shaped controls with no associated navigation,
-     * still convert to core/button normally.
-     */
-    private function isRedundantMenuToggleControl(DOMElement $element): bool
-    {
-        if ( ! $this->isHamburgerMenuToggleControl($element) ) {
-            return false;
-        }
-
-        return $this->hasAssociatedNavigationMenu($element);
-    }
-
-    /**
-     * Authoritatively record, in a single deterministic pass over the source
-     * document, the selectors made redundant by every hamburger menu-toggle the
-     * transformer treats as superseded by native navigation. A redundant
-     * menu-toggle is always dropped from the output — whether by the element
-     * converter, the navigation pattern's chrome handling, or the buttons
-     * container — so scanning the source by the same `isRedundantMenuToggleControl`
-     * predicate captures the superseded selectors independently of which drop
-     * path executed, with no per-path bookkeeping.
-     */
-    private function collectSupersededNavToggleSelectors(DOMElement $root): void
-    {
-        foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
-                $this->recordSupersededNavToggleSelectors($element);
-            }
-        }
-    }
-
-    /**
-     * Record the source selectors made redundant when a hamburger menu-toggle is
-     * dropped in favor of the native navigation overlay: the toggle's own id and
-     * class selectors, plus the id/class selectors of the menu/overlay it
-     * controlled via `aria-controls`. A preserved site script may still reference
-     * these selectors (e.g. `.nav-toggle`, `#nav-mobile`); the runtime-dependency
-     * parity report uses this set to mark a resulting "missing DOM target"
-     * finding as a superseded, acceptable loss rather than a materialization bug.
-     * Only selectors of menu-toggles the transformer actually removed are
-     * recorded, so genuinely-broken targets stay flagged.
-     */
-    private function recordSupersededNavToggleSelectors(DOMElement $toggle): void
-    {
-        $this->recordSupersededSelectorsForElement($toggle);
-
-        foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
-            $controlledId = ltrim(trim($controlledId), '#');
-            if ( '' === $controlledId ) {
-                continue;
-            }
-
-            $this->supersededRuntimeSelectors['#' . $controlledId] = true;
-
-            $target = $this->elementWithId($toggle, $controlledId);
-            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
-                $this->recordSupersededSelectorsForElement($target);
-            }
-        }
-
-        $nearbyOverlay = $this->nearbyNavigationOverlayForToggle($toggle);
-        if ( $nearbyOverlay instanceof DOMElement ) {
-            $this->recordSupersededSelectorsForElement($nearbyOverlay);
-        }
-    }
-
-    private function nearbyNavigationOverlayForToggle(DOMElement $toggle): ?DOMElement
-    {
-        $container = $toggle->parentNode;
-        while ( $container instanceof DOMElement && 'nav' !== strtolower($container->tagName) ) {
-            $container = $container->parentNode;
-        }
-
-        if ( ! $container instanceof DOMElement ) {
-            return null;
-        }
-
-        for ( $sibling = $container->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
-            if ( ! $sibling instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( $this->isNavigationOverlayCandidate($sibling) ) {
-                return $sibling;
-            }
-
-            if ( in_array(strtolower($sibling->tagName), array('main', 'section', 'article'), true) ) {
-                return null;
-            }
-        }
-
-        return null;
-    }
-
-    private function isNavigationOverlayCandidate(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( ! in_array($tagName, array('nav', 'ul', 'ol'), true) ) {
-            return false;
-        }
-
-        $anchorCount = 0;
-        foreach ( $element->getElementsByTagName('a') as $anchor ) {
-            if ( $anchor instanceof DOMElement && '' !== trim($anchor->textContent ?? '') ) {
-                ++$anchorCount;
-            }
-        }
-
-        if ( $anchorCount < 2 ) {
-            return false;
-        }
-
-        $label = strtolower($this->attr($element, 'aria-label'));
-        if ( str_contains($label, 'navigation') || str_contains($label, 'menu') || str_contains($label, 'mobile') ) {
-            return true;
-        }
-
-        $role = strtolower($this->attr($element, 'role'));
-        return 'navigation' === $role;
-    }
-
-    private function recordSupersededSelectorsForElement(DOMElement $element): void
-    {
-        $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id ) {
-            $this->supersededRuntimeSelectors['#' . $id] = true;
-        }
-
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class ) {
-                $this->supersededRuntimeSelectors['.' . $class] = true;
-            }
-        }
-    }
-
-    private function isHamburgerMenuToggleControl(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        $isButton = 'button' === $tagName;
-        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->attr($element, 'role'));
-        if ( ! $isButton && ! $isButtonRoleAnchor ) {
-            return false;
-        }
-
-        if ( '' !== $this->visibleMenuToggleLabel($element) ) {
-            return false;
-        }
-
-        // ARIA-toggle shape: a labelless control that opens a menu via ARIA
-        // state (aria-controls/aria-expanded), regardless of its icon markup.
-        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
-            return true;
-        }
-
-        // Icon-bars shape: a labelless control whose only content is the stacked
-        // empty <span> bars that draw a hamburger glyph, with no ARIA toggle
-        // wiring. Many themes draw the bars with CSS on empty spans and bind the
-        // open/close behavior in JS the importer cannot carry, so the control
-        // arrives with no aria-* hooks at all — only its bar-stack shape betrays
-        // it. Recognizing that shape (never a class string) lets these toggles be
-        // dropped too, instead of surfacing as an empty, always-visible button.
-        return $this->isHamburgerBarStackControl($element);
-    }
-
-    /**
-     * Whether the control's only content is a stack of two or more empty <span>
-     * bars: the framework-agnostic shape of a CSS-drawn hamburger glyph. A real
-     * button carries a text label, an image, or other meaningful content, so it
-     * is never matched. Genuinely empty controls (no bars) are not matched
-     * either; only the deliberate multi-bar stack qualifies.
-     */
-    private function isHamburgerBarStackControl(DOMElement $element): bool
-    {
-        $emptyBars = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    return false;
-                }
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return false;
-            }
-
-            if ( 'span' !== strtolower($child->tagName)
-                || '' !== trim($child->textContent ?? '')
-                || 0 !== $child->getElementsByTagName('img')->length
-                || 0 !== $child->getElementsByTagName('svg')->length ) {
-                return false;
-            }
-
-            ++$emptyBars;
-        }
-
-        return $emptyBars >= 2;
-    }
-
-    /**
-     * Visible text label of a control with decorative chrome (icons, empty
-     * hamburger bars) stripped. Empty means the control shows no text label.
-     */
-    private function visibleMenuToggleLabel(DOMElement $element): string
-    {
-        $html = $this->innerHtml($element);
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
-
-        return trim($this->runtime->stripAllTags($html));
-    }
-
-    /**
-     * Whether the toggle is associated with a source navigation menu: it opens
-     * one via aria-controls, lives inside a navigation landmark, or sits beside a
-     * navigation menu within its enclosing landmark. Association does NOT require
-     * the menu to convert to core/navigation — a navbar whose links fail to
-     * convert must still drop its dead hamburger rather than emit it as an
-     * always-visible core/button.
-     */
-    private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
-    {
-        $controlledIds = preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array();
-        foreach ( $controlledIds as $controlledId ) {
-            if ( '' === $controlledId ) {
-                continue;
-            }
-
-            $target = $this->elementWithId($toggle, $controlledId);
-            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->isAssociatedNavigationTarget($target) ) {
-                return true;
-            }
-        }
-
-        $scope = $this->menuToggleScope($toggle);
-        if ( $this->isNavigationLandmark($scope) ) {
-            return true;
-        }
-
-        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($toggle) ) {
-                continue;
-            }
-
-            if ( $this->isAssociatedNavigationTarget($candidate) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether an element is a navigation menu the toggle can be bound to: a
-     * structural/semantic navigation menu candidate (nav landmark or signaled
-     * list), or any container that converts to core/navigation (e.g. a signaled
-     * direct-anchor menu div).
-     */
-    private function isAssociatedNavigationTarget(DOMElement $element): bool
-    {
-        return $this->isNavigationMenuCandidate($element) || $this->convertsToCoreNavigation($element);
-    }
-
-    private function isNavigationLandmark(DOMElement $element): bool
-    {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role'));
-    }
-
-    /**
-     * Nearest enclosing navigation/header landmark, or the document body, used
-     * to bound the search for a sibling navigation menu.
-     */
-    private function menuToggleScope(DOMElement $toggle): DOMElement
-    {
-        for ( $node = $toggle->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $tagName = strtolower($node->tagName);
-            if ( 'body' === $tagName ) {
-                return $node;
-            }
-
-            if ( in_array($tagName, array( 'header', 'nav' ), true) || in_array(strtolower($this->attr($node, 'role')), array( 'banner', 'navigation' ), true) ) {
-                return $node;
-            }
-        }
-
-        return $toggle;
-    }
-
-    private function isNavigationMenuCandidate(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( 'nav' === $tagName || 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            return true;
-        }
-
-        return in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($element);
-    }
-
-    private function convertsToCoreNavigation(DOMElement $element): bool
-    {
-        $navigation = $this->patternRecognizers->firstMatch($element, $this->probePatternContext());
-
-        return null !== $navigation && 'core/navigation' === ($navigation['blockName'] ?? '');
-    }
-
-    private function elementWithId(DOMElement $context, string $id): ?DOMElement
-    {
-        $document = $context->ownerDocument;
-        if ( ! $document instanceof DOMDocument ) {
-            return null;
-        }
-
-        foreach ( $document->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && $element->getAttribute('id') === $id ) {
-                return $element;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * A side-effect-free pattern context for probing whether an element would
      * convert to a given block, without recording provenance or runtime islands.
      */
@@ -1138,7 +813,19 @@ final class HtmlTransformer
             ),
             null,
             null,
-            null
+            null,
+            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor)
+        );
+    }
+
+    private function navigationUnderlineColor(DOMElement $item, DOMElement $anchor): string
+    {
+        return $this->navigationUnderlineColorResolver->resolve(
+            $item,
+            $anchor,
+            fn (DOMElement $element): array => $this->presentationDeclarations($element),
+            $this->staticPseudoElementStyleRules,
+            fn (DOMElement $element, string $selector): bool => $this->matchesCssSelector($element, $selector)
         );
     }
 
@@ -1191,6 +878,12 @@ final class HtmlTransformer
             if ( $this->richTextRequiresHtmlFallback($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
+            if ( $this->hasEmptyVisualInlineChild($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 if ( $this->isRuntimeDomTarget($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
@@ -1242,6 +935,10 @@ final class HtmlTransformer
                 }
                 if ( array() !== $children ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+
+                if ( $this->shouldPreserveEmptyVisualElement($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
 
                 return null;
@@ -1531,6 +1228,11 @@ final class HtmlTransformer
             $linkedImage = $this->imageBlockFromAnchor($element);
             if ( null !== $linkedImage ) {
                 return $linkedImage;
+            }
+
+            $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
+            if ( null !== $linkedLogo ) {
+                return $linkedLogo;
             }
 
             $logo = $this->logoPattern->match(
@@ -2194,7 +1896,17 @@ final class HtmlTransformer
             }
         }
 
-        return $hasStyling;
+        if ( $hasStyling ) {
+            return true;
+        }
+
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isRichTextInlineStylingHookElement(DOMElement $element): bool
@@ -2208,14 +1920,18 @@ final class HtmlTransformer
             return false;
         }
 
+        $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
             if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
                 return false;
             }
+            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+                $hasStyling = true;
+            }
         }
 
-        return true;
+        return $hasStyling;
     }
 
     /**
@@ -2288,14 +2004,14 @@ final class HtmlTransformer
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($sourceInline) ) {
+            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $sourceInlines[] = $sourceInline;
             }
         }
 
         $targetInlines = array();
         foreach ( $body->getElementsByTagName('*') as $targetInline ) {
-            if ( $targetInline instanceof DOMElement && $this->isRichTextInlineStylingHookElement($targetInline) ) {
+            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $targetInlines[] = $targetInline;
             }
         }
@@ -2327,6 +2043,7 @@ final class HtmlTransformer
             'background-color',
             'color',
             'display',
+            'font-family',
             'font-size',
             'font-style',
             'font-weight',
@@ -2349,14 +2066,20 @@ final class HtmlTransformer
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
     {
-        $declarations = $this->richTextInlineVisualDeclarations($element);
-        $hasUsefulInlineStyle = isset($declarations['color']) || isset($declarations['background-color']) || 'block' === strtolower(trim((string) ($declarations['display'] ?? '')));
-        if ( ! $hasUsefulInlineStyle ) {
+        if ( $element->getElementsByTagName('mark')->length > 0 ) {
             return false;
         }
 
-        if ( isset($declarations['color']) && ! isset($declarations['background-color']) ) {
+        $declarations = $this->richTextInlineVisualDeclarations($element);
+        if ( array() === $declarations ) {
+            return false;
+        }
+
+        if ( ! isset($declarations['background-color']) ) {
             $declarations['background-color'] = 'transparent';
+        }
+        if ( ! isset($declarations['color']) ) {
+            $declarations['color'] = 'inherit';
         }
 
         $document = $element->ownerDocument;
@@ -2641,7 +2364,38 @@ final class HtmlTransformer
             return false;
         }
 
-        return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+        if ( in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden')) ) {
+            return true;
+        }
+
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
+            return false;
+        }
+
+        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
+        if ( ! preg_match('/(?:^|[^a-z0-9])(?:badge|chip|pill|status|indicator|marker|dot|orb|icon)(?:[^a-z0-9]|$)/', $tokens) ) {
+            return false;
+        }
+
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'background', 'background-color', 'border', 'border-color', 'border-width', 'border-radius', 'box-shadow', 'width', 'height', 'min-width', 'min-height' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasEmptyVisualInlineChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isInlineContentElement(string $tagName): bool
@@ -2655,6 +2409,32 @@ final class HtmlTransformer
             $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
             if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function linkedSvgLogoBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
+    {
+        if ( ! $this->hasLogoBrandSignal($anchor) || 0 === $anchor->getElementsByTagName('svg')->length ) {
+            return null;
+        }
+
+        return $this->convertLinkWrapperGroup($anchor, $fallbacks);
+    }
+
+    private function hasLogoBrandSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+                if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
+                    return true;
+                }
             }
         }
 
@@ -3312,7 +3092,7 @@ final class HtmlTransformer
                 'reason'            => 'commerce_product_grid_detected',
                 'diagnostic_code'   => 'html_product_grid_fallback',
                 'kind'              => 'html_product_grid_fallback',
-                'message'           => 'A product grid was detected; per-card commerce structure was extracted so a consumer can materialize the products.',
+                'message'           => 'A product grid was detected; per-card commerce structure was extracted so a shop provider can materialize the products.',
                 'source_format'     => 'html',
                 'tag'               => strtolower($element->tagName),
                 'selector'          => $this->elementSelector($element),
@@ -3320,6 +3100,52 @@ final class HtmlTransformer
                 'context'           => $this->sourceContext($element),
                 'products'          => $products,
                 'product_count'     => count($products),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ++$emitted;
+        }
+    }
+
+    /**
+     * Surface commerce-specific runtime controls separately from the surrounding
+     * product-grid structure. The transformer can emit editable layout/product
+     * metadata, but quantity and add-to-cart controls require a commerce runtime.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $emitted = 0;
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
+                return;
+            }
+
+            if ( ! $this->isProductGridContainer($element) ) {
+                continue;
+            }
+
+            $controlGroups = $this->commerceControlGroupsForContainer($element);
+            if ( array() === $controlGroups ) {
+                continue;
+            }
+
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'              => 'html',
+                'reason'            => 'commerce_controls_require_runtime',
+                'diagnostic_code'   => 'html_commerce_controls_fallback',
+                'kind'              => 'html_commerce_controls_fallback',
+                'message'           => 'Commerce quantity and add-to-cart controls were detected; product data can be seeded by a shop provider, but these controls need cart runtime binding rather than a static core block approximation.',
+                'source_format'     => 'html',
+                'tag'               => strtolower($element->tagName),
+                'selector'          => $this->elementSelector($element),
+                'container_selector' => $this->elementSelector($element),
+                'context'           => $this->sourceContext($element),
+                'controls'          => $controlGroups,
+                'control_count'     => count($controlGroups),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
             ++$emitted;
         }
@@ -3362,6 +3188,35 @@ final class HtmlTransformer
         }
 
         return $products;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function commerceControlGroupsForContainer(DOMElement $container): array
+    {
+        $groups = array();
+        foreach ( $container->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $product = $this->productCardData($child);
+            if ( null === $product || empty($product['has_cart_control']) ) {
+                continue;
+            }
+
+            $hasQuantity = $this->hasQuantityControl($child);
+            $groups[] = array_filter(array(
+                'product_name'         => $product['name'] ?? '',
+                'source_selector'      => $this->elementSelector($child),
+                'has_quantity_control' => $hasQuantity,
+                'has_cart_control'     => true,
+                'runtime_requirement'  => 'commerce_cart_runtime',
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return $groups;
     }
 
     /**
@@ -3597,6 +3452,46 @@ final class HtmlTransformer
             // "add" alone is ambiguous, so require it to co-occur with a commerce
             // context word ("cart"/"bag"/"basket") to count as a cart control.
             if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the card contains quantity UI: number input, spinbutton, +/- controls,
+     * or explicit quantity labels/classes/ARIA. This is diagnostic only.
+     */
+    private function hasQuantityControl(DOMElement $card): bool
+    {
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            $role = strtolower($this->attr($descendant, 'role'));
+            if ( 'input' === $tagName && 'number' === strtolower($this->attr($descendant, 'type')) ) {
+                return true;
+            }
+            if ( 'spinbutton' === $role ) {
+                return true;
+            }
+
+            $haystack = strtolower(implode(' ', array(
+                $this->attr($descendant, 'class'),
+                $this->attr($descendant, 'id'),
+                $this->attr($descendant, 'name'),
+                $this->attr($descendant, 'aria-label'),
+                implode(' ', $this->safeDataAttributes($descendant)),
+                $this->collapsedText($descendant),
+            )));
+
+            if ( preg_match('/\b(?:qty|quantity|decrease|increase)\b/', $haystack) ) {
+                return true;
+            }
+            if ( in_array($tagName, array( 'button', 'a' ), true) && preg_match('/^[+\x{2212}-]$/u', trim($this->collapsedText($descendant))) ) {
                 return true;
             }
         }
@@ -5385,7 +5280,7 @@ final class HtmlTransformer
             'type'            => 'html',
             'reason'          => 'form_requires_runtime',
             'diagnostic_code' => 'html_form_fallback',
-            'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
+            'message'         => 'Form intent and controls were extracted as provider-materializable metadata; the source form markup is preserved until a form provider materializes it.',
             'source_format'   => 'html',
             'tag'             => strtolower($element->tagName),
             'selector'        => $this->elementSelector($element),
@@ -6612,10 +6507,14 @@ final class HtmlTransformer
             return array();
         }
 
+        $declarations = $this->presentationDeclarations($anchor);
+        $textDecoration = strtolower(trim((string) ($declarations['text-decoration'] ?? '')));
+
         return array_filter(array(
-            'href'   => $href,
-            'target' => $this->attr($anchor, 'target'),
-            'rel'    => $this->attr($anchor, 'rel'),
+            'href'           => $href,
+            'target'         => $this->attr($anchor, 'target'),
+            'rel'            => $this->attr($anchor, 'rel'),
+            'textDecoration' => 'none' === $textDecoration ? 'none' : '',
         ), static fn (string $value): bool => '' !== trim($value));
     }
 
@@ -6733,7 +6632,16 @@ final class HtmlTransformer
             return false;
         }
 
-        $block = $this->rebuildBlock($block, array_merge($attrs, array( 'content' => $wrapped )));
+        $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
+        if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
+            $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
+            $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+            $typography['textDecoration'] = 'none';
+            $style['typography'] = $typography;
+            $replacementAttrs['style'] = $style;
+        }
+
+        $block = $this->rebuildBlock($block, $replacementAttrs);
         return true;
     }
 

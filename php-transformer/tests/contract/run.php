@@ -484,7 +484,10 @@ $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime 
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
+$assert('form' === ($formFallbackDiagnostic['materialization_target']['capability'] ?? ''), 'data-entry runtime form targets a form materializer capability');
+$assert('form_provider' === ($formFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'data-entry runtime form targets a form provider role');
 $assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('form_provider' === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['materialization_target']['provider_role'] ?? ''), 'conversion report preserves form provider materialization target');
 $assert('core/html' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'data-entry form materializes as preserved form HTML');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<form action="/contact" method="post"'), 'data-entry form serialized markup keeps the form element');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<input id="email"'), 'data-entry form serialized markup keeps input controls');
@@ -496,6 +499,46 @@ $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
+
+$newsletterFallback = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
+)->toArray();
+$newsletterFallbackDiagnostic = $newsletterFallback['fallbacks'][0] ?? array();
+$assert('html_form_fallback' === ($newsletterFallbackDiagnostic['diagnostic_code'] ?? ''), 'static newsletter form stays classified as a provider-materializable form target');
+$assert('interactive_form' === ($newsletterFallbackDiagnostic['pattern_family'] ?? ''), 'static newsletter form uses the interactive_form family');
+$assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''), 'static newsletter form suggests a form primitive, not a fake native layout');
+$assert('form_provider' === ($newsletterFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'static newsletter form declares the form provider materialization role');
+$assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
+
+$commerceControls = ( new HtmlTransformer() )->transform(
+    '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li></ul></main>'
+)->toArray();
+$commerceDiagnostics = array();
+foreach ( $commerceControls['fallbacks'] ?? array() as $fallback ) {
+    $commerceDiagnostics[(string) ($fallback['diagnostic_code'] ?? '')] = $fallback;
+}
+$assert(isset($commerceDiagnostics['html_product_grid_fallback']), 'commerce cards still expose product-grid materialization metadata');
+$assert(isset($commerceDiagnostics['html_commerce_controls_fallback']), 'commerce quantity/cart controls expose a dedicated runtime diagnostic');
+$assert('commerce_product_provider' === ($commerceDiagnostics['html_product_grid_fallback']['materialization_target']['provider_role'] ?? ''), 'commerce product grid targets product materialization through a shop provider');
+$assert('product' === ($commerceDiagnostics['html_product_grid_fallback']['materialization_target']['entity'] ?? ''), 'commerce product grid materialization target is product data');
+$commerceReportDiagnostics = array();
+foreach ( $commerceControls['source_reports']['conversion_report']['fallback_diagnostics'] ?? array() as $diagnostic ) {
+    $commerceReportDiagnostics[(string) ($diagnostic['diagnostic_code'] ?? '')] = $diagnostic;
+}
+$assert(2 === ($commerceReportDiagnostics['html_product_grid_fallback']['product_count'] ?? 0), 'conversion report preserves product-grid product count');
+$assert('Tour Tee' === ($commerceReportDiagnostics['html_product_grid_fallback']['products'][0]['name'] ?? ''), 'conversion report preserves product data for shop-provider materialization');
+$assert('commerce_product_provider' === ($commerceReportDiagnostics['html_product_grid_fallback']['materialization_target']['provider_role'] ?? ''), 'conversion report preserves shop-provider product target');
+$assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['pattern_family'] ?? ''), 'commerce controls use the commerce_controls pattern family');
+$assert('commerce_cart_runtime' === ($commerceDiagnostics['html_commerce_controls_fallback']['runtime_requirement'] ?? ''), 'commerce controls require a commerce cart runtime');
+$assert('commerce_controls' === ($commerceDiagnostics['html_commerce_controls_fallback']['suggested_primitive'] ?? ''), 'commerce controls do not pretend to have a native core block path');
+$assert('commerce_cart_runtime' === ($commerceDiagnostics['html_commerce_controls_fallback']['materialization_target']['provider_role'] ?? ''), 'commerce controls target cart runtime binding, not product data seeding');
+$assert(true === ($commerceDiagnostics['html_commerce_controls_fallback']['controls'][0]['has_quantity_control'] ?? null), 'commerce controls preserve quantity-control evidence');
+
+$contactLayout = ( new HtmlTransformer() )->transform(
+    '<main><section class="contact-layout"><div><h2>Booking</h2><p>For shows, email <a href="mailto:booking@example.com">booking@example.com</a>.</p></div><div><h2>Follow</h2><p><a href="https://example.com">Instagram</a></p></div></section></main>'
+)->toArray();
+$assert(array() === ($contactLayout['fallbacks'] ?? array()), 'static contact layout decomposes without fallback diagnostics');
+$assert(0 === substr_count((string) ($contactLayout['serialized_blocks'] ?? ''), '<!-- wp:html'), 'static contact layout emits native blocks only');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
@@ -546,7 +589,16 @@ $outlineButton = ( new HtmlTransformer() )->transform(
 $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
 $assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'outline button emits transparent background to suppress default theme fill');
+$assert(str_contains($outlineButtonMarkup, 'border-radius:0'), 'outline button with no source radius emits square radius to suppress default rounded inner button chrome');
+$assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
+
+$roundedOutlineButton = ( new HtmlTransformer() )->transform(
+    '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;border-radius:12px;background:transparent;color:#eee" href="/tickets">Tickets</a></main>'
+)->toArray();
+$roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks'] ?? '');
+$assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button preserves an explicit source border radius');
+$assert(! str_contains($roundedOutlineButtonMarkup, 'border-radius:0'), 'outline button does not override an explicit source border radius');
 
 $separatorResult = ( new HtmlTransformer() )->transform('<main><hr class="wp-block-separator has-alpha-channel-opacity has-css-opacity divider"></main>')->toArray();
 $separatorMarkup = (string) ($separatorResult['serialized_blocks'] ?? '');
@@ -1110,6 +1162,25 @@ $assert('nav-link' === ($runtimeTargetNavigationItemAttrs['className'] ?? ''), '
 $assert(str_contains($runtimeTargetNavigationSerialized, '"className":"nav-link"'), 'runtime-target navigation link classes are preserved in the canonical navigation-link block comment');
 $assert(! str_contains($runtimeTargetNavigationSerialized, '<li class="wp-block-navigation-item'), 'canonical navigation-link emits no static <li> markup that the editor would reject');
 
+$activeNavigation = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
+)->toArray();
+$activeNavigationLinks = $activeNavigation['blocks'][0]['innerBlocks'] ?? array();
+$assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration'] ?? ''), 'active navigation link carries native underline style intent');
+$assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
+$assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
+
+$activeNavigationColor = ( new HtmlTransformer() )->transform(
+    '<style>.nav-links a{color:var(--bone)}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
+)->toArray();
+$activeNavigationColorLinks = $activeNavigationColor['blocks'][0]['innerBlocks'] ?? array();
+$activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
+$assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
+$assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
+$assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
+$assert(str_contains($activeNavigationColorSerialized, '"textDecorationColor":"var(--ember)"'), 'active navigation underline color is serialized into the dynamic navigation-link block attrs');
+$assert(! str_contains($activeNavigationColorSerialized, '<li class="wp-block-navigation-item'), 'active navigation color serialization emits no invalid static navigation item markup');
+
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
 )->toArray();
@@ -1545,6 +1616,22 @@ $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metric
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
 $assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact exposes canonical materialization plan');
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
+
+$artifactNavAnchorCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header class="site-header"><nav class="subnav"><a href="#one">One</a></nav></header></body></html>',
+            'styles.css' => '.site-header .subnav a{color:#31251c;text-decoration:none;border-color:#31251c}.site-header .subnav a:hover{color:#8f5031;border-color:#8f5031}',
+        ),
+    )
+)->toArray();
+$artifactNavAnchorStaticCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
+$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through core/navigation wrappers');
+$assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
+$artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
+$assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
 
 $artifactInlineSvg = $compiler->compile(
     array(

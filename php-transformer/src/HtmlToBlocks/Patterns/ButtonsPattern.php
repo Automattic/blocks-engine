@@ -219,10 +219,24 @@ final class ButtonsPattern
         }
 
         if ( $isOutline ) {
+            if ( array() !== $native ) {
+                $attrs['className'] = 'is-style-outline';
+            }
             $attrs['style']['color']['background'] = 'transparent';
+            if ( ! $this->hasBorderRadius($attrs) ) {
+                $attrs['style']['border']['radius'] = '0';
+            }
         }
 
         return $attrs;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function hasBorderRadius(array $attrs): bool
+    {
+        return '' !== trim((string) ($attrs['style']['border']['radius'] ?? ''));
     }
 
     private function mergeClassNames(string ...$classNames): string

@@ -409,7 +409,8 @@ export function collectSourceAssets(
   // dir. Then strip Google-Fonts @imports: WP_COMPAT_CSS contains no @imports so
   // startsWith(WP_COMPAT_CSS) is preserved; Google imports only exist in cssParts.
   const { parts: localizedParts, mediaAssets } = localizeCssImages(cssParts, dir);
-  const baseCss = (WP_COMPAT_CSS + localizedParts.join('\n\n')).replace(GOOGLE_IMPORT_RE, '');
+  const sourceCss = localizedParts.join('\n\n').replace(GOOGLE_IMPORT_RE, '');
+  const baseCss = WP_COMPAT_CSS + sourceCss + buildNavigationAnchorCompatCss(sourceCss);
   // Append admin-bar accommodation LAST: scan the assembled source CSS for
   // top-anchored fixed/sticky chrome and shift it below the WP admin bar for
   // logged-in viewers (the bar otherwise overlays a `position:fixed; top:0`
@@ -428,4 +429,86 @@ export function collectSourceAssets(
     imgAssets,
     imgRewritesByPage,
   };
+}
+
+export function buildNavigationAnchorCompatCss(sourceCss: string): string {
+  const rules: string[] = [];
+  for (const match of sourceCss.matchAll(/([^{}@][^{}]*)\{([^{}]*)\}/g)) {
+    const body = match[2]?.trim();
+    if (!body) continue;
+
+    const mappedSelectors = splitSelectorList(match[1] ?? '').flatMap(mapNavigationAnchorSelector);
+    if (mappedSelectors.length === 0) continue;
+
+    rules.push(`${Array.from(new Set(mappedSelectors)).join(', ')} { ${body} }`);
+  }
+
+  if (rules.length === 0) return '';
+
+  return `\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n${rules.join('\n')}`;
+}
+
+function splitSelectorList(selectorList: string): string[] {
+  const selectors: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (const char of selectorList) {
+    if (char === '(' || char === '[') depth += 1;
+    if (char === ')' || char === ']') depth = Math.max(0, depth - 1);
+    if (char === ',' && depth === 0) {
+      selectors.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.trim()) selectors.push(current.trim());
+  return selectors;
+}
+
+function mapNavigationAnchorSelector(selector: string): string[] {
+  const anchorMatch = /(^|[\s>+~])a(?=$|[\s:.#\[])/.exec(selector);
+  if (!anchorMatch) return [];
+
+  const anchorStart = anchorMatch.index + (anchorMatch[1] ?? '').length;
+  const prefix = selector.slice(0, anchorStart);
+  if (!/[.#\[]/.test(prefix)) return [];
+
+  const mapped = selector
+    .replace(/(\s*[>+~]?\s*)a:first-child\b/g, '$1.wp-block-navigation-item:first-child > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a:last-child\b/g, '$1.wp-block-navigation-item:last-child > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a:nth-child\(([^)]*)\)/g, '$1.wp-block-navigation-item:nth-child($2) > .wp-block-navigation-item__content')
+    .replace(/(\s*[>+~]?\s*)a(?![A-Za-z0-9_-])/g, '$1.wp-block-navigation-item__content');
+
+  const directWrapper = addNavigationClassToLastPrefixCompound(mapped, anchorStart);
+  const descendantWrapper = insertNavigationDescendantWrapper(mapped, prefix);
+  return Array.from(new Set([directWrapper, descendantWrapper].filter((value): value is string => Boolean(value))));
+}
+
+function addNavigationClassToLastPrefixCompound(selector: string, anchorStart: number): string | undefined {
+  const prefix = selector.slice(0, anchorStart);
+  const match = /([^\s>+~]+)(\s*[>+~]?\s*)$/.exec(prefix);
+  if (!match) return undefined;
+
+  const compound = match[1] ?? '';
+  if (compound.includes('.wp-block-navigation')) return selector;
+
+  const insertAt = compound.search(/:{1,2}/);
+  const mappedCompound = insertAt >= 0
+    ? `${compound.slice(0, insertAt)}.wp-block-navigation${compound.slice(insertAt)}`
+    : `${compound}.wp-block-navigation`;
+  const mappedPrefix = `${prefix.slice(0, match.index)}${mappedCompound}${match[2] ?? ''}`;
+  return `${mappedPrefix}${selector.slice(anchorStart)}`;
+}
+
+function insertNavigationDescendantWrapper(selector: string, prefix: string): string | undefined {
+  const parentPrefix = prefix.replace(/[\s>+~]+$/, '').trimEnd();
+  if (!parentPrefix || parentPrefix.includes('.wp-block-navigation')) return undefined;
+
+  const tail = selector.slice(prefix.length).replace(/^[\s>+~]+/, '');
+  if (!tail) return undefined;
+
+  return `${parentPrefix} .wp-block-navigation ${tail}`;
 }

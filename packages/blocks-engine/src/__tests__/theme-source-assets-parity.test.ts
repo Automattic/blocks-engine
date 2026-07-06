@@ -8,6 +8,7 @@ import * as theme from '../theme/index.js';
 import {
   collectHtmlImages,
   collectSourceAssets,
+  buildNavigationAnchorCompatCss,
   localizeCssImages,
   REVEAL_NEUTRALIZER_CSS,
   rewriteHtmlImageSrcs,
@@ -107,6 +108,39 @@ describe('source assets DLA parity', () => {
 
   it('keeps the WP compat CSS byte-for-byte equal to the DLA golden string', () => {
     expect(WP_COMPAT_CSS).toBe(DLA_WP_COMPAT_CSS);
+  });
+
+  it('replays source nav anchor rules against core/navigation wrapper markup', () => {
+    const css = buildNavigationAnchorCompatCss(`
+.jumpnav a { padding: 0.35rem 0.85rem; color: var(--muted); text-decoration: none; }
+.jumpnav a:first-child { padding-left: 0; }
+.contact a { text-decoration: underline; }
+`);
+
+    expect(css).toContain(
+      '.jumpnav.wp-block-navigation .wp-block-navigation-item__content, .jumpnav .wp-block-navigation .wp-block-navigation-item__content { padding: 0.35rem 0.85rem; color: var(--muted); text-decoration: none; }'
+    );
+    expect(css).toContain(
+      '.jumpnav.wp-block-navigation .wp-block-navigation-item:first-child > .wp-block-navigation-item__content, .jumpnav .wp-block-navigation .wp-block-navigation-item:first-child > .wp-block-navigation-item__content { padding-left: 0; }'
+    );
+    expect(css).toContain(
+      '.contact.wp-block-navigation .wp-block-navigation-item__content, .contact .wp-block-navigation .wp-block-navigation-item__content { text-decoration: underline; }'
+    );
+  });
+
+  it('replays nested source nav anchor color, decoration, and border rules through core/navigation wrappers', () => {
+    const css = buildNavigationAnchorCompatCss(`
+.site-header .subnav a { color: #31251c; text-decoration: none; border-color: #31251c; }
+.site-header .subnav a:hover { color: #8f5031; border-color: #8f5031; }
+`);
+
+    expect(css).toContain(
+      '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color: #31251c; text-decoration: none; border-color: #31251c; }'
+    );
+    expect(css).toContain(
+      '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color: #8f5031; border-color: #8f5031; }'
+    );
+    expect(css).not.toContain('.site-header.wp-block-navigation .subnav');
   });
 
   it('rewrites exact quoted HTML image refs globally using the theme asset URL', () => {

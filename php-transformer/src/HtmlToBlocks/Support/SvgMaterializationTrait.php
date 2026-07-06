@@ -89,6 +89,11 @@ trait SvgMaterializationTrait
             'url'          => $path,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->attr($element, 'class'),
+            'style'        => array(
+                'typography' => array(
+                    'lineHeight' => '0',
+                ),
+            ),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);
@@ -489,7 +494,7 @@ trait SvgMaterializationTrait
             'circle', 'clippath', 'defs', 'desc', 'ellipse', 'fegaussianblur', 'femerge',
             'femergenode', 'filter', 'g', 'line', 'lineargradient',
             'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
-            'rect', 'stop', 'svg', 'symbol', 'text', 'title', 'tspan', 'use',
+            'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
             'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
