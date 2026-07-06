@@ -1467,6 +1467,24 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        if ( 'article' === $tag ) {
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('comment', 'reply')) ) {
+                return 'comment';
+            }
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('card', 'preview')) ) {
+                return 'post-card';
+            }
+            if ( $this->containsSemanticRoleToken($nameHaystack, array('query', 'loop')) ) {
+                return 'query-item';
+            }
+
+            return 'article';
+        }
+
+        if ( 'section' === $tag && $this->hasQueryContainerName($nameHaystack) ) {
+            return 'query';
+        }
+
         if ( $this->containsSemanticRoleToken($nameHaystack, array('nav', 'navigation', 'menu')) ) {
             return 'nav';
         }
