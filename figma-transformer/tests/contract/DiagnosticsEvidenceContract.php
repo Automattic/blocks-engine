@@ -254,6 +254,52 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('fail' === ($invalidCssQuality['quality_status'] ?? null), 'diagnostics-evidence-invalid-css-quality-fail');
     $assert(2 === ($invalidCssQuality['summary']['invalid_css_numeric_tokens'] ?? null), 'diagnostics-evidence-invalid-css-summary-count');
 
+    $responsiveCss = '.desktop-shell{width:1800px;height:620px;display:flex;flex-direction:row}.uncovered-shell{width:1600px}'
+        . "\n@media (max-width:767px){\n.desktop-shell{width:100%;max-width:100%;height:auto;min-height:620px;flex-wrap:wrap}\n}";
+    $responsiveHtmlArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics('<main><section></section></main>', $responsiveCss);
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_count'), 2, 'diagnostics-evidence-responsive-raw-fixed-width-count');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_class_count'), 2, 'diagnostics-evidence-responsive-fixed-width-class-count');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-responsive-covered-fixed-width-count');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_uncovered_count'), 1, 'diagnostics-evidence-responsive-uncovered-fixed-width-count');
+
+    $responsiveQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        $responsiveHtmlArtifact
+    );
+    $responsiveCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), is_array($responsiveQuality['signals'] ?? null) ? $responsiveQuality['signals'] : array());
+    $assert(in_array('uncovered_fixed_desktop_widths', $responsiveCodes, true), 'diagnostics-evidence-responsive-uncovered-quality-signal');
+    $assert(1 === ($responsiveQuality['summary']['fixed_width_over_desktop_covered_count'] ?? null), 'diagnostics-evidence-responsive-quality-covered-summary');
+    $assert(1 === ($responsiveQuality['summary']['fixed_width_over_desktop_uncovered_count'] ?? null), 'diagnostics-evidence-responsive-quality-uncovered-summary');
+
+    $responsivePolicy = new \Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
+        static fn (array $node): array => is_array($node['children'] ?? null) ? $node['children'] : array(),
+        static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.'),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
+    );
+    $responsiveDecision = $responsivePolicy->responsiveSafetyDecision(
+        array('id' => 'diag:wide-row', 'type' => 'FRAME', 'name' => 'Wide Row', 'box' => array('width' => 1800, 'height' => 620), 'children' => array(array('id' => 'diag:card', 'type' => 'FRAME'))),
+        array('id' => 'diag:page', 'type' => 'FRAME'),
+        array('width' => '1800px', 'height' => '620px', 'display' => 'flex', 'flex-direction' => 'row'),
+        767.0
+    );
+    $responsiveDeclarations = $responsiveDecision['declarations'] ?? array();
+    $assert('responsive_oversized_desktop_geometry_safety' === ($responsiveDecision['reason_code'] ?? null), 'diagnostics-evidence-responsive-policy-reason');
+    $assert(in_array('width:100%', $responsiveDeclarations, true), 'diagnostics-evidence-responsive-policy-fluid-width');
+    $assert(in_array('height:auto', $responsiveDeclarations, true), 'diagnostics-evidence-responsive-policy-auto-height');
+    $assert(in_array('flex-wrap:wrap', $responsiveDeclarations, true), 'diagnostics-evidence-responsive-policy-wrap-row');
+
     $clippedResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Clipped Fixture',
         'nodes' => array(
