@@ -114,6 +114,16 @@ Run a single local fixture:
 homeboy bench --rig figma-transformer-fixture-matrix --profile fixture-matrix --setting bench_env.FIGMA_FIXTURE_MATRIX_FIXTURE=/path/to/fixture.fig --path /path/to/blocks-engine
 ```
 
+Run with DOM-box capture evidence:
+
+```sh
+npm ci --prefix php-transformer/tools/visual-parity
+npm --prefix php-transformer/tools/visual-parity run install:browsers
+homeboy bench --rig figma-transformer-fixture-matrix --profile fixture-matrix --setting-json bench_env='{"FIGMA_FIXTURE_MATRIX_FIXTURE":"/path/to/fixture.fig","FIGMA_FIXTURE_MATRIX_ARGS":["--capture-dom-boxes","--dom-box-provider-command=node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs"]}' --path /path/to/blocks-engine
+```
+
+The matrix runner preflights Homeboy and the canonical DOM-box provider before fixture transforms start. Missing provider configuration, missing `node_modules`, or missing Playwright Chromium exits with an actionable setup command before any partial fixture run.
+
 Run a fixture corpus manually:
 
 ```sh

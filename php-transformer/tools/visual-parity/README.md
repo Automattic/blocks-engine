@@ -55,6 +55,7 @@ Install the tool dependencies and Chromium browser once per checkout:
 ```sh
 npm ci --prefix php-transformer/tools/visual-parity
 npm --prefix php-transformer/tools/visual-parity run install:browsers
+node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs --preflight
 ```
 
 Capture DOM-box evidence for a generated static HTML artifact root:
@@ -92,6 +93,8 @@ homeboy tunnel artifact-origin dom-boxes \
 ```
 
 The report is repeatable when the artifact root, entrypoint, browser version, viewport defaults, and node identity attributes stay fixed. Attach the JSON report to the Homeboy run, issue, or PR evidence surface so the next operator can compare generated HTML structure and positions without re-running the full transform.
+
+The fixture matrix runner preflights this provider before running transforms when DOM-box capture is enabled, so missing Node dependencies or Playwright browser installs fail fast with the install command above instead of producing partial matrix artifacts.
 
 ```sh
 HOMEBOY_DOM_BOX_BASE_URL=https://example.test \

@@ -432,6 +432,13 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
         . ' --homeboy-command=' . escapeshellarg($matrixFixtureDir . '/missing-homeboy')
         . ' 2>&1';
     exec($missingHomeboyCommand, $missingHomeboyOutput, $missingHomeboyExitCode);
+    $missingProviderOutput = array();
+    $missingProviderCommand = escapeshellarg(PHP_BINARY)
+        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-fixture-matrix.php')
+        . ' --capture-dom-boxes --fixture-dir=' . escapeshellarg($matrixFixtureDir)
+        . ' --homeboy-command=' . escapeshellarg(PHP_BINARY)
+        . ' 2>&1';
+    exec($missingProviderCommand, $missingProviderOutput, $missingProviderExitCode);
     $matrixHelpOutput = array();
     $matrixHelpCommand = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-fixture-matrix.php')
@@ -532,6 +539,11 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $missingHomeboyMessage = implode("\n", $missingHomeboyOutput);
     $assert(str_contains($missingHomeboyMessage, 'DOM box capture requires a runnable Homeboy command'), 'fixture-matrix-capture-preflight-missing-homeboy-message');
     $assert(str_contains($missingHomeboyMessage, 'Set --homeboy-command, --homeboy-bin, or HOMEBOY_COMMAND'), 'fixture-matrix-capture-preflight-homeboy-remediation');
+    $assert(0 !== $missingProviderExitCode, 'fixture-matrix-capture-preflight-missing-provider-fails');
+    $missingProviderMessage = implode("\n", $missingProviderOutput);
+    $assert(str_contains($missingProviderMessage, 'DOM box capture requires a provider command'), 'fixture-matrix-capture-preflight-missing-provider-message');
+    $assert(str_contains($missingProviderMessage, "--dom-box-provider-command='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs'"), 'fixture-matrix-capture-preflight-provider-remediation');
+    $assert(str_contains($missingProviderMessage, 'npm ci --prefix php-transformer/tools/visual-parity'), 'fixture-matrix-capture-preflight-provider-install-command');
     $assert(0 === $matrixHelpExitCode, 'fixture-matrix-help-exits-zero');
     $matrixHelpMessage = implode("\n", $matrixHelpOutput);
     $assert(str_contains($matrixHelpMessage, 'Usage:'), 'fixture-matrix-help-usage');
