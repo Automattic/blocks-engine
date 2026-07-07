@@ -939,7 +939,7 @@ final class StaticHtmlEmitter
                     if ( $formControlAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
                         $this->recordDecisionTrace('source_loss_accounting', 'placeholder_child_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         if ( ! $insertedAccessoryInput ) {
-                            $content .= $this->syntheticFormControlMarkup($node, $className, $textareaAccessoryControl ? 'textarea' : 'input');
+                            $content .= $this->syntheticFormControlMarkup($node, $className, $textareaAccessoryControl ? 'textarea' : 'input', $parentNode);
                             $cssRules[] = $this->syntheticFormControlResetCss($className, $textareaAccessoryControl ? 'textarea' : 'input');
                             $insertedAccessoryInput = true;
                         }
