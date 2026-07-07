@@ -194,6 +194,6 @@ describe('preserveDomStrategy', () => {
         '.lib-i641b5be562{color:blue;max-width:20ch}',
       ],
     });
-    expect(aggregate.dedup?.cssRules.join('\n')).not.toMatch(/position|top:|left:|height:6000px/);
+    expect((aggregate.dedup?.cssRules ?? []).join('\n')).not.toMatch(/position|top:|left:|height:6000px/);
   });
 });
