@@ -196,14 +196,20 @@ function matrix_omitted_page_candidate_records(array $inspection, array $selecte
         }
         $bucket = matrix_candidate_bucket($candidate);
         $selectedBucketFrameId = $selectedBucketFrameIds[$bucket] ?? null;
+        $selectedResponsiveSiblingFrameId = matrix_selected_responsive_sibling_frame_id($candidate, $selected);
         $record = array(
             'id' => $id,
             'name' => (string) ($candidate['name'] ?? ''),
             'page_type' => (string) ($candidate['page_type'] ?? ''),
             'bucket' => $bucket,
             'rank' => matrix_candidate_rank($candidate),
-            'reason' => null !== $selectedBucketFrameId ? 'covered_by_selected_route_bucket' : 'outside_page_cap',
+            'reason' => null !== $selectedResponsiveSiblingFrameId
+                ? 'covered_by_selected_responsive_variant'
+                : (null !== $selectedBucketFrameId ? 'covered_by_selected_route_bucket' : 'outside_page_cap'),
         );
+        if ( null !== $selectedResponsiveSiblingFrameId ) {
+            $record['selected_responsive_sibling_frame_id'] = $selectedResponsiveSiblingFrameId;
+        }
         if ( null !== $selectedBucketFrameId ) {
             $record['selected_bucket_frame_id'] = $selectedBucketFrameId;
         }
@@ -213,6 +219,25 @@ function matrix_omitted_page_candidate_records(array $inspection, array $selecte
     usort($omitted, static fn (array $a, array $b): int => ((int) ($b['rank'] ?? 0)) <=> ((int) ($a['rank'] ?? 0)));
 
     return $omitted;
+}
+
+/**
+ * @param array<string, mixed> $candidate
+ * @param array<string, bool>  $selected
+ */
+function matrix_selected_responsive_sibling_frame_id(array $candidate, array $selected): ?string
+{
+    foreach ( is_array($candidate['responsive_siblings'] ?? null) ? $candidate['responsive_siblings'] : array() as $sibling ) {
+        if ( ! is_array($sibling) || ! isset($sibling['id']) || ! is_scalar($sibling['id']) ) {
+            continue;
+        }
+        $id = (string) $sibling['id'];
+        if ( isset($selected[$id]) ) {
+            return $id;
+        }
+    }
+
+    return null;
 }
 
 /**
