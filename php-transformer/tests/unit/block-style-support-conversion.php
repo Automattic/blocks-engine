@@ -101,9 +101,22 @@ $assert('hero-content' === (($stack['attrs']['className'] ?? '')), '31: multi-ch
 $paragraphColorHtml = '<p class="has-text-color hero-tagline" style="color:var(--wp--preset--color--contrast)">Steeped daily.</p>';
 $paragraphColorResult = ( new HtmlTransformer() )->transform($paragraphColorHtml, array())->toArray();
 $paragraphColorMarkup = (string) ($paragraphColorResult['serialized_blocks'] ?? '');
+$paragraphColorAttrs = $paragraphColorResult['blocks'][0]['attrs'] ?? array();
 
 $assert(str_contains($paragraphColorMarkup, '<p class="has-contrast-color has-text-color hero-tagline">Steeped daily.</p>'), '32: paragraph preset text color emits one has-text-color token plus source class', $paragraphColorMarkup);
 $assert(! str_contains($paragraphColorMarkup, 'has-text-color has-text-color'), '33: paragraph color support never duplicates has-text-color', $paragraphColorMarkup);
+$assert('hero-tagline' === ($paragraphColorAttrs['className'] ?? ''), '34: paragraph className excludes generated color support classes', json_encode($paragraphColorAttrs));
+
+$textPresetHtml = '<p class="masthead__bio" style="color:var(--wp--preset--color--text)">I am a cognitive neuroscientist.</p>';
+$textPresetResult = ( new HtmlTransformer() )->transform($textPresetHtml, array())->toArray();
+$textPresetBlock = $textPresetResult['blocks'][0] ?? array();
+$textPresetAttrs = is_array($textPresetBlock['attrs'] ?? null) ? $textPresetBlock['attrs'] : array();
+$textPresetInnerHtml = (string) ($textPresetBlock['innerHTML'] ?? '');
+
+$assert(! isset($textPresetAttrs['textColor']), '35: preset text slug stays custom color to avoid duplicate has-text-color classes', json_encode($textPresetAttrs));
+$assert('var(--wp--preset--color--text)' === ($textPresetAttrs['style']['color']['text'] ?? ''), '36: preset text color value remains visually preserved', json_encode($textPresetAttrs['style'] ?? array()));
+$assert('masthead__bio' === ($textPresetAttrs['className'] ?? ''), '37: source paragraph class remains preserved without generated color class leakage', json_encode($textPresetAttrs));
+$assert(! str_contains($textPresetInnerHtml, 'has-text-color has-text-color'), '38: rendered paragraph does not carry duplicate generated text color classes', $textPresetInnerHtml);
 
 $paintCss = '.pricing-card{background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4);background-position:center top;background-size:120% 80%,100% 100%;background-repeat:no-repeat;box-shadow:0 28px 80px rgba(20,12,4,.18);padding:2rem;border-radius:24px}';
 $paintHtml = '<main><section class="pricing-card"><h2>Roast Club</h2><p>Fresh coffee every week.</p></section></main>';
@@ -111,19 +124,19 @@ $paintResult = ( new HtmlTransformer() )->transform($paintHtml, array('static_cs
 $paintBlock = $paintResult['blocks'][0] ?? array();
 $paintAttrs = is_array($paintBlock['attrs'] ?? null) ? $paintBlock['attrs'] : array();
 
-$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '34: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
-$assert(! isset($paintAttrs['style']['box-shadow']), '35: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
-$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '36: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
+$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '39: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
+$assert(! isset($paintAttrs['style']['box-shadow']), '40: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
+$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '41: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
 $rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
 $paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
-$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '37: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '38: background-position survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '39: background-size survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '40: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '41: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '43: background-position survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '44: background-size survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '45: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '46: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
