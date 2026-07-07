@@ -287,8 +287,11 @@ function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): 
     }
 
     $summary['page_count'] = count($pageReports);
-    $summary['dom_capture_valid'] = $summary['page_count'] > 0 && 0 === $summary['dom_capture_invalid_count'];
-    $summary['dom_css_loaded'] = $summary['page_count'] > 0 && 0 === $summary['dom_css_not_loaded_count'];
+    $summary = array_merge($summary, matrix_dom_box_validity_summary(
+        (int) $summary['page_count'],
+        (int) $summary['dom_capture_invalid_count'],
+        (int) $summary['dom_css_not_loaded_count']
+    ));
     $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
 
     return array_filter(array(
@@ -326,11 +329,14 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
     } else {
         $summary['dom_css_not_loaded_count'] = 1;
     }
+    $summary = array_merge($summary, matrix_dom_box_validity_summary(
+        1,
+        (int) $summary['dom_capture_invalid_count'],
+        (int) $summary['dom_css_not_loaded_count']
+    ));
 
     if ( ! $domCaptureValid ) {
         $summary['risk_bucket'] = 'low';
-        $summary['dom_capture_valid'] = false;
-        $summary['dom_css_loaded'] = $domCssLoaded;
         return array_filter(array(
             'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
             'viewport' => $viewport,
@@ -412,8 +418,6 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
         + $summary['dom_offscreen_box_count']
         + $summary['dom_missing_node_id_box_count'];
     $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
-    $summary['dom_capture_valid'] = true;
-    $summary['dom_css_loaded'] = true;
 
     return array(
         'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
@@ -444,6 +448,17 @@ function matrix_dom_box_empty_summary(): array
         'dom_css_not_loaded_count' => 0,
         'risk_score' => 0,
         'risk_bucket' => 'low',
+    );
+}
+
+/**
+ * @return array{dom_capture_valid: bool, dom_css_loaded: bool}
+ */
+function matrix_dom_box_validity_summary(int $pageCount, int $captureInvalidCount, int $cssNotLoadedCount): array
+{
+    return array(
+        'dom_capture_valid' => $pageCount > 0 && 0 === $captureInvalidCount,
+        'dom_css_loaded' => $pageCount > 0 && 0 === $cssNotLoadedCount,
     );
 }
 
