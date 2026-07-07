@@ -248,7 +248,7 @@ final class StaticHtmlEmissionDiagnostics
             $selector = (string) ($rule['selector'] ?? '');
             $declarations = (string) ($rule['declarations'] ?? '');
             $classes = $this->selectorClassNames($selector);
-            if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*width\s*:/i', $declarations) ) {
+            if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*(?:width|max-width)\s*:/i', $declarations) ) {
                 foreach ( $classes as $class ) {
                     $responsive[$class] = true;
                 }
@@ -259,9 +259,15 @@ final class StaticHtmlEmissionDiagnostics
             if ( null === $width || $width < 320.0 ) {
                 continue;
             }
+            if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\b/i', $declarations) ) {
+                continue;
+            }
 
             foreach ( $classes as $class ) {
                 $base[$class] = true;
+                if ( $this->hasResponsiveWidthConstraint($declarations) ) {
+                    $responsive[$class] = true;
+                }
                 if ( $width > 1440.0 ) {
                     ++$fixedWidthOverDesktopCount;
                     $overDesktop[$class] = true;
@@ -295,6 +301,15 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_over_desktop_covered_classes' => $overDesktopCoveredClasses,
             'fixed_width_over_desktop_uncovered_classes' => $overDesktopUncoveredClasses,
         );
+    }
+
+    private function hasResponsiveWidthConstraint(string $declarations): bool
+    {
+        if ( preg_match('/(?:^|;)\s*width\s*:\s*(?:100%|auto|calc\(|clamp\(|min\()/i', $declarations) ) {
+            return true;
+        }
+
+        return 1 === preg_match('/(?:^|;)\s*max-width\s*:\s*(?:100%|calc\(|clamp\(|min\()/i', $declarations);
     }
 
     /**
