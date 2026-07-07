@@ -155,6 +155,48 @@ describe('preserveDomStrategy', () => {
     expect(aggregate.provenanceFlags).toEqual([]);
   });
 
+  it('converts explicitly decorative inline SVGs to native image blocks instead of html fallback islands', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 6,
+          headings: ['Fast care'],
+          sectionHtml:
+            '<section class="features"><div class="feature"><svg class="benefit-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6"></path></svg><h3>Fast care</h3></div></section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    const markup = aggregate.sectionMarkup[0] ?? '';
+    expect(markup).toContain('<!-- wp:image {"className":"benefit-icon"} -->');
+    expect(markup).toContain('<figure class="wp-block-image benefit-icon"><img src="data:image/svg+xml,');
+    expect(markup).toContain('alt="" style="width:24px;height:24px"/></figure>');
+    expect(markup).not.toContain('<!-- wp:html');
+    expect(markup).toContain('>Fast care<');
+    expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+  });
+
+  it('keeps ambiguous unlabeled inline SVGs as html fallback islands', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 7,
+          headings: ['Chart'],
+          sectionHtml:
+            '<section class="report"><svg class="chart" viewBox="0 0 100 20"><path d="M0 20L50 0L100 10"></path></svg><h2>Chart</h2></section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    const markup = aggregate.sectionMarkup[0] ?? '';
+    expect(markup).toContain('<!-- wp:html');
+    expect(markup).toContain('<svg class="chart" viewBox="0 0 100 20">');
+    expect(markup).toContain('>Chart<');
+    expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+  });
+
   it('freezes lib-i hash parity for max-width declarations', () => {
     const sheet = new InstanceStyleSheet();
     const cls = sheet.classFor('max-width:46ch');
