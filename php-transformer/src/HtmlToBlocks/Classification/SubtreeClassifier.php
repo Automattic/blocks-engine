@@ -61,8 +61,6 @@ final class SubtreeClassifier
         'accordion',
     );
 
-    private const FORM_CONTROL_TAGS = array( 'input', 'select', 'textarea' );
-
     public function classify(DOMElement $element, ?ClassificationContext $context = null): ClassificationResult
     {
         $context = $context ?? new ClassificationContext();
@@ -262,7 +260,7 @@ final class SubtreeClassifier
 
         return array(
             // DOM-derived structural signals.
-            'form_controls'         => $this->countDescendants($elements, self::FORM_CONTROL_TAGS),
+            'form_controls'         => $this->countDescendants($elements, FormControlClassifier::DATA_ENTRY_TAGS),
             'submit_or_form'        => $this->hasTag($elements, array( 'form' )) || $this->hasSubmit($elements),
             'canvas'               => $this->hasTag($elements, array( 'canvas' )),
             'contenteditable'      => $this->hasAttributeNamed($elements, 'contenteditable'),
