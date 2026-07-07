@@ -300,6 +300,18 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
                             )),
                         ),
                     ),
+                    array(
+                        'id'       => 'labeled:search-field',
+                        'type'     => 'FRAME',
+                        'name'     => 'Search Field',
+                        'children' => array(
+                            array('id' => 'labeled:search-label', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Search', 'fontSize' => 14),
+                            array('id' => 'labeled:search-input', 'type' => 'FRAME', 'name' => 'Search field', 'width' => 320, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                                array('id' => 'labeled:search-icon', 'type' => 'ELLIPSE', 'name' => 'Search icon', 'width' => 16, 'height' => 16, 'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)))),
+                                array('id' => 'labeled:search-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Keywords', 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
                     array('id' => 'labeled:submit', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 140, 'height' => 46, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
                         array('id' => 'labeled:submit-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Post Comment', 'fontSize' => 16),
                     )),
@@ -311,6 +323,7 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:name-input"') && str_contains($labeledHtml, 'aria-label="Name *"'), 'form-control-nearby-label-names-text-input');
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:email-input"') && str_contains($labeledHtml, 'type="email" name="email"') && str_contains($labeledHtml, 'aria-label="Email *"'), 'form-control-nearby-label-infers-email-input');
     $assert(str_contains($labeledHtml, '<textarea class="figma-node-labeled-comment-input-input"') && str_contains($labeledHtml, 'aria-label="Comment"'), 'form-control-nearby-label-infers-comment-textarea');
+    $assert(str_contains($labeledHtml, '<input class="figma-node-labeled-search-input-search-field__control"') && str_contains($labeledHtml, 'placeholder="Keywords"') && str_contains($labeledHtml, 'aria-label="Search"'), 'form-control-nearby-label-names-accessory-input-with-placeholder');
 
     $layeredButtonResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Layered Button Fixture',

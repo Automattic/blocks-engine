@@ -447,7 +447,7 @@ final class StaticHtmlSemanticClassifier
         }
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($placeholder) . '"';
-            $attributes .= ' aria-label="' . ($this->sanitizeAttribute)($placeholder) . '"';
+            $attributes .= ' aria-label="' . ($this->sanitizeAttribute)('' !== $label ? $label : $placeholder) . '"';
         } elseif ( '' !== $label && $this->isSpatiallyLabeledInputRectangle($node, $parentNode) ) {
             $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($label) . '"';
             $attributes .= ' aria-label="' . ($this->sanitizeAttribute)($label) . '"';
