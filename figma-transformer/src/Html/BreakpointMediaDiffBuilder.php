@@ -204,6 +204,10 @@ final class BreakpointMediaDiffBuilder
         if ( $isContainer && null !== $width && $width > 767.0 ) {
             $declarations[] = 'width:100%';
             $declarations[] = 'max-width:100%';
+            if ( 'absolute' === $position ) {
+                $declarations[] = 'left:0';
+                $declarations[] = 'right:auto';
+            }
             if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
                 $declarations[] = 'height:auto';
                 if ( ! $wrapsRow && ! $this->hasContainerChild($node) ) {
@@ -231,6 +235,10 @@ final class BreakpointMediaDiffBuilder
         if ( 'TEXT' === $type && null !== $width && $width > 320.0 ) {
             $declarations[] = 'width:100%';
             $declarations[] = 'max-width:100%';
+            if ( 'absolute' === $position ) {
+                $declarations[] = 'left:0';
+                $declarations[] = 'right:auto';
+            }
             if ( null !== $height && $height > 0.0 ) {
                 $declarations[] = 'height:auto';
             }

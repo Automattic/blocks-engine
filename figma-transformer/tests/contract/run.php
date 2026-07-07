@@ -8151,6 +8151,37 @@ if ( preg_match('/@media \(max-width:1439px\)\{(?<block>[\s\S]*?)\n\}/', $deskto
 $assert(! str_contains($desktopOnlyWideFallbackBlock, '.figma-node-desktop-only-image-service-image{'), 'desktop-only-image-fallback-not-clamped-at-desktop');
 $assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-only-image-service-image\{[^}]*width:100%[^}]*max-width:100%[^}]*height:auto[^}]*aspect-ratio:538 \/ 381/s', $desktopOnlyImageFallbackCss) === 1, 'desktop-only-image-fallback-clamped-at-mobile');
 
+$desktopOnlyAbsoluteFallbackResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Desktop-only absolute fallback fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'desktop-absolute:root', 'type' => 'FRAME', 'name' => 'Desktop Page', 'box' => array('width' => 1440, 'height' => 800),
+                'children' => array(
+                    array(
+                        'id' => 'desktop-absolute:panel', 'type' => 'FRAME', 'name' => 'Offset Panel', 'box' => array('x' => 360, 'y' => 96, 'width' => 900, 'height' => 120),
+                        'layout' => array('positioning' => 'absolute'),
+                        'children' => array(
+                            array('id' => 'desktop-absolute:text', 'type' => 'TEXT', 'name' => 'Offset Text', 'characters' => 'Fluid text should not retain a desktop left offset.', 'box' => array('x' => 24, 'y' => 24, 'width' => 520, 'height' => 32), 'layout' => array('positioning' => 'absolute')),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'desktop-absolute:root', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true)))
+);
+$desktopOnlyAbsoluteFallbackCss = '';
+foreach ( $desktopOnlyAbsoluteFallbackResult['files'] ?? array() as $desktopOnlyAbsoluteFallbackFile ) {
+    if ( is_array($desktopOnlyAbsoluteFallbackFile) && 'style.css' === ($desktopOnlyAbsoluteFallbackFile['path'] ?? null) ) {
+        $desktopOnlyAbsoluteFallbackCss = (string) ($desktopOnlyAbsoluteFallbackFile['content'] ?? '');
+    }
+}
+$assert('success' === ($desktopOnlyAbsoluteFallbackResult['status'] ?? null), 'desktop-only-absolute-fallback-transform-success');
+$assert(preg_match('/@media \(max-width:1439px\)\{[\s\S]*\.figma-node-desktop-absolute-panel-offset-panel\{[^}]*width:100%[^}]*max-width:100%[^}]*left:0[^}]*right:auto/s', $desktopOnlyAbsoluteFallbackCss) === 1, 'desktop-only-absolute-fallback-fluid-container-resets-left');
+$assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-absolute-text-offset-text\{[^}]*width:100%[^}]*max-width:100%[^}]*left:0[^}]*right:auto/s', $desktopOnlyAbsoluteFallbackCss) === 1, 'desktop-only-absolute-fallback-fluid-text-resets-left');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);
