@@ -62,6 +62,8 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
+        $attrs = $this->normalizeClassNameAttr($attrs);
+
         if ( in_array($name, array( 'core/group', 'core/columns' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
@@ -82,6 +84,33 @@ final class BlockFactory
             }
         }
 
+        return $attrs;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function normalizeClassNameAttr(array $attrs): array
+    {
+        if ( ! is_string($attrs['className'] ?? null) ) {
+            return $attrs;
+        }
+
+        $classes = array();
+        foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
+            if ( '' === $class || GeneratedGutenbergClassPolicy::isGeneratedClassName($class) || in_array($class, $classes, true) ) {
+                continue;
+            }
+            $classes[] = $class;
+        }
+
+        if ( array() === $classes ) {
+            unset($attrs['className']);
+            return $attrs;
+        }
+
+        $attrs['className'] = implode(' ', $classes);
         return $attrs;
     }
 
