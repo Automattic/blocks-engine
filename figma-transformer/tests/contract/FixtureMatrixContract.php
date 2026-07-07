@@ -261,6 +261,39 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     ), array('frame:home-desktop'));
+    $coveredResponsiveVariantOmissions = matrix_omitted_page_candidate_records(array(
+        'candidates' => array(
+            array(
+                'id'         => 'frame:home-desktop',
+                'name'       => 'Home Page - Desktop',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'front_page',
+                'score'      => 500,
+                'width'      => 1440,
+                'height'     => 4400,
+                'text_count' => 20,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups'),
+            ),
+            array(
+                'id'         => 'frame:home-tablet',
+                'name'       => 'Home Page - Tablet',
+                'type'       => 'FRAME',
+                'role'       => 'page',
+                'page_type'  => 'front_page',
+                'score'      => 450,
+                'width'      => 1024,
+                'height'     => 5200,
+                'text_count' => 20,
+                'parent'     => array('type' => 'CANVAS'),
+                'page'       => array('name' => 'Mockups'),
+                'responsive_siblings' => array(
+                    array('id' => 'frame:home-desktop', 'device_hint' => 'desktop'),
+                ),
+            ),
+        ),
+    ), array('frame:home-desktop'));
     $pageCapOnlyOmissions = matrix_omitted_page_candidate_records(array(
         'candidates' => array(
             array(
@@ -528,6 +561,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert('frame:contact-desktop' === ($canonicalTemplateOmissions[0]['id'] ?? null), 'fixture-matrix-selection-reports-omitted-page-candidates');
     $assert('covered_by_selected_route_bucket' === ($coveredBucketOmissions[0]['reason'] ?? null), 'fixture-matrix-selection-explains-selected-bucket-omission');
     $assert('frame:home-desktop' === ($coveredBucketOmissions[0]['selected_bucket_frame_id'] ?? null), 'fixture-matrix-selection-reports-selected-bucket-frame');
+    $assert('covered_by_selected_responsive_variant' === ($coveredResponsiveVariantOmissions[0]['reason'] ?? null), 'fixture-matrix-selection-explains-selected-responsive-variant-omission');
+    $assert('frame:home-desktop' === ($coveredResponsiveVariantOmissions[0]['selected_responsive_sibling_frame_id'] ?? null), 'fixture-matrix-selection-reports-selected-responsive-sibling-frame');
     $assert('outside_page_cap' === ($pageCapOnlyOmissions[0]['reason'] ?? null), 'fixture-matrix-selection-explains-page-cap-omission');
     $assert(! array_key_exists('selected_bucket_frame_id', $pageCapOnlyOmissions[0] ?? array()), 'fixture-matrix-selection-omits-selected-bucket-frame-when-not-covered');
     $assert('medium' === ($matrixVisualReadiness['visual_risk_bucket'] ?? null), 'fixture-matrix-visual-readiness-buckets-risk');
