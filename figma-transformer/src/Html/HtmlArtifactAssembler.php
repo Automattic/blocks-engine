@@ -109,6 +109,7 @@ final class HtmlArtifactAssembler
         $mainAttributes = array(
             'class="figma-root"',
             'data-figma-root="true"',
+            'data-static-artifact-capture="ignore"',
             'data-page-title="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
             'aria-label="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
         );

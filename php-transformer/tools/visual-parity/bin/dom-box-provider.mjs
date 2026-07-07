@@ -3,6 +3,7 @@
 const DEFAULT_VIEWPORT = { width: 1440, height: 900, device_scale_factor: 1 };
 const DEFAULT_NODE_ID_ATTR = 'data-figma-node-id';
 const DEFAULT_NODE_NAME_ATTRS = ['data-figma-node-name', 'data-figma-name'];
+const STATIC_ARTIFACT_CAPTURE_IGNORE_ATTR = 'data-static-artifact-capture';
 const ATTRIBUTE_NAME_PATTERN = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 const PLAYWRIGHT_SETUP_HELP = 'Install DOM capture dependencies with: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers';
 const COMPUTED_STYLE_PROPERTIES = [
@@ -231,7 +232,7 @@ function printHelp() {
 }
 
 async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {
-  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties, nodeIdAttr: idAttr, nodeNameAttrs: nameAttrs }) => {
+  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties, nodeIdAttr: idAttr, nodeNameAttrs: nameAttrs, staticArtifactCaptureIgnoreAttr }) => {
     function normalizeText(value) {
       return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
     }
@@ -398,6 +399,7 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
     const elements = Array.from(document.querySelectorAll(`[${idAttr}]`)).map(serializeElement);
     const unidentifiedElements = Array.from(document.body?.querySelectorAll('*') ?? [])
       .filter((element) => !element.hasAttribute(idAttr))
+      .filter((element) => element.getAttribute(staticArtifactCaptureIgnoreAttr) !== 'ignore')
       .filter((element) => {
         const rect = element.getBoundingClientRect();
         const style = window.getComputedStyle(element);
@@ -420,5 +422,6 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
     computedStyleProperties: COMPUTED_STYLE_PROPERTIES,
     nodeIdAttr,
     nodeNameAttrs,
+    staticArtifactCaptureIgnoreAttr: STATIC_ARTIFACT_CAPTURE_IGNORE_ATTR,
   });
 }
