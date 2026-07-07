@@ -4,6 +4,7 @@ import { isTag, isText } from 'domhandler';
 import type { Element } from 'domhandler';
 import { escapeHtmlAttr as escapeHtml } from '../../escape.js';
 import type { NativeSectionDecision, SectionStrategy, StrategyState } from '../native-reconstruct-types.js';
+import { sanitizeSvgAsset } from '../page-reconstruct-helpers.js';
 import type { SectionSpec } from '../section-spec.js';
 import { InstanceStyleSheet } from './instance-styles.js';
 import { buildHtmlFallbackBlock } from '../html-fallback.js';
@@ -91,6 +92,54 @@ function imageBlock($: CheerioAPI, imgEl: Element, sheet: InstanceStyleSheet): s
   return `<!-- wp:image${attrs} -->\n<figure class="${escapeHtml(figCls)}"><img src="${src}" alt="${alt}"/></figure>\n<!-- /wp:image -->`;
 }
 
+function svgAltText($: CheerioAPI, svgEl: Element): string | null {
+  const $svg = $(svgEl);
+  if (($svg.attr('aria-hidden') ?? '').trim().toLowerCase() === 'true') return '';
+  const role = ($svg.attr('role') ?? '').trim().toLowerCase();
+  if (role === 'presentation' || role === 'none') return '';
+
+  const labelledBy = ($svg.attr('aria-labelledby') ?? '').trim();
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => $(`#${id}`).text().trim())
+      .filter(Boolean)
+      .join(' ');
+    if (text) return text;
+  }
+
+  const label = ($svg.attr('aria-label') ?? '').trim();
+  if (label) return label;
+
+  const title = $svg.children('title').first().text().trim();
+  return title || null;
+}
+
+function dimensionAttr($el: Cheerio<Element>, name: 'width' | 'height'): string | null {
+  const value = ($el.attr(name) ?? '').trim();
+  const match = /^\d+(?:\.\d+)?(?:px)?$/i.exec(value);
+  return match ? match[0].replace(/px$/i, '') : null;
+}
+
+function svgImageBlock($: CheerioAPI, svgEl: Element, sheet: InstanceStyleSheet): string | null {
+  const alt = svgAltText($, svgEl);
+  if (alt === null) return null;
+
+  const svg = sanitizeSvgAsset($.html(svgEl).trim());
+  if (!svg || !/<svg[\s>]/i.test(svg)) return null;
+
+  const $svg = $(svgEl);
+  const cls = classNameWithInstance($svg, sheet);
+  const attrs = blockAttrs([], cls);
+  const figCls = ['wp-block-image', cls].filter(Boolean).join(' ');
+  const width = dimensionAttr($svg, 'width');
+  const height = dimensionAttr($svg, 'height');
+  const style = [width ? `width:${width}px` : '', height ? `height:${height}px` : ''].filter(Boolean).join(';');
+  const styleAttr = style ? ` style="${escapeHtml(style)}"` : '';
+  const src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return `<!-- wp:image${attrs} -->\n<figure class="${escapeHtml(figCls)}"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${styleAttr}/></figure>\n<!-- /wp:image -->`;
+}
+
 function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): ChildResult {
   const tag = el.tagName?.toLowerCase() ?? '';
   const $el = $(el);
@@ -119,6 +168,11 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
 
   if (tag === 'img') {
     return { markup: imageBlock($, el, sheet), clean: true };
+  }
+
+  if (tag === 'svg') {
+    const markup = svgImageBlock($, el, sheet);
+    if (markup) return { markup, clean: true };
   }
 
   const text = $el.text().trim();
