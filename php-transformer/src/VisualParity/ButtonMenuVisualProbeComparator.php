@@ -364,7 +364,7 @@ final class ButtonMenuVisualProbeComparator
     private function wrapperChromeStyle(array $probe): array
     {
         $style = $probe['wrapper_chrome']['style'] ?? array();
-        return is_array($style) ? array_filter($style, 'is_string') : array();
+        return is_array($style) ? $this->canonicalComparableStyle(array_filter($style, 'is_string')) : array();
     }
 
     /**
@@ -435,7 +435,16 @@ final class ButtonMenuVisualProbeComparator
             return $values;
         }
 
-        return array_filter($values, static function (string $value, string $property): bool {
+        return $this->borderValues($values);
+    }
+
+    /**
+     * @param array<string, string> $values
+     * @return array<string, string>
+     */
+    private function borderValues(array $values): array
+    {
+        $values = array_filter($values, static function (string $value, string $property): bool {
             $normalized = strtolower(trim($value));
             if ( '' === $normalized ) {
                 return false;
@@ -455,6 +464,129 @@ final class ButtonMenuVisualProbeComparator
 
             return true;
         }, ARRAY_FILTER_USE_BOTH);
+
+        $shorthand = $this->parseBorderShorthand((string) ($values['border'] ?? ''));
+        if ( array() !== $shorthand ) {
+            $values = $shorthand + $values;
+        }
+
+        foreach ( array('width', 'style', 'color') as $part ) {
+            $property = 'border-' . $part;
+            $sideValues = array();
+            foreach ( array('top', 'right', 'bottom', 'left') as $side ) {
+                $sideProperty = 'border-' . $side . '-' . $part;
+                if ( isset($values[$sideProperty]) ) {
+                    $sideValues[] = $values[$sideProperty];
+                }
+            }
+            if ( 4 === count($sideValues) && 1 === count(array_unique($sideValues)) ) {
+                $values[$property] = $sideValues[0];
+            }
+        }
+
+        unset(
+            $values['border'],
+            $values['border-top-color'],
+            $values['border-top-style'],
+            $values['border-top-width'],
+            $values['border-right-color'],
+            $values['border-right-style'],
+            $values['border-right-width'],
+            $values['border-bottom-color'],
+            $values['border-bottom-style'],
+            $values['border-bottom-width'],
+            $values['border-left-color'],
+            $values['border-left-style'],
+            $values['border-left-width']
+        );
+
+        ksort($values);
+
+        return $values;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function parseBorderShorthand(string $value): array
+    {
+        $value = trim($value);
+        if ( '' === $value || preg_match('/^(?:none|0(?:\.0+)?(?:px|rem|em)?)(?:\s+none)?$/i', $value) ) {
+            return array();
+        }
+
+        $parts = $this->splitCssValue($value);
+        $parsed = array();
+        $color = array();
+        foreach ( $parts as $part ) {
+            $normalized = strtolower($part);
+            if ( ! isset($parsed['border-width']) && preg_match('/^(?:thin|medium|thick|\d*\.?\d+(?:px|em|rem|%|vh|vw)?)$/i', $part) ) {
+                $parsed['border-width'] = $part;
+                continue;
+            }
+            if ( ! isset($parsed['border-style']) && in_array($normalized, array('none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset'), true) ) {
+                $parsed['border-style'] = $part;
+                continue;
+            }
+            $color[] = $part;
+        }
+
+        if ( array() !== $color ) {
+            $parsed['border-color'] = implode(' ', $color);
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitCssValue(string $value): array
+    {
+        $parts = array();
+        $buffer = '';
+        $depth = 0;
+        $length = strlen($value);
+        for ( $i = 0; $i < $length; $i++ ) {
+            $char = $value[$i];
+            if ( '(' === $char ) {
+                ++$depth;
+            } elseif ( ')' === $char && $depth > 0 ) {
+                --$depth;
+            }
+            if ( 0 === $depth && ctype_space($char) ) {
+                if ( '' !== trim($buffer) ) {
+                    $parts[] = trim($buffer);
+                    $buffer = '';
+                }
+                continue;
+            }
+            $buffer .= $char;
+        }
+
+        if ( '' !== trim($buffer) ) {
+            $parts[] = trim($buffer);
+        }
+
+        return $parts;
+    }
+
+    /**
+     * @param array<string, string> $style
+     * @return array<string, string>
+     */
+    private function canonicalComparableStyle(array $style): array
+    {
+        $canonical = array();
+        foreach ( self::STYLE_GROUPS as $group => $fields ) {
+            foreach ( $this->styleGroupValues($style, $group, $fields) as $property => $value ) {
+                $canonical[$group . ':' . $property] = $value;
+            }
+        }
+
+        ksort($canonical);
+
+        return $canonical;
     }
 
     /**
