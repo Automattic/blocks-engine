@@ -60,6 +60,11 @@ async function main() {
     return;
   }
 
+  if (process.argv.includes('--preflight')) {
+    await preflight();
+    return;
+  }
+
   const cli = parseCliArgs(process.argv.slice(2));
   const baseUrl = requiredEnv('HOMEBOY_DOM_BOX_BASE_URL').replace(/\/+$/, '');
   const pagePaths = parsePagePaths(requiredEnv('HOMEBOY_DOM_BOX_PAGE_PATHS_JSON'));
@@ -98,6 +103,19 @@ async function main() {
   } finally {
     await browser.close();
   }
+}
+
+async function preflight() {
+  const { chromium } = await loadPlaywright();
+  let browser;
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    throw withPlaywrightSetupHelp(error);
+  } finally {
+    await browser?.close();
+  }
+  process.stdout.write(`${JSON.stringify({ status: 'ok', provider: 'blocks-engine-dom-box-provider' }, null, 2)}\n`);
 }
 
 async function loadPlaywright() {
@@ -209,7 +227,7 @@ function resolveNodeNameAttrs(cli) {
 }
 
 function printHelp() {
-  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
+  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n  --preflight                          Verify Playwright and Chromium are installed, then exit.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
 }
 
 async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {

@@ -85,6 +85,7 @@ if ( empty($fixtures) ) {
 
 if ( $captureDomBoxes && ! $dryRun ) {
     matrix_preflight_homeboy_command($homeboyCommand);
+    matrix_preflight_dom_box_provider_command($domBoxProviderCommand, $root);
 }
 
 $summary = array(
@@ -392,6 +393,7 @@ Examples:
   php scripts/figma-fixture-matrix.php --dry-run --fixture=/tmp/patched-fixtures/home.fig
   php scripts/figma-fixture-matrix.php --dry-run --fixture-dir=/tmp/fixture-corpus
   php scripts/figma-fixture-matrix.php --dry-run --fixture=/tmp/home.fig --include-fixture-dir
+  php scripts/figma-fixture-matrix.php --fixture=/tmp/home.fig --capture-dom-boxes --dom-box-provider-command='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs'
 
 HELP;
 }
@@ -684,6 +686,45 @@ function matrix_preflight_homeboy_command(string $homeboyCommand): void
 
     fwrite(STDERR, "DOM box capture requires a runnable Homeboy command, but '{$homeboyCommand}' was not found on PATH.\nSet --homeboy-command, --homeboy-bin, or HOMEBOY_COMMAND to the active homeboy binary before rerunning.\n");
     exit(1);
+}
+
+function matrix_preflight_dom_box_provider_command(string $domBoxProviderCommand, string $root): void
+{
+    $domBoxProviderCommand = trim($domBoxProviderCommand);
+    if ( '' === $domBoxProviderCommand ) {
+        fwrite(STDERR, "DOM box capture requires a provider command. Set --dom-box-provider-command, --dom-box-command, or HOMEBOY_DOM_BOX_CAPTURE_COMMAND.\n");
+        fwrite(STDERR, "Canonical provider: --dom-box-provider-command='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs'\n");
+        fwrite(STDERR, "Install provider dependencies first: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers\n");
+        exit(1);
+    }
+
+    if ( ! matrix_dom_box_provider_supports_preflight($domBoxProviderCommand) ) {
+        return;
+    }
+
+    $previousDirectory = getcwd();
+    if ( false === $previousDirectory || ! chdir($root) ) {
+        fwrite(STDERR, "Unable to preflight DOM box provider from repository root: {$root}\n");
+        exit(1);
+    }
+
+    exec($domBoxProviderCommand . ' --preflight 2>&1', $output, $exitCode);
+    chdir($previousDirectory);
+
+    if ( 0 === $exitCode ) {
+        return;
+    }
+
+    fwrite(STDERR, "DOM box provider preflight failed before fixture transforms started.\n");
+    fwrite(STDERR, "Provider command: {$domBoxProviderCommand}\n");
+    fwrite(STDERR, implode("\n", $output) . "\n");
+    fwrite(STDERR, "Install provider dependencies first: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers\n");
+    exit(1);
+}
+
+function matrix_dom_box_provider_supports_preflight(string $domBoxProviderCommand): bool
+{
+    return str_contains($domBoxProviderCommand, 'dom-box-provider.mjs') || str_contains($domBoxProviderCommand, 'blocks-engine-dom-box-provider');
 }
 
 function matrix_inspect_command(string $figmaRoot, string $fixturePath, string $resultPath, string $zstdCommand, int $inspectLimit): string
