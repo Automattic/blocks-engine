@@ -467,6 +467,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(2 === ($domBoxQuality['summary']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-dom-box-quality-horizontal-overflow');
     $assert(true === ($domBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-dom-box-quality-css-loaded');
     $assert(true === ($domBoxQuality['summary']['dom_capture_valid'] ?? null), 'fixture-matrix-dom-box-quality-capture-valid');
+    $assert(array_key_exists('dom_css_loaded', $domBoxQuality['pages'][0]['summary'] ?? array()), 'fixture-matrix-dom-box-page-summary-has-css-loaded');
+    $assert(array_key_exists('dom_capture_valid', $domBoxQuality['pages'][0]['summary'] ?? array()), 'fixture-matrix-dom-box-page-summary-has-capture-valid');
     $assert(1 === ($domBoxQuality['summary']['dom_viewport_width_leak_count'] ?? null), 'fixture-matrix-dom-box-quality-viewport-width-leak');
     $assert(1 === ($domBoxQuality['summary']['dom_huge_vertical_spacing_count'] ?? null), 'fixture-matrix-dom-box-quality-huge-vertical-spacing');
     $assert(1 === ($domBoxQuality['summary']['dom_collapsed_box_count'] ?? null), 'fixture-matrix-dom-box-quality-collapsed-box');
@@ -474,6 +476,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(2 === ($domBoxQuality['summary']['dom_missing_node_id_box_count'] ?? null), 'fixture-matrix-dom-box-quality-missing-node-id-boxes');
     $assert(false === ($invalidDomBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-invalid-dom-box-css-not-loaded');
     $assert(false === ($invalidDomBoxQuality['summary']['dom_capture_valid'] ?? null), 'fixture-matrix-invalid-dom-box-capture-invalid');
+    $assert(false === ($invalidDomBoxQuality['pages'][0]['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-invalid-dom-box-page-css-not-loaded');
+    $assert(false === ($invalidDomBoxQuality['pages'][0]['summary']['dom_capture_valid'] ?? null), 'fixture-matrix-invalid-dom-box-page-capture-invalid');
     $assert(1 === ($invalidDomBoxQuality['summary']['dom_capture_invalid_count'] ?? null), 'fixture-matrix-invalid-dom-box-invalid-count');
     $assert(0 === ($invalidDomBoxQuality['summary']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-invalid-dom-box-does-not-score-horizontal-overflow');
     $assert('dom_capture_invalid' === ($invalidDomBoxQuality['pages'][0]['findings'][0]['code'] ?? null), 'fixture-matrix-invalid-dom-box-finding');
