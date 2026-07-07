@@ -163,4 +163,37 @@ describe('preserveDomStrategy', () => {
     expect(cls).toBe('lib-i91a84cc172');
     expect(sheet.toCss()).toBe('.lib-i91a84cc172{max-width:46ch}');
   });
+
+  it('sanitizes out-of-flow and oversized fallback layout declarations without changing route or assets', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 6,
+          headings: ['Pinned panel'],
+          images: [
+            { url: '/hero.jpg', sourceUrl: '/hero.jpg', alt: 'Hero', kind: 'img', width: 1200, height: 800 },
+          ],
+          sectionHtml:
+            '<section id="pinned-panel" class="hero shell" style="position:absolute;top:4800px;left:-9999px;height:6000px;width:100%;color:red;max-width:46ch">' +
+            '<h2>Pinned <span style="position:absolute;top:9999px;min-height:4000px;color:blue;max-width:20ch">panel</span></h2>' +
+            '<img src="/hero.jpg" alt="Hero"></section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    expect(aggregate.sections[0]?.decision).toBe('native');
+    expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+    expect(aggregate.sections[0]?.coverage.missingImages).toEqual([]);
+    expect(aggregate.sections[0]?.expectedAssets).toEqual(['/hero.jpg']);
+    expect(aggregate.sectionMarkup[0]).toContain('className":"hero shell lib-i1e1b353447"');
+    expect(aggregate.sectionMarkup[0]).toContain('<span class="lib-i641b5be562">panel</span>');
+    expect(aggregate.dedup).toEqual({
+      cssRules: [
+        '.lib-i1e1b353447{width:100%;color:red;max-width:46ch}',
+        '.lib-i641b5be562{color:blue;max-width:20ch}',
+      ],
+    });
+    expect(aggregate.dedup?.cssRules.join('\n')).not.toMatch(/position|top:|left:|height:6000px/);
+  });
 });

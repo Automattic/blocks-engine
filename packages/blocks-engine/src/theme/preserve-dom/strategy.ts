@@ -51,7 +51,7 @@ function paragraphBlock(inner: string): string {
 const HEADING = /^h([1-6])$/;
 const INLINE_ALLOWED = new Set(['a', 'strong', 'em', 'b', 'i', 'br', 'span']);
 
-function inlineHtml($: CheerioAPI, el: Element): string {
+function inlineHtml($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): string {
   let out = '';
   for (const node of $(el).contents().get()) {
     if (isText(node)) {
@@ -63,19 +63,19 @@ function inlineHtml($: CheerioAPI, el: Element): string {
         continue;
       }
       const cls = ($(node).attr('class') ?? '').trim();
-      const styleA = ($(node).attr('style') ?? '').trim();
       if (INLINE_ALLOWED.has(tag)) {
-        const inner = inlineHtml($, node);
-        const clsAttr = cls ? ` class="${escapeHtml(cls)}"` : '';
+        const inner = inlineHtml($, node, sheet);
+        const instance = sheet.classFor($(node).attr('style'));
+        const inlineCls = [cls, instance].filter(Boolean).join(' ');
+        const clsAttr = inlineCls ? ` class="${escapeHtml(inlineCls)}"` : '';
         if (tag === 'a') {
           const href = escapeHtml($(node).attr('href') ?? '');
           out += `<a${clsAttr} href="${href}">${inner}</a>`;
         } else {
-          const styleAttr = styleA ? ` style="${escapeHtml(styleA)}"` : '';
-          out += `<${tag}${clsAttr}${styleAttr}>${inner}</${tag}>`;
+          out += `<${tag}${clsAttr}>${inner}</${tag}>`;
         }
       } else {
-        out += inlineHtml($, node);
+        out += inlineHtml($, node, sheet);
       }
     }
   }
@@ -101,7 +101,7 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     const cls = classNameWithInstance($el, sheet);
     const attrs = blockAttrs(level === 2 ? [] : [`"level":${level}`], cls);
     const htmlCls = ['wp-block-heading', cls].filter(Boolean).join(' ');
-    const inner = inlineHtml($, el).trim();
+    const inner = inlineHtml($, el, sheet).trim();
     return {
       markup: `<!-- wp:heading${attrs} -->\n<h${level} class="${escapeHtml(htmlCls)}">${inner}</h${level}>\n<!-- /wp:heading -->`,
       clean: true,
@@ -111,7 +111,7 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
   if (tag === 'p') {
     const cls = classNameWithInstance($el, sheet);
     const attrs = blockAttrs([], cls);
-    const inner = inlineHtml($, el).trim();
+    const inner = inlineHtml($, el, sheet).trim();
     const clsPart = cls ? ` class="${escapeHtml(cls)}"` : '';
     const open = `<p${clsPart}>`;
     return { markup: `<!-- wp:paragraph${attrs} -->\n${open}${inner}</p>\n<!-- /wp:paragraph -->`, clean: true };
@@ -128,7 +128,7 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     const attrs = blockAttrs([], cls);
     const clsPart = cls ? ` class="${escapeHtml(cls)}"` : '';
     return {
-      markup: `<!-- wp:paragraph${attrs} -->\n<p${clsPart}>${inlineHtml($, el).trim()}</p>\n<!-- /wp:paragraph -->`,
+      markup: `<!-- wp:paragraph${attrs} -->\n<p${clsPart}>${inlineHtml($, el, sheet).trim()}</p>\n<!-- /wp:paragraph -->`,
       clean: true,
     };
   }
