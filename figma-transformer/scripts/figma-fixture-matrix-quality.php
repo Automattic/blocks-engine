@@ -70,7 +70,10 @@ function matrix_quality_matrix(array $fixtures): array
         }
         $coverageNumerator += (int) ($summary['fixed_width_with_responsive_override_count'] ?? 0);
         $coverageDenominator += (int) ($summary['fixed_width_declaration_count'] ?? 0);
-        $selectedRouteCount = count(is_array($fixture['selected_frame_ids'] ?? null) ? $fixture['selected_frame_ids'] : array());
+        $selectedRouteCount = max(
+            count(is_array($fixture['selected_frame_ids'] ?? null) ? $fixture['selected_frame_ids'] : array()),
+            matrix_fixture_emitted_route_count($fixture)
+        );
         $omittedRouteCount = count(is_array($fixture['omitted_page_candidates'] ?? null) ? $fixture['omitted_page_candidates'] : array());
         $routeCoverageNumerator += $selectedRouteCount;
         $routeCoverageDenominator += $selectedRouteCount + $omittedRouteCount;
@@ -127,7 +130,10 @@ function matrix_quality_matrix(array $fixtures): array
 function matrix_fixture_visual_readiness(array $fixture): array
 {
     $summary = is_array($fixture['quality_summary'] ?? null) ? $fixture['quality_summary'] : array();
-    $selectedRouteCount = count(is_array($fixture['selected_frame_ids'] ?? null) ? $fixture['selected_frame_ids'] : array());
+    $selectedRouteCount = max(
+        count(is_array($fixture['selected_frame_ids'] ?? null) ? $fixture['selected_frame_ids'] : array()),
+        matrix_fixture_emitted_route_count($fixture)
+    );
     $omittedRouteCount = count(is_array($fixture['omitted_page_candidates'] ?? null) ? $fixture['omitted_page_candidates'] : array());
     $routeCoverageRatio = ($selectedRouteCount + $omittedRouteCount) > 0 ? round($selectedRouteCount / ($selectedRouteCount + $omittedRouteCount), 3) : 1.0;
 
@@ -194,6 +200,37 @@ function matrix_fixture_visual_readiness(array $fixture): array
         'route_coverage_ratio' => $routeCoverageRatio,
         'risk_categories' => $categories,
     );
+}
+
+/**
+ * @param array<string, mixed> $fixture
+ */
+function matrix_fixture_emitted_route_count(array $fixture): int
+{
+    $paths = array();
+
+    foreach ( is_array($fixture['dom_box_capture']['entrypoints'] ?? null) ? $fixture['dom_box_capture']['entrypoints'] : array() as $entrypoint ) {
+        if ( is_scalar($entrypoint) && '' !== (string) $entrypoint ) {
+            $paths[(string) $entrypoint] = true;
+        }
+    }
+
+    $selection = is_array($fixture['transform_selection'] ?? null) ? $fixture['transform_selection'] : array();
+    foreach ( is_array($selection['selected_frames'] ?? null) ? $selection['selected_frames'] : array() as $frame ) {
+        if ( ! is_array($frame) ) {
+            continue;
+        }
+        if ( isset($frame['path']) && is_scalar($frame['path']) && '' !== (string) $frame['path'] ) {
+            $paths[(string) $frame['path']] = true;
+        }
+        foreach ( is_array($frame['template_aliases'] ?? null) ? $frame['template_aliases'] : array() as $alias ) {
+            if ( is_scalar($alias) && '' !== (string) $alias ) {
+                $paths[(string) $alias] = true;
+            }
+        }
+    }
+
+    return count($paths);
 }
 
 /**
