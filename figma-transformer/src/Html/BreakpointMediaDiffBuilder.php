@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class BreakpointMediaDiffBuilder
 {
+    private const RESPONSIVE_CONTAINER_TYPES = array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION');
+
     private readonly ResponsiveNodeMatcher $responsiveNodeMatcher;
     private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy;
     private readonly LayoutIntentClassifier $layoutIntentClassifier;
@@ -197,11 +199,10 @@ final class BreakpointMediaDiffBuilder
         $height = $this->cssPixelValue($baseMap['height'] ?? '');
         $display = (string) ($baseMap['display'] ?? '');
         $position = (string) ($baseMap['position'] ?? '');
-        $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION'), true);
         $declarations = array();
         $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
 
-        if ( $isContainer && null !== $width && $width > 767.0 ) {
+        if ( $this->isOversizedDesktopOnlyFallbackContainer($type, $width) ) {
             $declarations[] = 'width:100%';
             $declarations[] = 'max-width:100%';
             if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
@@ -282,6 +283,16 @@ final class BreakpointMediaDiffBuilder
         return $changed;
     }
 
+    private function isOversizedDesktopOnlyFallbackContainer(string $type, ?float $width): bool
+    {
+        return $this->isResponsiveContainerType($type) && null !== $width && $width > 767.0;
+    }
+
+    private function isResponsiveContainerType(string $type): bool
+    {
+        return in_array($type, self::RESPONSIVE_CONTAINER_TYPES, true);
+    }
+
     /**
      * @param array<string, mixed> $node
      */
@@ -292,8 +303,7 @@ final class BreakpointMediaDiffBuilder
                 continue;
             }
 
-            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
-            if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION'), true) ) {
+            if ( $this->isResponsiveContainerType(strtoupper((string) ($child['type'] ?? 'FRAME'))) ) {
                 return true;
             }
         }
