@@ -184,6 +184,7 @@ function matrix_canonical_template_candidate_rank(array $candidate, string $page
 function matrix_omitted_page_candidate_records(array $inspection, array $selectedFrameIds): array
 {
     $selected = array_fill_keys($selectedFrameIds, true);
+    $selectedBucketFrameIds = matrix_selected_bucket_frame_ids($inspection, $selectedFrameIds);
     $omitted = array();
     foreach ( is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array() as $candidate ) {
         if ( ! is_array($candidate) || ! isset($candidate['id']) || ! is_scalar($candidate['id']) ) {
@@ -193,19 +194,52 @@ function matrix_omitted_page_candidate_records(array $inspection, array $selecte
         if ( isset($selected[$id]) || ! matrix_is_page_like_candidate($candidate) ) {
             continue;
         }
-        $omitted[] = array(
+        $bucket = matrix_candidate_bucket($candidate);
+        $selectedBucketFrameId = $selectedBucketFrameIds[$bucket] ?? null;
+        $record = array(
             'id' => $id,
             'name' => (string) ($candidate['name'] ?? ''),
             'page_type' => (string) ($candidate['page_type'] ?? ''),
-            'bucket' => matrix_candidate_bucket($candidate),
+            'bucket' => $bucket,
             'rank' => matrix_candidate_rank($candidate),
-            'reason' => 'max_pages_or_route_selection',
+            'reason' => null !== $selectedBucketFrameId ? 'covered_by_selected_route_bucket' : 'outside_page_cap',
         );
+        if ( null !== $selectedBucketFrameId ) {
+            $record['selected_bucket_frame_id'] = $selectedBucketFrameId;
+        }
+        $omitted[] = $record;
     }
 
     usort($omitted, static fn (array $a, array $b): int => ((int) ($b['rank'] ?? 0)) <=> ((int) ($a['rank'] ?? 0)));
 
     return $omitted;
+}
+
+/**
+ * @param array<string, mixed> $inspection
+ * @param array<int, string>   $selectedFrameIds
+ * @return array<string, string>
+ */
+function matrix_selected_bucket_frame_ids(array $inspection, array $selectedFrameIds): array
+{
+    $selected = array_fill_keys($selectedFrameIds, true);
+    $bucketFrameIds = array();
+    foreach ( is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array() as $candidate ) {
+        if ( ! is_array($candidate) || ! isset($candidate['id']) || ! is_scalar($candidate['id']) ) {
+            continue;
+        }
+        $id = (string) $candidate['id'];
+        if ( ! isset($selected[$id]) || ! matrix_is_page_like_candidate($candidate) ) {
+            continue;
+        }
+
+        $bucket = matrix_candidate_bucket($candidate);
+        if ( ! isset($bucketFrameIds[$bucket]) ) {
+            $bucketFrameIds[$bucket] = $id;
+        }
+    }
+
+    return $bucketFrameIds;
 }
 
 /**
