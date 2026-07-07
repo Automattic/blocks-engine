@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
@@ -5523,20 +5524,7 @@ final class HtmlTransformer
      */
     private function isDataEntryControl(DOMElement $control): bool
     {
-        $tagName = strtolower($control->tagName);
-        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
-            return true;
-        }
-
-        if ( 'input' !== $tagName ) {
-            return false;
-        }
-
-        return ! in_array(
-            $this->formControlType($control),
-            array( 'submit', 'reset', 'button', 'image', 'hidden', 'file' ),
-            true
-        );
+        return FormControlClassifier::isDataEntryControl($control);
     }
 
     private function isReadableFormControl(DOMElement $control): bool
@@ -5800,25 +5788,12 @@ final class HtmlTransformer
 
     private function isFormControlElement(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'button', 'input', 'select', 'textarea' ), true);
+        return FormControlClassifier::isControlElement($element);
     }
 
     private function formControlType(DOMElement $control): string
     {
-        $tagName = strtolower($control->tagName);
-        if ( 'input' === $tagName ) {
-            $type = strtolower(trim($this->attr($control, 'type')));
-            return '' !== $type ? $type : 'text';
-        }
-        if ( 'button' === $tagName ) {
-            $type = strtolower(trim($this->attr($control, 'type')));
-            return '' !== $type ? $type : 'submit';
-        }
-        if ( 'select' === $tagName && $control->hasAttribute('multiple') ) {
-            return 'select-multiple';
-        }
-
-        return $tagName;
+        return FormControlClassifier::controlType($control);
     }
 
     private function formControlLabel(DOMElement $control): string

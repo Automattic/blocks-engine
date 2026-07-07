@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-label-control-island",
+  "description": "Preserves a label shell around a runtime-targeted control instead of flattening it to readable static text.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-label-control-island.json",
+    "notes": "Generic nested control-shell coverage for runtime DOM target handling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime control shell preservation is an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><label class=\"field-shell\">Quantity <input class=\"js-qty\" type=\"number\" name=\"quantity\" value=\"2\"></label></main>",
+    "options": {
+      "runtime_dom_selectors": [".js-qty"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.html.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": ".js-qty" },
+    { "path": "source_reports.html.runtime_islands.0.control.name", "assert": "equals", "value": "quantity" },
+    { "path": "source_reports.html.runtime_islands.0.control.type", "assert": "equals", "value": "number" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<label class=\"field-shell\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<input class=\"js-qty\" type=\"number\" name=\"quantity\" value=\"2\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Quantity: 2" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
