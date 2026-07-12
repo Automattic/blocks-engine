@@ -15,6 +15,21 @@ One flat directory per fixture: `fixtures/websites/<id>/`. The directory basenam
 is the fixture ID. There is no nesting — class is metadata (in `fixture.json`), not
 directory structure.
 
+Fixture lifecycle
+-----------------
+
+The corpus is organized into three stages:
+
+- `fixtures/candidates/` — untracked raw generation output. This directory is
+  `.gitignore`d; candidates are reviewed before entering the tracked corpus.
+- `fixtures/websites/` — the active corpus under evaluation. The Static Site
+  Importer fixture matrix discovers and runs fixtures from this directory.
+- `fixtures/solved/` — permanent regression fixtures. A fixture moves here only
+  after an SSI fixture-matrix run grades it `solved_candidate` and the move is
+  reviewed and performed as `git mv`.
+
+See `../solved/README.md` for the promotion and regression contract.
+
 Each fixture directory contains:
 
 - An `index.html` entry point plus any supporting assets/content files (the source

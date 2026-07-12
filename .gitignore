@@ -4,3 +4,6 @@ dist/
 **/docs/superpowers/
 node_modules/
 figma-transformer/tmp/
+
+# Generated-site candidates (raw generation output; promote to fixtures/websites/ deliberately)
+fixtures/candidates/
