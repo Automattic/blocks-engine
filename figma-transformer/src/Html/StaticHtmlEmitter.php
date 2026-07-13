@@ -6183,6 +6183,10 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( 'LINE' === $type && $rendersInlineVectorSvg ) {
+            return false;
+        }
+
         if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
             return true;
         }
