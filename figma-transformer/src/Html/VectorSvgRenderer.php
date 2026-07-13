@@ -755,7 +755,12 @@ final class VectorSvgRenderer
     {
         $paint = $this->svgPaintAttributes($node);
         if ( 'LINE' === $type ) {
-            if ( ! $this->hasSvgStroke($paint) ) {
+            $paint = $this->lineStrokePaintAttributes($node);
+            if ( empty($paint) && $this->hasExplicitVectorSource($node) ) {
+                return array();
+            }
+            if ( empty($paint) ) {
+                $paint[] = 'fill="none"';
                 $paint[] = 'stroke="currentColor"';
                 $paint[] = 'stroke-width="1"';
             }
@@ -817,10 +822,14 @@ final class VectorSvgRenderer
      */
     private function zeroHeightVectorElements(array $node, string $type, float $width, float $height): array
     {
-        $paint = $this->svgPaintAttributes($node);
+        $paint = 'LINE' === $type ? $this->lineStrokePaintAttributes($node) : $this->svgPaintAttributes($node);
         if ( $this->hasSvgStroke($paint) ) {
             $paint = array_values(array_filter($paint, static fn (string $attribute): bool => ! str_starts_with($attribute, 'fill=')));
             return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
+        }
+
+        if ( 'LINE' === $type && $this->hasExplicitVectorSource($node) ) {
+            return array();
         }
 
         if ( 'LINE' === $type || $this->hasVisibleCssVectorPaint($node, 'strokes') ) {
@@ -1251,6 +1260,49 @@ final class VectorSvgRenderer
         }
 
         return $attributes;
+    }
+
+    /**
+     * LINE primitives are stroke-only. Raw paints remain useful when a caller
+     * supplies a partially normalized node after command-blob decoding fails.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function lineStrokePaintAttributes(array $node): array
+    {
+        $paints = is_array($node['figma_paints']['strokes'] ?? null) ? $node['figma_paints']['strokes'] : array();
+        if ( empty($paints) ) {
+            $paints = is_array($node['strokePaints'] ?? null) ? $node['strokePaints'] : (is_array($node['strokes'] ?? null) ? $node['strokes'] : array());
+        }
+
+        $stroke = $this->firstSolidPaint($this->visiblePaints($paints));
+        if ( null === $stroke ) {
+            return array();
+        }
+
+        $attributes = array(
+            'fill="none"',
+            'stroke="' . $this->sanitizeAttribute($stroke) . '"',
+            'stroke-width="' . $this->number($this->strokeWeight($node)) . '"',
+        );
+        array_push($attributes, ...$this->strokeGeometryAttributes($node));
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<int, mixed> $paints
+     * @return array<int, mixed>
+     */
+    private function visiblePaints(array $paints): array
+    {
+        return array_values(array_filter(
+            $paints,
+            static fn (mixed $paint): bool => is_array($paint)
+                && false !== ($paint['visible'] ?? true)
+                && (! isset($paint['opacity']) || ! is_numeric($paint['opacity']) || (float) $paint['opacity'] > 0.0)
+        ));
     }
 
     /**
