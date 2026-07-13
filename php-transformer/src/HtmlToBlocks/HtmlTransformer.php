@@ -471,9 +471,12 @@ final class HtmlTransformer
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
-        if ( true !== ($options['skip_author_stylesheet_materialization'] ?? false) ) {
-            $this->materializeAuthorStylesheet($html, (string) ($options['static_css'] ?? ''));
-        }
+        $this->materializeAuthorStylesheet(
+            $html,
+            (string) ($options['static_css'] ?? ''),
+            true !== ($options['skip_author_stylesheet_materialization'] ?? false),
+            $serializedBlocks
+        );
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
@@ -554,10 +557,17 @@ final class HtmlTransformer
         );
     }
 
-    private function materializeAuthorStylesheet(string $html, string $staticCss): void
+    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
     {
         $cssParts = array();
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+        $geometryCss = $this->generatedGeometryCss($serializedBlocks);
+        if ( '' !== $geometryCss ) {
+            // Important carrier rules precede author CSS: they retain inline
+            // precedence over normal selectors while authored !important rules
+            // remain able to override them.
+            $cssParts[] = $geometryCss;
+        }
+        if ( $includeAuthorStyles && preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
             foreach ( $matches[1] as $styleBlock ) {
                 $styleBlock = trim(html_entity_decode((string) $styleBlock, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
                 if ( '' !== $styleBlock ) {
@@ -566,9 +576,11 @@ final class HtmlTransformer
             }
         }
 
-        $staticCss = trim($staticCss);
-        if ( '' !== $staticCss ) {
-            $cssParts[] = $staticCss;
+        if ( $includeAuthorStyles ) {
+            $staticCss = trim($staticCss);
+            if ( '' !== $staticCss ) {
+                $cssParts[] = $staticCss;
+            }
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -823,7 +835,7 @@ final class HtmlTransformer
     private function patternContext(bool $includeRuntimeDomTarget = true): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
@@ -859,7 +871,7 @@ final class HtmlTransformer
     private function probePatternContext(): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
                 'blockName'   => $name,
@@ -1065,7 +1077,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
                 fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
                 fn (string $html): string => $this->runtime->stripAllTags($html),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
                 fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -1379,7 +1391,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $spacer ) {

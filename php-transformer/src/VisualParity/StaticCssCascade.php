@@ -62,15 +62,55 @@ final class StaticCssCascade
             }
         }
 
+        $customProperties = $this->customProperties($element);
+        foreach ($style as $property => $value) {
+            if (! str_starts_with($property, '--')) {
+                $style[$property] = $this->resolveVariables($value, $customProperties);
+            }
+        }
         $style = array_intersect_key($style, array_flip($properties));
         ksort($style);
 
         return $style;
     }
 
+    /** @return array<string, string> */
+    private function customProperties(DOMElement $element): array
+    {
+        $nodes = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            array_unshift($nodes, $node);
+        }
+        $properties = array();
+        foreach ($nodes as $node) {
+            foreach ($this->cascadedStyle($node) as $name => $value) {
+                if (str_starts_with($name, '--')) {
+                    $properties[$name] = $value;
+                }
+            }
+        }
+        return $properties;
+    }
+
+    /** Resolve local/inherited variables and one-level fallback chains deterministically. */
+    private function resolveVariables(string $value, array $properties): string
+    {
+        for ($depth = 0; $depth < 12 && str_contains($value, 'var('); ++$depth) {
+            $resolved = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]+))?\)/', static function (array $matches) use ($properties): string {
+                $name = $matches[1];
+                return isset($properties[$name]) ? $properties[$name] : trim((string) ($matches[2] ?? $matches[0]));
+            }, $value);
+            if ($resolved === $value || null === $resolved) {
+                break;
+            }
+            $value = $resolved;
+        }
+        return $value;
+    }
+
     /**
-     * Merge every matching author rule in (specificity, source-order) order, then
-     * apply the inline style attribute on top.
+     * Resolve matching declarations using importance, specificity, source order,
+     * and inline-origin precedence.
      *
      * @return array<string, string>
      */
@@ -83,20 +123,47 @@ final class StaticCssCascade
             }
         }
 
-        usort($matched, static function (array $a, array $b): int {
-            return $a['specificity'] <=> $b['specificity'] ?: $a['order'] <=> $b['order'];
-        });
-
-        $style = array();
+        $resolved = array();
         foreach ( $matched as $rule ) {
-            $style = array_merge($style, $rule['declarations']);
+            $this->applyDeclarations($resolved, $rule['declarations'], $rule['specificity'], $rule['order'], false);
         }
 
         if ( $element->hasAttribute('style') ) {
-            $style = array_merge($style, $this->declarations($element->getAttribute('style')));
+            $this->applyDeclarations($resolved, $this->declarations($element->getAttribute('style')), 10000, PHP_INT_MAX, true);
         }
 
-        return $style;
+        return array_map(static fn (array $entry): string => $entry['value'], $resolved);
+    }
+
+    /**
+     * @param array<string, array{value: string, important: bool, specificity: int, order: int, inline: bool}> $resolved
+     * @param array<string, string> $declarations
+     */
+    private function applyDeclarations(array &$resolved, array $declarations, int $specificity, int $order, bool $inline): void
+    {
+        foreach ($declarations as $name => $rawValue) {
+            $important = 1 === preg_match('/\s*!important\s*$/i', $rawValue);
+            $value = preg_replace('/\s*!important\s*$/i', '', $rawValue) ?? $rawValue;
+            $current = $resolved[$name] ?? null;
+            if (is_array($current)
+                && (int) $current['important'] > (int) $important) {
+                continue;
+            }
+            if (is_array($current)
+                && (bool) $current['important'] === $important
+                && ($current['specificity'] > $specificity
+                    || ($current['specificity'] === $specificity && $current['order'] > $order)
+                    || ($current['specificity'] === $specificity && $current['order'] === $order && $current['inline'] && ! $inline))) {
+                continue;
+            }
+            $resolved[$name] = array(
+                'value' => $value,
+                'important' => $important,
+                'specificity' => $specificity,
+                'order' => $order,
+                'inline' => $inline,
+            );
+        }
     }
 
     /**
@@ -191,7 +258,6 @@ final class StaticCssCascade
             }
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
-            $value = preg_replace('/\s*!important\s*$/i', '', $value) ?? $value;
             if ( '' !== $name && '' !== $value ) {
                 $declarations[$name] = preg_replace('/\s+/', ' ', $value) ?? $value;
             }

@@ -99,11 +99,12 @@ $assert($json1 === $json2, '1: external-candidate report is byte-identical acros
 $proxyCss = '.hero { color: #112233; font-size: 24px; } .cta { background-color: #ff0000; }';
 $proxyReport = $runner->compareSourceToTransform($sourceHtml, $proxyCss);
 $transformResult = (new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())
-    ->transform($sourceHtml, array())->toArray();
+    ->transform($sourceHtml, array( 'static_css' => $proxyCss ))->toArray();
 $proxyCandidateHtml = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks(
     (string) ($transformResult['serialized_blocks'] ?? '')
 );
-$viaExternal = $runner->compareSourceToCandidate($sourceHtml, $proxyCandidateHtml, $proxyCss, $proxyCss);
+$proxyAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $transformResult['assets'] ?? array()));
+$viaExternal = $runner->compareSourceToCandidate($sourceHtml, $proxyCandidateHtml, $proxyCss, $proxyAssetCss);
 $assert(
     json_encode($proxyReport) === json_encode($viaExternal),
     '2: external entry reproduces the render-free proxy when fed the proxy candidate + same CSS'

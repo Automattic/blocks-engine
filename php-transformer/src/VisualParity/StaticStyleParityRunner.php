@@ -46,12 +46,45 @@ final class StaticStyleParityRunner
      */
     public function compareSourceToTransform(string $sourceHtml, string $authorCss = ''): array
     {
-        $result = $this->transformer->transform($sourceHtml, array())->toArray();
+        $result = $this->transformer->transform($sourceHtml, array( 'static_css' => $authorCss ))->toArray();
         $candidateHtml = self::candidateHtmlFromSerializedBlocks((string) ($result['serialized_blocks'] ?? ''));
+        $candidateCss = '';
+        foreach ($result['assets'] ?? array() as $asset) {
+            if (! is_array($asset) || 'css' !== ($asset['kind'] ?? '') || ! is_string($asset['content'] ?? null)) {
+                continue;
+            }
+            $candidateCss .= "\n" . $asset['content'];
+        }
 
         // The render-free proxy carries the SAME author CSS to both sides so the
-        // only variable is the transformed DOM.
-        return $this->compareSourceToCandidate($sourceHtml, $candidateHtml, $authorCss, $authorCss);
+        // only variable is the transformed DOM. Candidate CSS comes from the
+        // generated asset itself, including geometry carriers and author CSS.
+        return $this->compareSourceToCandidate($sourceHtml, $candidateHtml, $authorCss, $candidateCss);
+    }
+
+    /**
+     * Return the fixed v1 signal alongside a separately versioned geometry score.
+     *
+     * @return array{static_v1: array<string, mixed>, geometry_v2: array<string, mixed>}
+     */
+    public function compareSourceToTransformWithGeometry(string $sourceHtml, string $authorCss = ''): array
+    {
+        $result = $this->transformer->transform($sourceHtml, array( 'static_css' => $authorCss ))->toArray();
+        $candidateHtml = self::candidateHtmlFromSerializedBlocks((string) ($result['serialized_blocks'] ?? ''));
+        $candidateCss = '';
+        foreach ($result['assets'] ?? array() as $asset) {
+            if (is_array($asset) && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)) {
+                $candidateCss .= "\n" . $asset['content'];
+            }
+        }
+
+        return array(
+            'static_v1' => $this->compareSourceToCandidate($sourceHtml, $candidateHtml, $authorCss, $candidateCss),
+            'geometry_v2' => (new StaticStyleParityComparator())->compare(
+                (new StaticStyleParityProbe(true))->extract($sourceHtml, $authorCss),
+                (new StaticStyleParityProbe(true))->extract($candidateHtml, $candidateCss)
+            ),
+        );
     }
 
     /**

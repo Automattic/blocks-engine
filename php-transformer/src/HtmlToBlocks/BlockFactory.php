@@ -120,6 +120,7 @@ final class BlockFactory
      */
     private function commentAttrs(string $name, array $attrs): array
     {
+        unset($attrs['inlineGeometryStyle']);
         if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
             unset($attrs['content']);
         }
@@ -346,6 +347,7 @@ final class BlockFactory
         $wrapperAttrs = array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $this->mergeClassNames('wp-block-button', $this->buttonWidthClasses($attrs), (string) ($attrs['className'] ?? '')),
+            'style' => (string) ($attrs['inlineGeometryStyle'] ?? ''),
         );
 
         $controlAttrs = array(
@@ -650,10 +652,11 @@ final class BlockFactory
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, (string) ($attrs['className'] ?? ''));
+        $style = trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';');
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
-            'style' => $support['style'],
+            'style' => $style,
         ));
     }
 
