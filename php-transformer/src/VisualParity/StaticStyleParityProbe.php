@@ -28,6 +28,7 @@ use DOMXPath;
 final class StaticStyleParityProbe
 {
     public const SCHEMA = 'blocks-engine/php-transformer/static-style-parity-probes/v1';
+    public const GEOMETRY_SCHEMA = 'blocks-engine/php-transformer/static-style-parity-probes/geometry-v2';
 
     /**
      * Visually load-bearing, statically resolvable author properties. Sorted and
@@ -54,6 +55,10 @@ final class StaticStyleParityProbe
         'text-transform',
     );
 
+    public const GEOMETRY_PROPERTIES = array(
+        'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'flex-basis',
+    );
+
     /**
      * Properties that inherit through the cascade per CSS rules.
      */
@@ -75,6 +80,13 @@ final class StaticStyleParityProbe
     private const SKIP_TAGS = array(
         'script', 'style', 'head', 'meta', 'link', 'title', 'base', 'noscript', 'template',
     );
+
+    private bool $includeGeometry;
+
+    public function __construct(bool $includeGeometry = false)
+    {
+        $this->includeGeometry = $includeGeometry;
+    }
 
     /**
      * @param string $html     Document (or fragment) HTML to probe.
@@ -127,7 +139,7 @@ final class StaticStyleParityProbe
                     continue;
                 }
 
-                $style = $cascade->resolve($node, self::TRACKED_PROPERTIES, self::INHERITABLE_PROPERTIES);
+                $style = $cascade->resolve($node, $this->trackedProperties(), self::INHERITABLE_PROPERTIES);
                 $hasIdentity = $node->hasAttribute('class') || $node->hasAttribute('id') || $node->hasAttribute('style');
                 if ( array() === $style && ! $hasIdentity ) {
                     continue;
@@ -176,14 +188,14 @@ final class StaticStyleParityProbe
         ksort($byTag);
 
         return array(
-            'schema' => self::SCHEMA,
+            'schema' => $this->schema(),
             'status' => 'success',
             'probes' => $probes,
             'summary' => array(
                 'total' => count($probes),
                 'styled_total' => $styledCount,
                 'by_tag' => $byTag,
-                'tracked_properties' => self::TRACKED_PROPERTIES,
+                'tracked_properties' => $this->trackedProperties(),
             ),
             'diagnostics' => array(),
         );
@@ -195,19 +207,30 @@ final class StaticStyleParityProbe
     private function failed(): array
     {
         return array(
-            'schema' => self::SCHEMA,
+            'schema' => $this->schema(),
             'status' => 'failed',
             'probes' => array(),
             'summary' => array(
                 'total' => 0,
                 'styled_total' => 0,
                 'by_tag' => array(),
-                'tracked_properties' => self::TRACKED_PROPERTIES,
+                'tracked_properties' => $this->trackedProperties(),
             ),
             'diagnostics' => array(
                 array('code' => 'html_parse_failed', 'message' => 'Unable to parse HTML for static style parity probes.'),
             ),
         );
+    }
+
+    /** @return array<int, string> */
+    private function trackedProperties(): array
+    {
+        return $this->includeGeometry ? array_values(array_unique(array_merge(self::TRACKED_PROPERTIES, self::GEOMETRY_PROPERTIES))) : self::TRACKED_PROPERTIES;
+    }
+
+    private function schema(): string
+    {
+        return $this->includeGeometry ? self::GEOMETRY_SCHEMA : self::SCHEMA;
     }
 
     /**

@@ -11,7 +11,7 @@ final class SpacerPattern
      * @param callable(DOMElement): int $childElementCount
      * @param callable(DOMElement, string): string $attr
      * @param callable(DOMElement, string): bool $hasClass
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
@@ -30,7 +30,9 @@ final class SpacerPattern
             return null;
         }
 
-        $attrs = $presentationAttributes($element);
+        // core/spacer serializes height itself. Preserve all remaining geometry
+        // through the generated stylesheet rather than removing the whole carrier.
+        $attrs = $presentationAttributes($element, array( 'height' ));
         $attrs['height'] = $height;
         unset($attrs['style']);
 

@@ -47,7 +47,12 @@ final class ArtifactCompiler
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $assets = array_merge($this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']), $entryBlocks['assets']);
+        $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']);
+        $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
+        $otherGeneratedAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => ! in_array($asset, $geometryAssets, true)));
+        // Runtime loads the manifest in array order. Put carrier CSS before
+        // authored assets so authored !important declarations preserve cascade.
+        $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {

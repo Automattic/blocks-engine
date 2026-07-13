@@ -46,11 +46,41 @@ trait StyleResolutionTrait
      */
     private array $mergedPresentationStyleCache = array();
 
+    /**
+     * Inline sizing declarations which core block supports cannot serialize are
+     * carried by deterministic classes in a generated stylesheet.
+     *
+     * @var array<string, string>
+     */
+    private array $generatedGeometryRules = array();
+
+    private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
+
+    /**
+     * @return list<string>
+     */
+    private function inlineGeometryProperties(): array
+    {
+        return array(
+            'width',
+            'height',
+            'min-width',
+            'min-height',
+            'max-width',
+            'max-height',
+            'aspect-ratio',
+            'box-sizing',
+            'flex-basis',
+        );
+    }
+
     private function resetPresentationResolutionCache(): void
     {
         $this->presentationAttributesCache = array();
         $this->presentationDeclarationsCache = array();
         $this->mergedPresentationStyleCache = array();
+        $this->generatedGeometryRules = array();
+        $this->geometryCarrierClassAllocator = null;
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -76,9 +106,9 @@ trait StyleResolutionTrait
      *
      * @return array<string, mixed>
      */
-    private function presentationAttributes(DOMElement $element): array
+    private function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        $cacheKey = $this->presentationCacheKey($element);
+        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $excludedGeometryProperties);
         if ( isset($this->presentationAttributesCache[$cacheKey]) ) {
             return $this->presentationAttributesCache[$cacheKey];
         }
@@ -88,7 +118,11 @@ trait StyleResolutionTrait
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'className' => $this->mergePresentationClassNames(
+                $this->promotedClassName($this->attr($element, 'class')),
+                $this->inlineGeometryClassName($element, $excludedGeometryProperties)
+            ),
+            'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties),
             'style'     => $mapped['style'],
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
@@ -96,6 +130,117 @@ trait StyleResolutionTrait
         $this->presentationAttributesCache[$cacheKey] = $attrs;
 
         return $attrs;
+    }
+
+    /**
+     * Core supports cannot serialize arbitrary box dimensions. Keep only source
+     * inline geometry in a generated stylesheet; class-owned declarations are
+     * already retained by author stylesheet materialization.
+     */
+    private function inlineGeometryClassName(DOMElement $element, array $excludedProperties = array()): string
+    {
+        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $geometry = array();
+        foreach ($this->inlineGeometryProperties() as $property) {
+            if (in_array($property, $excludedProperties, true)) {
+                continue;
+            }
+            $rawValue = trim((string) ($declarations[$property] ?? ''));
+            if (1 === preg_match('/\s*!important\s*$/i', $rawValue)) {
+                continue;
+            }
+            $value = $rawValue;
+            if ('' !== $value && ! preg_match('/[{}<>;]/', $value)) {
+                $geometry[$property] = $value;
+            }
+        }
+
+        if (array() === $geometry) {
+            return '';
+        }
+
+        ksort($geometry);
+        $declarations = array();
+        foreach ($geometry as $property => $value) {
+            // A converted inline declaration must continue to outrank authored
+            // normal selectors, including ID selectors. Authored !important
+            // rules retain their normal cascade priority through specificity.
+            $declarations[] = $property . ':' . $value . ' !important';
+        }
+        $rule = implode(';', $declarations);
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
+        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+
+        return $className;
+    }
+
+    private function geometryStructuralPath(DOMElement $element): string
+    {
+        $segments = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            $index = 1;
+            for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
+                if ($sibling instanceof DOMElement && strtolower($sibling->tagName) === strtolower($node->tagName)) {
+                    ++$index;
+                }
+            }
+            $segments[] = strtolower($node->tagName) . ':' . $index;
+        }
+
+        return implode('/', array_reverse($segments));
+    }
+
+    private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array()): string
+    {
+        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $style = array();
+        $geometryValues = array();
+        foreach ($this->inlineGeometryProperties() as $property) {
+            if (in_array($property, $excludedProperties, true)) {
+                continue;
+            }
+            $value = trim((string) ($declarations[$property] ?? ''));
+            $geometryValues[] = $value;
+            if (1 === preg_match('/\s*!important\s*$/i', $value)) {
+                $style[] = $property . ':' . $value;
+            }
+        }
+
+        if (array_filter($geometryValues, static fn (string $value): bool => str_contains($value, 'var('))) {
+            foreach ($declarations as $property => $value) {
+                if (str_starts_with($property, '--')) {
+                    $style[] = $property . ':' . $value;
+                }
+            }
+        }
+
+        return implode(';', $style);
+    }
+
+    private function mergePresentationClassNames(string ...$classNames): string
+    {
+        $classes = array();
+        foreach ($classNames as $className) {
+            foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+                if ('' !== $class && ! in_array($class, $classes, true)) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
+    }
+
+    private function generatedGeometryCss(string $serializedBlocks): string
+    {
+        $rules = array();
+        foreach ($this->generatedGeometryRules as $className => $rule) {
+            if (preg_match('/(?:^|[^a-zA-Z0-9_-])' . preg_quote($className, '/') . '(?:$|[^a-zA-Z0-9_-])/', $serializedBlocks)) {
+                $rules[] = $rule;
+            }
+        }
+
+        return implode("\n", $rules);
     }
 
     /**

@@ -545,7 +545,10 @@ final class StaticStyleParityComparator
         if ( ! is_array($classes) ) {
             return array();
         }
-        $classes = array_values(array_filter($classes, 'is_string'));
+        // Generated geometry carriers are implementation detail classes, not
+        // source identity. Excluding them keeps correspondence anchored to the
+        // source classes they supplement.
+        $classes = array_values(array_filter($classes, static fn ($class): bool => is_string($class) && ! str_starts_with($class, 'be-inline-geometry-')));
         sort($classes);
         return $classes;
     }

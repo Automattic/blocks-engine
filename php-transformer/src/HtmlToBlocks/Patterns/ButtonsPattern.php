@@ -20,7 +20,7 @@ final class ButtonsPattern
 
     /**
      * @param callable(DOMElement): array<string, mixed>|null $fileBlockFromAnchor
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
@@ -202,7 +202,11 @@ final class ButtonsPattern
      */
     private function buttonPresentationAttributes(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle): array
     {
-        $attrs = $presentationAttributes($element);
+        $resolvedStyle = (string) $resolvedStyle($element);
+        $width = $this->buttonWidth($resolvedStyle);
+        // Native core/button width owns only its canonical percentage values.
+        // Other anchors and width values retain their generated geometry carrier.
+        $attrs = $presentationAttributes($element, null !== $width ? array( 'width' ) : array());
         // Buttons resolve styling from the raw merged CSS string, not the canonical
         // block style object, so the (now object-shaped) presentation `style` is
         // dropped and re-derived via ButtonStyleResolver below.
@@ -211,7 +215,6 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $resolvedStyle = (string) $resolvedStyle($element);
         $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle);
         if ( $isOutline ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
@@ -227,7 +230,6 @@ final class ButtonsPattern
             $attrs = array_merge($attrs, $native);
         }
 
-		$width = $this->buttonWidth($resolvedStyle);
 		if ( null !== $width ) {
 			$attrs['width'] = $width;
 		}

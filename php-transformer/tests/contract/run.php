@@ -1703,6 +1703,41 @@ $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navig
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
 
+$artifactGeometry = $compiler->compile(
+    array(
+        'schema'         => ArtifactCompiler::INPUT_SCHEMA,
+        'generated_html' => '<main><section class="feature" style="width:75%;max-width:72rem;aspect-ratio:16 / 9"><p>Geometry</p></section></main>',
+    )
+)->toArray();
+$artifactGeometryAssets = is_array($artifactGeometry['assets'] ?? null) ? $artifactGeometry['assets'] : array();
+$artifactGeometryCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometryAssets));
+$artifactGeometryMarkup = (string) ($artifactGeometry['serialized_blocks'] ?? '');
+$assert(str_contains($artifactGeometryMarkup, 'be-inline-geometry-'), 'artifact compiler serializes geometry carrier classes into primary block output', $artifactGeometryMarkup);
+$assert(str_contains($artifactGeometryCss, 'width:75%') && str_contains($artifactGeometryCss, 'max-width:72rem') && str_contains($artifactGeometryCss, 'aspect-ratio:16 / 9'), 'artifact compiler exposes carrier CSS in primary assets', $artifactGeometryCss);
+$artifactPlanCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometry['source_reports']['materialization_plan']['assets'] ?? array()));
+$assert(str_contains($artifactPlanCss, 'width:75%') && str_contains($artifactPlanCss, 'max-width:72rem'), 'artifact materialization plan carries the primary geometry asset');
+
+$artifactGeometryCascade = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><main><p id="target" style="width:30rem">Cascade</p></main></body></html>',
+            'site.css' => '#target{width:12rem}.authored-important{width:8rem!important}',
+        ),
+    )
+)->toArray();
+$geometryAssetIndex = null;
+$authorAssetIndex = null;
+foreach (($artifactGeometryCascade['assets'] ?? array()) as $index => $asset) {
+    if (str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')) {
+        $geometryAssetIndex = $index;
+    }
+    if ('site.css' === ($asset['path'] ?? '')) {
+        $authorAssetIndex = $index;
+    }
+}
+$assert(is_int($geometryAssetIndex) && is_int($authorAssetIndex) && $geometryAssetIndex < $authorAssetIndex, 'artifact compiler orders geometry carriers before authored CSS to preserve !important cascade');
+
 $artifactInlineSvg = $compiler->compile(
     array(
         'schema'         => ArtifactCompiler::INPUT_SCHEMA,
