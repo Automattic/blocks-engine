@@ -323,7 +323,8 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         $kiwiImagePaintSchema['schema'] ?? array()
     );
     $kiwiDirectImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['fillPaints'][0] ?? array();
-    $kiwiOverrideImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['fillPaints'][0] ?? array();
+    $kiwiOverrideImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['fills'][0] ?? array();
+    $kiwiOverrideStrokePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['strokes'][0] ?? array();
     $kiwiImagePaintNode = $kiwiImagePaintMessage['message']['nodeChanges'][0] ?? array();
     $kiwiDirectFillStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForFill']['guid'] ?? array();
     $kiwiDirectStrokeStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForStrokeFill']['guid'] ?? array();
@@ -350,10 +351,50 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert('library-asset-node' === ($kiwiImagePaintNode['sourceLibraryKey'] ?? null), 'kiwi-selective-decodes-node-source-library-key');
     $assert(false === ($kiwiOverrideImagePaint['imageShouldColorManage'] ?? null), 'kiwi-selective-decodes-override-image-color-management');
     $assert(9 === ($kiwiOverrideImagePaint['animationFrame'] ?? null), 'kiwi-selective-decodes-override-image-animation-frame');
+    $assert('override-stroke-hash' === ($kiwiOverrideStrokePaint['image']['hash'] ?? null), 'kiwi-selective-decodes-override-stroke-alias');
     $assert(9001 === ($kiwiDirectFillStyle['sessionID'] ?? null) && 101 === ($kiwiDirectFillStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-fill');
     $assert(9001 === ($kiwiDirectStrokeStyle['sessionID'] ?? null) && 102 === ($kiwiDirectStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-stroke-fill');
     $assert(9002 === ($kiwiOverrideFillStyle['sessionID'] ?? null) && 201 === ($kiwiOverrideFillStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-fill');
     $assert(9002 === ($kiwiOverrideStrokeStyle['sessionID'] ?? null) && 202 === ($kiwiOverrideStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-stroke-fill');
+    $kiwiPaintOverrideDiagnostics = array();
+    $kiwiPaintOverrideFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides($kiwiImagePaintNode, 'kiwi:paint-override', $kiwiPaintOverrideDiagnostics);
+    $assert('override-hash' === ($kiwiPaintOverrideFields['9002:200']['fills'][0]['image']['hash'] ?? null), 'kiwi-paint-override-resolver-preserves-fill-alias');
+    $assert('override-stroke-hash' === ($kiwiPaintOverrideFields['9002:200']['strokes'][0]['image']['hash'] ?? null), 'kiwi-paint-override-resolver-preserves-stroke-alias');
+    $assert(9002 === ($kiwiPaintOverrideFields['9002:200']['styleIdForFill']['guid']['sessionID'] ?? null), 'kiwi-paint-override-resolver-preserves-referenced-style-with-local-paint');
+    $kiwiDecodedOverrideScenegraph = array(
+        'name'  => 'Kiwi Decoded Paint Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'kiwi:paint-component',
+                'type'     => 'COMPONENT',
+                'name'     => 'Kiwi paint component',
+                'children' => array(
+                    array(
+                        'id'           => '9002:200',
+                        'type'         => 'FRAME',
+                        'name'         => 'Kiwi paint target',
+                        'width'        => 40,
+                        'height'       => 20,
+                        'fillPaints'   => $kiwiImagePaintNode['fillPaints'],
+                        'strokePaints' => $kiwiImagePaintNode['fillPaints'],
+                    ),
+                ),
+            ),
+            array(
+                'id'         => 'kiwi:paint-instance',
+                'type'       => 'INSTANCE',
+                'name'       => 'Kiwi paint instance',
+                'symbolData' => array('symbolID' => 'kiwi:paint-component', 'symbolOverrides' => $kiwiPaintOverrideFields),
+            ),
+        ),
+    );
+    $kiwiDecodedOverrideNormalized = ( new ScenegraphNormalizer() )->normalize($kiwiDecodedOverrideScenegraph);
+    $kiwiDecodedOverrideNode = $kiwiDecodedOverrideNormalized['nodes'][1]['children'][0] ?? array();
+    $kiwiDecodedOverrideResult = blocks_engine_figma_transformer_transform_scenegraph($kiwiDecodedOverrideScenegraph);
+    $kiwiDecodedOverrideHtml = $fileContent($kiwiDecodedOverrideResult, 'index.html');
+    $assert('override-hash' === ($kiwiDecodedOverrideNode['figma_paints']['fills'][0]['ref'] ?? null), 'kiwi-decoded-fill-alias-normalizes-over-retained-fill-paint');
+    $assert('6f766572726964652d7374726f6b652d68617368' === ($kiwiDecodedOverrideNode['figma_paints']['strokes'][0]['ref'] ?? null), 'kiwi-decoded-stroke-alias-normalizes-over-retained-stroke-paint');
+    $assert(str_contains($kiwiDecodedOverrideHtml, 'data-figma-node-id="9002:200"'), 'kiwi-decoded-paint-overrides-emit-resolved-instance-child');
     $kiwiImageNormalizer = new ScenegraphNormalizer();
     $kiwiImagePaintNode['id'] = 'kiwi:asset-node';
     $kiwiImageNormalized = $kiwiImageNormalizer->normalize(array('name' => 'Kiwi Asset Metadata Fixture', 'nodes' => array($kiwiImagePaintNode)));
@@ -1235,10 +1276,10 @@ function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): stri
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_schema_field('symbolOverrides', 11, true, 1)
-        // def11: MESSAGE NodeChange { type, fillPaints[], symbolData, styleIdForFill, styleIdForStrokeFill, exportSettings, publishID, sourceLibraryKey }
+        // def11: MESSAGE NodeChange { type, fillPaints[], symbolData, styleIdForFill, styleIdForStrokeFill, exportSettings, publishID, sourceLibraryKey, guid, fills[], strokes[] }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_wire_varint(11)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('fillPaints', 8, true, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('symbolData', 10, false, 3)
@@ -1247,6 +1288,9 @@ function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_schema_field('exportSettings', 7, true, 6)
         . blocks_engine_figma_transformer_kiwi_schema_field('publishID', -6, false, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('sourceLibraryKey', -6, false, 8)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 2, false, 9)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fills', 8, true, 10)
+        . blocks_engine_figma_transformer_kiwi_schema_field('strokes', 8, true, 11)
         // def12: MESSAGE Message { type, nodeChanges[] }
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
@@ -1281,13 +1325,18 @@ function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): str
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_string('RECTANGLE')
-        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(10)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_image_paint_bytes('override-hash', false, 30.0, 1.25, 9, 'xyz', 0.25)
+        . blocks_engine_figma_transformer_wire_varint(11)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_image_paint_bytes('override-stroke-hash', false, 30.0, 1.25, 9, 'xyz', 0.25)
         . blocks_engine_figma_transformer_wire_varint(4)
         . blocks_engine_figma_transformer_kiwi_style_id_bytes(9002, 201)
         . blocks_engine_figma_transformer_wire_varint(5)
         . blocks_engine_figma_transformer_kiwi_style_id_bytes(9002, 202)
+        . blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes(9002, 200)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);

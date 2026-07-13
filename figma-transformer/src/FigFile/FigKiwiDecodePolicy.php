@@ -344,7 +344,7 @@ final class FigKiwiDecodePolicy
     {
         // Stroke geometry (#328): weight/align/dash fields feed border emission.
         return array(
-            'fillPaints', 'strokePaints', 'backgroundPaints',
+            'fillPaints', 'fills', 'strokePaints', 'strokes', 'backgroundPaints',
             'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke',
             'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dashPattern',
             'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight',

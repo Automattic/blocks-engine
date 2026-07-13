@@ -79,18 +79,50 @@ final class PaintNormalizer
     private function normalizeLocalPaintCollections(array $node, string $nodeId, array &$diagnostics): array
     {
         $collections = array();
-        foreach ( self::PAINT_COLLECTION_SOURCES as $sourceKey => $targetKey ) {
-            if ( ! is_array($node[$sourceKey] ?? null) ) {
+        $sources = self::PAINT_COLLECTION_SOURCES;
+        foreach ( array('fills', 'strokes') as $collection ) {
+            foreach ( $this->explicitInstancePaintOverrideFields($node, $collection) as $sourceKey ) {
+                if ( isset($sources[$sourceKey]) ) {
+                    // Apply explicit aliases after retained component paint fields.
+                    $sources[$sourceKey] = null;
+                }
+            }
+        }
+
+        foreach ( $sources as $sourceKey => $targetKey ) {
+            if ( null === $targetKey ) {
                 continue;
+            }
+
+            $this->normalizeLocalPaintCollection($collections, $node, $nodeId, $sourceKey, $targetKey, $diagnostics);
+        }
+        foreach ( array('fills', 'strokes') as $collection ) {
+            foreach ( $this->explicitInstancePaintOverrideFields($node, $collection) as $sourceKey ) {
+                $targetKey = self::PAINT_COLLECTION_SOURCES[$sourceKey] ?? null;
+                if ( null !== $targetKey ) {
+                    $this->normalizeLocalPaintCollection($collections, $node, $nodeId, $sourceKey, $targetKey, $diagnostics);
+                }
+            }
+        }
+
+        return $collections;
+    }
+
+    /**
+     * @param array<string, array<int, array<string, mixed>>> $collections
+     * @param array<string, mixed>                            $node
+     * @param array<int, array<string, mixed>>                $diagnostics
+     */
+    private function normalizeLocalPaintCollection(array &$collections, array $node, string $nodeId, string $sourceKey, string $targetKey, array &$diagnostics): void
+    {
+            if ( ! is_array($node[$sourceKey] ?? null) ) {
+                return;
             }
 
             $paints = $this->normalizePaintList($node[$sourceKey], $nodeId, $sourceKey, $diagnostics);
             if ( ! empty($paints) ) {
                 $collections[$targetKey] = $paints;
             }
-        }
-
-        return $collections;
     }
 
     /**
@@ -151,17 +183,47 @@ final class PaintNormalizer
 
     /**
      * @param array<string, mixed> $node
-     * @return array{winner: string, local_vector_source: bool, reason: string}
+     * @return array{winner: string, local_vector_source: bool, local_provenance: string, local_source_fields: array<int, string>, reason: string}
      */
     private function resolveLocalStylePaintPrecedence(array $node, string $collection, bool $hasLocalPaints): array
     {
+        $instanceOverrideFields = $this->explicitInstancePaintOverrideFields($node, $collection);
+        $hasExplicitInstanceOverride = $hasLocalPaints && ! empty($instanceOverrideFields);
         $hasLocalVectorSource = $hasLocalPaints && $this->hasLocalVectorPaintSource($node, $collection);
+
+        if ( $hasExplicitInstanceOverride ) {
+            return array(
+                'winner'              => 'local',
+                'local_vector_source' => $hasLocalVectorSource,
+                'local_provenance'    => 'instance_override',
+                'local_source_fields' => $instanceOverrideFields,
+                'reason'              => 'explicit_instance_paint_override',
+            );
+        }
 
         return array(
             'winner'              => $hasLocalVectorSource ? 'local' : 'style',
             'local_vector_source' => $hasLocalVectorSource,
-            'reason'              => $hasLocalVectorSource ? 'local_vector_geometry' : 'style_reference',
+            'local_provenance'    => $hasLocalVectorSource ? 'vector_geometry' : 'unproven_node_field',
+            'local_source_fields' => array(),
+            'reason'              => $hasLocalVectorSource ? 'local_vector_geometry' : 'referenced_style_without_explicit_local_override',
         );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function explicitInstancePaintOverrideFields(array $node, string $collection): array
+    {
+        $fields = $node['_figma_instance_paint_override_fields'][$collection] ?? null;
+        if ( ! is_array($fields) ) {
+            return array();
+        }
+
+        $fields = array_values(array_filter($fields, static fn (mixed $field): bool => is_string($field) && '' !== $field));
+        sort($fields, SORT_STRING);
+        return array_values(array_unique($fields));
     }
 
     /**
@@ -323,7 +385,7 @@ final class PaintNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @param array<int, array<string, mixed>> $localPaints
      * @param array<int, array<string, mixed>> $stylePaints
-     * @param array{winner: string, local_vector_source: bool, reason: string} $precedence
+     * @param array{winner: string, local_vector_source: bool, local_provenance: string, local_source_fields: array<int, string>, reason: string} $precedence
      */
     private function appendLocalStylePaintConflictDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId, array $localPaints, array $stylePaints, array $precedence): void
     {
@@ -350,6 +412,10 @@ final class PaintNormalizer
                 'geometry_backed' => $precedence['local_vector_source'],
                 'precedence'      => $precedence['winner'],
                 'precedence_rule' => $precedence['reason'],
+                'local_paint_provenance' => $precedence['local_provenance'],
+                'local_paint_source_fields' => $precedence['local_source_fields'],
+                'style_paint_provenance' => 'referenced_style',
+                'resolution_reason' => $precedence['reason'],
                 'local_paints'    => $localPaints,
                 'style_paints'    => $stylePaints,
             ),
