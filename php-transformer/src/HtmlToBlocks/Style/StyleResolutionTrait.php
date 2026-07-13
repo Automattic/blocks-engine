@@ -56,17 +56,23 @@ trait StyleResolutionTrait
 
     private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
 
-    private const INLINE_GEOMETRY_PROPERTIES = array(
-        'width',
-        'height',
-        'min-width',
-        'min-height',
-        'max-width',
-        'max-height',
-        'aspect-ratio',
-        'box-sizing',
-        'flex-basis',
-    );
+    /**
+     * @return list<string>
+     */
+    private function inlineGeometryProperties(): array
+    {
+        return array(
+            'width',
+            'height',
+            'min-width',
+            'min-height',
+            'max-width',
+            'max-height',
+            'aspect-ratio',
+            'box-sizing',
+            'flex-basis',
+        );
+    }
 
     private function resetPresentationResolutionCache(): void
     {
@@ -135,7 +141,7 @@ trait StyleResolutionTrait
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
-        foreach (self::INLINE_GEOMETRY_PROPERTIES as $property) {
+        foreach ($this->inlineGeometryProperties() as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
@@ -189,7 +195,7 @@ trait StyleResolutionTrait
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $style = array();
         $geometryValues = array();
-        foreach (self::INLINE_GEOMETRY_PROPERTIES as $property) {
+        foreach ($this->inlineGeometryProperties() as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
