@@ -182,6 +182,88 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $assert(array('index.html') === $singlePageHtmlPaths, 'single-page-artifact-does-not-emit-template-alias-html');
 
+    $reservedAliasArtifactResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Reserved Alias Artifact Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'reserved-alias:home',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:home:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Home', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:single-template',
+                'type'     => 'FRAME',
+                'name'     => 'Blog Post',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:single-template:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Canonical single', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:archive-template',
+                'type'     => 'FRAME',
+                'name'     => 'News',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:archive-template:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Canonical archive', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:404-template',
+                'type'     => 'FRAME',
+                'name'     => '404 Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:404-template:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Canonical not found', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:normal-single',
+                'type'     => 'FRAME',
+                'name'     => 'Services Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:normal-single:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Normal single route', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:normal-archive',
+                'type'     => 'FRAME',
+                'name'     => 'Team Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:normal-archive:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Normal archive route', 'fontSize' => 48)),
+            ),
+            array(
+                'id'       => 'reserved-alias:normal-404',
+                'type'     => 'FRAME',
+                'name'     => 'Pricing Page',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(array('id' => 'reserved-alias:normal-404:title', 'type' => 'TEXT', 'name' => 'Heading', 'text' => 'Normal 404 route', 'fontSize' => 48)),
+            ),
+        ),
+    ), array(
+        'multi_page' => true,
+        'frame_slug_map' => array(
+            'reserved-alias:normal-single' => 'single',
+            'reserved-alias:normal-archive' => 'archive',
+            'reserved-alias:normal-404' => '404',
+        ),
+    ));
+    $reservedAliasFilesByPath = array();
+    foreach ( $reservedAliasArtifactResult['files'] ?? array() as $file ) {
+        if ( is_array($file) && isset($file['path']) && is_scalar($file['path']) ) {
+            $reservedAliasFilesByPath[(string) $file['path']][] = $file;
+        }
+    }
+    foreach ( array('single.html', 'archive.html', '404.html') as $canonicalPath ) {
+        $assert(1 === count($reservedAliasFilesByPath[$canonicalPath] ?? array()), 'reserved-alias-artifact-emits-one-' . $canonicalPath);
+    }
+    $assert('reserved-alias:single-template' === ($reservedAliasFilesByPath['single.html'][0]['source_frame_identity']['primary_frame_id'] ?? null), 'reserved-alias-artifact-single-alias-is-not-overwritten-by-normal-route');
+    $assert('reserved-alias:archive-template' === ($reservedAliasFilesByPath['archive.html'][0]['source_frame_identity']['primary_frame_id'] ?? null), 'reserved-alias-artifact-archive-alias-is-not-overwritten-by-normal-route');
+    $assert('reserved-alias:404-template' === ($reservedAliasFilesByPath['404.html'][0]['source_frame_identity']['primary_frame_id'] ?? null), 'reserved-alias-artifact-404-alias-is-not-overwritten-by-normal-route');
+    $assert(isset($reservedAliasFilesByPath['single-2.html'], $reservedAliasFilesByPath['archive-2.html'], $reservedAliasFilesByPath['404-2.html']), 'reserved-alias-artifact-normal-routes-are-deduplicated');
+
     $qualityAssets = array();
     for ( $i = 1; $i <= 20; $i++ ) {
         $qualityAssets['quality-image-' . $i] = array('mime_type' => 'image/png', 'content' => 'image ' . $i);
@@ -2599,6 +2681,44 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     );
     $assert(in_array('frame:landing-desktop', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-keeps-front-page-device-name');
     $assert(! in_array('frame:desktop-mockup-only', $frontPageUtilityNameFrameIds, true), 'page-plan-utility-route-still-filters-non-front-page-device-name');
+
+    $reservedEntrypointPathSource = array(
+        'nodes' => array(
+            array(
+                'id'       => 'canvas:reserved-entrypoint',
+                'type'     => 'CANVAS',
+                'name'     => 'Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'frame:index',
+                        'type'     => 'FRAME',
+                        'name'     => 'Index',
+                        'width'    => 1440,
+                        'height'   => 1800,
+                        'children' => array(array('id' => 'text:index', 'type' => 'TEXT', 'name' => 'Index', 'characters' => 'Article index')),
+                    ),
+                    array(
+                        'id'       => 'frame:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home Page',
+                        'width'    => 1440,
+                        'height'   => 1800,
+                        'children' => array(array('id' => 'text:home', 'type' => 'TEXT', 'name' => 'Home', 'characters' => 'Home')),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $reservedEntrypointPathPlan = ( new ScenegraphPagePlanner() )->plan($reservedEntrypointPathSource, array(
+        'frame_ids' => array('frame:index', 'frame:home'),
+        'entry_frame_id' => 'frame:home',
+    ));
+    $reservedEntrypointPaths = array_column($reservedEntrypointPathPlan['pages'] ?? array(), 'path', 'frame_id');
+    $reservedEntrypointSlugs = array_column($reservedEntrypointPathPlan['pages'] ?? array(), 'slug', 'frame_id');
+    $assert('index.html' === ($reservedEntrypointPaths['frame:home'] ?? null), 'page-plan-reserves-index-path-for-entrypoint');
+    $assert('index-2.html' === ($reservedEntrypointPaths['frame:index'] ?? null), 'page-plan-deduplicates-index-frame-output-path');
+    $assert('index' === ($reservedEntrypointSlugs['frame:index'] ?? null), 'page-plan-path-deduplication-preserves-route-identity');
+    $assert(count($reservedEntrypointPaths) === count(array_unique($reservedEntrypointPaths)), 'page-plan-output-paths-are-unique');
 
     // (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
     // candidates, not total node count. The `responsive_detection_bounded`

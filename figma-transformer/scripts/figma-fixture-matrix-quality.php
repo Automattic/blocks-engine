@@ -135,6 +135,17 @@ function matrix_fixture_visual_readiness(array $fixture): array
         matrix_fixture_emitted_route_count($fixture)
     );
     $omittedRouteCount = count(is_array($fixture['omitted_page_candidates'] ?? null) ? $fixture['omitted_page_candidates'] : array());
+    $transformRiskOmissionCount = count(array_filter(
+        is_array($fixture['omitted_page_candidates'] ?? null) ? $fixture['omitted_page_candidates'] : array(),
+        static function (mixed $omission): bool {
+            if ( ! is_array($omission) ) {
+                return true;
+            }
+
+            $reason = isset($omission['reason']) && is_scalar($omission['reason']) ? (string) $omission['reason'] : '';
+            return 'outside_page_cap' !== $reason && ! str_starts_with($reason, 'covered_by_selected_');
+        }
+    ));
     $routeCoverageRatio = ($selectedRouteCount + $omittedRouteCount) > 0 ? round($selectedRouteCount / ($selectedRouteCount + $omittedRouteCount), 3) : 1.0;
 
     $categories = array(
@@ -175,7 +186,7 @@ function matrix_fixture_visual_readiness(array $fixture): array
             array('fallback_prone_form_island_count', 'fallback_prone_input_island_count', 'invalid_list_child_count', 'missing_semantic_role_count')
         ),
         'route_coverage' => matrix_risk_category(
-            matrix_quality_summary_int($summary, 'link_targets_unresolved') + $omittedRouteCount,
+            matrix_quality_summary_int($summary, 'link_targets_unresolved') + $transformRiskOmissionCount,
             array('link_targets_unresolved', 'omitted_page_candidates')
         ),
         'unsupported_vectors' => matrix_risk_category(

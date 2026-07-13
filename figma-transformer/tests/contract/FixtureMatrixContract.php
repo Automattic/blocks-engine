@@ -347,6 +347,28 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     ));
+    $cappedRouteOmissions = array();
+    for ( $routeIndex = 4; $routeIndex <= 54; ++$routeIndex ) {
+        $cappedRouteOmissions[] = array(
+            'id' => 'frame:route-' . $routeIndex,
+            'reason' => 'outside_page_cap',
+        );
+    }
+    $cappedSelectionVisualReadiness = matrix_fixture_visual_readiness(array(
+        'id' => 'fifty-four-route-fixture',
+        'selected_frame_ids' => array('frame:route-1', 'frame:route-2', 'frame:route-3'),
+        'omitted_page_candidates' => $cappedRouteOmissions,
+        'quality_summary' => array(),
+    ));
+    $coveredRouteVisualReadiness = matrix_fixture_visual_readiness(array(
+        'id' => 'covered-route-fixture',
+        'selected_frame_ids' => array('frame:home'),
+        'omitted_page_candidates' => array(
+            array('id' => 'frame:home-tablet', 'reason' => 'covered_by_selected_route_bucket'),
+            array('id' => 'frame:home-mobile', 'reason' => 'covered_by_selected_responsive_variant'),
+        ),
+        'quality_summary' => array(),
+    ));
     $domBoxQuality = matrix_analyze_dom_box_report(array(
         'schema' => 'homeboy/static-artifact-dom-boxes/v1',
         'entrypoints' => array(
@@ -569,6 +591,13 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(0.5 === ($matrixVisualReadiness['route_coverage_ratio'] ?? null), 'fixture-matrix-visual-readiness-route-coverage');
     $assert(4 === ($matrixVisualReadiness['risk_categories']['responsive_coverage']['count'] ?? null), 'fixture-matrix-visual-readiness-responsive-risk-count');
     $assert(7 === ($matrixVisualReadiness['risk_categories']['text_wrapping_leaks']['count'] ?? null), 'fixture-matrix-visual-readiness-text-risk-count');
+    $assert(0.056 === ($cappedSelectionVisualReadiness['route_coverage_ratio'] ?? null), 'fixture-matrix-capped-selection-keeps-route-coverage-visible');
+    $assert(0 === ($cappedSelectionVisualReadiness['risk_categories']['route_coverage']['count'] ?? null), 'fixture-matrix-page-cap-omissions-are-not-transform-risk');
+    $assert(100 === ($cappedSelectionVisualReadiness['readiness_score'] ?? null), 'fixture-matrix-page-cap-does-not-reduce-readiness');
+    $assert('low' === ($cappedSelectionVisualReadiness['visual_risk_bucket'] ?? null), 'fixture-matrix-page-cap-does-not-create-critical-risk');
+    $assert(0.333 === ($coveredRouteVisualReadiness['route_coverage_ratio'] ?? null), 'fixture-matrix-covered-route-omissions-remain-in-coverage');
+    $assert(0 === ($coveredRouteVisualReadiness['risk_categories']['route_coverage']['count'] ?? null), 'fixture-matrix-covered-route-omissions-are-not-transform-risk');
+    $assert(100 === ($coveredRouteVisualReadiness['readiness_score'] ?? null), 'fixture-matrix-covered-route-omissions-do-not-reduce-readiness');
     $assert('blocks-engine/figma-transformer/dom-box-quality/v1' === ($domBoxQuality['schema'] ?? null), 'fixture-matrix-dom-box-quality-schema');
     $assert(2 === ($domBoxQuality['summary']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-dom-box-quality-horizontal-overflow');
     $assert(true === ($domBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-dom-box-quality-css-loaded');

@@ -440,6 +440,9 @@ final class ScenegraphPagePlanner
         }
 
         $slugs = array();
+        // Template pages emit these aliases after planning, so ordinary routes
+        // must not claim their final artifact paths.
+        $paths = array_fill_keys(array('index.html', 'single.html', 'archive.html', '404.html'), true);
         $pages = array();
         $consumed = array();
         $pageIdentityEvidence = array();
@@ -462,7 +465,7 @@ final class ScenegraphPagePlanner
             $slugEvidence = $this->dedupeSlugEvidence($this->pageSlug($primaryId, $name, $members, $slugMap), $slugs);
             $slug = $slugEvidence['slug'];
             $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : $primaryId === $entrypointPrimaryId;
-            $path = $entrypoint ? 'index.html' : $slug . '.html';
+            $path = $entrypoint ? 'index.html' : $this->dedupeOutputPath($slug . '.html', $paths);
             $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
             $classification = $classifications[$primaryId] ?? $this->classifyCandidate($primaryId, $candidate, $nodes, $childrenIndex, $parentIndex);
             $identity = $this->sourceFrameIdentityEvidence(
@@ -2307,6 +2310,29 @@ final class ScenegraphPagePlanner
             'base_slug'       => $base,
             'collision_index' => $seen[$base],
         );
+    }
+
+    /**
+     * @param array<string, bool> $seen
+     */
+    private function dedupeOutputPath(string $path, array &$seen): string
+    {
+        if ( ! isset($seen[$path]) ) {
+            $seen[$path] = true;
+            return $path;
+        }
+
+        $extensionOffset = strrpos($path, '.');
+        $base = false === $extensionOffset ? $path : substr($path, 0, $extensionOffset);
+        $extension = false === $extensionOffset ? '' : substr($path, $extensionOffset);
+        $collisionIndex = 2;
+        do {
+            $candidate = $base . '-' . $collisionIndex . $extension;
+            ++$collisionIndex;
+        } while ( isset($seen[$candidate]) );
+
+        $seen[$candidate] = true;
+        return $candidate;
     }
 
     /**
