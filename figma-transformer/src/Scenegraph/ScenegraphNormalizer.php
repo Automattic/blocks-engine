@@ -2667,6 +2667,10 @@ final class ScenegraphNormalizer
 			$hasFieldOverride = false;
             $sourcePaths = $this->instanceChildOverrideSourcePaths($child, $parentSourcePaths);
             $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides, $sourcePaths);
+            $paintOverrideFields = $this->instancePaintOverrideFields($overrideFields);
+            if ( ! empty($paintOverrideFields) ) {
+                $child['_figma_instance_paint_override_fields'] = $paintOverrideFields;
+            }
             $swapComponentId = isset($overrideFields['_figma_instance_swap_component_id']) && is_scalar($overrideFields['_figma_instance_swap_component_id']) ? (string) $overrideFields['_figma_instance_swap_component_id'] : null;
             unset($overrideFields['_figma_instance_swap_component_id']);
             $nestedComponentPropertyOverrides = $this->nestedComponentPropertyOverridesForChild($child, $overrideFields, $components);
@@ -2684,11 +2688,6 @@ final class ScenegraphNormalizer
                     $value = $this->normalizeInstanceOverridePaintField($child, $field, $value);
                 }
                 $child[$field] = $value;
-                if ( in_array($field, array('fills', 'fillPaints'), true) ) {
-                    unset($child['styleIdForFill']);
-                } elseif ( in_array($field, array('strokes', 'strokePaints'), true) ) {
-                    unset($child['styleIdForStrokeFill'], $child['styleIdForStroke']);
-                }
 				if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
 					$child['figma_text']['characters'] = (string) $value;
 				} elseif ( 'textData' === $field && is_array($value) && isset($value['characters']) && is_scalar($value['characters']) && is_array($child['figma_text'] ?? null) ) {
@@ -2708,6 +2707,30 @@ final class ScenegraphNormalizer
         }
 
         return $children;
+    }
+
+    /**
+     * @param array<string, mixed> $overrideFields
+     * @return array<string, array<int, string>>
+     */
+    private function instancePaintOverrideFields(array $overrideFields): array
+    {
+        $collections = array();
+        foreach ( array(
+            'fills'   => array('fillPaints', 'fills'),
+            'strokes' => array('strokePaints', 'strokes'),
+        ) as $collection => $fields ) {
+            foreach ( $fields as $field ) {
+                if ( array_key_exists($field, $overrideFields) ) {
+                    $collections[$collection][] = $field;
+                }
+            }
+            if ( isset($collections[$collection]) ) {
+                sort($collections[$collection], SORT_STRING);
+            }
+        }
+
+        return $collections;
     }
 
     /**

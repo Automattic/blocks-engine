@@ -394,6 +394,95 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
     $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
     $assert('warning' === ($containerPaintWithStyleDiagnostics[0]['severity'] ?? null), 'container-style-fill-conflict-diagnostic-warning');
+    $assert('unproven_node_field' === ($containerPaintWithStyleDiagnostics[0]['context']['local_paint_provenance'] ?? null), 'container-style-fill-conflict-diagnostic-local-provenance');
+    $assert('referenced_style_without_explicit_local_override' === ($containerPaintWithStyleDiagnostics[0]['context']['resolution_reason'] ?? null), 'container-style-fill-conflict-diagnostic-resolution-reason');
+
+    $instancePaintPrecedenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Instance Paint Precedence Fixture',
+        'nodes' => array(
+            array(
+                'guid'       => array('sessionID' => 810, 'localID' => 1),
+                'type'       => 'RECTANGLE',
+                'name'       => 'Accent paint style',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.8, 'b' => 0, 'a' => 1))),
+            ),
+            array(
+                'guid'     => array('sessionID' => 810, 'localID' => 2),
+                'type'     => 'COMPONENT',
+                'name'     => 'Styled panel component',
+                'children' => array(
+                    array(
+                        'guid'           => array('sessionID' => 810, 'localID' => 3),
+                        'type'           => 'FRAME',
+                        'name'           => 'Panel',
+                        'width'          => 80,
+                        'height'         => 40,
+                        'styleIdForFill' => array('guid' => array('sessionID' => 810, 'localID' => 1)),
+                        'styleIdForStrokeFill' => array('guid' => array('sessionID' => 810, 'localID' => 1)),
+                        'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                        'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                        'strokeWeight'   => 2,
+                    ),
+                ),
+            ),
+            array(
+                'id'         => 'instance:inherited-paint',
+                'type'       => 'INSTANCE',
+                'name'       => 'Inherited paint instance',
+                'symbolData' => array('symbolID' => array('sessionID' => 810, 'localID' => 2)),
+            ),
+            array(
+                'id'         => 'instance:explicit-paint',
+                'type'       => 'INSTANCE',
+                'name'       => 'Explicit paint instance',
+                'symbolData' => array(
+                    'symbolID' => array('sessionID' => 810, 'localID' => 2),
+                    'symbolOverrides' => array(
+                        array(
+                            'guidPath'       => array('guids' => array(array('sessionID' => 810, 'localID' => 3))),
+                            'fills'          => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                            'strokes'        => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6, 'a' => 1))),
+                            'styleIdForFill' => array('guid' => array('sessionID' => 810, 'localID' => 1)),
+                            'styleIdForStrokeFill' => array('guid' => array('sessionID' => 810, 'localID' => 1)),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'               => 'detached:local-paint',
+                'type'             => 'FRAME',
+                'name'             => 'Detached local panel',
+                'width'            => 80,
+                'height'           => 40,
+                'detachedSymbolId' => array('sessionID' => 810, 'localID' => 2),
+                'fillPaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6, 'a' => 1))),
+            ),
+        ),
+    ));
+    $instancePaintPrecedenceCss = $fileContent($instancePaintPrecedenceResult, 'style.css');
+    $inheritedPaintRule = blocks_engine_figma_transformer_contract_css_rule($instancePaintPrecedenceCss, '.figma-node-instance-inherited-paint-810-3-panel');
+    $explicitPaintRule = blocks_engine_figma_transformer_contract_css_rule($instancePaintPrecedenceCss, '.figma-node-instance-explicit-paint-810-3-panel');
+    $instancePaintPrecedenceDiagnostics = array_values(array_filter(
+        $instancePaintPrecedenceResult['diagnostics'] ?? array(),
+        static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+            && str_contains((string) ($diagnostic['context']['node_id'] ?? ''), '810:3')
+    ));
+    $explicitPaintDiagnostic = null;
+    foreach ( $instancePaintPrecedenceDiagnostics as $diagnostic ) {
+        if ( 'local' === ($diagnostic['context']['precedence'] ?? null) ) {
+            $explicitPaintDiagnostic = $diagnostic;
+            break;
+        }
+    }
+    $assert(str_contains($inheritedPaintRule, 'background:#ffcc00'), 'instance-inherited-style-paint-wins-over-default-local-paint');
+    $assert(str_contains($explicitPaintRule, 'background:#ffffff'), 'instance-explicit-local-paint-wins-over-referenced-style');
+    $assert(str_contains($explicitPaintRule, 'border:2px solid #336699'), 'instance-explicit-stroke-alias-wins-over-retained-stroke-paint');
+    $assert(str_contains($instancePaintPrecedenceCss, '.figma-node-detached-local-paint-detached-local-panel{width:80px;height:40px;background:#336699'), 'detached-node-retains-local-paint');
+    $assert('instance_override' === ($explicitPaintDiagnostic['context']['local_paint_provenance'] ?? null), 'instance-explicit-paint-diagnostic-local-provenance');
+    $assert(array('fills') === ($explicitPaintDiagnostic['context']['local_paint_source_fields'] ?? null), 'instance-explicit-paint-diagnostic-source-fields');
+    $assert('referenced_style' === ($explicitPaintDiagnostic['context']['style_paint_provenance'] ?? null), 'instance-explicit-paint-diagnostic-style-provenance');
+    $assert('explicit_instance_paint_override' === ($explicitPaintDiagnostic['context']['resolution_reason'] ?? null), 'instance-explicit-paint-diagnostic-resolution-reason');
 
     $shapeCommandBlobPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'        => 'Shape Command Blob Paint Style Fixture',
