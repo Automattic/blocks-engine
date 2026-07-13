@@ -37,12 +37,63 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('visual_node_map_summary', 'nodes_with_emitted_metadata'), 2, 'diagnostics-evidence-normal-visual-map-summary-emitted-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('visual_node_map_summary', 'page_path_counts', 'index.html'), 2, 'diagnostics-evidence-normal-visual-map-summary-page-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('visual_node_map_summary', 'emitted_class_samples', 0, 'node_id'), 'diag:normal-page', 'diagnostics-evidence-normal-visual-map-summary-sample-node');
-    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('artifact_quality', 'summary', 'source_loss_coverage', 'schema'), 'blocks-engine/figma-transformer/source-loss-coverage/v1', 'diagnostics-evidence-normal-source-loss-schema');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('artifact_quality', 'summary', 'source_loss_coverage', 'schema'), 'blocks-engine/figma-transformer/source-loss-coverage/v2', 'diagnostics-evidence-normal-source-loss-schema');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('decision_traces', 'schema'), 'blocks-engine/figma-transformer/decision-traces/v1', 'diagnostics-evidence-normal-decision-traces-schema');
-    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('artifact_quality', 'summary', 'source_loss_coverage', 'coverage_ratio'), 1.0, 'diagnostics-evidence-normal-source-loss-clean-ratio');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $normalDiagnostics, array('artifact_quality', 'summary', 'source_loss_coverage', 'node_coverage', 'coverage_ratio'), 1.0, 'diagnostics-evidence-normal-source-loss-clean-node-ratio');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $normalResult, 'decoded_text_not_emitted', 'diagnostics-evidence-normal-no-missing-text-signal');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $normalResult, 'clipped_visual_area', 'diagnostics-evidence-normal-no-clipped-area-signal');
     blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $normalResult, 'source_loss_coverage_gap', 'diagnostics-evidence-normal-no-source-loss-signal');
+
+    $sourceEvidenceQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
+        array('node_refs' => 1, 'asset_nodes' => array(array('emitted' => true))),
+        array('nodes' => 1, 'rendered_paths' => 1),
+        array(),
+        array(),
+        array(),
+        array(),
+        array(),
+        array('decoded_text_node_count' => 2, 'emitted_text_node_count' => 2),
+        array('override_candidate_node_count' => 2, 'override_applied_node_count' => 1),
+        array(),
+        array(),
+        array(),
+        array('absolute_to_flow_conversion_count' => 1),
+        array(),
+        array(
+            array('code' => 'figma_local_style_paint_conflict'),
+            array('code' => 'figma_missing_text_style_reference'),
+            array('code' => 'figma_instance_override_unsupported'),
+        ),
+        array('skipped_field_inventory' => array(
+            'schema' => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1',
+            'summary' => array(
+                'occurrences' => 9,
+                'by_role' => array(
+                    'geometry_layout' => 2,
+                    'document_metadata' => 3,
+                    'text_style' => 1,
+                    'fills_images' => 1,
+                    'export_metadata' => 1,
+                    'unknown_visual_role' => 1,
+                ),
+            ),
+        ))
+    );
+    $sourceEvidenceCoverage = $sourceEvidenceQuality['summary']['source_loss_coverage'] ?? array();
+    $assert(array('text', 'paint_style', 'geometry_layout', 'component_overrides', 'images', 'vectors', 'components', 'effects', 'masks') === array_keys($sourceEvidenceCoverage['domains'] ?? array()), 'diagnostics-evidence-source-loss-explicit-domain-order');
+    $assert('source_nodes' === ($sourceEvidenceCoverage['node_coverage']['unit'] ?? null), 'diagnostics-evidence-source-loss-node-unit');
+    $assert('field_occurrences' === ($sourceEvidenceCoverage['field_support']['unit'] ?? null), 'diagnostics-evidence-source-loss-field-unit');
+    $assert(1 === ($sourceEvidenceCoverage['node_coverage']['uncovered_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-uncovered-nodes');
+    $assert(0.833 === ($sourceEvidenceCoverage['node_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-source-loss-node-ratio');
+    $assert(5 === ($sourceEvidenceCoverage['field_support']['unsupported_visual_field_occurrences'] ?? null), 'diagnostics-evidence-source-loss-unsupported-fields');
+    $assert(0.5 === ($sourceEvidenceCoverage['domains']['component_overrides']['node_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-source-loss-component-override-node-ratio');
+    $assert(1 === ($sourceEvidenceCoverage['domains']['text']['evidence']['informational_style_diagnostic_count'] ?? null), 'diagnostics-evidence-source-loss-missing-text-style-informational');
+    $assert(4 === ($sourceEvidenceCoverage['skipped_field_evidence']['visually_meaningful_unsupported_occurrences'] ?? null), 'diagnostics-evidence-source-loss-visual-skipped-count');
+    $assert(4 === ($sourceEvidenceCoverage['skipped_field_evidence']['excluded_metadata_occurrences'] ?? null), 'diagnostics-evidence-source-loss-metadata-skipped-count');
+    $assert(1 === ($sourceEvidenceCoverage['skipped_field_evidence']['unclassified_occurrences'] ?? null), 'diagnostics-evidence-source-loss-unclassified-skipped-count');
+    $assert(1 === ($sourceEvidenceCoverage['skipped_field_evidence']['unclassified_by_role']['unknown_visual_role'] ?? null), 'diagnostics-evidence-source-loss-unclassified-skipped-role');
+    $assert(false === ($sourceEvidenceCoverage['full_coverage'] ?? null), 'diagnostics-evidence-source-loss-unsupported-not-full');
+    $assert(0 === ($sourceEvidenceCoverage['domains']['geometry_layout']['node_coverage']['uncovered_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-absolute-to-flow-not-loss');
 
     $positioningTraceResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Positioning Trace Fixture',
@@ -900,11 +951,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('index.html' === ($multiPageDiagnostics['layout']['positional_parity']['decision_trace_samples'][0]['page_path'] ?? null), 'diagnostics-evidence-multi-page-positional-sample-context');
     $sourceLossCoverage = $multiPageDiagnostics['artifact_quality']['summary']['source_loss_coverage'] ?? array();
     $sourceLossSignal = blocks_engine_figma_transformer_contract_artifact_quality_signal($multiPageResult, 'source_loss_coverage_gap');
-    $assert(2 === ($sourceLossCoverage['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');
+    $assert(2 === ($sourceLossCoverage['node_coverage']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');
     $assert(0 === ($sourceLossCoverage['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-image-domain-count');
     $assert(2 === ($sourceLossCoverage['domains']['vectors']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-vector-domain-count');
-    $assert(0.5 === ($sourceLossCoverage['coverage_ratio'] ?? null), 'diagnostics-evidence-multi-page-source-loss-ratio');
-    $assert(2 === ($sourceLossSignal['count'] ?? null), 'diagnostics-evidence-multi-page-source-loss-signal-count');
+    $assert(0.5 === ($sourceLossCoverage['node_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-multi-page-source-loss-ratio');
+    $assert(2 === ($sourceLossSignal['uncovered_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-signal-count');
     $assert('fail' === ($multiPageDiagnostics['artifact_quality']['quality_status'] ?? null), 'diagnostics-evidence-multi-page-source-loss-quality-fail');
     blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $multiPageResult, 'missing_render_assets', 'diagnostics-evidence-multi-page-source-loss-missing-assets-signal');
     blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $multiPageResult, 'vector_placeholders', 'diagnostics-evidence-multi-page-source-loss-vector-signal');

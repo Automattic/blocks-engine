@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
+use Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer;
 
 /**
  * @param callable(bool, string): void $assert
@@ -105,6 +106,14 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert(is_array($written), 'kiwi-skipped-inventory-output-file-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($written['schema'] ?? null), 'kiwi-skipped-inventory-output-file-schema');
     $assert(11 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
+
+    $fixture = blocks_engine_figma_transformer_kiwi_inventory_fixture();
+    $fileResult = (new FigmaTransformer())->transformFile($fixture)->toArray();
+    @unlink($fixture);
+    $coverage = $fileResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['summary']['source_loss_coverage'] ?? array();
+    $assert(6 === ($coverage['field_support']['unsupported_visual_field_occurrences'] ?? null), 'kiwi-skipped-inventory-transform-file-visual-fields-reach-diagnostics');
+    $assert(false === ($coverage['full_coverage'] ?? null), 'kiwi-skipped-inventory-transform-file-unsupported-fields-prevent-full-coverage');
+    $assert(2 === ($coverage['skipped_field_evidence']['unclassified_occurrences'] ?? null), 'kiwi-skipped-inventory-transform-file-unclassified-fields-visible');
 }
 
 function blocks_engine_figma_transformer_kiwi_inventory_fixture(): string

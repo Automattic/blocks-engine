@@ -481,7 +481,18 @@ final class StaticHtmlEmitter
         }
 
         $visualNodeMap = $this->visualNodeMap($nodes);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $body);
+        $transformDiagnostics = $this->transformDiagnostics(
+            $nodes,
+            $visualNodeMap,
+            $assetFiles,
+            $fontFamilies,
+            $fontUsage,
+            $fontResolution,
+            $css,
+            array_merge(is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(), $diagnostics),
+            $body,
+            is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array()
+        );
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -762,7 +773,18 @@ final class StaticHtmlEmitter
         }
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlArtifactAssembler()->htmlFilesContent($files));
+        $transformDiagnostics = $this->transformDiagnostics(
+            $renderedNodes,
+            $visualNodeMap,
+            $assetFiles,
+            $fontFamilies,
+            $fontUsage,
+            $fontResolution,
+            $css,
+            array_merge(is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(), $diagnostics),
+            $this->htmlArtifactAssembler()->htmlFilesContent($files),
+            is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array()
+        );
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -3850,9 +3872,10 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $fontUsage
      * @param array<string, mixed> $fontResolution
      * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<string, mixed> $sourceLossEvidence
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = ''): array
+    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = '', array $sourceLossEvidence = array()): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -4064,7 +4087,7 @@ final class StaticHtmlEmitter
             'links' => $links,
             'css' => $cssDiagnostics,
             'html_artifact' => $htmlArtifactDiagnostics,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics, $responsiveDecisionTraces),
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics, $responsiveDecisionTraces, $diagnostics, $sourceLossEvidence),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
