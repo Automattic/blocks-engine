@@ -24,9 +24,11 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $css
      * @param array<string, mixed> $htmlArtifact
      * @param array<string, mixed> $decisionTraces
+     * @param array<int, array<string, mixed>> $sourceDiagnostics
+     * @param array<string, mixed> $sourceLossEvidence
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array(), array $decisionTraces = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array(), array $decisionTraces = array(), array $sourceDiagnostics = array(), array $sourceLossEvidence = array()): array
     {
         $signals = array();
 
@@ -314,13 +316,16 @@ final class TransformDiagnosticsBuilder
             ) + $absoluteToFlowEvidence['summary'];
         }
 
-        $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping);
-        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+        $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping, $htmlArtifact, $sourceDiagnostics, $sourceLossEvidence);
+        $uncoveredNodes = (int) ($sourceLossCoverage['node_coverage']['uncovered_source_nodes'] ?? 0);
+        $unsupportedFields = (int) ($sourceLossCoverage['field_support']['unsupported_visual_field_occurrences'] ?? 0);
+        if ( $uncoveredNodes > 0 || $unsupportedFields > 0 ) {
             $signals[] = array(
                 'severity' => 'warning',
                 'code' => 'source_loss_coverage_gap',
-                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
-                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'uncovered_source_nodes' => $uncoveredNodes,
+                'unsupported_visual_field_occurrences' => $unsupportedFields,
+                'node_coverage_ratio' => (float) ($sourceLossCoverage['node_coverage']['coverage_ratio'] ?? 1.0),
                 'domains' => $sourceLossCoverage['domains'],
             );
         }
@@ -509,19 +514,69 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $components
      * @param array<string, mixed> $effects
      * @param array<string, mixed> $maskEffectClipping
+     * @param array<string, mixed> $htmlArtifact
+     * @param array<int, array<string, mixed>> $sourceDiagnostics
+     * @param array<string, mixed> $sourceLossEvidence
      * @return array<string, mixed>
      */
-    private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping): array
+    private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping, array $htmlArtifact, array $sourceDiagnostics, array $sourceLossEvidence): array
     {
         $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
+        $diagnosticCounts = array_count_values(array_values(array_filter(array_map(
+            static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+            $sourceDiagnostics
+        ))));
+        $skippedFields = $sourceLossCoverageBuilder->skippedFieldEvidence(
+            is_array($sourceLossEvidence['skipped_field_inventory'] ?? null) ? $sourceLossEvidence['skipped_field_inventory'] : array()
+        );
+        $skippedByDomain = $skippedFields['domains'];
+        $paintStyleDiagnosticCounts = (int) ($diagnosticCounts['figma_local_style_paint_conflict'] ?? 0)
+            + (int) ($diagnosticCounts['figma_missing_paint_style_reference'] ?? 0)
+            + (int) ($diagnosticCounts['figma_missing_effect_style_reference'] ?? 0);
+        $textStyleDiagnosticCount = (int) ($diagnosticCounts['figma_missing_text_style_reference'] ?? 0);
+        $overrideCandidates = (int) ($components['override_candidate_node_count'] ?? 0);
+        $overridesApplied = (int) ($components['override_applied_node_count'] ?? 0);
+        $unsupportedOverrides = (int) ($diagnosticCounts['figma_instance_override_unsupported'] ?? 0);
         $domains = array(
-            'images' => $sourceLossCoverageBuilder->imageDomain($image),
-            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
             'text' => $sourceLossCoverageBuilder->domain(
                 (int) ($text['decoded_text_node_count'] ?? 0),
                 (int) ($text['emitted_text_node_count'] ?? 0),
                 (int) ($text['missing_emitted_text_node_count'] ?? 0),
-                (int) ($text['intentionally_suppressed_text_node_count'] ?? 0)
+                (int) ($text['intentionally_suppressed_text_node_count'] ?? 0),
+                (int) ($skippedByDomain['text'] ?? 0),
+                array('informational_style_diagnostic_count' => $textStyleDiagnosticCount)
+            ),
+            'paint_style' => $sourceLossCoverageBuilder->domain(
+                0,
+                0,
+                0,
+                0,
+                (int) ($skippedByDomain['paint_style'] ?? 0),
+                array('informational_style_diagnostic_count' => $paintStyleDiagnosticCounts)
+            ),
+            'geometry_layout' => $sourceLossCoverageBuilder->domain(
+                0,
+                0,
+                0,
+                0,
+                (int) ($skippedByDomain['geometry_layout'] ?? 0),
+                array('absolute_to_flow_conversion_count' => (int) ($htmlArtifact['absolute_to_flow_conversion_count'] ?? 0))
+            ),
+            'component_overrides' => $sourceLossCoverageBuilder->domain(
+                $overrideCandidates,
+                $overridesApplied,
+                max(0, $overrideCandidates - $overridesApplied),
+                0,
+                $unsupportedOverrides + (int) ($skippedByDomain['component_overrides'] ?? 0),
+                array('unsupported_override_diagnostic_count' => $unsupportedOverrides)
+            ),
+            'images' => $sourceLossCoverageBuilder->imageDomain($image),
+            'vectors' => $sourceLossCoverageBuilder->domain(
+                (int) ($vectors['nodes'] ?? 0),
+                (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
+                (int) ($vectors['placeholders'] ?? 0),
+                0,
+                (int) ($skippedByDomain['vectors'] ?? 0)
             ),
             'components' => $sourceLossCoverageBuilder->domain(
                 (int) ($components['clone_source_node_count'] ?? 0),
@@ -542,7 +597,9 @@ final class TransformDiagnosticsBuilder
             ),
         );
 
-        return $sourceLossCoverageBuilder->aggregate($domains);
+        $coverage = $sourceLossCoverageBuilder->aggregate($domains);
+        $coverage['skipped_field_evidence'] = $skippedFields['summary'];
+        return $coverage;
     }
 
     /**

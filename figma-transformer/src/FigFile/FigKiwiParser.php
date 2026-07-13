@@ -238,6 +238,7 @@ final class FigKiwiParser
                         );
                         $metadata['classification'] = 'kiwi_message';
                         $metadata['kiwi_message'] = $messageResult['message'];
+                        $this->attachSkippedFieldInventory($metadata, $payload, $kiwiSchema, $fieldPolicy, $diagnostics);
                         if ( null !== $nodeGate ) {
                             $metadata['kiwi_node_gate'] = $nodeGate;
                         }
@@ -263,6 +264,8 @@ final class FigKiwiParser
                 if ( null !== $messageResult['message'] ) {
                     $metadata['classification'] = 'kiwi_message';
                     $metadata['kiwi_message'] = $messageResult['message'];
+                    $fieldPolicy = true === ($options['render_text_glyph_paths'] ?? false) ? $this->kiwiDecoder->scenegraphFieldPolicyWithTextGlyphs() : array();
+                    $this->attachSkippedFieldInventory($metadata, $payload, $kiwiSchema, $fieldPolicy, $diagnostics);
                     if ( null !== $nodeGate ) {
                         $metadata['kiwi_node_gate'] = $nodeGate;
                     }
@@ -290,6 +293,24 @@ final class FigKiwiParser
         }
 
         return $metadata;
+    }
+
+    /**
+     * Record the selective decoder's bounded skipped-field evidence alongside
+     * the real Kiwi message so downstream artifact diagnostics can use it.
+     *
+     * @param array<string, mixed> $metadata
+     * @param array<string, mixed> $schema
+     * @param array<string, mixed> $fieldPolicy
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function attachSkippedFieldInventory(array &$metadata, string $payload, array $schema, array $fieldPolicy, array &$diagnostics): void
+    {
+        $inventoryResult = $this->kiwiDecoder->inventorySkippedFieldsSelective($payload, $schema, 'Message', $fieldPolicy);
+        $diagnostics = array_merge($diagnostics, $inventoryResult['diagnostics']);
+        if ( is_array($inventoryResult['inventory'] ?? null) ) {
+            $metadata['kiwi_skipped_field_inventory'] = $inventoryResult['inventory'];
+        }
     }
 
     /**

@@ -163,6 +163,10 @@ final class FigmaTransformer
 
         $scenegraphCandidate = $this->decodedScenegraphCandidate($archive);
         if ( null !== $scenegraphCandidate ) {
+            $sourceLossEvidence = $this->sourceLossEvidenceForChunk($archive, (int) $scenegraphCandidate['report']['chunk_index']);
+            if ( ! empty($sourceLossEvidence) ) {
+                $options['source_loss_evidence'] = $sourceLossEvidence;
+            }
             $options['archive_asset_content_resolver'] = fn (array $asset): ?array => $this->archiveReader->hydrateAssetContent($path, $asset, $options);
             $scenegraph = $this->withArchiveAssets($scenegraphCandidate['payload'], $archive['assets']);
             $scenegraphResult = $this->transformScenegraph($scenegraph, $options)->toArray();
@@ -302,6 +306,20 @@ final class FigmaTransformer
         $selected = $candidates[0];
         $selected['candidate_count'] = count($candidates);
         return $selected;
+    }
+
+    /**
+     * @param array<string, mixed> $archive
+     * @return array<string, mixed>
+     */
+    private function sourceLossEvidenceForChunk(array $archive, int $chunkIndex): array
+    {
+        $chunk = $archive['archive']['canvas']['chunks'][$chunkIndex] ?? null;
+        $inventory = is_array($chunk) && is_array($chunk['payload']['kiwi_skipped_field_inventory'] ?? null)
+            ? $chunk['payload']['kiwi_skipped_field_inventory']
+            : null;
+
+        return null === $inventory ? array() : array('skipped_field_inventory' => $inventory);
     }
 
     /**
@@ -1943,12 +1961,13 @@ final class FigmaTransformer
             );
         }
         $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
-        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+        $uncoveredSourceNodes = (int) ($sourceLossCoverage['node_coverage']['uncovered_source_nodes'] ?? 0);
+        if ( $uncoveredSourceNodes > 0 ) {
             $signals[] = array(
                 'severity' => 'warning',
                 'code' => 'source_loss_coverage_gap',
-                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
-                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'uncovered_source_nodes' => $uncoveredSourceNodes,
+                'node_coverage_ratio' => (float) ($sourceLossCoverage['node_coverage']['coverage_ratio'] ?? 1.0),
                 'domains' => $sourceLossCoverage['domains'],
             );
         }
