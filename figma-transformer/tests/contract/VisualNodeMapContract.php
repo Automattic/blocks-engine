@@ -738,6 +738,95 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapSecond, array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0), 'visual-map-flex-wrap-first-line-second-card');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapThird, array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0), 'visual-map-flex-wrap-second-line-card');
 
+    $visualIndependentWrapGapResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Independent Wrap Gap Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'visual-independent-gap:frame',
+                'type'               => 'FRAME',
+                'name'               => 'Independent wrap gap row',
+                'width'              => 796,
+                'height'             => 800,
+                'layoutMode'         => 'HORIZONTAL',
+                'layoutWrap'         => 'WRAP',
+                'itemSpacing'        => 44,
+                'counterAxisSpacing' => -64,
+                'children'           => array(
+                    array('id' => 'visual-independent-gap:first', 'type' => 'RECTANGLE', 'name' => 'First card', 'width' => 376, 'height' => 240),
+                    array('id' => 'visual-independent-gap:second', 'type' => 'RECTANGLE', 'name' => 'Second card', 'width' => 376, 'height' => 240),
+                    array('id' => 'visual-independent-gap:third', 'type' => 'RECTANGLE', 'name' => 'Third card', 'width' => 376, 'height' => 240),
+                ),
+            ),
+        ),
+    ));
+    $visualIndependentWrapGapCss = blocks_engine_figma_transformer_contract_file_content($visualIndependentWrapGapResult, 'style.css');
+    $visualIndependentWrapGapSecond = blocks_engine_figma_transformer_contract_find_visual_node($visualIndependentWrapGapResult, 'visual-independent-gap:second');
+    $visualIndependentWrapGapThird = blocks_engine_figma_transformer_contract_find_visual_node($visualIndependentWrapGapResult, 'visual-independent-gap:third');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $visualIndependentWrapGapCss, '.figma-node-visual-independent-gap-frame-independent-wrap-gap-row', array('gap:0px 44px'), 'visual-map-independent-wrap-gap-css');
+    $assert(420.0 === ($visualIndependentWrapGapSecond['rect']['x'] ?? null), 'visual-map-independent-wrap-column-gap');
+    $assert(240.0 === ($visualIndependentWrapGapThird['rect']['y'] ?? null), 'visual-map-independent-wrap-row-gap-clamped');
+
+    $visualIndependentColumnWrapGapResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Independent Column Wrap Gap Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'visual-independent-column-gap:frame',
+                'type'               => 'FRAME',
+                'name'               => 'Independent wrap gap column',
+                'width'              => 800,
+                'height'             => 796,
+                'layoutMode'         => 'VERTICAL',
+                'layoutWrap'         => 'WRAP',
+                'itemSpacing'        => 44,
+                'counterAxisSpacing' => -64,
+                'children'           => array(
+                    array('id' => 'visual-independent-column-gap:first', 'type' => 'RECTANGLE', 'name' => 'First card', 'width' => 240, 'height' => 376),
+                    array('id' => 'visual-independent-column-gap:second', 'type' => 'RECTANGLE', 'name' => 'Second card', 'width' => 240, 'height' => 376),
+                    array('id' => 'visual-independent-column-gap:third', 'type' => 'RECTANGLE', 'name' => 'Third card', 'width' => 240, 'height' => 376),
+                ),
+            ),
+        ),
+    ));
+    $visualIndependentColumnWrapGapCss = blocks_engine_figma_transformer_contract_file_content($visualIndependentColumnWrapGapResult, 'style.css');
+    $visualIndependentColumnWrapGapThird = blocks_engine_figma_transformer_contract_find_visual_node($visualIndependentColumnWrapGapResult, 'visual-independent-column-gap:third');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $visualIndependentColumnWrapGapCss, '.figma-node-visual-independent-column-gap-frame-independent-wrap-gap-column', array('gap:44px 0px'), 'visual-map-independent-column-wrap-gap-css');
+    $assert(240.0 === ($visualIndependentColumnWrapGapThird['rect']['x'] ?? null), 'visual-map-independent-column-wrap-column-gap-clamped');
+
+    $componentLocalGeometryMap = (new Automattic\BlocksEngine\FigmaTransformer\Html\VisualNodeMapBuilder())->build(array(
+        array(
+            'id'       => 'visual-component-local:instance',
+            'type'     => 'INSTANCE',
+            'name'     => 'Component instance',
+            'box'      => array('width' => 120, 'height' => 80, 'coordinate_space' => 'local'),
+            'children' => array(
+                array(
+                    'id'                               => 'visual-component-local:instance/child',
+                    'type'                             => 'RECTANGLE',
+                    'name'                             => 'Component local child',
+                    '_component_source_clone_geometry' => true,
+                    'box'                              => array('x' => 12, 'y' => 8, 'width' => 40, 'height' => 24, 'coordinate_space' => 'local'),
+                ),
+            ),
+        ),
+    ));
+    $componentLocalGeometryChild = blocks_engine_figma_transformer_contract_find_visual_node_in_map($componentLocalGeometryMap, 'visual-component-local:instance/child');
+    $assert('local' === ($componentLocalGeometryChild['coordinate_space'] ?? null), 'visual-map-component-local-coordinate-space');
+    $assert('unresolved_component_local' === ($componentLocalGeometryChild['geometry_confidence'] ?? null), 'visual-map-component-local-geometry-confidence');
+
+    foreach ( array('transform', 'absolute_transform', 'override_transform') as $sourceKind ) {
+        $componentTransformGeometryMap = (new Automattic\BlocksEngine\FigmaTransformer\Html\VisualNodeMapBuilder())->build(array(
+            array(
+                'id' => 'visual-component-transform:' . $sourceKind,
+                'type' => 'RECTANGLE',
+                'name' => 'Component transform child',
+                '_component_source_clone_geometry' => true,
+                'box' => array('x' => 12, 'y' => 8, 'width' => 40, 'height' => 24, 'coordinate_space' => 'local', 'component_clone_source_kind' => $sourceKind),
+            ),
+        ));
+        $componentTransformGeometryChild = blocks_engine_figma_transformer_contract_find_visual_node_in_map($componentTransformGeometryMap, 'visual-component-transform:' . $sourceKind);
+        $assert(! isset($componentTransformGeometryChild['geometry_confidence']), 'visual-map-component-' . $sourceKind . '-geometry-remains-comparable');
+    }
+
     $strokeShadowResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Stroke Shadow Fixture',
         'nodes' => array(

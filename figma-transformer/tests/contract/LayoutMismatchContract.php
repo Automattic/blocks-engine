@@ -59,6 +59,61 @@ function blocks_engine_figma_transformer_run_layout_mismatch_contract(callable $
     $assert(1 === ($fontRendering['document_fonts_check_failure_count'] ?? null), 'layout-mismatch-font-rendering-font-check-failure');
     $assert(3200 === ($fontRendering['source_font_usage'][0]['visible_text_area_px'] ?? null), 'layout-mismatch-font-rendering-source-usage-area');
 
+    $componentLocalReport = ( new LayoutMismatchReportBuilder() )->build(
+        array('visual_node_map' => array(
+            array(
+                'id'                  => 'component-local:child',
+                'name'                => 'Component local child',
+                'type'                => 'RECTANGLE',
+                'coordinate_space'    => 'local',
+                'geometry_confidence' => 'unresolved_component_local',
+                'rect'                => array('x' => 12, 'y' => 8, 'width' => 40, 'height' => 24),
+            ),
+        )),
+        array('boxes' => array(
+            array('node_id' => 'component-local:child', 'rect' => array('x' => 500, 'y' => 400, 'width' => 70, 'height' => 24)),
+        )),
+        array('threshold' => 24)
+    );
+    $componentLocalDiagnostics = $componentLocalReport['diagnostics'] ?? array();
+    $componentLocalWarnings = $componentLocalReport['warnings'] ?? array();
+    $assert(array('element_size_mismatch') === array_column($componentLocalDiagnostics, 'code'), 'layout-mismatch-component-local-reports-size-mismatch');
+    $assert(array('source_geometry_confidence') === array_column($componentLocalWarnings, 'code'), 'layout-mismatch-component-local-reports-confidence-warning');
+    $assert('local' === ($componentLocalWarnings[0]['coordinate_space'] ?? null), 'layout-mismatch-component-local-reports-coordinate-space');
+    $assert(1 === ($componentLocalReport['summary']['matched_node_count'] ?? null), 'layout-mismatch-component-local-keeps-size-parity-match');
+    $assert(1 === ($componentLocalReport['summary']['diagnostic_count'] ?? null), 'layout-mismatch-component-local-mismatch-count-excludes-warning');
+    $assert(1 === ($componentLocalReport['summary']['warning_count'] ?? null), 'layout-mismatch-component-local-warning-count');
+
+    $componentLocalCleanReport = ( new LayoutMismatchReportBuilder() )->build(
+        array('visual_node_map' => array(
+            array(
+                'id' => 'component-local:clean',
+                'coordinate_space' => 'local',
+                'geometry_confidence' => 'unresolved_component_local',
+                'rect' => array('x' => 12, 'y' => 8, 'width' => 40, 'height' => 24),
+            ),
+        )),
+        array('boxes' => array(
+            array('node_id' => 'component-local:clean', 'rect' => array('x' => 500, 'y' => 400, 'width' => 40, 'height' => 24)),
+        ))
+    );
+    $assert('pass' === ($componentLocalCleanReport['status'] ?? null), 'layout-mismatch-component-local-warning-does-not-fail-clean-comparison');
+    $assert(0 === ($componentLocalCleanReport['summary']['diagnostic_count'] ?? null), 'layout-mismatch-component-local-clean-mismatch-count');
+    $assert(1 === ($componentLocalCleanReport['summary']['warning_count'] ?? null), 'layout-mismatch-component-local-clean-warning-count');
+
+    $componentTransformReport = ( new LayoutMismatchReportBuilder() )->build(
+        array('visual_node_map' => array(
+            array('id' => 'component-transform:child', 'rect' => array('x' => 12, 'y' => 8, 'width' => 40, 'height' => 24)),
+        )),
+        array('boxes' => array(
+            array('node_id' => 'component-transform:child', 'rect' => array('x' => 500, 'y' => 400, 'width' => 40, 'height' => 24)),
+        )),
+        array('threshold' => 24)
+    );
+    $assert('fail' === ($componentTransformReport['status'] ?? null), 'layout-mismatch-component-transform-remains-comparable');
+    $assert(array('misplaced_element') === array_column($componentTransformReport['diagnostics'] ?? array(), 'code'), 'layout-mismatch-component-transform-reports-position');
+    $assert(0 === ($componentTransformReport['summary']['warning_count'] ?? null), 'layout-mismatch-component-transform-no-confidence-warning');
+
     $fluidSource = array(
         'visual_node_map' => array(
             array('id' => 'fluid:band', 'name' => 'Fluid band', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 0, 'width' => 2095, 'height' => 276)),

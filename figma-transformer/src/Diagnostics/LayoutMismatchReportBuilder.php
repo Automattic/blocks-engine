@@ -30,10 +30,18 @@ final class LayoutMismatchReportBuilder
         }
         $generatedNodes = $this->generatedNodesById($evidence, $comparison['entrypoint_index']);
         $diagnostics = array();
+        $warnings = array();
         $matched = 0;
         $unmatchedSource = 0;
 
+        foreach ( $sourceNodes as $nodeId => $sourceNode ) {
+            if ( ! $this->hasTrustworthySourcePosition($sourceNode) ) {
+                $warnings[] = $this->sourceGeometryConfidenceDiagnostic($sourceNode);
+            }
+        }
+
         foreach ( true === $comparison['comparable'] ? $sourceNodes : array() as $nodeId => $sourceNode ) {
+            $hasTrustworthyPosition = $this->hasTrustworthySourcePosition($sourceNode);
             $generatedNode = $generatedNodes[$nodeId] ?? null;
             if ( null === $generatedNode ) {
                 $unmatchedSource++;
@@ -48,9 +56,9 @@ final class LayoutMismatchReportBuilder
 
             $matched++;
             $delta = $this->delta($sourceBox, $generatedBox);
-            $positionMismatch = abs($delta['x']) > $threshold || abs($delta['y']) > $threshold;
+            $positionMismatch = $hasTrustworthyPosition && (abs($delta['x']) > $threshold || abs($delta['y']) > $threshold);
             $sizeMismatch = abs($delta['width']) > $sizeThreshold || abs($delta['height']) > $sizeThreshold;
-            $outsideParent = $this->outsideGeneratedParent($sourceNode, $generatedNode, $sourceNodes, $generatedNodes, $threshold);
+            $outsideParent = $hasTrustworthyPosition ? $this->outsideGeneratedParent($sourceNode, $generatedNode, $sourceNodes, $generatedNodes, $threshold) : null;
             if ( ! $positionMismatch && ! $sizeMismatch && null === $outsideParent ) {
                 continue;
             }
@@ -98,6 +106,14 @@ final class LayoutMismatchReportBuilder
             }
         }
         ksort($codeCounts);
+        $warningCodeCounts = array();
+        foreach ( $warnings as $warning ) {
+            $code = (string) ($warning['code'] ?? '');
+            if ( '' !== $code ) {
+                $warningCodeCounts[$code] = ($warningCodeCounts[$code] ?? 0) + 1;
+            }
+        }
+        ksort($warningCodeCounts);
 
         return array(
             'schema' => self::SCHEMA,
@@ -115,11 +131,14 @@ final class LayoutMismatchReportBuilder
                 'reported_diagnostic_count' => count($diagnostics),
                 'truncated' => count($diagnostics) < count($totalDiagnostics),
                 'code_counts' => $codeCounts,
+                'warning_count' => count($warnings),
+                'warning_code_counts' => $warningCodeCounts,
                 'clusters' => $this->diagnosticClusters($totalDiagnostics),
                 'suspected_causes' => $this->suspectedCauseSummary($totalDiagnostics),
                 'font_rendering' => $this->fontRenderingSummary($htmlSourceReport, $generatedNodes),
             ),
             'diagnostics' => $diagnostics,
+            'warnings' => $warnings,
         );
     }
 
@@ -737,6 +756,38 @@ final class LayoutMismatchReportBuilder
         }
 
         return $this->boxDistance($visibleBox, $generatedBox) < $this->boxDistance($sourceBox, $generatedBox) ? $visibleBox : $sourceBox;
+    }
+
+    /**
+     * Local component-source geometry has reliable dimensions but no page-space
+     * position until transform provenance is available.
+     *
+     * @param array<string, mixed> $sourceNode
+     */
+    private function hasTrustworthySourcePosition(array $sourceNode): bool
+    {
+        return 'unresolved_component_local' !== ($sourceNode['geometry_confidence'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $sourceNode
+     * @return array<string, mixed>
+     */
+    private function sourceGeometryConfidenceDiagnostic(array $sourceNode): array
+    {
+        return array_filter(array(
+            'severity' => 'warning',
+            'code' => 'source_geometry_confidence',
+            'node' => array(
+                'id' => (string) ($sourceNode['id'] ?? ''),
+                'name' => (string) ($sourceNode['name'] ?? ''),
+                'type' => (string) ($sourceNode['type'] ?? ''),
+                'parent_id' => (string) ($sourceNode['parent_id'] ?? ''),
+            ),
+            'coordinate_space' => isset($sourceNode['coordinate_space']) && is_scalar($sourceNode['coordinate_space']) ? (string) $sourceNode['coordinate_space'] : null,
+            'geometry_confidence' => 'unresolved_component_local',
+            'message' => 'Source dimensions are comparable, but component-local coordinates lack page-space transform provenance.',
+        ), static fn (mixed $value): bool => null !== $value);
     }
 
     /**
