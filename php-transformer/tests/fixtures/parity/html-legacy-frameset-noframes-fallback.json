@@ -1,0 +1,25 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-legacy-frameset-noframes-fallback",
+  "description": "Converts noframes fallback content while removing unsupported self-referential legacy frame navigation.",
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><title>Legacy frame page</title></head><frameset cols=\"180,*\"><frame src=\"#main-content\" name=\"main\"><noframes><body><main id=\"main-content\"><p>Kept fallback</p></main></body></noframes></frameset></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Kept fallback" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "legacy_frameset_navigation", "reason": "unsupported_legacy_frameset_navigation", "diagnostic_code": "html_legacy_frameset_navigation", "tag": "frameset" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_legacy_frameset_navigation" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Kept fallback" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<frame" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<frameset" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "#main-content" }
+  ]
+}

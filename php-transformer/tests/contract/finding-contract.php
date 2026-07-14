@@ -257,6 +257,27 @@ foreach ( $htmlCases as $name => $html ) {
     $totalFindings += $walk($result, "html:{$name}");
 }
 
+$framesetResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><frameset cols="180,*"><frame src="#main-content" name="main"><noframes><body><main id="main-content"><p>Kept fallback</p></main></body></noframes></frameset></html>'
+)->toArray();
+$totalFindings += $walk($framesetResult, 'html:legacy-frameset');
+$assert(
+    'html_legacy_frameset_navigation' === ($framesetResult['fallbacks'][0]['diagnostic_code'] ?? null),
+    'legacy frameset navigation emits a typed diagnostic'
+);
+$assert(
+    str_contains((string) ($framesetResult['serialized_blocks'] ?? ''), 'Kept fallback'),
+    'legacy frameset conversion retains noframes fallback content'
+);
+$assert(
+    ! str_contains((string) ($framesetResult['serialized_blocks'] ?? ''), '<frame'),
+    'legacy frameset conversion excludes frame navigation markup'
+);
+$assert(
+    ! str_contains((string) ($framesetResult['serialized_blocks'] ?? ''), '#main-content'),
+    'legacy frameset conversion excludes frame source values'
+);
+
 // Canvas requires a runtime selector hint to be flagged as a runtime island.
 $canvasResult = ( new HtmlTransformer() )->transform(
     '<main><canvas id="scene">Fallback</canvas><script>document.getElementById("scene").getContext("2d");</script></main>',

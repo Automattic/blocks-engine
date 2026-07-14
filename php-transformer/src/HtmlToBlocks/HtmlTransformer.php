@@ -406,7 +406,8 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
-        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($html));
+        $documentNormalization = ( new DocumentNormalizationPolicy() )->normalize($html);
+        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($documentNormalization['html']));
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -461,7 +462,7 @@ final class HtmlTransformer
             );
         }
 
-        $fallbacks   = array();
+        $fallbacks   = null === $documentNormalization['fallback'] ? array() : array( $documentNormalization['fallback'] );
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
