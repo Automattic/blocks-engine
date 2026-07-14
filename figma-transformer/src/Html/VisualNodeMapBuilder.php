@@ -13,6 +13,8 @@ final class VisualNodeMapBuilder
 
     private readonly VisualGeometryResolver $visualGeometryResolver;
 
+    private readonly SourceGeometryFlexGapResolver $sourceGeometryFlexGapResolver;
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
@@ -23,6 +25,10 @@ final class VisualNodeMapBuilder
     ) {
         $this->layoutIntentClassifier = new LayoutIntentClassifier($assetsById);
         $this->visualGeometryResolver = new VisualGeometryResolver($this->layoutIntentClassifier);
+        $this->sourceGeometryFlexGapResolver = new SourceGeometryFlexGapResolver(
+            $this->layoutIntentClassifier,
+            fn (array $node, array $parentNode): bool => $this->normalFlexFlowChild($node, $parentNode),
+        );
     }
 
     /**
@@ -139,7 +145,7 @@ final class VisualNodeMapBuilder
             $gap = 0.0;
         }
         $isRow = 'row' === ($layout['flex_direction'] ?? null);
-        $isFlex = 'flex' === ($layout['display'] ?? null);
+        $isFlex = in_array($layout['display'] ?? null, array('flex', 'inline-flex'), true);
         $contentWidth = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width'] - $paddingLeft - $paddingRight) : null;
         $contentHeight = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height'] - $paddingTop - $paddingBottom) : null;
         $mainAxis = $isRow ? 'width' : 'height';
@@ -163,6 +169,7 @@ final class VisualNodeMapBuilder
             ? max(0.0, (float) $layout['counter_axis_spacing'])
             : $gap;
         $flowPositions = $this->visualFlexChildPositions($flowChildren, $layout, $isFlex, $isRow, $mainAxis, $crossAxis, $contentMainSize, $contentCrossSize, $gap, $counterAxisGap);
+        $reservedSourceGap = 0.0;
 
         foreach ( $children as $child ) {
             if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -176,6 +183,11 @@ final class VisualNodeMapBuilder
 
             $nodeId = (string) ($child['id'] ?? '');
             $position = '' !== $nodeId && isset($flowPositions[$nodeId]) ? $flowPositions[$nodeId] : array('main' => 0.0, 'cross' => 0.0);
+            $sourceGap = $this->sourceGeometryFlexGapResolver->resolve($child, $node);
+            if ( null !== $sourceGap ) {
+                $reservedSourceGap += $sourceGap['value'];
+            }
+            $position['main'] += $reservedSourceGap;
             if ( $isRow ) {
                 $this->appendVisualNodeMap($child, $map, $childX + $position['main'], $childY + $position['cross'], $node, $childClipRect, $nodeTransform ?? $parentTransform);
             } else {
@@ -297,7 +309,7 @@ final class VisualNodeMapBuilder
 
     private function visualFlexCrossAxisOffset(array $layout, array $childLayout, ?float $contentCrossSize, float $childCrossSize): float
     {
-        if ( null === $contentCrossSize || 'flex' !== ($layout['display'] ?? null) ) {
+        if ( null === $contentCrossSize || ! in_array($layout['display'] ?? null, array('flex', 'inline-flex'), true) ) {
             return 0.0;
         }
         $alignment = (string) ($layout['align_items'] ?? 'flex-start');
@@ -355,6 +367,13 @@ final class VisualNodeMapBuilder
     private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
     {
         return $this->visualGeometryResolver->isFullyClippedDecorativeChild($node, $parentNode);
+    }
+
+    private function normalFlexFlowChild(array $node, array $parentNode): bool
+    {
+        return false !== ($node['visible'] ?? null)
+            && ! $this->isFullyClippedDecorativeChild($node, $parentNode)
+            && ! $this->isDecorativeFlexUnderlay($node, $parentNode);
     }
 
     private function isFullyTransparentVisualNode(array $node): bool

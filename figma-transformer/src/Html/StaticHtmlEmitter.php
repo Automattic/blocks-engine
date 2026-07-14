@@ -105,6 +105,8 @@ final class StaticHtmlEmitter
 
     private ?StaticHtmlCssRuleSet $staticHtmlCssRuleSet = null;
 
+    private ?SourceGeometryFlexGapResolver $sourceGeometryFlexGapResolver = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -145,6 +147,14 @@ final class StaticHtmlEmitter
     private function staticHtmlCssRuleSet(): StaticHtmlCssRuleSet
     {
         return $this->staticHtmlCssRuleSet ??= new StaticHtmlCssRuleSet();
+    }
+
+    private function sourceGeometryFlexGapResolver(): SourceGeometryFlexGapResolver
+    {
+        return $this->sourceGeometryFlexGapResolver ??= new SourceGeometryFlexGapResolver(
+            $this->layoutIntentClassifier(),
+            fn (array $node, array $parentNode): bool => $this->normalFlexFlowChild($node, $parentNode),
+        );
     }
 
     private function textStyleDeclarationResolver(): TextStyleDeclarationResolver
@@ -7413,7 +7423,7 @@ final class StaticHtmlEmitter
         }
 
         if ( $isFlexChild ) {
-            $sourceGapMargin = $this->sourceGeometryFlexGapMargin($node, $parentNode);
+            $sourceGapMargin = $this->sourceGeometryFlexGapResolver()->resolve($node, $parentNode);
             if ( null !== $sourceGapMargin ) {
                 $styles[] = $sourceGapMargin['property'] . ':' . $this->number($sourceGapMargin['value']) . 'px';
             }
@@ -7507,77 +7517,6 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     * @return array{property: string, value: float}|null
-     */
-    private function sourceGeometryFlexGapMargin(array $node, ?array $parentNode): ?array
-    {
-        if ( null === $parentNode || ! $this->normalFlexFlowChild($node, $parentNode) ) {
-            return null;
-        }
-
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        $direction = (string) ($parentLayout['flex_direction'] ?? '');
-        if ( ! in_array($direction, array('row', 'column'), true) ) {
-            return null;
-        }
-
-        $justifyContent = (string) ($parentLayout['justify_content'] ?? '');
-        if ( in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true) ) {
-            return null;
-        }
-
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $axis = 'column' === $direction ? 'y' : 'x';
-        $size = 'column' === $direction ? 'height' : 'width';
-        $property = 'column' === $direction ? 'margin-top' : 'margin-left';
-        if ( ! isset($box[$size]) || ! is_numeric($box[$size]) ) {
-            return null;
-        }
-
-        $offset = $this->positionOffset($box, $parentBox, $axis, $parentNode);
-        if ( null === $offset ) {
-            return null;
-        }
-
-        $previous = null;
-        foreach ( $this->nodeList($parentNode) as $sibling ) {
-            if ( ! is_array($sibling) || ! $this->normalFlexFlowChild($sibling, $parentNode) ) {
-                continue;
-            }
-            if ( (string) ($sibling['id'] ?? '') === (string) ($node['id'] ?? '') ) {
-                break;
-            }
-            $previous = $sibling;
-        }
-
-        if ( null === $previous ) {
-            return null;
-        }
-
-        $previousBox = is_array($previous['box'] ?? null) ? $previous['box'] : array();
-        if ( ! isset($previousBox[$size]) || ! is_numeric($previousBox[$size]) ) {
-            return null;
-        }
-
-        $previousOffset = $this->positionOffset($previousBox, $parentBox, $axis, $parentNode);
-        if ( null === $previousOffset ) {
-            return null;
-        }
-
-        $sourceGap = $offset - ($previousOffset + (float) $previousBox[$size]);
-        $cssGap = isset($parentLayout['item_spacing']) && is_numeric($parentLayout['item_spacing']) ? (float) $parentLayout['item_spacing'] : 0.0;
-        $residualGap = $sourceGap - $cssGap;
-        if ( $residualGap <= 0.5 ) {
-            return null;
-        }
-
-        return array('property' => $property, 'value' => $residualGap);
     }
 
     /**
