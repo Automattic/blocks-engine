@@ -49,9 +49,9 @@
       },
       {
         "kind": "command",
-        "label": "Figma fixture matrix dry run",
+        "label": "Figma fixture matrix CLI loads",
         "cwd": "${components.blocks-engine.path}",
-        "command": "php figma-transformer/scripts/figma-fixture-matrix.php --dry-run"
+        "command": "php figma-transformer/scripts/figma-fixture-matrix.php --help"
       }
     ],
     "up": [
