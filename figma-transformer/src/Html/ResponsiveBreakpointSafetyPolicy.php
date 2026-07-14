@@ -187,7 +187,7 @@ final class ResponsiveBreakpointSafetyPolicy
                 return array('reason_code' => '', 'declarations' => array());
             }
 
-            $footerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%', 'margin-left:0');
+            $footerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'max-width:100%', 'margin-left:0', 'margin-right:0');
             if ( $isContainer ) {
                 array_unshift($footerChildDeclarations, 'width:100%', 'max-width:100%', 'height:auto');
                 array_push($footerChildDeclarations, 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px');

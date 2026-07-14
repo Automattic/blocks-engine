@@ -24,12 +24,24 @@ final class LayoutMismatchReportBuilder
         $sizeThreshold = $this->numericOption($options, 'size_threshold', $threshold);
         $limit = max(1, (int) $this->numericOption($options, 'limit', 100.0));
         $sourceNodes = $this->sourceNodesById($htmlSourceReport);
-        $generatedNodes = $this->generatedNodesById($evidence);
+        $comparison = $this->comparisonContext($htmlSourceReport, $evidence, $options);
+        if ( ! empty($comparison['source_nodes']) ) {
+            $sourceNodes = $comparison['source_nodes'];
+        }
+        $generatedNodes = $this->generatedNodesById($evidence, $comparison['entrypoint_index']);
         $diagnostics = array();
+        $warnings = array();
         $matched = 0;
         $unmatchedSource = 0;
 
         foreach ( $sourceNodes as $nodeId => $sourceNode ) {
+            if ( ! $this->hasTrustworthySourcePosition($sourceNode) ) {
+                $warnings[] = $this->sourceGeometryConfidenceDiagnostic($sourceNode);
+            }
+        }
+
+        foreach ( true === $comparison['comparable'] ? $sourceNodes : array() as $nodeId => $sourceNode ) {
+            $hasTrustworthyPosition = $this->hasTrustworthySourcePosition($sourceNode);
             $generatedNode = $generatedNodes[$nodeId] ?? null;
             if ( null === $generatedNode ) {
                 $unmatchedSource++;
@@ -44,9 +56,9 @@ final class LayoutMismatchReportBuilder
 
             $matched++;
             $delta = $this->delta($sourceBox, $generatedBox);
-            $positionMismatch = abs($delta['x']) > $threshold || abs($delta['y']) > $threshold;
+            $positionMismatch = $hasTrustworthyPosition && (abs($delta['x']) > $threshold || abs($delta['y']) > $threshold);
             $sizeMismatch = abs($delta['width']) > $sizeThreshold || abs($delta['height']) > $sizeThreshold;
-            $outsideParent = $this->outsideGeneratedParent($sourceNode, $generatedNode, $sourceNodes, $generatedNodes, $threshold);
+            $outsideParent = $hasTrustworthyPosition ? $this->outsideGeneratedParent($sourceNode, $generatedNode, $sourceNodes, $generatedNodes, $threshold) : null;
             if ( ! $positionMismatch && ! $sizeMismatch && null === $outsideParent ) {
                 continue;
             }
@@ -94,11 +106,20 @@ final class LayoutMismatchReportBuilder
             }
         }
         ksort($codeCounts);
+        $warningCodeCounts = array();
+        foreach ( $warnings as $warning ) {
+            $code = (string) ($warning['code'] ?? '');
+            if ( '' !== $code ) {
+                $warningCodeCounts[$code] = ($warningCodeCounts[$code] ?? 0) + 1;
+            }
+        }
+        ksort($warningCodeCounts);
 
         return array(
             'schema' => self::SCHEMA,
             'input_schema' => isset($evidence['schema']) && is_scalar($evidence['schema']) ? (string) $evidence['schema'] : self::DOM_BOXES_SCHEMA,
-            'status' => empty($generatedNodes) ? 'not_run' : (empty($diagnostics) ? 'pass' : 'fail'),
+            'status' => empty($generatedNodes) ? 'not_run' : (true !== $comparison['comparable'] ? 'not_comparable' : (empty($diagnostics) ? 'pass' : 'fail')),
+            'comparison' => $comparison['evidence'],
             'threshold' => $threshold,
             'size_threshold' => $sizeThreshold,
             'summary' => array(
@@ -110,11 +131,14 @@ final class LayoutMismatchReportBuilder
                 'reported_diagnostic_count' => count($diagnostics),
                 'truncated' => count($diagnostics) < count($totalDiagnostics),
                 'code_counts' => $codeCounts,
+                'warning_count' => count($warnings),
+                'warning_code_counts' => $warningCodeCounts,
                 'clusters' => $this->diagnosticClusters($totalDiagnostics),
                 'suspected_causes' => $this->suspectedCauseSummary($totalDiagnostics),
                 'font_rendering' => $this->fontRenderingSummary($htmlSourceReport, $generatedNodes),
             ),
             'diagnostics' => $diagnostics,
+            'warnings' => $warnings,
         );
     }
 
@@ -518,7 +542,7 @@ final class LayoutMismatchReportBuilder
      * @param array<string, mixed> $evidence
      * @return array<string, array<string, mixed>>
      */
-    private function generatedNodesById(array $evidence): array
+    private function generatedNodesById(array $evidence, ?int $entrypointIndex = null): array
     {
         $nodes = array();
         foreach ( array('boxes', 'nodes', 'dom_boxes', 'elements') as $key ) {
@@ -527,7 +551,10 @@ final class LayoutMismatchReportBuilder
             }
         }
 
-        foreach ( is_array($evidence['entrypoints'] ?? null) ? $evidence['entrypoints'] : array() as $entrypoint ) {
+        foreach ( is_array($evidence['entrypoints'] ?? null) ? $evidence['entrypoints'] : array() as $index => $entrypoint ) {
+            if ( null !== $entrypointIndex && $index !== $entrypointIndex ) {
+                continue;
+            }
             if ( is_array($entrypoint) && is_array($entrypoint['elements'] ?? null) ) {
                 $nodes = array_merge($nodes, $entrypoint['elements']);
             }
@@ -538,6 +565,116 @@ final class LayoutMismatchReportBuilder
         }
 
         return $this->nodesById($nodes);
+    }
+
+    /**
+     * Positional source coordinates are only meaningful at their source width.
+     * A responsive capture needs its own supplied source geometry; a variant
+     * frame identifier alone does not make the primary visual map comparable.
+     *
+     * @param array<string, mixed> $htmlSourceReport
+     * @param array<string, mixed> $evidence
+     * @param array<string, mixed> $options
+     * @return array{comparable:bool,entrypoint_index:int|null,evidence:array<string,mixed>,source_nodes:array<string,array<string,mixed>>}
+     */
+    private function comparisonContext(array $htmlSourceReport, array $evidence, array $options): array
+    {
+        $sourceFrameId = $this->scalarString($options['source_frame_id'] ?? null)
+            ?? $this->scalarString($htmlSourceReport['source_frame_identity']['primary_frame_id'] ?? null);
+        $sourceWidth = $this->numericValue($options['source_frame_width'] ?? null)
+            ?? $this->numericValue($htmlSourceReport['source_frame_identity']['width'] ?? null);
+        $pagePath = $this->scalarString($options['page_path'] ?? null);
+        $entrypoints = is_array($evidence['entrypoints'] ?? null) ? $evidence['entrypoints'] : array();
+        $entrypointIndex = null;
+        $capture = array();
+
+        foreach ( $entrypoints as $index => $entrypoint ) {
+            if ( ! is_array($entrypoint) || ! $this->samePagePath($pagePath, $this->scalarString($entrypoint['page_path'] ?? null)) ) {
+                continue;
+            }
+            $entrypointSource = is_array($entrypoint['source_frame'] ?? null) ? $entrypoint['source_frame'] : array();
+            if ( null !== $sourceFrameId && $sourceFrameId === $this->scalarString($entrypointSource['id'] ?? null) ) {
+                $entrypointIndex = $index;
+                $capture = $entrypoint;
+                break;
+            }
+            if ( null === $entrypointIndex && 'responsive_evidence' !== ($entrypoint['comparison_role'] ?? null) ) {
+                $entrypointIndex = $index;
+                $capture = $entrypoint;
+            }
+        }
+
+        if ( null === $entrypointIndex ) {
+            foreach ( $entrypoints as $index => $entrypoint ) {
+                if ( is_array($entrypoint) && $this->samePagePath($pagePath, $this->scalarString($entrypoint['page_path'] ?? null)) ) {
+                    $entrypointIndex = $index;
+                    $capture = $entrypoint;
+                    break;
+                }
+            }
+        }
+
+        if ( null === $entrypointIndex && 1 === count($entrypoints) && is_array($entrypoints[0] ?? null) ) {
+            $entrypointIndex = 0;
+            $capture = $entrypoints[0];
+        }
+
+        $viewport = is_array($capture['viewport'] ?? null) ? $capture['viewport'] : (is_array($evidence['viewport'] ?? null) ? $evidence['viewport'] : array());
+        $captureWidth = $this->numericValue($viewport['width'] ?? null);
+        $captureFrameId = $this->scalarString($capture['source_frame']['id'] ?? null);
+        $widthsMatch = null === $sourceWidth || null === $captureWidth || abs($sourceWidth - $captureWidth) < 0.5;
+        $variantSourceNodes = $this->variantSourceNodes($capture, $options, $captureFrameId);
+        $hasVariantSourceGeometry = ! empty($variantSourceNodes);
+        $comparable = $widthsMatch || $hasVariantSourceGeometry;
+        $reason = $comparable ? ($widthsMatch ? 'matching_source_width' : 'responsive_source_geometry_supplied') : 'incompatible_viewport_width';
+
+        return array(
+            'comparable' => $comparable,
+            'entrypoint_index' => $entrypointIndex,
+            'source_nodes' => $variantSourceNodes,
+            'evidence' => array_filter(array(
+                'status' => $comparable ? 'comparable' : 'not_comparable',
+                'position_status' => $comparable ? 'comparable' : 'not_comparable',
+                'size_status' => $comparable ? 'comparable' : 'not_comparable',
+                'reason' => $reason,
+                'source_frame_id' => $sourceFrameId,
+                'source_frame_width' => $sourceWidth,
+                'captured_viewport' => empty($viewport) ? null : $viewport,
+                'captured_entrypoint_index' => $entrypointIndex,
+                'responsive_evidence_capture_count' => count(array_filter($entrypoints, static fn (mixed $entrypoint): bool => is_array($entrypoint) && 'responsive_evidence' === ($entrypoint['comparison_role'] ?? null))),
+            ), static fn (mixed $value): bool => null !== $value),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $capture
+     * @param array<string, mixed> $options
+     * @return array<string, array<string, mixed>>
+     */
+    private function variantSourceNodes(array $capture, array $options, ?string $captureFrameId): array
+    {
+        $nodes = is_array($capture['source_visual_node_map'] ?? null) ? $capture['source_visual_node_map'] : array();
+        if ( empty($nodes) && null !== $captureFrameId ) {
+            $maps = is_array($options['source_frame_variant_visual_node_maps'] ?? null) ? $options['source_frame_variant_visual_node_maps'] : array();
+            $nodes = is_array($maps[$captureFrameId] ?? null) ? $maps[$captureFrameId] : array();
+        }
+
+        return $this->nodesById($nodes);
+    }
+
+    private function numericValue(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    private function scalarString(mixed $value): ?string
+    {
+        return is_scalar($value) && '' !== trim((string) $value) ? (string) $value : null;
+    }
+
+    private function samePagePath(?string $expected, ?string $actual): bool
+    {
+        return null === $expected || null === $actual || ltrim($expected, '/') === ltrim($actual, '/');
     }
 
     /**
@@ -619,6 +756,38 @@ final class LayoutMismatchReportBuilder
         }
 
         return $this->boxDistance($visibleBox, $generatedBox) < $this->boxDistance($sourceBox, $generatedBox) ? $visibleBox : $sourceBox;
+    }
+
+    /**
+     * Local component-source geometry has reliable dimensions but no page-space
+     * position until transform provenance is available.
+     *
+     * @param array<string, mixed> $sourceNode
+     */
+    private function hasTrustworthySourcePosition(array $sourceNode): bool
+    {
+        return 'unresolved_component_local' !== ($sourceNode['geometry_confidence'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $sourceNode
+     * @return array<string, mixed>
+     */
+    private function sourceGeometryConfidenceDiagnostic(array $sourceNode): array
+    {
+        return array_filter(array(
+            'severity' => 'warning',
+            'code' => 'source_geometry_confidence',
+            'node' => array(
+                'id' => (string) ($sourceNode['id'] ?? ''),
+                'name' => (string) ($sourceNode['name'] ?? ''),
+                'type' => (string) ($sourceNode['type'] ?? ''),
+                'parent_id' => (string) ($sourceNode['parent_id'] ?? ''),
+            ),
+            'coordinate_space' => isset($sourceNode['coordinate_space']) && is_scalar($sourceNode['coordinate_space']) ? (string) $sourceNode['coordinate_space'] : null,
+            'geometry_confidence' => 'unresolved_component_local',
+            'message' => 'Source dimensions are comparable, but component-local coordinates lack page-space transform provenance.',
+        ), static fn (mixed $value): bool => null !== $value);
     }
 
     /**

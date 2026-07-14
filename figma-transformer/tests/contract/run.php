@@ -1426,6 +1426,34 @@ $layoutNotEvaluatedQuality = $layoutNotEvaluatedResult['source_reports']['figma'
 $assert(0 === ($layoutNotEvaluatedQuality['layout_mismatch_count'] ?? null), 'layout-not-evaluated-count-zero');
 $assert('not_evaluated' === ($layoutNotEvaluatedQuality['layout_mismatch_status'] ?? null), 'layout-not-evaluated-status');
 
+$layoutNotComparableResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Layout Not Comparable Fixture',
+    'nodes' => array(
+        array('id' => 'layout:not-comparable', 'type' => 'FRAME', 'name' => 'Simple Page', 'width' => 1200, 'height' => 320),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => 'index.html',
+                'viewport' => array('width' => 960, 'height' => 900),
+                'source_frame' => array('id' => 'layout:mobile', 'width' => 960),
+                'comparison_role' => 'responsive_evidence',
+                'elements' => array(array('node_id' => 'layout:not-comparable', 'rect' => array('x' => 0, 'y' => 0, 'width' => 960, 'height' => 320))),
+            ),
+        ),
+    ),
+    'layout_mismatch_options' => array('source_frame_id' => 'layout:not-comparable', 'source_frame_width' => 1200),
+));
+$layoutNotComparableDiagnostics = $layoutNotComparableResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$layoutNotComparableQuality = $layoutNotComparableDiagnostics['artifact_quality'] ?? array();
+$layoutNotComparableCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $layoutNotComparableQuality['signals'] ?? array());
+$assert('not_comparable' === ($layoutNotComparableDiagnostics['layout']['layout_mismatch_status'] ?? null), 'layout-not-comparable-status');
+$assert('needs_review' === ($layoutNotComparableQuality['status'] ?? null), 'layout-not-comparable-quality-needs-review');
+$assert('warn' === ($layoutNotComparableQuality['quality_status'] ?? null), 'layout-not-comparable-quality-warn');
+$assert(in_array('layout_mismatch_not_comparable', $layoutNotComparableCodes, true), 'layout-not-comparable-quality-signal');
+
 blocks_engine_figma_transformer_run_site_generation_planning_contract($assert, $fileContent, $externalizedVectorPath);
 
 blocks_engine_figma_transformer_run_text_layout_contract($assert, $fileContent, $quadraticCommandBlob);
@@ -7488,7 +7516,7 @@ $assert(
     'responsive-breakpoint-safety-policy-footer-chrome-decision-seam'
 );
 $assert(
-    array('reason_code' => 'responsive_footer_child_chrome_safety', 'declarations' => array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%', 'margin-left:0')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+    array('reason_code' => 'responsive_footer_child_chrome_safety', 'declarations' => array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'max-width:100%', 'margin-left:0', 'margin-right:0')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
         array('id' => 'policy:footer-link', 'type' => 'TEXT', 'name' => 'Footer Link'),
         array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer'),
         array('position' => 'absolute', 'left' => '435px', 'top' => '91px'),
@@ -7623,6 +7651,104 @@ $assert(str_contains($midpointBreakpointCss, '@media (max-width:915px){'), 'midp
 $assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'midpoint-breakpoint-not-variant-own-width');
 $assert(str_contains($midpointBreakpointCss, '.figma-node-bp-band-band{width:100vw;height:120px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'responsive-full-bleed-base-uses-viewport-breakout');
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-bp-band-band\{[^}]*\b(?:width:100%|left:0px|margin-left:0px)/', $midpointBreakpointCss), 'responsive-full-bleed-media-preserves-viewport-breakout');
+
+$sourceRelativeBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Source-relative Breakpoint Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'direction:primary', 'type' => 'FRAME', 'name' => 'Home Primary', 'box' => array('width' => 1440, 'height' => 900),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'direction:marker', 'type' => 'RECTANGLE', 'name' => 'Range Marker', 'box' => array('width' => 240, 'height' => 80), 'background' => '#111111'),
+                    array(
+                        'id' => 'direction:footer', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 1440, 'height' => 180),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                        'children' => array(
+                            array('id' => 'direction:footer-band', 'type' => 'FRAME', 'name' => 'Footer Content', 'box' => array('x' => -2, 'y' => 20, 'width' => 1444, 'height' => 120), 'layout' => array('positioning' => 'absolute', 'z_index' => 1), 'background' => '#444444'),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'direction:wide-large', 'type' => 'FRAME', 'name' => 'Home Wide Large', 'box' => array('width' => 2238, 'height' => 900),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'direction:marker-wide-large', 'type' => 'RECTANGLE', 'name' => 'Range Marker', 'box' => array('width' => 320, 'height' => 80), 'background' => '#333333'),
+                    array(
+                        'id' => 'direction:footer-wide-large', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 2238, 'height' => 180),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                        'children' => array(
+                            array('id' => 'direction:footer-band-wide-large', 'type' => 'FRAME', 'name' => 'Footer Content', 'box' => array('width' => 2238, 'height' => 120), 'layout' => array('z_index' => 1), 'background' => '#444444'),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'direction:wide-near', 'type' => 'FRAME', 'name' => 'Home Wide Near', 'box' => array('width' => 1800, 'height' => 900),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'direction:marker-wide-near', 'type' => 'RECTANGLE', 'name' => 'Range Marker', 'box' => array('width' => 280, 'height' => 80), 'background' => '#444444'),
+                    array('id' => 'direction:footer-wide-near', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 1800, 'height' => 180), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array()),
+                ),
+            ),
+            array(
+                'id' => 'direction:narrow-tablet', 'type' => 'FRAME', 'name' => 'Home Narrow Tablet', 'box' => array('width' => 834, 'height' => 900),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'direction:marker-narrow-tablet', 'type' => 'RECTANGLE', 'name' => 'Range Marker', 'box' => array('width' => 210, 'height' => 80), 'background' => '#555555'),
+                    array('id' => 'direction:footer-narrow-tablet', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 834, 'height' => 180), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array()),
+                ),
+            ),
+            array(
+                'id' => 'direction:narrow', 'type' => 'FRAME', 'name' => 'Home Narrow', 'box' => array('width' => 390, 'height' => 900),
+                'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array('id' => 'direction:marker-narrow', 'type' => 'RECTANGLE', 'name' => 'Range Marker', 'box' => array('width' => 180, 'height' => 80), 'background' => '#222222'),
+                    array(
+                        'id' => 'direction:footer-narrow', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 390, 'height' => 180),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
+                        'children' => array(
+                            array('id' => 'direction:footer-band-narrow', 'type' => 'FRAME', 'name' => 'Footer Content', 'box' => array('width' => 390, 'height' => 120), 'layout' => array('z_index' => 1), 'background' => '#444444'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array(
+        'frame_id' => 'direction:primary', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true,
+        'variants' => array(
+            array('frame_id' => 'direction:primary', 'viewport_width' => 1440.0, 'primary' => true),
+            // Deliberately adverse order: each direction is least-specific last.
+            array('frame_id' => 'direction:wide-large', 'viewport_width' => 2238.0, 'primary' => false),
+            array('frame_id' => 'direction:narrow', 'viewport_width' => 390.0, 'primary' => false),
+            array('frame_id' => 'direction:wide-near', 'viewport_width' => 1800.0, 'primary' => false),
+            array('frame_id' => 'direction:narrow-tablet', 'viewport_width' => 834.0, 'primary' => false),
+        ),
+    )))
+);
+$sourceRelativeBreakpointCss = '';
+foreach ( $sourceRelativeBreakpointResult['files'] ?? array() as $sourceRelativeBreakpointFile ) {
+    if ( is_array($sourceRelativeBreakpointFile) && 'style.css' === ($sourceRelativeBreakpointFile['path'] ?? null) ) {
+        $sourceRelativeBreakpointCss = (string) ($sourceRelativeBreakpointFile['content'] ?? '');
+    }
+}
+$assert('success' === ($sourceRelativeBreakpointResult['status'] ?? null), 'source-relative-breakpoint-transform-success');
+$assert(str_contains($sourceRelativeBreakpointCss, '.figma-node-direction-marker-range-marker{width:240px;height:80px;background:#111111'), 'source-relative-breakpoint-primary-remains-base');
+$sourceRelativeTabletStart = strpos($sourceRelativeBreakpointCss, '@media (max-width:1137px)');
+$sourceRelativeMobileStart = strpos($sourceRelativeBreakpointCss, '@media (max-width:915px)');
+$sourceRelativeWideNearStart = strpos($sourceRelativeBreakpointCss, '@media (min-width:1620px)');
+$sourceRelativeWideLargeStart = strpos($sourceRelativeBreakpointCss, '@media (min-width:1839px)');
+$assert(false !== $sourceRelativeTabletStart && false !== $sourceRelativeMobileStart && $sourceRelativeTabletStart < $sourceRelativeMobileStart, 'source-relative-breakpoint-narrow-cascade-orders-tablet-before-mobile');
+$assert(false !== $sourceRelativeWideNearStart && false !== $sourceRelativeWideLargeStart && $sourceRelativeWideNearStart < $sourceRelativeWideLargeStart, 'source-relative-breakpoint-wide-cascade-orders-near-before-large');
+$assert(preg_match('/@media \(max-width:1137px\)\{[\s\S]*\.figma-node-direction-marker-range-marker\{[^}]*background:#555555/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-tablet-boundary-uses-tablet-variant');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-direction-marker-range-marker\{[^}]*background:#222222/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-mobile-boundary-uses-mobile-variant');
+$assert(preg_match('/@media \(min-width:1620px\)\{[\s\S]*\.figma-node-direction-marker-range-marker\{[^}]*background:#444444/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-wide-near-boundary-uses-near-variant');
+$assert(preg_match('/@media \(min-width:1839px\)\{[\s\S]*\.figma-node-direction-marker-range-marker\{[^}]*background:#333333/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-wide-large-boundary-uses-large-variant');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-direction-footer-band-footer-content\{[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*bottom:auto[^}]*margin-left:0[^}]*margin-right:0/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-flow-release-clears-breakout');
+$assert(preg_match('/@media \(min-width:1839px\)\{[\s\S]*\.figma-node-direction-footer-band-footer-content\{[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*bottom:auto[^}]*margin-left:0[^}]*margin-right:0/s', $sourceRelativeBreakpointCss) === 1, 'source-relative-breakpoint-wide-flow-release-clears-breakout');
 
 $mobileSafetyBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(

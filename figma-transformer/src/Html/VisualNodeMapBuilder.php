@@ -96,6 +96,11 @@ final class VisualNodeMapBuilder
                 // Figma Dev Mode status (#280) surfaced for the diagnostics map.
                 'dev_status' => isset($node['dev_status']) && is_string($node['dev_status']) ? $node['dev_status'] : null,
             );
+            $geometryConfidence = $this->visualGeometryConfidence($node, $box);
+            if ( null !== $geometryConfidence ) {
+                $entry['coordinate_space'] = $box['coordinate_space'] ?? null;
+                $entry['geometry_confidence'] = $geometryConfidence;
+            }
             $emittedMetadata = $this->emittedMetadataForNode((string) ($node['id'] ?? ''));
             if ( ! empty($emittedMetadata) ) {
                 $entry['emitted_class'] = $emittedMetadata['class'] ?? null;
@@ -154,7 +159,10 @@ final class VisualNodeMapBuilder
             $flowChildren[] = $child;
         }
 
-        $flowPositions = $this->visualFlexChildPositions($flowChildren, $layout, $isFlex, $isRow, $mainAxis, $crossAxis, $contentMainSize, $contentCrossSize, $gap);
+        $counterAxisGap = isset($layout['counter_axis_spacing']) && is_numeric($layout['counter_axis_spacing']) && is_finite((float) $layout['counter_axis_spacing'])
+            ? max(0.0, (float) $layout['counter_axis_spacing'])
+            : $gap;
+        $flowPositions = $this->visualFlexChildPositions($flowChildren, $layout, $isFlex, $isRow, $mainAxis, $crossAxis, $contentMainSize, $contentCrossSize, $gap, $counterAxisGap);
 
         foreach ( $children as $child ) {
             if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -188,7 +196,7 @@ final class VisualNodeMapBuilder
         return $this->emittedNodeMetadata[$nodeId];
     }
 
-    private function visualFlexChildPositions(array $children, array $layout, bool $isFlex, bool $isRow, string $mainAxis, string $crossAxis, ?float $contentMainSize, ?float $contentCrossSize, float $gap): array
+    private function visualFlexChildPositions(array $children, array $layout, bool $isFlex, bool $isRow, string $mainAxis, string $crossAxis, ?float $contentMainSize, ?float $contentCrossSize, float $mainAxisGap, float $counterAxisGap): array
     {
         $positions = array();
         if ( empty($children) ) {
@@ -203,7 +211,7 @@ final class VisualNodeMapBuilder
             $childMainSize = isset($childBox[$mainAxis]) && is_numeric($childBox[$mainAxis]) ? (float) $childBox[$mainAxis] : 0.0;
             $childCrossSize = isset($childBox[$crossAxis]) && is_numeric($childBox[$crossAxis]) ? (float) $childBox[$crossAxis] : 0.0;
             $lineChildCount = count($currentLine['children']);
-            $candidateMainSize = (float) $currentLine['main_size'] + ($lineChildCount > 0 ? $gap : 0.0) + $childMainSize;
+            $candidateMainSize = (float) $currentLine['main_size'] + ($lineChildCount > 0 ? $mainAxisGap : 0.0) + $childMainSize;
             if ( $wrap && $lineChildCount > 0 && $candidateMainSize > $contentMainSize + 0.001 ) {
                 $lines[] = $currentLine;
                 $currentLine = array('children' => array(), 'main_size' => 0.0, 'cross_size' => 0.0);
@@ -225,7 +233,7 @@ final class VisualNodeMapBuilder
             $lineMainSize = (float) ($line['main_size'] ?? 0.0);
             $lineCrossSize = (float) ($line['cross_size'] ?? 0.0);
             $cursorMain = 0.0;
-            $visualGap = $gap;
+            $visualGap = $mainAxisGap;
             if ( $isFlex && null !== $contentMainSize ) {
                 $freeMainSpace = $contentMainSize - $lineMainSize;
                 $distributedMainSpace = max(0.0, $freeMainSpace);
@@ -260,10 +268,31 @@ final class VisualNodeMapBuilder
                 $cursorMain += $childMainSize + $visualGap;
             }
 
-            $lineCrossOffset += $lineCrossSize + ($wrap ? $gap : 0.0);
+            $lineCrossOffset += $lineCrossSize + ($wrap ? $counterAxisGap : 0.0);
         }
 
         return $positions;
+    }
+
+    /**
+     * Component-source clone descendants retain source-local coordinates unless
+     * the source supplies a page-space transform we can prove and apply.
+     */
+    private function visualGeometryConfidence(array $node, array $box): ?string
+    {
+        if ( true !== ($node['_component_source_clone_geometry'] ?? false)
+            || 'local' !== ($box['coordinate_space'] ?? null) ) {
+            return null;
+        }
+
+        foreach ( array($box, is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array()) as $geometry ) {
+            $sourceKind = $geometry['component_clone_source_kind'] ?? $geometry['_geometry_provenance'] ?? null;
+            if ( in_array($sourceKind, array('transform', 'absolute_transform', 'override_transform'), true) ) {
+                return null;
+            }
+        }
+
+        return 'unresolved_component_local';
     }
 
     private function visualFlexCrossAxisOffset(array $layout, array $childLayout, ?float $contentCrossSize, float $childCrossSize): float

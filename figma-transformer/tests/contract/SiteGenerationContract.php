@@ -1913,6 +1913,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
     $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['selected_frame_id'] ?? null), 'page-plan-source-frame-identity-selected-frame');
     $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['primary_frame_id'] ?? null), 'page-plan-source-frame-identity-primary-frame');
+    $assert(1440.0 === ($responsiveHomePage['source_frame_identity']['width'] ?? null), 'page-plan-source-frame-identity-width');
     $assert(array('frame:home-tablet', 'frame:home-mobile') === ($responsiveHomePage['source_frame_identity']['variant_sibling_frame_ids'] ?? null), 'page-plan-source-frame-identity-variant-siblings');
     // A responsive page's slug reflects the PAGE, not its widest variant: the
     // breakpoint token ("Desktop") is stripped so desktop+mobile collapse to one
@@ -2047,25 +2048,25 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
     // Two narrower breakpoints plus wide desktop-only/generic safety fallbacks
     // produce at least four media blocks. Variant breakpoints are keyed at the MIDPOINT between
-    // adjacent variant widths (not the narrow variant's own width).
+    // each variant and the primary source width (not the narrow variant's own width).
     // desktop=1440, tablet=834, mobile=390:
     //   tablet breakpoint = round((1440+834)/2) = 1137
-    //   mobile breakpoint = round((834+390)/2)  = 612
+    //   mobile breakpoint = round((1440+390)/2) = 915
     $assert(substr_count($responsiveEmitCss, '@media') >= 4, 'responsive-emit-two-variant-media-blocks-plus-desktop-fallback');
     $assert(str_contains($responsiveEmitCss, '@media (max-width:1137px){'), 'responsive-emit-tablet-media-query');
-    $assert(str_contains($responsiveEmitCss, '@media (max-width:612px){'), 'responsive-emit-mobile-media-query');
+    $assert(str_contains($responsiveEmitCss, '@media (max-width:915px){'), 'responsive-emit-mobile-media-query');
     // Base layout uses the primary (desktop) variant styles, emitted before media.
     $responsiveEmitBasePos = strpos($responsiveEmitCss, '.figma-node-card-desktop-hero-card{width:1200px;height:400px;background:#ff0000}');
     $assert(false !== $responsiveEmitBasePos, 'responsive-emit-base-uses-primary-variant');
     $responsiveEmitFirstMediaPos = strpos($responsiveEmitCss, '@media');
     $assert(false !== $responsiveEmitFirstMediaPos && $responsiveEmitBasePos < $responsiveEmitFirstMediaPos, 'responsive-emit-base-precedes-media');
     // Narrower-wins cascade: tablet block precedes mobile block.
-    $assert(strpos($responsiveEmitCss, '@media (max-width:1137px)') < strpos($responsiveEmitCss, '@media (max-width:612px)'), 'responsive-emit-cascade-widest-first');
+    $assert(strpos($responsiveEmitCss, '@media (max-width:1137px)') < strpos($responsiveEmitCss, '@media (max-width:915px)'), 'responsive-emit-cascade-widest-first');
     // Media blocks override on the BASE class names, carrying only changed props.
-    $responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:1137px)'), strpos($responsiveEmitCss, '@media (max-width:612px)') - strpos($responsiveEmitCss, '@media (max-width:1137px)'));
+    $responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:1137px)'), strpos($responsiveEmitCss, '@media (max-width:915px)') - strpos($responsiveEmitCss, '@media (max-width:1137px)'));
     $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 134px);max-width:1200px}'), 'responsive-emit-tablet-card-width-diff-only');
     $assert(! str_contains($responsiveEmitTabletBlock, 'background:'), 'responsive-emit-tablet-omits-unchanged-background');
-    $responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:612px)'));
+    $responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:915px)'));
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{height:3200px}'), 'responsive-emit-mobile-root-keeps-fluid-width');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 40px);max-width:1200px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;margin-left:auto;margin-right:auto;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height-centered');

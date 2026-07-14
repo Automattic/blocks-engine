@@ -74,6 +74,11 @@ const server = createServer(async (request, response) => {
     response.end(await readFile(domFixtureGeneric));
     return;
   }
+  if (request.url === '/fluid-layout-2095.html') {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end(await readFile(path.join(root, 'tests/fixtures/fluid-layout-2095.html')));
+    return;
+  }
   response.writeHead(404, { 'content-type': 'application/json' });
   response.end('{"error":"not_found"}');
 });
@@ -140,6 +145,24 @@ try {
   assert(genericFlagReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (flag)');
   assert(genericFlagReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (flag)');
   assert(genericFlagReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (flag)');
+
+  const fluidReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
+    ...process.env,
+    HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
+    HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/fluid-layout-2095.html']),
+    HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON: JSON.stringify([
+      { page_path: '/fluid-layout-2095.html', viewport: { width: 2095, height: 900 }, source_frame: { id: 'fluid:2095', width: 2095 }, comparison_role: 'source_layout' },
+      { page_path: '/fluid-layout-2095.html', viewport: { width: 1440, height: 900 }, source_frame: { id: 'fluid:1440', width: 1440 }, comparison_role: 'responsive_evidence' },
+    ]),
+  });
+  assert(fluidReport.entrypoints.length === 2, 'DOM provider preserves native and responsive captures separately');
+  assert(fluidReport.entrypoints[0].viewport.width === 2095, 'DOM provider captures native source width');
+  assert(fluidReport.entrypoints[0].source_frame.id === 'fluid:2095', 'DOM provider persists native source frame identity');
+  assert(fluidReport.entrypoints[1].viewport.width === 1440, 'DOM provider captures responsive evidence width');
+  assert(fluidReport.entrypoints[1].comparison_role === 'responsive_evidence', 'DOM provider labels responsive evidence separately');
+  const nativeSecondary = fluidReport.entrypoints[0].elements.find((element) => element.node_id === 'fluid:secondary');
+  const responsiveSecondary = fluidReport.entrypoints[1].elements.find((element) => element.node_id === 'fluid:secondary');
+  assert(nativeSecondary.boundingClientRect.y < responsiveSecondary.boundingClientRect.y, 'reduced fixture reflows two columns at the responsive width');
 
   const screenshotReport = await runJson(process.execPath, [
     path.join(root, 'bin/screenshot-provider.mjs'),
