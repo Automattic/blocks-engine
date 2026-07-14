@@ -511,9 +511,16 @@ function matrix_dom_box_is_unexpected_collapse(array $element, float $width, flo
         ? (float) $sourceDimensions[$collapsedAxis]
         : null;
     $domAxis = $collapsedWidth ? $width : $height;
+    if ( null === $sourceAxis || ! is_finite($sourceAxis) || $sourceAxis < 0.0 ) {
+        return true;
+    }
 
-    // A one-axis line is expected; collapsed geometry must still agree with source evidence.
-    return $domAxis <= 1.0 && (null === $sourceAxis || abs($sourceAxis - $domAxis) > 0.5);
+    if ( abs($sourceAxis - $domAxis) <= 0.5 ) {
+        return false;
+    }
+
+    // A zero-sized source axis may round up to one visible DOM pixel.
+    return ! (0.0 === $sourceAxis && $domAxis > 0.0 && $domAxis <= 1.0);
 }
 
 /**

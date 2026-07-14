@@ -449,6 +449,13 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
                         'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 0.1, 'height' => 80)),
                     ),
                     array(
+                        'node_id' => 'vector:source-zero-dom-one',
+                        'tag' => 'svg',
+                        'boundingClientRect' => array('left' => 0, 'right' => 943, 'top' => 90, 'bottom' => 91, 'width' => 943, 'height' => 1),
+                        'visibility' => array('visible' => true),
+                        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 0)),
+                    ),
+                    array(
                         'node_id' => 'text:collapsed',
                         'tag' => 'p',
                         'boundingClientRect' => array('left' => 0, 'right' => 0, 'top' => 100, 'bottom' => 124, 'width' => 0, 'height' => 24),
@@ -473,6 +480,56 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     ), '/tmp/dom-box-collapse-classification.json');
+    $visibleVectorSourceZeroDomOne = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 0)),
+    );
+    $invisibleVectorSourceZeroDomOne = $visibleVectorSourceZeroDomOne;
+    $invisibleVectorSourceZeroDomOne['visibility']['visible'] = false;
+    $bothAxesCollapsedVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 1, 'height' => 1)),
+    );
+    $missingSourceAxisVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943)),
+    );
+    $nonNumericSourceAxisVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 'none')),
+    );
+    $sourceAxisNotCollapsedVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 2)),
+    );
+    $sourceAxisOneDomZeroVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 1)),
+    );
+    $sourceAxisFractionalDomZeroVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 0.75)),
+    );
+    $sourceAxisWithinToleranceVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => 0.75)),
+    );
+    $negativeSourceAxisVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => -0.25)),
+    );
+    $nanSourceAxisVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => NAN)),
+    );
+    $infiniteSourceAxisVector = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 943, 'height' => INF)),
+    );
+    $ordinaryContentWithCollapsedAxis = array(
+        'visibility' => array('visible' => true),
+        'source' => array('node_type' => 'TEXT', 'visual_dimensions' => array('width' => 943, 'height' => 0)),
+    );
     $invalidDomBoxQuality = matrix_analyze_dom_box_report(array(
         'schema' => 'homeboy/static-artifact-dom-boxes/v1',
         'entrypoints' => array(
@@ -661,6 +718,20 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     );
     $assert(! in_array('line:separator', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-allows-visible-one-pixel-line');
     $assert(! in_array('vector:tail', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-allows-source-faithful-subpixel-vector');
+    $assert(! in_array('vector:source-zero-dom-one', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-allows-visible-vector-source-zero-dom-one-through-analyzer');
+    $assert(! matrix_dom_box_is_unexpected_collapse($visibleVectorSourceZeroDomOne, 943, 1), 'fixture-matrix-dom-box-classification-allows-visible-vector-source-zero-dom-one');
+    $assert(matrix_dom_box_is_unexpected_collapse($invisibleVectorSourceZeroDomOne, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-invisible-vector');
+    $assert(matrix_dom_box_is_unexpected_collapse($bothAxesCollapsedVector, 1, 1), 'fixture-matrix-dom-box-classification-warns-for-both-axis-collapse');
+    $assert(matrix_dom_box_is_unexpected_collapse($missingSourceAxisVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-missing-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($nonNumericSourceAxisVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-non-numeric-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($nanSourceAxisVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-nan-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($infiniteSourceAxisVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-infinite-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($negativeSourceAxisVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-negative-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($sourceAxisNotCollapsedVector, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-non-collapsed-source-axis');
+    $assert(matrix_dom_box_is_unexpected_collapse($sourceAxisOneDomZeroVector, 943, 0), 'fixture-matrix-dom-box-classification-warns-for-source-one-dom-zero');
+    $assert(matrix_dom_box_is_unexpected_collapse($sourceAxisFractionalDomZeroVector, 943, 0), 'fixture-matrix-dom-box-classification-warns-for-source-fractional-dom-zero');
+    $assert(! matrix_dom_box_is_unexpected_collapse($sourceAxisWithinToleranceVector, 943, 1), 'fixture-matrix-dom-box-classification-allows-source-within-agreement-tolerance');
+    $assert(matrix_dom_box_is_unexpected_collapse($ordinaryContentWithCollapsedAxis, 943, 1), 'fixture-matrix-dom-box-classification-warns-for-ordinary-content');
     $assert(in_array('text:collapsed', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-collapsed-text');
     $assert(in_array('frame:collapsed', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-collapsed-container');
     $assert(in_array('vector:unexpected-collapse', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-source-mismatched-vector');
