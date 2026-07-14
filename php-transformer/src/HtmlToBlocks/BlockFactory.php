@@ -64,7 +64,9 @@ final class BlockFactory
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
 
-        if ( in_array($name, array( 'core/group', 'core/columns' ), true) ) {
+        // Paragraph save() does not reproduce dimensions.maxWidth. Inline
+        // max-width is retained by the generated geometry carrier stylesheet.
+        if ( in_array($name, array( 'core/group', 'core/columns', 'core/paragraph' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);

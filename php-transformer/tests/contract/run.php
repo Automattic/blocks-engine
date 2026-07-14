@@ -822,6 +822,61 @@ $paragraphFactoryGeneratedClassLeakBlock = ( new BlockFactory() )->create('core/
 $assert('hero-tagline' === ($paragraphFactoryGeneratedClassLeakBlock['attrs']['className'] ?? ''), 'BlockFactory strips generated classes from direct paragraph className attrs');
 $assert(str_contains((string) ($paragraphFactoryGeneratedClassLeakBlock['innerHTML'] ?? ''), '<p class="has-text-color hero-tagline" style="color:red">Slow roasted daily.</p>'), 'BlockFactory paragraph innerHTML emits a single generated color class');
 
+$fixtureParagraphByContent = static function (array $blocks, string $content) use (&$fixtureParagraphByContent): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( 'core/paragraph' === ($block['blockName'] ?? '') && str_contains((string) ($block['attrs']['content'] ?? ''), $content) ) {
+            return $block;
+        }
+        $match = $fixtureParagraphByContent(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $content);
+        if ( null !== $match ) {
+            return $match;
+        }
+    }
+
+    return null;
+};
+
+$fixtureRoot = dirname(__DIR__, 3) . '/fixtures/websites';
+foreach ( array(
+    array( '10-nonprofit', 'css/style.css', 'Harbor Steps prepares coastal communities' ),
+    array( '13-realistic-small-business', 'styles.css', 'Houseplants, handmade pots' ),
+    array( '74-lumen-coffee', 'css/styles.css', 'We source single-origin lots' ),
+) as [ $fixtureName, $stylesheetPath, $paragraphContent ] ) {
+    $fixturePath = $fixtureRoot . '/' . $fixtureName;
+    $fixtureResult = ( new HtmlTransformer() )->transform(
+        (string) file_get_contents($fixturePath . '/index.html'),
+        array( 'static_css' => (string) file_get_contents($fixturePath . '/' . $stylesheetPath) )
+    )->toArray();
+    $fixtureParagraph = $fixtureParagraphByContent($fixtureResult['blocks'] ?? array(), $paragraphContent);
+    $fixtureMarkup = (string) ($fixtureParagraph['innerHTML'] ?? '');
+
+    $assert(null !== $fixtureParagraph, $fixtureName . ' fixture serializes its hero paragraph through core/paragraph');
+    $assert(! str_contains((string) ($fixtureParagraph['attrs']['className'] ?? ''), 'has-text-color'), $fixtureName . ' fixture keeps generated text color classes out of paragraph className');
+    $assert(1 === substr_count($fixtureMarkup, 'has-text-color'), $fixtureName . ' fixture emits has-text-color exactly once in paragraph markup', $fixtureMarkup);
+    $assert('pass' === ($fixtureResult['source_reports']['wp_block_validity']['status'] ?? ''), $fixtureName . ' fixture paragraph passes the serialized block validity path');
+}
+
+$smallBusinessPath = $fixtureRoot . '/13-realistic-small-business';
+$smallBusinessResult = ( new HtmlTransformer() )->transform(
+    (string) file_get_contents($smallBusinessPath . '/index.html'),
+    array( 'static_css' => (string) file_get_contents($smallBusinessPath . '/styles.css') )
+)->toArray();
+$smallBusinessInlineGeometryParagraph = $fixtureParagraphByContent($smallBusinessResult['blocks'] ?? array(), 'Birthdays, team outings');
+$smallBusinessInlineGeometryAttrs = is_array($smallBusinessInlineGeometryParagraph['attrs'] ?? null) ? $smallBusinessInlineGeometryParagraph['attrs'] : array();
+$smallBusinessInlineGeometryMarkup = (string) ($smallBusinessInlineGeometryParagraph['innerHTML'] ?? '');
+$smallBusinessGeometryClass = (string) ($smallBusinessInlineGeometryAttrs['className'] ?? '');
+$smallBusinessAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $smallBusinessResult['assets'] ?? array()));
+
+$assert(null !== $smallBusinessInlineGeometryParagraph, '13-realistic-small-business fixture keeps the inline-width CTA copy as a paragraph');
+$assert(str_contains($smallBusinessGeometryClass, 'be-inline-geometry-'), '13-realistic-small-business fixture preserves inline max-width with a generated geometry class', $smallBusinessGeometryClass);
+$assert(! isset($smallBusinessInlineGeometryAttrs['style']['dimensions']['maxWidth']), 'paragraph comment attrs omit maxWidth that core save does not reproduce', json_encode($smallBusinessInlineGeometryAttrs));
+$assert(str_contains($smallBusinessInlineGeometryMarkup, 'style="margin-top:1rem"'), 'paragraph markup retains native margin-top support', $smallBusinessInlineGeometryMarkup);
+$assert(! str_contains($smallBusinessInlineGeometryMarkup, 'max-width:380px'), 'paragraph markup omits max-width that core save does not reproduce', $smallBusinessInlineGeometryMarkup);
+$assert(str_contains($smallBusinessAssets, '.' . preg_replace('/^.*\b(be-inline-geometry-[^\s]+).*$/', '$1', $smallBusinessGeometryClass) . '{max-width:380px !important}'), 'generated geometry stylesheet preserves paragraph max-width deterministically', $smallBusinessAssets);
+
 $paragraphSvgResult = ( new HtmlTransformer() )->transform(
     '<main><p class="social-link"><a class="social-link" href="#" aria-label="Follow"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h10v10H0z"></path></svg></a></p></main>'
 )->toArray();
