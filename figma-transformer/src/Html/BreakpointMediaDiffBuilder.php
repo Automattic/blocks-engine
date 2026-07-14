@@ -95,37 +95,30 @@ final class BreakpointMediaDiffBuilder
         }
 
         $blocks = array();
-        $prevViewportWidth = $primaryViewportWidth;
-        foreach ( $variants as $variant ) {
-            if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
-                continue;
-            }
-
-            $variantId = isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '';
-            $viewportWidth = $variant['viewport_width'] ?? null;
-            if ( '' === $variantId || ! isset($nodeMap[$variantId]) || ! is_numeric($viewportWidth) ) {
+        foreach ( $this->responsiveVariantsInCascadeOrder($variants, $primaryViewportWidth) as $responsiveVariant ) {
+            $variant = $responsiveVariant['variant'];
+            $mediaQuery = $responsiveVariant['media_query'];
+            $variantId = (string) $variant['frame_id'];
+            $viewportWidth = (float) $variant['viewport_width'];
+            if ( ! isset($nodeMap[$variantId]) ) {
                 continue;
             }
 
             $variantStyles = array();
             $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
 
-            $breakpointPx = null !== $prevViewportWidth && $prevViewportWidth > (float) $viewportWidth
-                ? (int) round(($prevViewportWidth + (float) $viewportWidth) / 2)
-                : (int) round((float) $viewportWidth);
-
             $diffRules = $this->diffRules($baseStyles, $variantStyles);
             if ( ! empty($diffRules) ) {
-                $blocks[] = $this->mediaBlock($breakpointPx, $diffRules);
+                $blocks[] = $this->mediaBlock($mediaQuery['feature'], $mediaQuery['breakpoint'], $diffRules);
             }
 
-            $safetyRules = $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth, $this->matchedBreakpointGeometryClasses($baseStyles, $variantStyles));
+            $safetyRules = $this->responsiveSafetyRules($baseStyles, $variantStyles, $viewportWidth, $this->matchedBreakpointGeometryClasses($baseStyles, $variantStyles));
             if ( ! empty($safetyRules) ) {
-                $safetyBreakpointPx = (float) $viewportWidth <= 480.0 ? (int) round((float) $viewportWidth) : $breakpointPx;
-                $blocks[] = $this->mediaBlock($safetyBreakpointPx, $safetyRules);
+                $safetyBreakpointPx = 'max-width' === $mediaQuery['feature'] && $viewportWidth <= 480.0
+                    ? (int) round($viewportWidth)
+                    : $mediaQuery['breakpoint'];
+                $blocks[] = $this->mediaBlock($mediaQuery['feature'], $safetyBreakpointPx, $safetyRules);
             }
-
-            $prevViewportWidth = (float) $viewportWidth;
         }
 
         return $blocks;
@@ -180,9 +173,9 @@ final class BreakpointMediaDiffBuilder
         $mobileRules = array_values(array_unique($mobileRules));
         $blocks = array();
         if ( $rootWidth > 1200.0 && ! empty($desktopRules) ) {
-            $blocks[] = $this->mediaBlock((int) floor($rootWidth - 1.0), $desktopRules);
+            $blocks[] = $this->mediaBlock('max-width', (int) floor($rootWidth - 1.0), $desktopRules);
         }
-        $blocks[] = $this->mediaBlock(767, ! empty($mobileRules) ? $mobileRules : $desktopRules);
+        $blocks[] = $this->mediaBlock('max-width', 767, ! empty($mobileRules) ? $mobileRules : $desktopRules);
 
         return $blocks;
     }
@@ -380,11 +373,89 @@ final class BreakpointMediaDiffBuilder
     }
 
     /**
+     * @return array{feature: string, breakpoint: int}|null
+     */
+    private function variantMediaQuery(float $primaryViewportWidth, float $variantViewportWidth): ?array
+    {
+        if ( $variantViewportWidth === $primaryViewportWidth ) {
+            return null;
+        }
+
+        $midpoint = (int) round(($primaryViewportWidth + $variantViewportWidth) / 2);
+        if ( $variantViewportWidth < $primaryViewportWidth ) {
+            return array(
+                'feature'    => 'max-width',
+                'breakpoint' => min($midpoint, (int) ceil($primaryViewportWidth) - 1),
+            );
+        }
+
+        return array(
+            'feature'    => 'min-width',
+            'breakpoint' => max($midpoint, (int) floor($primaryViewportWidth) + 1),
+        );
+    }
+
+    /**
+     * Sort same-direction ranges by cascade specificity, independently of the
+     * planner's input order. Keep the diff and safety blocks adjacent per variant.
+     *
+     * @param array<int, mixed> $variants
+     * @return array<int, array{variant: array<string, mixed>, media_query: array{feature: string, breakpoint: int}, input_index: int}>
+     */
+    private function responsiveVariantsInCascadeOrder(array $variants, ?float $primaryViewportWidth): array
+    {
+        if ( null === $primaryViewportWidth ) {
+            return array();
+        }
+
+        $responsiveVariants = array();
+        foreach ( $variants as $inputIndex => $variant ) {
+            if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
+                continue;
+            }
+
+            $variantId = isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '';
+            $viewportWidth = $variant['viewport_width'] ?? null;
+            if ( '' === $variantId || ! is_numeric($viewportWidth) ) {
+                continue;
+            }
+
+            $mediaQuery = $this->variantMediaQuery($primaryViewportWidth, (float) $viewportWidth);
+            if ( null === $mediaQuery ) {
+                continue;
+            }
+
+            $responsiveVariants[] = array(
+                'variant'     => $variant,
+                'media_query' => $mediaQuery,
+                'input_index' => (int) $inputIndex,
+            );
+        }
+
+        usort($responsiveVariants, static function (array $left, array $right): int {
+            $leftQuery = $left['media_query'];
+            $rightQuery = $right['media_query'];
+            if ( $leftQuery['feature'] !== $rightQuery['feature'] ) {
+                return 'max-width' === $leftQuery['feature'] ? -1 : 1;
+            }
+
+            $comparison = $leftQuery['breakpoint'] <=> $rightQuery['breakpoint'];
+            if ( 'max-width' === $leftQuery['feature'] ) {
+                $comparison *= -1;
+            }
+
+            return 0 !== $comparison ? $comparison : $left['input_index'] <=> $right['input_index'];
+        });
+
+        return $responsiveVariants;
+    }
+
+    /**
      * @param array<int, string> $rules
      */
-    private function mediaBlock(int $breakpointPx, array $rules): string
+    private function mediaBlock(string $feature, int $breakpointPx, array $rules): string
     {
-        return '@media (max-width:' . ($this->number)((float) $breakpointPx) . 'px){'
+        return '@media (' . $feature . ':' . ($this->number)((float) $breakpointPx) . 'px){'
             . "\n" . implode("\n", $rules) . "\n}";
     }
 
@@ -460,6 +531,7 @@ final class BreakpointMediaDiffBuilder
             $changed = array();
             $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
             $preserveFullBleedBreakout = $this->usesFullBleedViewportBreakout($baseMap);
+            $releasesFullBleedToFlow = $preserveFullBleedBreakout && $this->responsiveDeclarationsConvertAbsoluteToFlow($baseMap, $variantDeclarations);
             $baseNode = is_array($base['node'] ?? null) ? $base['node'] : array();
             $variantNode = is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : array();
             $baseParentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
@@ -480,7 +552,7 @@ final class BreakpointMediaDiffBuilder
                 if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
                     continue;
                 }
-                if ( $preserveFullBleedBreakout && in_array($property, array('width', 'left', 'right', 'margin-left'), true) ) {
+                if ( $preserveFullBleedBreakout && ! $releasesFullBleedToFlow && in_array($property, array('width', 'left', 'right', 'margin-left', 'margin-right'), true) ) {
                     continue;
                 }
                 if ( 'height' === $property && $this->shouldUseResponsiveAutoHeight($value, $baseMap, $baseNode, $variantNode, $variantParentNode) ) {
@@ -512,6 +584,15 @@ final class BreakpointMediaDiffBuilder
                 }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
                     $changed[] = $property . ':' . $value;
+                }
+            }
+
+            if ( $releasesFullBleedToFlow ) {
+                foreach ( array('left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'margin-left:0', 'margin-right:0') as $declaration ) {
+                    [$property, $value] = explode(':', $declaration, 2);
+                    if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                        $changed[] = $declaration;
+                    }
                 }
             }
 
