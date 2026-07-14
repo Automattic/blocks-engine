@@ -680,6 +680,8 @@ final class FigmaTransformer
             $pageOptions['frame_id'] = $frameId;
             $pageOptions['layout_mismatch_options'] = is_array($pageOptions['layout_mismatch_options'] ?? null) ? $pageOptions['layout_mismatch_options'] : array();
             $pageOptions['layout_mismatch_options']['page_path'] = $path;
+            $pageOptions['layout_mismatch_options']['source_frame_id'] = $frameId;
+            $pageOptions['layout_mismatch_options']['source_frame_width'] = $page['width'] ?? null;
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
             $pageOptions['static_site_page_path'] = $path;
@@ -788,6 +790,7 @@ final class FigmaTransformer
                 'path'       => $path,
                 'entrypoint' => true === ($page['entrypoint'] ?? false),
                 'page_type'  => $pageType,
+                'source_frame_identity' => is_array($page['source_frame_identity'] ?? null) ? $page['source_frame_identity'] : array(),
                 'canonical_template_path' => $emitTemplateAliases ? ($this->canonicalTemplatePath($pageType) ?: null) : null,
                 'template_aliases' => ($emitTemplateAliases && '' !== $this->canonicalTemplatePath($pageType) && $this->canonicalTemplatePath($pageType) !== $path) ? array($this->canonicalTemplatePath($pageType)) : array(),
                 'node_count' => (int) ($pageResult['metrics']['node_count'] ?? 0),
@@ -1288,6 +1291,9 @@ final class FigmaTransformer
         if ( $count > 0 ) {
             $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => $count);
         }
+        if ( 'not_comparable' === ($layoutMismatch['status'] ?? null) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch_not_comparable');
+        }
         $artifactQuality['signals'] = $signals;
         $summary = is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array();
         $summary['layout_mismatch_count'] = $count;
@@ -1296,7 +1302,7 @@ final class FigmaTransformer
         $summary['element_size_mismatch_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_size_mismatch'] ?? 0);
         $summary['element_outside_parent_bounds_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_outside_parent_bounds'] ?? 0);
         $artifactQuality['summary'] = $summary;
-        if ( $count > 0 ) {
+        if ( $count > 0 || 'not_comparable' === ($layoutMismatch['status'] ?? null) ) {
             $artifactQuality['status'] = 'needs_review';
             $artifactQuality['quality_status'] = 'warn';
         }
@@ -1661,7 +1667,10 @@ final class FigmaTransformer
             $pageLayoutMismatchDiagnostics = is_array($pageLayoutMismatch['diagnostics'] ?? null) ? $pageLayoutMismatch['diagnostics'] : array();
             $layout['layout_mismatch_count'] += (int) ($pageLayoutMismatch['summary']['diagnostic_count'] ?? count($pageLayoutMismatchDiagnostics));
             if ( ! empty($pageLayoutMismatch) ) {
-                $layout['layout_mismatch_status'] = 'fail' === ($pageLayoutMismatch['status'] ?? null) ? 'fail' : ('not_evaluated' === $layout['layout_mismatch_status'] ? (string) ($pageLayoutMismatch['status'] ?? 'not_run') : $layout['layout_mismatch_status']);
+                $pageLayoutMismatchStatus = (string) ($pageLayoutMismatch['status'] ?? 'not_run');
+                if ( 'fail' === $pageLayoutMismatchStatus || ( 'not_comparable' === $pageLayoutMismatchStatus && 'fail' !== $layout['layout_mismatch_status'] ) || 'not_evaluated' === $layout['layout_mismatch_status'] ) {
+                    $layout['layout_mismatch_status'] = $pageLayoutMismatchStatus;
+                }
             }
             foreach ( $pageLayoutMismatchDiagnostics as $item ) {
                 if ( is_array($item) ) {
@@ -1884,6 +1893,9 @@ final class FigmaTransformer
         }
         if ( ! empty($layout['layout_mismatch_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => (int) $layout['layout_mismatch_count']);
+        }
+        if ( 'not_comparable' === ($layout['layout_mismatch_status'] ?? null) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch_not_comparable');
         }
         if ( ! empty($layout['render_style_mismatch_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => (int) $layout['render_style_mismatch_count']);

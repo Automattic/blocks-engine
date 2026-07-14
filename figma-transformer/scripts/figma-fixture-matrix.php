@@ -211,12 +211,14 @@ foreach ( $fixtures as $fixture ) {
     if ( 0 === $exitCode && $captureDomBoxes ) {
         $domBoxesPath = $fixtureOutputDir . '/dom-boxes.json';
         $entrypoints = matrix_html_entrypoints($fixtureOutputDir);
-        $captureCommand = matrix_dom_box_capture_command($homeboyCommand, $domBoxProviderCommand, $fixtureOutputDir, $entrypoints, $domBoxesPath);
+        $captureTargets = matrix_dom_box_capture_targets($resultPath, $entrypoints);
+        $captureCommand = matrix_dom_box_capture_command($homeboyCommand, $domBoxProviderCommand, $fixtureOutputDir, $entrypoints, $domBoxesPath, $captureTargets);
         $record['dom_box_capture'] = array(
             'status' => empty($entrypoints) ? 'no_html_entrypoints' : 'running',
             'command' => $captureCommand,
             'report_path' => $domBoxesPath,
             'entrypoints' => $entrypoints,
+            'targets' => $captureTargets,
         );
         if ( ! empty($entrypoints) ) {
             passthru($captureCommand, $captureExitCode);
@@ -227,6 +229,7 @@ foreach ( $fixtures as $fixture ) {
                 $record['status'] = 'dom_box_capture_failed';
             }
             if ( 0 === $captureExitCode && is_file($domBoxesPath) ) {
+                matrix_annotate_dom_box_capture($domBoxesPath, $captureTargets);
                 $domBoxQualityPath = $fixtureOutputDir . '/dom-box-quality.json';
                 $domBoxQuality = matrix_dom_box_quality_report($domBoxesPath);
                 if ( is_array($domBoxQuality) ) {
@@ -927,7 +930,7 @@ function matrix_html_entrypoints(string $root): array
 /**
  * @param array<int, string> $entrypoints
  */
-function matrix_dom_box_capture_command(string $homeboyCommand, string $domBoxProviderCommand, string $root, array $entrypoints, string $reportPath): string
+function matrix_dom_box_capture_command(string $homeboyCommand, string $domBoxProviderCommand, string $root, array $entrypoints, string $reportPath, array $captureTargets = array()): string
 {
     $parts = array(
         escapeshellarg($homeboyCommand),
@@ -947,7 +950,117 @@ function matrix_dom_box_capture_command(string $homeboyCommand, string $domBoxPr
         return $command;
     }
 
-    return 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg($domBoxProviderCommand) . ' ' . $command;
+    $environment = 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg($domBoxProviderCommand);
+    if ( ! empty($captureTargets) ) {
+        $environment .= ' HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON=' . escapeshellarg((string) json_encode($captureTargets, JSON_UNESCAPED_SLASHES));
+    }
+
+    return $environment . ' ' . $command;
+}
+
+/**
+ * Build one native source-layout capture and retain responsive variants as
+ * separately labeled evidence for each emitted page.
+ *
+ * @param array<int, string> $entrypoints
+ * @return array<int, array<string, mixed>>
+ */
+function matrix_dom_box_capture_targets(string $resultPath, array $entrypoints): array
+{
+    if ( ! is_file($resultPath) ) {
+        return array();
+    }
+    $result = json_decode((string) file_get_contents($resultPath), true);
+    if ( ! is_array($result) ) {
+        return array();
+    }
+
+    $pagePlan = $result['source_reports']['figma']['pages']['pages'] ?? array();
+    $htmlPages = $result['source_reports']['figma']['html']['pages'] ?? array();
+    $planByFrame = array();
+    foreach ( is_array($pagePlan) ? $pagePlan : array() as $page ) {
+        if ( is_array($page) && isset($page['frame_id']) && is_scalar($page['frame_id']) ) {
+            $planByFrame[(string) $page['frame_id']] = $page;
+        }
+    }
+
+    $entrypointSet = array_fill_keys(array_map(static fn (string $path): string => ltrim($path, '/'), $entrypoints), true);
+    $targets = array();
+    foreach ( is_array($htmlPages) ? $htmlPages : array() as $htmlPage ) {
+        if ( ! is_array($htmlPage) ) {
+            continue;
+        }
+        $frameId = isset($htmlPage['frame_id']) && is_scalar($htmlPage['frame_id']) ? (string) $htmlPage['frame_id'] : '';
+        $page = $planByFrame[$frameId] ?? array();
+        $paths = array_merge(array((string) ($htmlPage['path'] ?? '')), is_array($htmlPage['template_aliases'] ?? null) ? $htmlPage['template_aliases'] : array());
+        $variants = is_array($page['variants'] ?? null) && ! empty($page['variants'])
+            ? $page['variants']
+            : array(array('frame_id' => $frameId, 'viewport_width' => $page['width'] ?? null, 'primary' => true));
+
+        foreach ( $paths as $path ) {
+            $path = ltrim((string) $path, '/');
+            if ( '' === $path || ! isset($entrypointSet[$path]) ) {
+                continue;
+            }
+            foreach ( $variants as $variant ) {
+                if ( ! is_array($variant) || ! is_numeric($variant['viewport_width'] ?? null) || (float) $variant['viewport_width'] <= 0 ) {
+                    continue;
+                }
+                $primary = true === ($variant['primary'] ?? false) || (string) ($variant['frame_id'] ?? '') === $frameId;
+                $width = max(1, (int) round((float) $variant['viewport_width']));
+                $targets[] = array(
+                    'page_path' => $path,
+                    'viewport' => array('width' => $width, 'height' => 900),
+                    'source_frame' => array('id' => (string) ($variant['frame_id'] ?? $frameId), 'width' => $width),
+                    'comparison_role' => $primary ? 'source_layout' : 'responsive_evidence',
+                );
+            }
+        }
+    }
+
+    return $targets;
+}
+
+/**
+ * Homeboy normalizes provider output to its stable DOM-box schema. Reattach the
+ * matrix-owned source relationship to that normalized evidence by path/viewport.
+ *
+ * @param array<int, array<string, mixed>> $captureTargets
+ */
+function matrix_annotate_dom_box_capture(string $reportPath, array $captureTargets): void
+{
+    if ( empty($captureTargets) || ! is_file($reportPath) ) {
+        return;
+    }
+    $report = json_decode((string) file_get_contents($reportPath), true);
+    if ( ! is_array($report) || ! is_array($report['entrypoints'] ?? null) ) {
+        return;
+    }
+
+    $usedTargets = array();
+    foreach ( $report['entrypoints'] as $index => $entrypoint ) {
+        if ( ! is_array($entrypoint) ) {
+            continue;
+        }
+        $pagePath = ltrim((string) ($entrypoint['page_path'] ?? ''), '/');
+        $viewportWidth = is_numeric($entrypoint['viewport']['width'] ?? null) ? (int) round((float) $entrypoint['viewport']['width']) : null;
+        foreach ( $captureTargets as $targetIndex => $target ) {
+            if ( isset($usedTargets[$targetIndex]) || ! is_array($target) ) {
+                continue;
+            }
+            $targetPath = ltrim((string) ($target['page_path'] ?? ''), '/');
+            $targetWidth = is_numeric($target['viewport']['width'] ?? null) ? (int) round((float) $target['viewport']['width']) : null;
+            if ( $pagePath !== $targetPath || $viewportWidth !== $targetWidth ) {
+                continue;
+            }
+            $report['entrypoints'][$index]['source_frame'] = is_array($target['source_frame'] ?? null) ? $target['source_frame'] : array();
+            $report['entrypoints'][$index]['comparison_role'] = (string) ($target['comparison_role'] ?? 'responsive_evidence');
+            $usedTargets[$targetIndex] = true;
+            break;
+        }
+    }
+    $report['capture_targets'] = $captureTargets;
+    file_put_contents($reportPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 }
 
 function matrix_slug(string $value): string

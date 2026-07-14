@@ -1913,6 +1913,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
     $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['selected_frame_id'] ?? null), 'page-plan-source-frame-identity-selected-frame');
     $assert('frame:home-desktop' === ($responsiveHomePage['source_frame_identity']['primary_frame_id'] ?? null), 'page-plan-source-frame-identity-primary-frame');
+    $assert(1440.0 === ($responsiveHomePage['source_frame_identity']['width'] ?? null), 'page-plan-source-frame-identity-width');
     $assert(array('frame:home-tablet', 'frame:home-mobile') === ($responsiveHomePage['source_frame_identity']['variant_sibling_frame_ids'] ?? null), 'page-plan-source-frame-identity-variant-siblings');
     // A responsive page's slug reflects the PAGE, not its widest variant: the
     // breakpoint token ("Desktop") is stripped so desktop+mobile collapse to one
