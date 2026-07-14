@@ -6297,8 +6297,18 @@ final class StaticHtmlEmitter
                 }
             }
             if ( 'HUG' === $sizing ) {
-                $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
-                if ( null !== $derivedTextSize ) {
+                $derivedTextSizeDecision = 'TEXT' === $type ? $this->derivedTextLayoutSizeDecision($node, $dimension) : null;
+                if ( null !== $derivedTextSizeDecision ) {
+                    $derivedTextSize = $derivedTextSizeDecision['size'];
+                    if ( 'source_box' === $derivedTextSizeDecision['authority'] ) {
+                        $this->recordDecisionTrace('layout_geometry', 'derived_hug_text_size_conflicts_with_source_box', $node, 'emit_source_box_size', $parentNode, array(
+                            'dimension' => $dimension,
+                            'source_box' => $this->visualGeometryResolver()->nodeSourceBoxEvidence($node),
+                            'derived_text_layout_size' => $derivedTextSizeDecision['derived_size'],
+                            'agreement_tolerance' => $derivedTextSizeDecision['agreement_tolerance'],
+                            'emitted_css_box' => array($dimension => $derivedTextSize),
+                        ));
+                    }
                     if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
                         continue;
                     }
@@ -6994,6 +7004,37 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * Chooses the authority for a HUG text dimension while preserving the
+     * derived layout measurement as diagnostic evidence.
+     *
+     * @param array<string, mixed> $node
+     * @return array{size: float, authority: string, derived_size: float, agreement_tolerance: float}|null
+     */
+    private function derivedTextLayoutSizeDecision(array $node, string $dimension): ?array
+    {
+        $derivedSize = $this->derivedTextLayoutSize($node, $dimension);
+        if ( null === $derivedSize ) {
+            return null;
+        }
+
+        $agreementTolerance = 0.5;
+        $sourceBox = $this->visualGeometryResolver()->nodeSourceBoxEvidence($node);
+        $sourceSize = isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) && is_finite((float) $sourceBox[$dimension])
+            ? (float) $sourceBox[$dimension]
+            : null;
+        $sourceIsAuthoritative = 'height' === $dimension
+            && null !== $sourceSize
+            && abs($derivedSize - $sourceSize) > $agreementTolerance;
+
+        return array(
+            'size' => $sourceIsAuthoritative ? $sourceSize : $derivedSize,
+            'authority' => $sourceIsAuthoritative ? 'source_box' : 'derived_layout',
+            'derived_size' => $derivedSize,
+            'agreement_tolerance' => $agreementTolerance,
+        );
     }
 
     /**
