@@ -72,6 +72,7 @@ async function main() {
   const textSampleLimit = parseTextSampleLimit(process.env.HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT ?? '160');
   const nodeIdAttr = resolveNodeIdAttr(cli);
   const nodeNameAttrs = resolveNodeNameAttrs(cli);
+  const captureTargets = parseCaptureTargets(process.env.HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON);
   const { chromium } = await loadPlaywright();
 
   let browser;
@@ -81,23 +82,27 @@ async function main() {
     throw withPlaywrightSetupHelp(error);
   }
   try {
-    const context = await browser.newContext({
-      viewport: { width: DEFAULT_VIEWPORT.width, height: DEFAULT_VIEWPORT.height },
-      deviceScaleFactor: DEFAULT_VIEWPORT.device_scale_factor,
-    });
+    const context = await browser.newContext({ deviceScaleFactor: DEFAULT_VIEWPORT.device_scale_factor });
     const entrypoints = [];
 
     for (const pagePath of pagePaths) {
-      const page = await context.newPage();
-      const pageUrl = `${baseUrl}${String(pagePath).startsWith('/') ? pagePath : `/${pagePath}`}`;
-      await page.goto(pageUrl, { waitUntil: 'load' });
-      entrypoints.push({
-        page_path: pagePath,
-        page_url: page.url(),
-        viewport: DEFAULT_VIEWPORT,
-        ...(await extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs)),
-      });
-      await page.close();
+      const targets = targetsForPage(captureTargets, pagePath);
+      for (const target of targets) {
+        const viewport = target.viewport ?? DEFAULT_VIEWPORT;
+        const page = await context.newPage();
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        const pageUrl = `${baseUrl}${String(pagePath).startsWith('/') ? pagePath : `/${pagePath}`}`;
+        await page.goto(pageUrl, { waitUntil: 'load' });
+        entrypoints.push({
+          page_path: pagePath,
+          page_url: page.url(),
+          viewport: { ...viewport, device_scale_factor: DEFAULT_VIEWPORT.device_scale_factor },
+          ...(target.source_frame ? { source_frame: target.source_frame } : {}),
+          ...(target.comparison_role ? { comparison_role: target.comparison_role } : {}),
+          ...(await extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs)),
+        });
+        await page.close();
+      }
     }
 
     process.stdout.write(`${JSON.stringify({ entrypoints }, null, 2)}\n`);
@@ -227,8 +232,37 @@ function resolveNodeNameAttrs(cli) {
   return names;
 }
 
+function parseCaptureTargets(raw) {
+  if (raw === undefined || raw === '') {
+    return [];
+  }
+  let targets;
+  try {
+    targets = JSON.parse(raw);
+  } catch {
+    throw new Error('HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON must be valid JSON.');
+  }
+  if (!Array.isArray(targets)) {
+    throw new Error('HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON must be a JSON array.');
+  }
+  return targets.map((target) => {
+    const width = Number(target?.viewport?.width);
+    const height = Number(target?.viewport?.height ?? DEFAULT_VIEWPORT.height);
+    if (typeof target?.page_path !== 'string' || !Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+      throw new Error('Each DOM capture target requires page_path and positive integer viewport width/height.');
+    }
+    return { ...target, viewport: { width, height } };
+  });
+}
+
+function targetsForPage(targets, pagePath) {
+  const normalizedPath = String(pagePath).replace(/^\/+/, '');
+  const matches = targets.filter((target) => String(target.page_path).replace(/^\/+/, '') === normalizedPath);
+  return matches.length > 0 ? matches : [{}];
+}
+
 function printHelp() {
-  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n  --preflight                          Verify Playwright and Chromium are installed, then exit.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
+  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n  HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON Optional page/source-frame viewport capture targets.\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n  --preflight                          Verify Playwright and Chromium are installed, then exit.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
 }
 
 async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {

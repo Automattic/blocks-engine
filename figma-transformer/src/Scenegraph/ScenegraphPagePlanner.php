@@ -877,6 +877,8 @@ final class ScenegraphPagePlanner
             'slug'                     => $slug,
             'entrypoint'               => $entrypoint,
             'device_hint'              => (string) ($detectionById[$primaryId]['device_hint'] ?? 'unknown'),
+            'width'                    => $candidate['dimensions']['width'] ?? null,
+            'height'                   => $candidate['dimensions']['height'] ?? null,
             'role'                     => (string) ($classification['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE),
             'page_type'                => (string) ($classification['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN),
         );

@@ -1426,6 +1426,34 @@ $layoutNotEvaluatedQuality = $layoutNotEvaluatedResult['source_reports']['figma'
 $assert(0 === ($layoutNotEvaluatedQuality['layout_mismatch_count'] ?? null), 'layout-not-evaluated-count-zero');
 $assert('not_evaluated' === ($layoutNotEvaluatedQuality['layout_mismatch_status'] ?? null), 'layout-not-evaluated-status');
 
+$layoutNotComparableResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Layout Not Comparable Fixture',
+    'nodes' => array(
+        array('id' => 'layout:not-comparable', 'type' => 'FRAME', 'name' => 'Simple Page', 'width' => 1200, 'height' => 320),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => 'index.html',
+                'viewport' => array('width' => 960, 'height' => 900),
+                'source_frame' => array('id' => 'layout:mobile', 'width' => 960),
+                'comparison_role' => 'responsive_evidence',
+                'elements' => array(array('node_id' => 'layout:not-comparable', 'rect' => array('x' => 0, 'y' => 0, 'width' => 960, 'height' => 320))),
+            ),
+        ),
+    ),
+    'layout_mismatch_options' => array('source_frame_id' => 'layout:not-comparable', 'source_frame_width' => 1200),
+));
+$layoutNotComparableDiagnostics = $layoutNotComparableResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$layoutNotComparableQuality = $layoutNotComparableDiagnostics['artifact_quality'] ?? array();
+$layoutNotComparableCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $layoutNotComparableQuality['signals'] ?? array());
+$assert('not_comparable' === ($layoutNotComparableDiagnostics['layout']['layout_mismatch_status'] ?? null), 'layout-not-comparable-status');
+$assert('needs_review' === ($layoutNotComparableQuality['status'] ?? null), 'layout-not-comparable-quality-needs-review');
+$assert('warn' === ($layoutNotComparableQuality['quality_status'] ?? null), 'layout-not-comparable-quality-warn');
+$assert(in_array('layout_mismatch_not_comparable', $layoutNotComparableCodes, true), 'layout-not-comparable-quality-signal');
+
 blocks_engine_figma_transformer_run_site_generation_planning_contract($assert, $fileContent, $externalizedVectorPath);
 
 blocks_engine_figma_transformer_run_text_layout_contract($assert, $fileContent, $quadraticCommandBlob);

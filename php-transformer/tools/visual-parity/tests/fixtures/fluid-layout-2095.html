@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .band { width: 100%; padding: 48px max(32px, 8vw); background: #eef2f5; }
+    .columns { display: grid; grid-template-columns: 2fr 1fr; gap: 48px; }
+    .column { min-height: 180px; background: #fff; }
+    @media (max-width: 1600px) {
+      .columns { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="band" data-figma-node-id="fluid:band" data-figma-node-name="Fluid band">
+    <div class="columns" data-figma-node-id="fluid:columns" data-figma-node-name="Two columns">
+      <section class="column" data-figma-node-id="fluid:primary" data-figma-node-name="Primary column"></section>
+      <aside class="column" data-figma-node-id="fluid:secondary" data-figma-node-name="Secondary column"></aside>
+    </div>
+  </main>
+</body>
+</html>
