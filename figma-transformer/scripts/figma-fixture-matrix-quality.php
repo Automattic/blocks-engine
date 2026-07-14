@@ -392,7 +392,7 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
             $findings[] = matrix_dom_box_finding('dom_viewport_width_leak', $node, array('width' => $width, 'right' => $right, 'viewport_width' => $viewportWidth));
         }
 
-        if ( $width <= 1.0 || $height <= 1.0 ) {
+        if ( matrix_dom_box_is_unexpected_collapse($element, $width, $height) ) {
             $summary['dom_collapsed_box_count']++;
             $findings[] = matrix_dom_box_finding('dom_collapsed_box', $node, array('width' => $width, 'height' => $height));
         }
@@ -483,15 +483,60 @@ function matrix_dom_box_number(array $values, string $key, float $fallback): flo
 
 /**
  * @param array<string, mixed> $element
+ */
+function matrix_dom_box_is_unexpected_collapse(array $element, float $width, float $height): bool
+{
+    $collapsedWidth = $width <= 1.0;
+    $collapsedHeight = $height <= 1.0;
+    if ( ! $collapsedWidth && ! $collapsedHeight ) {
+        return false;
+    }
+
+    $source = is_array($element['source'] ?? null) ? $element['source'] : array();
+    $sourceType = isset($source['node_type']) && is_scalar($source['node_type']) ? strtoupper(trim((string) $source['node_type'])) : '';
+    $isVisibleGeometry = in_array($sourceType, array('LINE', 'VECTOR'), true)
+        && true === ($element['visibility']['visible'] ?? null);
+    if ( ! $isVisibleGeometry || $collapsedWidth === $collapsedHeight ) {
+        return true;
+    }
+
+    $orthogonalDimension = $collapsedWidth ? $height : $width;
+    if ( $orthogonalDimension <= 1.0 ) {
+        return true;
+    }
+
+    $sourceDimensions = is_array($source['visual_dimensions'] ?? null) ? $source['visual_dimensions'] : array();
+    $collapsedAxis = $collapsedWidth ? 'width' : 'height';
+    $sourceAxis = isset($sourceDimensions[$collapsedAxis]) && is_numeric($sourceDimensions[$collapsedAxis])
+        ? (float) $sourceDimensions[$collapsedAxis]
+        : null;
+    $domAxis = $collapsedWidth ? $width : $height;
+    if ( null === $sourceAxis || ! is_finite($sourceAxis) || $sourceAxis < 0.0 ) {
+        return true;
+    }
+
+    if ( abs($sourceAxis - $domAxis) <= 0.5 ) {
+        return false;
+    }
+
+    // A zero-sized source axis may round up to one visible DOM pixel.
+    return ! (0.0 === $sourceAxis && $domAxis > 0.0 && $domAxis <= 1.0);
+}
+
+/**
+ * @param array<string, mixed> $element
  * @return array<string, mixed>
  */
 function matrix_dom_box_node_summary(array $element): array
 {
+    $source = is_array($element['source'] ?? null) ? $element['source'] : array();
     return array_filter(array(
         'id' => isset($element['node_id']) && is_scalar($element['node_id']) ? (string) $element['node_id'] : null,
         'name' => isset($element['node_name']) && is_scalar($element['node_name']) ? (string) $element['node_name'] : null,
         'selector' => isset($element['selector']) && is_scalar($element['selector']) ? (string) $element['selector'] : null,
         'tag' => isset($element['tag']) && is_scalar($element['tag']) ? (string) $element['tag'] : null,
+        'source_node_type' => isset($source['node_type']) && is_scalar($source['node_type']) ? (string) $source['node_type'] : null,
+        'source_visual_dimensions' => is_array($source['visual_dimensions'] ?? null) ? $source['visual_dimensions'] : null,
     ), static fn (mixed $value): bool => null !== $value && '' !== $value);
 }
 

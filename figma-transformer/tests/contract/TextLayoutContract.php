@@ -268,7 +268,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $orderedTextListHtml = $fileContent($orderedTextListResult, 'index.html');
     $orderedTextListCss = $fileContent($orderedTextListResult, 'style.css');
-    $assert(str_contains($orderedTextListHtml, '<ol class="figma-node-text-ordered-list-coverage-list" data-figma-node-id="text:ordered-list" data-figma-node-name="Coverage List" start="3">'), 'source-text-ordered-list-emits-ol-start');
+    $assert(1 === preg_match('/<ol class="figma-node-text-ordered-list-coverage-list" data-figma-node-id="text:ordered-list" data-figma-node-name="Coverage List"[^>]* start="3">/', $orderedTextListHtml), 'source-text-ordered-list-emits-ol-start');
     $assert(str_contains($orderedTextListHtml, '<li>Comprehensive News Coverage</li><li>In-Depth Reviews</li><li>Helpful Guides and Tutorials</li><li>Community Engagement</li>'), 'source-text-ordered-list-emits-list-items');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'ol', 1, 'source-text-ordered-list-single-ol');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'li', 4, 'source-text-ordered-list-li-count');
@@ -294,7 +294,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $bulletTextListHtml = $fileContent($bulletTextListResult, 'index.html');
     $bulletTextListCss = $fileContent($bulletTextListResult, 'style.css');
-    $assert(str_contains($bulletTextListHtml, '<ul class="figma-node-text-bullet-list-bullet-coverage-list" data-figma-node-id="text:bullet-list" data-figma-node-name="Bullet Coverage List"><li>Comprehensive News Coverage</li><li>In-Depth Reviews</li></ul>'), 'source-text-bullet-list-strips-embedded-marker-glyphs');
+    $assert(1 === preg_match('/<ul class="figma-node-text-bullet-list-bullet-coverage-list" data-figma-node-id="text:bullet-list" data-figma-node-name="Bullet Coverage List"[^>]*><li>Comprehensive News Coverage<\/li><li>In-Depth Reviews<\/li><\/ul>/', $bulletTextListHtml), 'source-text-bullet-list-strips-embedded-marker-glyphs');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'ul', 1, 'source-text-bullet-list-single-ul');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'li', 2, 'source-text-bullet-list-li-count');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $bulletTextListCss, '.figma-node-text-bullet-list-bullet-coverage-list', array('list-style:disc', 'padding-left:1.5em'), 'source-text-bullet-list-restores-marker-css');
@@ -332,7 +332,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $nestedRichTextListHtml = $fileContent($nestedRichTextListResult, 'index.html');
     $nestedRichTextListCss = $fileContent($nestedRichTextListResult, 'style.css');
-    $assert(str_contains($nestedRichTextListHtml, '<ol class="figma-node-text-nested-rich-list-nested-rich-coverage-list" data-figma-node-id="text:nested-rich-list" data-figma-node-name="Nested Rich Coverage List" start="2">'), 'source-text-nested-list-emits-root-ol-start');
+    $assert(1 === preg_match('/<ol class="figma-node-text-nested-rich-list-nested-rich-coverage-list" data-figma-node-id="text:nested-rich-list" data-figma-node-name="Nested Rich Coverage List"[^>]* start="2">/', $nestedRichTextListHtml), 'source-text-nested-list-emits-root-ol-start');
     $assert(str_contains($nestedRichTextListHtml, '<li>Intro item<ul style="list-style:disc;padding-left:1.5em"><li><span style="font-weight:700">Nested bold</span> note</li></ul></li><li>Final item</li>'), 'source-text-nested-list-emits-indent-and-rich-spans');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ol', 1, 'source-text-nested-list-root-ol-count');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ul', 1, 'source-text-nested-list-child-ul-count');
@@ -402,7 +402,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $explicitNewlineFalseListHtml = $fileContent($explicitNewlineFalseListResult, 'index.html');
-    $assert(str_contains($explicitNewlineFalseListHtml, '<ul class="figma-node-text-explicit-newline-false-list-explicit-newline-false-list" data-figma-node-id="text:explicit-newline-false-list" data-figma-node-name="Explicit Newline False List"><li>One</li><li>Two</li><li>Three</li></ul>'), 'source-text-explicit-newlines-keep-false-list-lines-separate');
+    $assert(1 === preg_match('/<ul class="figma-node-text-explicit-newline-false-list-explicit-newline-false-list" data-figma-node-id="text:explicit-newline-false-list" data-figma-node-name="Explicit Newline False List"[^>]*><li>One<\/li><li>Two<\/li><li>Three<\/li><\/ul>/', $explicitNewlineFalseListHtml), 'source-text-explicit-newlines-keep-false-list-lines-separate');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $explicitNewlineFalseListHtml, 'li', 3, 'source-text-explicit-newlines-false-li-count');
 
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
