@@ -3806,7 +3806,7 @@ $componentPlaceholderTextResult = blocks_engine_figma_transformer_transform_scen
     ),
 ), array('frame_id' => 'instance:placeholder-button'));
 $componentPlaceholderTextHtml = $fileContent($componentPlaceholderTextResult, 'index.html');
-$assert(str_contains($componentPlaceholderTextHtml, 'data-figma-node-id="instance:placeholder-button/component:placeholder-button-label" data-figma-node-name="Button label"></span>'), 'component-placeholder-button-label-hidden');
+$assert(1 === preg_match('/data-figma-node-id="instance:placeholder-button\/component:placeholder-button-label" data-figma-node-name="Button label"[^>]*><\/span>/', $componentPlaceholderTextHtml), 'component-placeholder-button-label-hidden');
 
 $unresolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Unresolved Component Instance Fixture',

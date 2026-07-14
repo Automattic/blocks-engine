@@ -58,7 +58,7 @@ await writeFile(domFixture, `<!doctype html><html><head><style>
     width: 120px;
     height: 24px;
   }
-</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
+</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero" data-source-node-type="FRAME" data-source-visual-width="120" data-source-visual-height="24">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
 await writeFile(domFixtureGeneric, `<!doctype html><html><head><style>
   body { margin: 0; }
   .hero { color: rgb(12, 34, 56); font-size: 20px; width: 120px; height: 24px; }
@@ -95,6 +95,9 @@ try {
   assert(domReport.entrypoints[0].stylesheet_status.body_margin === '0px', 'DOM provider captures body margin reset status');
   assert(domReport.entrypoints[0].elements[0].node_id === '12:34', 'DOM provider captures node id');
   assert(domReport.entrypoints[0].elements[0].node_name === 'Hero', 'DOM provider captures node name');
+  assert(domReport.entrypoints[0].elements[0].source.node_type === 'FRAME', 'DOM provider preserves source node type');
+  assert(domReport.entrypoints[0].elements[0].source.visual_dimensions.width === 120, 'DOM provider preserves source visual width');
+  assert(domReport.entrypoints[0].elements[0].source.visual_dimensions.height === 24, 'DOM provider preserves source visual height');
   assert(domReport.entrypoints[0].elements[0].selector === 'main[data-figma-node-id="12:34"]', 'DOM provider keys selector off default figma attribute');
   assert(domReport.entrypoints[0].elements[0].text_sample === 'Hello world', 'DOM provider captures text sample');
   assert(domReport.entrypoints[0].elements[0].page_path === '/dom-box.html', 'DOM provider adds page path to elements');

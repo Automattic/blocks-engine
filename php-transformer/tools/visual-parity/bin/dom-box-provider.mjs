@@ -4,6 +4,9 @@ const DEFAULT_VIEWPORT = { width: 1440, height: 900, device_scale_factor: 1 };
 const DEFAULT_NODE_ID_ATTR = 'data-figma-node-id';
 const DEFAULT_NODE_NAME_ATTRS = ['data-figma-node-name', 'data-figma-name'];
 const STATIC_ARTIFACT_CAPTURE_IGNORE_ATTR = 'data-static-artifact-capture';
+const SOURCE_NODE_TYPE_ATTR = 'data-source-node-type';
+const SOURCE_VISUAL_WIDTH_ATTR = 'data-source-visual-width';
+const SOURCE_VISUAL_HEIGHT_ATTR = 'data-source-visual-height';
 const ATTRIBUTE_NAME_PATTERN = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 const PLAYWRIGHT_SETUP_HELP = 'Install DOM capture dependencies with: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers';
 const COMPUTED_STYLE_PROPERTIES = [
@@ -232,7 +235,7 @@ function printHelp() {
 }
 
 async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {
-  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties, nodeIdAttr: idAttr, nodeNameAttrs: nameAttrs, staticArtifactCaptureIgnoreAttr }) => {
+  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties, nodeIdAttr: idAttr, nodeNameAttrs: nameAttrs, staticArtifactCaptureIgnoreAttr, sourceNodeTypeAttr, sourceVisualWidthAttr, sourceVisualHeightAttr }) => {
     function normalizeText(value) {
       return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
     }
@@ -370,6 +373,8 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       const computedStyle = serializeComputedStyle(element);
       const textSample = normalizeText(element.textContent);
       const textLength = fullTextLength(element.textContent);
+      const sourceWidth = Number.parseFloat(element.getAttribute(sourceVisualWidthAttr));
+      const sourceHeight = Number.parseFloat(element.getAttribute(sourceVisualHeightAttr));
       return {
         page_path: currentPagePath,
         node_id: nodeId,
@@ -382,6 +387,13 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
         text_metrics: serializeTextMetrics(element, computedStyle, textSample, textLength),
         asset_state: serializeAssetState(element, computedStyle),
         visibility: serializeVisibility(element, rect, computedStyle),
+        source: {
+          node_type: element.getAttribute(sourceNodeTypeAttr),
+          visual_dimensions: {
+            width: Number.isFinite(sourceWidth) ? sourceWidth : null,
+            height: Number.isFinite(sourceHeight) ? sourceHeight : null,
+          },
+        },
       };
     }
 
@@ -423,5 +435,8 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
     nodeIdAttr,
     nodeNameAttrs,
     staticArtifactCaptureIgnoreAttr: STATIC_ARTIFACT_CAPTURE_IGNORE_ATTR,
+    sourceNodeTypeAttr: SOURCE_NODE_TYPE_ATTR,
+    sourceVisualWidthAttr: SOURCE_VISUAL_WIDTH_ATTR,
+    sourceVisualHeightAttr: SOURCE_VISUAL_HEIGHT_ATTR,
   });
 }

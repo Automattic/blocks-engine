@@ -426,6 +426,53 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             ),
         ),
     ), '/tmp/dom-boxes.json');
+    $collapseClassificationQuality = matrix_analyze_dom_box_report(array(
+        'entrypoints' => array(
+            array(
+                'page_path' => '/classification.html',
+                'viewport' => array('width' => 1440, 'height' => 900),
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(
+                    array(
+                        'node_id' => 'line:separator',
+                        'tag' => 'svg',
+                        'boundingClientRect' => array('left' => 0, 'right' => 240, 'top' => 0, 'bottom' => 1, 'width' => 240, 'height' => 1),
+                        'visibility' => array('visible' => true),
+                        'source' => array('node_type' => 'LINE', 'visual_dimensions' => array('width' => 240, 'height' => 1)),
+                    ),
+                    array(
+                        'node_id' => 'vector:tail',
+                        'tag' => 'svg',
+                        'boundingClientRect' => array('left' => 0, 'right' => 0.1, 'top' => 10, 'bottom' => 90, 'width' => 0.1, 'height' => 80),
+                        'visibility' => array('visible' => true),
+                        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 0.1, 'height' => 80)),
+                    ),
+                    array(
+                        'node_id' => 'text:collapsed',
+                        'tag' => 'p',
+                        'boundingClientRect' => array('left' => 0, 'right' => 0, 'top' => 100, 'bottom' => 124, 'width' => 0, 'height' => 24),
+                        'visibility' => array('visible' => false),
+                        'source' => array('node_type' => 'TEXT', 'visual_dimensions' => array('width' => 180, 'height' => 24)),
+                    ),
+                    array(
+                        'node_id' => 'frame:collapsed',
+                        'tag' => 'section',
+                        'boundingClientRect' => array('left' => 0, 'right' => 320, 'top' => 130, 'bottom' => 130, 'width' => 320, 'height' => 0),
+                        'visibility' => array('visible' => false),
+                        'source' => array('node_type' => 'FRAME', 'visual_dimensions' => array('width' => 320, 'height' => 120)),
+                    ),
+                    array(
+                        'node_id' => 'vector:unexpected-collapse',
+                        'tag' => 'svg',
+                        'boundingClientRect' => array('left' => 0, 'right' => 1, 'top' => 140, 'bottom' => 200, 'width' => 1, 'height' => 60),
+                        'visibility' => array('visible' => true),
+                        'source' => array('node_type' => 'VECTOR', 'visual_dimensions' => array('width' => 8, 'height' => 60)),
+                    ),
+                ),
+            ),
+        ),
+    ), '/tmp/dom-box-collapse-classification.json');
     $invalidDomBoxQuality = matrix_analyze_dom_box_report(array(
         'schema' => 'homeboy/static-artifact-dom-boxes/v1',
         'entrypoints' => array(
@@ -607,6 +654,22 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(1 === ($domBoxQuality['summary']['dom_viewport_width_leak_count'] ?? null), 'fixture-matrix-dom-box-quality-viewport-width-leak');
     $assert(1 === ($domBoxQuality['summary']['dom_huge_vertical_spacing_count'] ?? null), 'fixture-matrix-dom-box-quality-huge-vertical-spacing');
     $assert(1 === ($domBoxQuality['summary']['dom_collapsed_box_count'] ?? null), 'fixture-matrix-dom-box-quality-collapsed-box');
+    $assert(3 === ($collapseClassificationQuality['summary']['dom_collapsed_box_count'] ?? null), 'fixture-matrix-dom-box-classification-warns-for-genuine-collapse');
+    $collapseFindingIds = array_map(
+        static fn (array $finding): string => (string) ($finding['node']['id'] ?? ''),
+        $collapseClassificationQuality['pages'][0]['findings'] ?? array()
+    );
+    $assert(! in_array('line:separator', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-allows-visible-one-pixel-line');
+    $assert(! in_array('vector:tail', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-allows-source-faithful-subpixel-vector');
+    $assert(in_array('text:collapsed', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-collapsed-text');
+    $assert(in_array('frame:collapsed', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-collapsed-container');
+    $assert(in_array('vector:unexpected-collapse', $collapseFindingIds, true), 'fixture-matrix-dom-box-classification-warns-for-source-mismatched-vector');
+    $unexpectedVectorFinding = array_values(array_filter(
+        $collapseClassificationQuality['pages'][0]['findings'] ?? array(),
+        static fn (array $finding): bool => 'vector:unexpected-collapse' === ($finding['node']['id'] ?? null)
+    ))[0] ?? array();
+    $assert('VECTOR' === ($unexpectedVectorFinding['node']['source_node_type'] ?? null), 'fixture-matrix-dom-box-finding-preserves-source-node-type');
+    $assert(8 === ($unexpectedVectorFinding['node']['source_visual_dimensions']['width'] ?? null), 'fixture-matrix-dom-box-finding-preserves-source-visual-dimensions');
     $assert(1 === ($domBoxQuality['summary']['dom_offscreen_box_count'] ?? null), 'fixture-matrix-dom-box-quality-offscreen-box');
     $assert(2 === ($domBoxQuality['summary']['dom_missing_node_id_box_count'] ?? null), 'fixture-matrix-dom-box-quality-missing-node-id-boxes');
     $assert(false === ($invalidDomBoxQuality['summary']['dom_css_loaded'] ?? null), 'fixture-matrix-invalid-dom-box-css-not-loaded');

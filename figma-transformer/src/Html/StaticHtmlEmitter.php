@@ -1055,6 +1055,17 @@ final class StaticHtmlEmitter
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
         $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
+        $attributes .= ' data-source-node-type="' . $this->sanitizeAttribute($type) . '"';
+        $sourceVisualBox = is_array($node['box'] ?? null) ? $node['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($sourceVisualBox[$dimension]) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
+                $sourceVisualBox[$dimension] = $node[$dimension];
+            }
+        }
+        if ( isset($sourceVisualBox['width'], $sourceVisualBox['height']) && is_numeric($sourceVisualBox['width']) && is_numeric($sourceVisualBox['height']) ) {
+            $attributes .= ' data-source-visual-width="' . $this->sanitizeAttribute((string) $sourceVisualBox['width']) . '"';
+            $attributes .= ' data-source-visual-height="' . $this->sanitizeAttribute((string) $sourceVisualBox['height']) . '"';
+        }
         $semanticRole = $this->semanticRoleMetadata($node, $tag, $type, $name);
         if ( null !== $semanticRole ) {
             $attributes .= ' data-figma-semantic-role="' . $this->sanitizeAttribute($semanticRole) . '"';
