@@ -826,6 +826,103 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{') && str_contains($derivedHugTextHeightCss, 'width:320px;height:86px') && str_contains($derivedHugTextHeightCss, 'font-size:128px') && str_contains($derivedHugTextHeightCss, 'line-height:115.2px'), 'derived-hug-text-height-preserves-measured-box');
     $assert(! str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{width:320px;height:fit-content'), 'derived-hug-text-height-not-fit-content');
     $assert(str_contains($derivedHugTextHeightCss, '.figma-node-frame-derived-hug-text-height-measured-text-stack{width:320px;height:140px;display:flex;flex-direction:column;gap:32px}'), 'derived-hug-text-height-parent-gap-preserved');
+
+    $conflictingDerivedHugTextHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Conflicting Derived Hug Text Height Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'text:conflicting-derived-hug-height',
+                'type'           => 'TEXT',
+                'name'           => 'Conflicting Heading',
+                'characters'     => 'Measured source box',
+                'width'          => 320,
+                'height'         => 66,
+                'fontSize'       => 48,
+                'textAutoResize' => 'HEIGHT',
+                'derivedTextData' => array(
+                    'layoutSize' => array('x' => 320, 'y' => 96),
+                ),
+            ),
+        ),
+    ));
+    $conflictingDerivedHugTextHeightCss = $fileContent($conflictingDerivedHugTextHeightResult, 'style.css');
+    $conflictingDerivedHugTextHeightDiagnostics = $conflictingDerivedHugTextHeightResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($conflictingDerivedHugTextHeightCss, '.figma-node-text-conflicting-derived-hug-height-conflicting-heading{width:320px;height:66px'), 'conflicting-derived-hug-text-height-prefers-source-box');
+    $assert(! str_contains($conflictingDerivedHugTextHeightCss, '.figma-node-text-conflicting-derived-hug-height-conflicting-heading{width:320px;height:96px'), 'conflicting-derived-hug-text-height-rejects-derived-height');
+    $assert(1 === ($conflictingDerivedHugTextHeightDiagnostics['decision_traces']['reason_counts']['derived_hug_text_size_conflicts_with_source_box'] ?? null), 'conflicting-derived-hug-text-height-traces-authority-decision');
+    $conflictingDerivedHugTextHeightTrace = $conflictingDerivedHugTextHeightDiagnostics['decision_traces']['samples_by_reason']['derived_hug_text_size_conflicts_with_source_box'] ?? array();
+    $assert(96.0 === ($conflictingDerivedHugTextHeightTrace['evidence']['derived_text_layout_size'] ?? null), 'conflicting-derived-hug-text-height-retains-derived-evidence');
+    $assert(66.0 === ($conflictingDerivedHugTextHeightTrace['evidence']['source_box']['height'] ?? null), 'conflicting-derived-hug-text-height-retains-source-evidence');
+
+    $hugTextHeightToleranceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Hug Text Height Tolerance Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'text:hug-height-at-tolerance',
+                'type'           => 'TEXT',
+                'name'           => 'At Tolerance',
+                'characters'     => 'Derived height remains authoritative',
+                'width'          => 320,
+                'height'         => 66,
+                'fontSize'       => 24,
+                'textAutoResize' => 'HEIGHT',
+                'derivedTextData' => array('layoutSize' => array('x' => 320, 'y' => 66.5)),
+            ),
+            array(
+                'id'             => 'text:hug-height-over-tolerance',
+                'type'           => 'TEXT',
+                'name'           => 'Over Tolerance',
+                'characters'     => 'Source height becomes authoritative',
+                'width'          => 320,
+                'height'         => 66,
+                'fontSize'       => 24,
+                'textAutoResize' => 'HEIGHT',
+                'derivedTextData' => array('layoutSize' => array('x' => 320, 'y' => 66.5001)),
+            ),
+        ),
+    ));
+    $hugTextHeightToleranceCss = $fileContent($hugTextHeightToleranceResult, 'style.css');
+    $hugTextHeightToleranceDiagnostics = $hugTextHeightToleranceResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($hugTextHeightToleranceCss, '.figma-node-text-hug-height-at-tolerance-at-tolerance{width:320px;height:66.5px'), 'hug-text-height-at-exact-tolerance-keeps-derived-height');
+    $assert(str_contains($hugTextHeightToleranceCss, '.figma-node-text-hug-height-over-tolerance-over-tolerance{width:320px;height:66px'), 'hug-text-height-over-tolerance-prefers-source-height');
+    $assert(1 === ($hugTextHeightToleranceDiagnostics['decision_traces']['reason_counts']['derived_hug_text_size_conflicts_with_source_box'] ?? null), 'hug-text-height-over-tolerance-only-traces-conflict');
+
+    $widthOnlyDerivedHugTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Width-Only Derived Hug Text Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'text:width-only-derived-hug',
+                'type'           => 'TEXT',
+                'name'           => 'Width Only Derived',
+                'characters'     => 'Derived width remains authoritative',
+                'width'          => 320,
+                'height'         => 66,
+                'fontSize'       => 24,
+                'textAutoResize' => 'WIDTH_AND_HEIGHT',
+                'derivedTextData' => array('layoutSize' => array('x' => 400, 'y' => 66)),
+            ),
+        ),
+    ));
+    $widthOnlyDerivedHugTextCss = $fileContent($widthOnlyDerivedHugTextResult, 'style.css');
+    $widthOnlyDerivedHugTextDiagnostics = $widthOnlyDerivedHugTextResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($widthOnlyDerivedHugTextCss, '.figma-node-text-width-only-derived-hug-width-only-derived{width:400px;height:66px'), 'width-only-derived-hug-text-keeps-derived-width');
+    $assert(! isset($widthOnlyDerivedHugTextDiagnostics['decision_traces']['reason_counts']['derived_hug_text_size_conflicts_with_source_box']), 'width-only-derived-hug-text-does-not-trace-height-conflict');
+
+    $nonTextHugResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Non-Text Hug Fixture',
+        'nodes' => array(
+            array(
+                'id'                   => 'frame:non-text-hug',
+                'type'                 => 'FRAME',
+                'name'                 => 'Non-Text Hug',
+                'width'                => 100,
+                'height'               => 44,
+                'layoutSizingVertical' => 'HUG',
+            ),
+        ),
+    ));
+    $nonTextHugCss = $fileContent($nonTextHugResult, 'style.css');
+    $assert(str_contains($nonTextHugCss, '.figma-node-frame-non-text-hug-non-text-hug{width:100px;height:fit-content}'), 'non-text-hug-height-remains-fit-content');
     
     $derivedMeasuredLineHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Measured Line Height Fixture',
