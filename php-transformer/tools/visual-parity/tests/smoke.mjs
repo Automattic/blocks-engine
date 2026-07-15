@@ -13,6 +13,13 @@ const domFixtureGeneric = path.join(outputDir, 'dom-box-generic.html');
 const screenshotDir = path.join(outputDir, 'screenshots');
 const missingPlaywrightDir = path.join(tmpdir(), `blocks-engine-dom-provider-missing-playwright-${process.pid}`);
 const missingPlaywrightProvider = path.join(missingPlaywrightDir, 'dom-box-provider.mjs');
+const longAssetValue = String.fromCodePoint(0x1f642).repeat(600);
+const escapableAssetValue = `&quot;\\${String.fromCharCode(1)}${longAssetValue}`;
+const assetDescendants = Array.from({ length: 12 }, (_, index) => index % 3 === 0
+  ? `<img alt="" src="https://example.test/${index}/${escapableAssetValue}">`
+  : index % 3 === 1
+    ? `<svg><image href="https://example.test/${index}/${escapableAssetValue}"></image></svg>`
+    : `<svg data-asset="${index}"></svg>`).join('');
 
 await mkdir(outputDir, { recursive: true });
 await mkdir(missingPlaywrightDir, { recursive: true });
@@ -58,7 +65,8 @@ await writeFile(domFixture, `<!doctype html><html><head><style>
     width: 120px;
     height: 24px;
   }
-</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero" data-source-node-type="FRAME" data-source-visual-width="120" data-source-visual-height="24">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
+  .asset-bounds { width: 1px; height: 1px; background-image: url("https://example.test/${longAssetValue}"); }
+</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero" data-source-node-type="FRAME" data-source-visual-width="120" data-source-visual-height="24">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main><section class="asset-bounds" data-figma-node-id="56:78" data-figma-node-name="Asset bounds"><img alt="" src="/loaded-image.svg">${assetDescendants}</section></body></html>`);
 await writeFile(domFixtureGeneric, `<!doctype html><html><head><style>
   body { margin: 0; }
   .hero { color: rgb(12, 34, 56); font-size: 20px; width: 120px; height: 24px; }
@@ -72,6 +80,11 @@ const server = createServer(async (request, response) => {
   if (request.url === '/dom-box-generic.html') {
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end(await readFile(domFixtureGeneric));
+    return;
+  }
+  if (request.url === '/loaded-image.svg') {
+    response.writeHead(200, { 'content-type': 'image/svg+xml' });
+    response.end('<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"></svg>');
     return;
   }
   if (request.url === '/fluid-layout-2095.html') {
@@ -115,8 +128,22 @@ try {
   assert(domReport.entrypoints[0].elements[0].text_metrics.client_width > 0, 'DOM provider captures client dimensions');
   assert(domReport.entrypoints[0].elements[0].text_metrics.line_count_estimate >= 1, 'DOM provider estimates line count');
   assert(domReport.entrypoints[0].elements[0].asset_state.background_image_present === true, 'DOM provider flags background images');
+  assert(domReport.entrypoints[0].elements[0].asset_state.background_image.includes('linear-gradient'), 'DOM provider preserves ordinary background image values');
   assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].tag === 'img', 'DOM provider captures image descendants');
   assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].complete === true, 'DOM provider captures image complete state');
+  const boundedAssetState = domReport.entrypoints[0].elements.find((element) => element.node_id === '56:78').asset_state;
+  assert(boundedAssetState.descendant_count === 17, 'DOM provider records the original mixed asset descendant count');
+  assert(boundedAssetState.descendants.length === 8, 'DOM provider caps asset descendant summaries');
+  assert(boundedAssetState.descendants_truncated === true, 'DOM provider reports descendant truncation');
+  assert(boundedAssetState.asset_strings_truncated === true, 'DOM provider reports asset string truncation');
+  assert(boundedAssetState.descendants[0].complete === true, 'DOM provider preserves first descendant loaded state');
+  assert(boundedAssetState.descendants[0].naturalWidth > 0, 'DOM provider preserves first loaded image width');
+  assert(boundedAssetState.descendants[0].naturalHeight > 0, 'DOM provider preserves first loaded image height');
+  assert(assertRecursiveKeyCount(boundedAssetState) <= 64, 'DOM provider bounds recursive asset-state keys');
+  assert(Buffer.byteLength(JSON.stringify(boundedAssetState), 'utf8') <= 16384, 'DOM provider bounds serialized asset state');
+  const assetStrings = nestedStrings(boundedAssetState);
+  assert(assetStrings.every((value) => Buffer.byteLength(value, 'utf8') <= 256), 'DOM provider bounds every asset-state string to the implemented byte cap');
+  assert(assetStrings.every(isValidUnicode), 'DOM provider preserves valid Unicode when truncating asset strings');
   assert(domReport.entrypoints[0].elements[0].visibility.visible === true, 'DOM provider captures visible state');
   assert(domReport.entrypoints[0].elements[0].visibility.clipped === true, 'DOM provider captures clipped-ish overflow state');
   assert(domReport.entrypoints[0].unidentified_elements.some((element) => element.tag === 'img'), 'DOM provider reports visible elements without node ids');
@@ -260,4 +287,36 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function assertRecursiveKeyCount(value) {
+  if (!value || typeof value !== 'object') {
+    return 0;
+  }
+  return Object.entries(value).reduce((count, [, child]) => count + 1 + assertRecursiveKeyCount(child), 0);
+}
+
+function nestedStrings(value) {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).flatMap(nestedStrings);
+  }
+  return [];
+}
+
+function isValidUnicode(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    const isHighSurrogate = code >= 0xd800 && code <= 0xdbff;
+    const isLowSurrogate = code >= 0xdc00 && code <= 0xdfff;
+    if (isLowSurrogate && (index === 0 || value.charCodeAt(index - 1) < 0xd800 || value.charCodeAt(index - 1) > 0xdbff)) {
+      return false;
+    }
+    if (isHighSurrogate && (index + 1 === value.length || value.charCodeAt(index + 1) < 0xdc00 || value.charCodeAt(index + 1) > 0xdfff)) {
+      return false;
+    }
+  }
+  return true;
 }
