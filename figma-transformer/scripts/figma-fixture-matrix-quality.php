@@ -52,7 +52,8 @@ function matrix_quality_matrix(array $fixtures): array
     $qualityStatuses = array();
     $signalCounts = array();
     $riskBucketCounts = array_fill_keys(array('low', 'medium', 'high', 'critical', 'unknown'), 0);
-    $riskCategoryTotals = array_fill_keys(array('responsive_coverage', 'absolute_scaffolding', 'text_wrapping_leaks', 'image_geometry_fidelity', 'form_validity', 'route_coverage', 'unsupported_vectors', 'rendered_dom_boxes'), 0);
+    $riskCategoryTotals = array_fill_keys(array('responsive_coverage', 'absolute_scaffolding', 'text_wrapping_leaks', 'image_geometry_fidelity', 'form_validity', 'route_coverage', 'unsupported_vectors', 'rendered_dom_boxes', 'responsive_rendered_dom_boxes'), 0);
+    $totalsByComparisonRole = array();
     $perFixtureReadiness = array();
     $coverageNumerator = 0;
     $coverageDenominator = 0;
@@ -67,6 +68,14 @@ function matrix_quality_matrix(array $fixtures): array
         $domSummary = matrix_fixture_dom_box_quality_summary($fixture);
         foreach ( $keys as $key ) {
             $totals[$key] += matrix_quality_summary_int($summary, $key) + matrix_quality_summary_int($domSummary, $key);
+        }
+        foreach ( matrix_fixture_dom_box_quality_summaries_by_comparison_role($fixture) as $role => $roleSummary ) {
+            if ( ! isset($totalsByComparisonRole[$role]) ) {
+                $totalsByComparisonRole[$role] = array_fill_keys($keys, 0);
+            }
+            foreach ( $keys as $key ) {
+                $totalsByComparisonRole[$role][$key] += matrix_quality_summary_int($roleSummary, $key);
+            }
         }
         $coverageNumerator += (int) ($summary['fixed_width_with_responsive_override_count'] ?? 0);
         $coverageDenominator += (int) ($summary['fixed_width_declaration_count'] ?? 0);
@@ -120,6 +129,7 @@ function matrix_quality_matrix(array $fixtures): array
         'effective_responsive_coverage_ratio' => $coverageDenominator > 0 ? round($coverageNumerator / $coverageDenominator, 3) : 1.0,
         'route_coverage_ratio' => $routeCoverageDenominator > 0 ? round($routeCoverageNumerator / $routeCoverageDenominator, 3) : 1.0,
         'totals' => $totals,
+        'totals_by_comparison_role' => $totalsByComparisonRole,
     );
 }
 
@@ -195,7 +205,8 @@ function matrix_fixture_visual_readiness(array $fixture): array
                 + ((float) ($summary['vector_decode_coverage_ratio'] ?? 1.0) < 1.0 ? 1 : 0),
             array('vector_placeholders', 'uncomposed_vector_child_nodes', 'vector_decode_coverage_ratio')
         ),
-        'rendered_dom_boxes' => matrix_dom_box_risk_category(matrix_fixture_dom_box_quality_summary($fixture)),
+        'rendered_dom_boxes' => matrix_dom_box_risk_category(matrix_fixture_dom_box_quality_summary_for_role($fixture, 'source_layout')),
+        'responsive_rendered_dom_boxes' => matrix_dom_box_risk_category(matrix_fixture_dom_box_quality_summary_for_role($fixture, 'responsive_evidence')),
     );
 
     $riskPoints = 0;
@@ -258,6 +269,70 @@ function matrix_fixture_dom_box_quality_summary(array $fixture): array
 }
 
 /**
+ * @param array<string, mixed> $fixture
+ * @return array<string, array<string, mixed>>
+ */
+function matrix_fixture_dom_box_quality_summaries_by_comparison_role(array $fixture): array
+{
+    $summaries = $fixture['dom_box_quality']['summary_by_comparison_role'] ?? array();
+    if ( ! is_array($summaries) ) {
+        return array();
+    }
+
+    return array_filter($summaries, static fn (mixed $summary): bool => is_array($summary));
+}
+
+/**
+ * @param array<string, mixed> $fixture
+ * @return array<string, mixed>
+ */
+function matrix_fixture_dom_box_quality_summary_for_role(array $fixture, string $role): array
+{
+    $summaries = matrix_fixture_dom_box_quality_summaries_by_comparison_role($fixture);
+    if ( 'source_layout' === $role && ! empty($summaries) ) {
+        return matrix_merge_dom_box_quality_summaries(array_values(array_filter(array(
+            $summaries['source_layout'] ?? null,
+            $summaries['unclassified'] ?? null,
+        ), static fn (mixed $summary): bool => is_array($summary))));
+    }
+
+    if ( ! empty($summaries) ) {
+        return is_array($summaries[$role] ?? null) ? $summaries[$role] : array();
+    }
+
+    // Legacy reports without per-role summaries represent source-layout evidence.
+    return 'source_layout' === $role ? matrix_fixture_dom_box_quality_summary($fixture) : array();
+}
+
+/**
+ * @param array<int, array<string, mixed>> $summaries
+ * @return array<string, mixed>
+ */
+function matrix_merge_dom_box_quality_summaries(array $summaries): array
+{
+    if ( 1 === count($summaries) ) {
+        return $summaries[0];
+    }
+
+    $merged = matrix_dom_box_empty_summary();
+    foreach ( $summaries as $summary ) {
+        foreach ( $merged as $key => $value ) {
+            if ( is_int($value) ) {
+                $merged[$key] += matrix_quality_summary_int($summary, $key);
+            }
+        }
+    }
+    $merged = array_merge($merged, matrix_dom_box_validity_summary(
+        (int) $merged['page_count'],
+        (int) $merged['dom_capture_invalid_count'],
+        (int) $merged['dom_css_not_loaded_count']
+    ));
+    $merged['risk_bucket'] = matrix_dom_box_risk_bucket((int) $merged['risk_score']);
+
+    return $merged;
+}
+
+/**
  * @return array<string, mixed>|null
  */
 function matrix_dom_box_quality_report(string $path): ?array
@@ -282,6 +357,7 @@ function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): 
 {
     $pageReports = array();
     $summary = matrix_dom_box_empty_summary();
+    $summaryByComparisonRole = array();
 
     foreach ( is_array($report['entrypoints'] ?? null) ? $report['entrypoints'] : array() as $entrypoint ) {
         if ( ! is_array($entrypoint) ) {
@@ -295,6 +371,18 @@ function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): 
                 $summary[$key] += (int) $pageReport['summary'][$key];
             }
         }
+        $role = isset($pageReport['comparison_role']) && is_scalar($pageReport['comparison_role']) && '' !== (string) $pageReport['comparison_role']
+            ? (string) $pageReport['comparison_role']
+            : 'unclassified';
+        if ( ! isset($summaryByComparisonRole[$role]) ) {
+            $summaryByComparisonRole[$role] = matrix_dom_box_empty_summary();
+        }
+        $summaryByComparisonRole[$role]['page_count']++;
+        foreach ( $summaryByComparisonRole[$role] as $key => $value ) {
+            if ( is_int($value) && isset($pageReport['summary'][$key]) && is_numeric($pageReport['summary'][$key]) ) {
+                $summaryByComparisonRole[$role][$key] += (int) $pageReport['summary'][$key];
+            }
+        }
     }
 
     $summary['page_count'] = count($pageReports);
@@ -304,11 +392,22 @@ function matrix_analyze_dom_box_report(array $report, string $sourcePath = ''): 
         (int) $summary['dom_css_not_loaded_count']
     ));
     $summary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $summary['risk_score']);
+    foreach ( $summaryByComparisonRole as &$roleSummary ) {
+        $roleSummary['page_count'] = (int) $roleSummary['page_count'];
+        $roleSummary = array_merge($roleSummary, matrix_dom_box_validity_summary(
+            (int) $roleSummary['page_count'],
+            (int) $roleSummary['dom_capture_invalid_count'],
+            (int) $roleSummary['dom_css_not_loaded_count']
+        ));
+        $roleSummary['risk_bucket'] = matrix_dom_box_risk_bucket((int) $roleSummary['risk_score']);
+    }
+    unset($roleSummary);
 
     return array_filter(array(
         'schema' => 'blocks-engine/figma-transformer/dom-box-quality/v1',
         'source_path' => $sourcePath ?: null,
         'summary' => $summary,
+        'summary_by_comparison_role' => $summaryByComparisonRole,
         'pages' => $pageReports,
     ), static fn (mixed $value): bool => null !== $value);
 }
@@ -329,6 +428,10 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
     $previousBottom = null;
     $domCssLoaded = true === ($entrypoint['dom_css_loaded'] ?? null);
     $domCaptureValid = true === ($entrypoint['dom_capture_valid'] ?? null) && $domCssLoaded;
+    $comparisonRole = isset($entrypoint['comparison_role']) && is_scalar($entrypoint['comparison_role']) && '' !== (string) $entrypoint['comparison_role']
+        ? (string) $entrypoint['comparison_role']
+        : 'unclassified';
+    $sourceFrame = is_array($entrypoint['source_frame'] ?? null) ? $entrypoint['source_frame'] : array();
 
     if ( $domCaptureValid ) {
         $summary['dom_capture_valid_count'] = 1;
@@ -351,6 +454,8 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
         return array_filter(array(
             'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
             'viewport' => $viewport,
+            'comparison_role' => $comparisonRole,
+            'source_frame' => $sourceFrame,
             'summary' => $summary,
             'stylesheet_status' => is_array($entrypoint['stylesheet_status'] ?? null) ? $entrypoint['stylesheet_status'] : null,
             'findings' => array(matrix_dom_box_finding('dom_capture_invalid', array(), array('dom_css_loaded' => $domCssLoaded))),
@@ -433,6 +538,8 @@ function matrix_analyze_dom_box_entrypoint(array $entrypoint): array
     return array(
         'page_path' => isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : '',
         'viewport' => $viewport,
+        'comparison_role' => $comparisonRole,
+        'source_frame' => $sourceFrame,
         'summary' => $summary,
         'stylesheet_status' => is_array($entrypoint['stylesheet_status'] ?? null) ? $entrypoint['stylesheet_status'] : null,
         'findings' => array_slice($findings, 0, 50),

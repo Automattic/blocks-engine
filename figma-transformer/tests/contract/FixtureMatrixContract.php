@@ -598,6 +598,82 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             'dom_box_quality' => $invalidDomBoxQuality,
         ),
     ));
+    $roleSeparatedDomBoxQuality = matrix_analyze_dom_box_report(array(
+        'entrypoints' => array(
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 1200, 'height' => 900),
+                'source_frame' => array('id' => 'frame:desktop', 'width' => 1200),
+                'comparison_role' => 'source_layout',
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(),
+            ),
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 640, 'height' => 900),
+                'source_frame' => array('id' => 'frame:mobile', 'width' => 640),
+                'comparison_role' => 'responsive_evidence',
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(
+                    array('node_id' => 'responsive:overflow', 'boundingClientRect' => array('left' => 0, 'right' => 700, 'top' => 0, 'bottom' => 20, 'width' => 700, 'height' => 20)),
+                ),
+            ),
+        ),
+    ));
+    $roleSeparatedMatrixSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'role-separated-dom-fixture',
+            'status' => 'completed',
+            'dom_box_quality' => $roleSeparatedDomBoxQuality,
+        ),
+    ));
+    $unclassifiedOnlyMatrixSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'unclassified-dom-fixture',
+            'status' => 'completed',
+            'dom_box_quality' => $domBoxQuality,
+        ),
+    ));
+    $mixedRoleDomBoxQuality = matrix_analyze_dom_box_report(array(
+        'entrypoints' => array(
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 1200, 'height' => 900),
+                'comparison_role' => 'source_layout',
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(),
+            ),
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 640, 'height' => 900),
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(
+                    array('node_id' => 'unclassified:overflow', 'boundingClientRect' => array('left' => 0, 'right' => 700, 'top' => 0, 'bottom' => 20, 'width' => 700, 'height' => 20)),
+                ),
+            ),
+            array(
+                'page_path' => '/index.html',
+                'viewport' => array('width' => 640, 'height' => 900),
+                'comparison_role' => 'responsive_evidence',
+                'dom_css_loaded' => true,
+                'dom_capture_valid' => true,
+                'elements' => array(
+                    array('node_id' => 'responsive:overflow', 'boundingClientRect' => array('left' => 0, 'right' => 700, 'top' => 0, 'bottom' => 20, 'width' => 700, 'height' => 20)),
+                ),
+            ),
+        ),
+    ));
+    $mixedRoleMatrixSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'mixed-role-dom-fixture',
+            'status' => 'completed',
+            'dom_box_quality' => $mixedRoleDomBoxQuality,
+        ),
+    ));
 
     $matrixSelectionLockPath = $matrixFixtureDir . '/selection-lock.json';
     file_put_contents($matrixSelectionLockPath, json_encode(array(
@@ -763,6 +839,22 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_css_loaded'] ?? null), 'fixture-matrix-quality-invalid-dom-css-loaded-flag');
     $assert(0 === ($invalidDomBoxMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-invalid-dom-not-scored-as-rendered-risk');
     $assert(in_array('dom_capture_invalid', $invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['risk_categories']['rendered_dom_boxes']['signals'] ?? array(), true), 'fixture-matrix-quality-invalid-dom-risk-signal');
+    $assert('source_layout' === ($roleSeparatedDomBoxQuality['pages'][0]['comparison_role'] ?? null), 'fixture-matrix-dom-box-page-preserves-comparison-role');
+    $assert('frame:desktop' === ($roleSeparatedDomBoxQuality['pages'][0]['source_frame']['id'] ?? null), 'fixture-matrix-dom-box-page-preserves-source-frame');
+    $assert(0 === ($roleSeparatedDomBoxQuality['summary_by_comparison_role']['source_layout']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-dom-box-source-summary-keeps-source-overflow');
+    $assert(1 === ($roleSeparatedDomBoxQuality['summary_by_comparison_role']['responsive_evidence']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-dom-box-responsive-summary-keeps-responsive-overflow');
+    $assert(1 === ($roleSeparatedMatrixSummary['totals']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-quality-role-separated-keeps-whole-dom-total');
+    $assert(0 === ($roleSeparatedMatrixSummary['totals_by_comparison_role']['source_layout']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-quality-role-separated-source-total');
+    $assert(1 === ($roleSeparatedMatrixSummary['totals_by_comparison_role']['responsive_evidence']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-quality-role-separated-responsive-total');
+    $assert(0 === ($roleSeparatedMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-role-separated-source-readiness');
+    $assert(2 === ($roleSeparatedMatrixSummary['risk_category_totals']['responsive_rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-role-separated-responsive-readiness');
+    $assert(8 === ($unclassifiedOnlyMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-unclassified-source-readiness');
+    $assert(0 === ($unclassifiedOnlyMatrixSummary['risk_category_totals']['responsive_rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-unclassified-not-responsive-readiness');
+    $assert(92 === ($unclassifiedOnlyMatrixSummary['per_fixture_readiness'][0]['readiness_score'] ?? null), 'fixture-matrix-quality-unclassified-readiness-score-no-double-counting');
+    $assert(2 === ($mixedRoleMatrixSummary['totals']['dom_horizontal_overflow_count'] ?? null), 'fixture-matrix-quality-mixed-role-keeps-whole-dom-total');
+    $assert(2 === ($mixedRoleMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-mixed-role-merges-unclassified-into-source');
+    $assert(2 === ($mixedRoleMatrixSummary['risk_category_totals']['responsive_rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-mixed-role-keeps-responsive-separate');
+    $assert(96 === ($mixedRoleMatrixSummary['per_fixture_readiness'][0]['readiness_score'] ?? null), 'fixture-matrix-quality-mixed-role-readiness-score-no-double-counting');
     $assert(2 === count($matrixQualitySummary['per_fixture_readiness'] ?? array()), 'fixture-matrix-quality-per-fixture-readiness');
     $assert(is_array($matrixAliasSummary), 'fixture-matrix-alias-json-summary');
     $assert('/opt/homeboy-alias' === ($matrixAliasSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-bin-alias');
