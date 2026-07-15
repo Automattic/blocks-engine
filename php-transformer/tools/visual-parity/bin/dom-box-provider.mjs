@@ -353,11 +353,40 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       };
     }
 
+    // Eight fully-populated summaries plus six state keys produce at most 46
+    // recursive object keys. Nine 256-byte strings consume at most 13,824
+    // bytes when JSON escapes every byte, leaving room below the 16 KiB limit.
+    const MAX_ASSET_DESCENDANTS = 8;
+    const MAX_ASSET_STRING_BYTES = 256;
+
+    function truncateUtf8(value) {
+      const text = String(value || '');
+      const encoded = new TextEncoder().encode(text);
+      if (encoded.length <= MAX_ASSET_STRING_BYTES) {
+        return { value: text, truncated: false };
+      }
+
+      let end = 0;
+      let bytes = 0;
+      const encoder = new TextEncoder();
+      for (const character of text) {
+        const characterBytes = encoder.encode(character).length;
+        if (bytes + characterBytes > MAX_ASSET_STRING_BYTES) {
+          break;
+        }
+        bytes += characterBytes;
+        end += character.length;
+      }
+
+      return { value: text.slice(0, end), truncated: true };
+    }
+
     function assetElementSummary(assetElement) {
       const tag = assetElement.tagName.toLowerCase();
+      const source = truncateUtf8(assetElement.currentSrc || assetElement.src || assetElement.getAttribute('href') || assetElement.getAttribute('xlink:href') || null);
       const summary = {
         tag,
-        src: assetElement.currentSrc || assetElement.src || assetElement.getAttribute('href') || assetElement.getAttribute('xlink:href') || null,
+        src: source.value || null,
       };
 
       if (assetElement instanceof HTMLImageElement) {
@@ -366,7 +395,7 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
         summary.naturalHeight = assetElement.naturalHeight;
       }
 
-      return summary;
+      return { summary, stringsTruncated: source.truncated };
     }
 
     function serializeAssetState(element, computedStyle) {
@@ -376,10 +405,15 @@ async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, node
       }
 
       const backgroundImage = computedStyle['background-image'];
+      const background = truncateUtf8(backgroundImage);
+      const descendants = assetElements.slice(0, MAX_ASSET_DESCENDANTS).map(assetElementSummary);
       return {
         background_image_present: Boolean(backgroundImage && backgroundImage !== 'none'),
-        background_image: backgroundImage,
-        descendants: assetElements.map(assetElementSummary),
+        background_image: background.value,
+        descendants: descendants.map(({ summary }) => summary),
+        descendant_count: assetElements.length,
+        descendants_truncated: assetElements.length > MAX_ASSET_DESCENDANTS,
+        asset_strings_truncated: background.truncated || descendants.some(({ stringsTruncated }) => stringsTruncated),
       };
     }
 
