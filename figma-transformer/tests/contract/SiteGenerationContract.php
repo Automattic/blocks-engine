@@ -1279,8 +1279,92 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         ),
     ));
     $kiwiSourceGapReserveCss = $fileContent($kiwiSourceGapReserveResult, 'style.css');
+    $kiwiSourceGapReserveMap = $kiwiSourceGapReserveResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+    $kiwiSourceGapReserveFooter = array_values(array_filter($kiwiSourceGapReserveMap, static fn (array $entry): bool => 'kiwi-gap:footer' === ($entry['id'] ?? null)))[0] ?? array();
+    $kiwiSourceGapReserveFooterText = array_values(array_filter($kiwiSourceGapReserveMap, static fn (array $entry): bool => 'kiwi-gap:footer:text' === ($entry['id'] ?? null)))[0] ?? array();
     $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-root-article-template{') && str_contains($kiwiSourceGapReserveCss, 'display:flex;flex-direction:column;gap:24px'), 'kiwi-source-gap-reserve-parent-auto-layout-gap');
     $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-footer-footer{') && str_contains($kiwiSourceGapReserveCss, 'margin-top:56px'), 'kiwi-source-gap-reserve-footer-residual-margin');
+    $assert(280.0 === ($kiwiSourceGapReserveFooter['rect']['y'] ?? null), 'kiwi-source-gap-reserve-footer-visual-map-y');
+    $assert(280.0 === ($kiwiSourceGapReserveFooterText['rect']['y'] ?? null), 'kiwi-source-gap-reserve-child-visual-map-y');
+
+    $sourceGapEligibilityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Source Gap Reservation Eligibility Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'source-gap:root', 'type' => 'FRAME', 'name' => 'Source gap cases', 'width' => 400, 'height' => 500,
+                'children' => array(
+                    array('id' => 'source-gap:row', 'type' => 'FRAME', 'name' => 'Row parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:row:first', 'type' => 'RECTANGLE', 'name' => 'Row first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:row:second', 'type' => 'RECTANGLE', 'name' => 'Row second', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 150, 'm12' => 0)),
+                    )),
+                    array('id' => 'source-gap:absolute', 'type' => 'FRAME', 'name' => 'Absolute parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:absolute:first', 'type' => 'RECTANGLE', 'name' => 'Absolute first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:absolute:second', 'type' => 'RECTANGLE', 'name' => 'Absolute second', 'width' => 100, 'height' => 40, 'layoutPositioning' => 'ABSOLUTE', 'transform' => array('m02' => 150, 'm12' => 0)),
+                    )),
+                    array('id' => 'source-gap:wrap', 'type' => 'FRAME', 'name' => 'Wrap parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'layoutWrap' => 'WRAP', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:wrap:first', 'type' => 'RECTANGLE', 'name' => 'Wrap first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:wrap:second', 'type' => 'RECTANGLE', 'name' => 'Wrap second', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 150, 'm12' => 0)),
+                    )),
+                    array('id' => 'source-gap:center', 'type' => 'FRAME', 'name' => 'Center parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'primaryAxisAlignItems' => 'CENTER', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:center:first', 'type' => 'RECTANGLE', 'name' => 'Center first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:center:second', 'type' => 'RECTANGLE', 'name' => 'Center second', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 250, 'm12' => 0)),
+                    )),
+                    array('id' => 'source-gap:end', 'type' => 'FRAME', 'name' => 'End parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'primaryAxisAlignItems' => 'MAX', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:end:first', 'type' => 'RECTANGLE', 'name' => 'End first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:end:second', 'type' => 'RECTANGLE', 'name' => 'End second', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 320, 'm12' => 0)),
+                    )),
+                    array('id' => 'source-gap:interleaved', 'type' => 'FRAME', 'name' => 'Interleaved parent', 'width' => 400, 'height' => 80, 'layoutMode' => 'HORIZONTAL', 'itemSpacing' => 20, 'children' => array(
+                        array('id' => 'source-gap:interleaved:first', 'type' => 'RECTANGLE', 'name' => 'Interleaved first', 'width' => 100, 'height' => 40, 'transform' => array('m02' => 0, 'm12' => 0)),
+                        array('id' => 'source-gap:interleaved:absolute', 'type' => 'RECTANGLE', 'name' => 'Interleaved absolute', 'width' => 20, 'height' => 20, 'layoutPositioning' => 'ABSOLUTE', 'transform' => array('m02' => 120, 'm12' => 0)),
+                        array('id' => 'source-gap:interleaved:second', 'type' => 'RECTANGLE', 'name' => 'Interleaved second', 'width' => 101, 'height' => 40, 'transform' => array('m02' => 150, 'm12' => 0)),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $sourceGapEligibilityCss = $fileContent($sourceGapEligibilityResult, 'style.css');
+    $sourceGapEligibilityMap = $sourceGapEligibilityResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+    $sourceGapEligibilityNode = static function (string $id) use ($sourceGapEligibilityMap): array {
+        foreach ( $sourceGapEligibilityMap as $entry ) {
+            if ( is_array($entry) && $id === ($entry['id'] ?? null) ) {
+                return $entry;
+            }
+        }
+        return array();
+    };
+    $hasSourceGapMargin = static fn (string $class): bool => 1 === preg_match('/\.' . preg_quote($class, '/') . '\{[^}]*margin-left:/', $sourceGapEligibilityCss);
+    $assert($hasSourceGapMargin('figma-node-source-gap-row-second-row-second'), 'source-gap-reserve-row-emits-residual-margin');
+    $assert(150.0 === ($sourceGapEligibilityNode('source-gap:row:second')['rect']['x'] ?? null), 'source-gap-reserve-row-visual-map-x');
+    $assert(! $hasSourceGapMargin('figma-node-source-gap-absolute-second-absolute-second'), 'source-gap-reserve-absolute-excluded-from-css');
+    $assert(150.0 === ($sourceGapEligibilityNode('source-gap:absolute:second')['rect']['x'] ?? null), 'source-gap-reserve-absolute-excluded-from-map-accumulator');
+    $assert(! $hasSourceGapMargin('figma-node-source-gap-wrap-second-wrap-second'), 'source-gap-reserve-wrap-excluded-from-css');
+    $assert(120.0 === ($sourceGapEligibilityNode('source-gap:wrap:second')['rect']['x'] ?? null), 'source-gap-reserve-wrap-excluded-from-map-accumulator');
+    $assert(! $hasSourceGapMargin('figma-node-source-gap-center-second-center-second'), 'source-gap-reserve-center-excluded-from-css');
+    $assert(210.0 === ($sourceGapEligibilityNode('source-gap:center:second')['rect']['x'] ?? null), 'source-gap-reserve-center-excluded-from-map-accumulator');
+    $assert(! $hasSourceGapMargin('figma-node-source-gap-end-second-end-second'), 'source-gap-reserve-flex-end-excluded-from-css');
+    $assert(300.0 === ($sourceGapEligibilityNode('source-gap:end:second')['rect']['x'] ?? null), 'source-gap-reserve-flex-end-excluded-from-map-accumulator');
+    $assert($hasSourceGapMargin('figma-node-source-gap-interleaved-second-interleaved-second'), 'source-gap-reserve-interleaved-flow-skips-absolute-sibling-in-css');
+    $assert(150.0 === ($sourceGapEligibilityNode('source-gap:interleaved:second')['rect']['x'] ?? null), 'source-gap-reserve-interleaved-flow-skips-absolute-sibling-in-map');
+
+    $inlineFlexSourceGapResult = (new StaticHtmlEmitter())->emit(array(
+        'name' => 'Inline Flex Source Gap Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'source-gap:inline-parent', 'type' => 'FRAME', 'name' => 'Inline parent',
+                'box' => array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 80, 'coordinate_space' => 'local'),
+                'layout' => array('display' => 'inline-flex', 'flex_direction' => 'row', 'item_spacing' => 20),
+                'children' => array(
+                    array('id' => 'source-gap:inline-first', 'type' => 'RECTANGLE', 'name' => 'Inline first', 'box' => array('x' => 0, 'y' => 0, 'width' => 100, 'height' => 40, 'coordinate_space' => 'local')),
+                    array('id' => 'source-gap:inline-second', 'type' => 'RECTANGLE', 'name' => 'Inline second', 'box' => array('x' => 150, 'y' => 0, 'width' => 100, 'height' => 40, 'coordinate_space' => 'local')),
+                ),
+            ),
+        ),
+    ));
+    $inlineFlexSourceGapCss = $fileContent($inlineFlexSourceGapResult, 'style.css');
+    $inlineFlexSourceGapMap = $inlineFlexSourceGapResult['source_report']['visual_node_map'] ?? array();
+    $inlineFlexSourceGapSecond = array_values(array_filter($inlineFlexSourceGapMap, static fn (array $entry): bool => 'source-gap:inline-second' === ($entry['id'] ?? null)))[0] ?? array();
+    $assert(str_contains($inlineFlexSourceGapCss, '.figma-node-source-gap-inline-second-inline-second{') && str_contains($inlineFlexSourceGapCss, 'margin-left:30px'), 'source-gap-reserve-inline-flex-emits-residual-margin');
+    $assert(150.0 === ($inlineFlexSourceGapSecond['rect']['x'] ?? null), 'source-gap-reserve-inline-flex-visual-map-x');
 
     $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Sticky Ghost Fixture',
