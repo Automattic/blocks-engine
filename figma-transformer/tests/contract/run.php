@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/ContractHelpers.php';
 require_once __DIR__ . '/ComponentCloneEmissionContract.php';
+require_once __DIR__ . '/ChildEmissionOrderContract.php';
 require_once __DIR__ . '/DiagnosticsEvidenceContract.php';
 require_once __DIR__ . '/EffectsContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
@@ -205,6 +206,8 @@ blocks_engine_figma_transformer_run_html_validity_contract($assert, $fileContent
 blocks_engine_figma_transformer_run_semantic_accessibility_contract($assert, $fileContent);
 
 blocks_engine_figma_transformer_run_stacking_context_policy_contract($assert);
+
+blocks_engine_figma_transformer_run_child_emission_order_contract($assert);
 
 blocks_engine_figma_transformer_run_vector_command_blob_contract($assert, $oversizedCommandBlob, $longStrokeCommandBlob);
 
