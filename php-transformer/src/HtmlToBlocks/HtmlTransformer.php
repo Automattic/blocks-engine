@@ -406,7 +406,7 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
-        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($html));
+        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)));
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -763,6 +763,15 @@ final class HtmlTransformer
     private function normalizeHtml5VoidElements(string $html): string
     {
         return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
+    }
+
+    private function normalizeExplicitPlaintextElements(string $html): string
+    {
+        return preg_replace_callback(
+            '/<plaintext\b([^>]*)>(.*?)<\/plaintext\s*>/is',
+            static fn (array $matches): string => '<pre' . $matches[1] . '>' . str_replace('<', '&lt;', $matches[2]) . '</pre>',
+            $html
+        ) ?? $html;
     }
 
     private function documentBodyHtml(string $html): string

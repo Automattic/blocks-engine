@@ -776,12 +776,26 @@ $assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content
 $assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
 
 $plaintextResult = ( new HtmlTransformer() )->transform(
-    '<main><plaintext>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</plaintext></main>'
+    '<p>Before</p><PLAINTEXT>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</PLAINTEXT><p>After</p>'
 )->toArray();
-$plaintextBlock = $plaintextResult['blocks'][0] ?? array();
+$plaintextBlocks = $plaintextResult['blocks'] ?? array();
+$plaintextBlock = $plaintextBlocks[1] ?? array();
+$plaintextInnerHtml = (string) ($plaintextBlock['innerHTML'] ?? '');
 $assert(array() === ($plaintextResult['fallbacks'] ?? array()), 'plaintext content does not create unsupported fallbacks');
-$assert('core/preformatted' === ($plaintextBlock['blockName'] ?? ''), 'plaintext content converts to a preformatted block');
-$assert(str_contains((string) ($plaintextBlock['innerHTML'] ?? ''), '&lt;b&gt;literal tags&lt;/b&gt;'), 'plaintext literal tags are escaped in preformatted content');
+$assert('core/paragraph' === ($plaintextBlocks[0]['blockName'] ?? ''), 'plaintext preserves preceding sibling content');
+$assert('core/preformatted' === ($plaintextBlock['blockName'] ?? ''), 'case-insensitive plaintext content converts to a preformatted block');
+$assert('core/paragraph' === ($plaintextBlocks[2]['blockName'] ?? ''), 'plaintext preserves following sibling content');
+$assert(str_contains($plaintextInnerHtml, '&lt;b&gt;literal tags&lt;/b&gt;'), 'plaintext literal tags are escaped once in preformatted content');
+$assert(! str_contains($plaintextInnerHtml, '&amp;lt;b'), 'plaintext entity content is not double-escaped');
+$assert(! str_contains($plaintextInnerHtml, '</body>') && ! str_contains($plaintextInnerHtml, '</main>'), 'plaintext content excludes synthetic parser wrappers');
+
+$preAndCodeResult = ( new HtmlTransformer() )->transform(
+    '<p>&lt;b&gt;ordinary text&lt;/b&gt;</p><pre>ordinary pre</pre><pre><code>ordinary code</code></pre>'
+)->toArray();
+$preAndCodeBlocks = $preAndCodeResult['blocks'] ?? array();
+$assert('core/paragraph' === ($preAndCodeBlocks[0]['blockName'] ?? '') && str_contains((string) ($preAndCodeBlocks[0]['innerHTML'] ?? ''), '&lt;b&gt;ordinary text&lt;/b&gt;'), 'documents without plaintext preserve ordinary encoded content');
+$assert('core/preformatted' === ($preAndCodeBlocks[1]['blockName'] ?? ''), 'ordinary pre content remains preformatted');
+$assert('core/code' === ($preAndCodeBlocks[2]['blockName'] ?? ''), 'ordinary pre/code content remains code');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
     '<main><a class="site-logo" href="/">Mara Vale</a></main>'
