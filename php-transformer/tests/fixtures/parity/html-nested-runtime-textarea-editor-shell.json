@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nested-runtime-textarea-editor-shell",
+  "description": "Keeps an editorial wrapper native while preserving its nested runtime textarea editor and preview as one bounded app-shell island.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nested-runtime-textarea-editor-shell.json",
+    "notes": "Product-neutral nested editor boundary: runtime preview evidence preserves only the tight pseudo-form candidate."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><h2>Draft notes</h2><div><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save</button><output id=\"preview\"></output></div></section>",
+    "options": {
+      "runtime_dom_selectors": ["#draft", "#save", "#preview"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Draft notes", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<section><h2>Draft notes</h2><div><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save</button><output id=\"preview\"></output></div></section>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save</button><output id=\"preview\"></output></div>" },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "app_shell" },
+    { "path": "source_reports.runtime_islands.0.target_count", "assert": "equals", "value": 3 },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

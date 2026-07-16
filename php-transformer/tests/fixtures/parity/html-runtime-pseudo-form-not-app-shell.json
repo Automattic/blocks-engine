@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-pseudo-form-not-app-shell",
+  "description": "Keeps a runtime-bound div pseudo-form on the form path when all of its runtime targets are form controls.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-pseudo-form-not-app-shell.json",
+    "notes": "Product-neutral data-entry plus submit structure without a non-control runtime target."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><div><textarea id=\"message\" name=\"message\"></textarea><button id=\"submit\" type=\"submit\">Send</button></div></section>",
+    "options": {
+      "runtime_dom_selectors": ["#message", "#submit"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<section><div><textarea id=\"message\" name=\"message\"></textarea><button id=\"submit\" type=\"submit\">Send</button></div></section>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea id=\"message\" name=\"message\"></textarea>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button id=\"submit\" type=\"submit\">Send</button>" },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "control" }
+  ]
+}
