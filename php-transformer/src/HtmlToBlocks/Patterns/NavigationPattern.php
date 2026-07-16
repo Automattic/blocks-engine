@@ -368,7 +368,24 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
     {
-        return $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+            return $attrs;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                continue;
+            }
+
+            $listGap = (string) ($presentationAttributes($child)['style']['spacing']['blockGap'] ?? '');
+            if ( '' !== $listGap ) {
+                $attrs['style']['spacing']['blockGap'] = $listGap;
+                break;
+            }
+        }
+
+        return $attrs;
     }
 
     /**

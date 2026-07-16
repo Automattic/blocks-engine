@@ -1109,6 +1109,21 @@ $assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? 
 $assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<div>Guides</div>'), 'navigation serialization avoids div markup inside submenu link text');
 $assert('pass' === ($navigationLabelResult['source_reports']['wp_block_validity']['status'] ?? ''), 'navigation labels with block-level source markup pass WordPress block validity');
 
+$listGapNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
+)->toArray();
+$listGapNavigationBlock = $listGapNavigation['blocks'][0] ?? array();
+$listGapNavigationSerialized = (string) ($listGapNavigation['serialized_blocks'] ?? '');
+$assert('0' === ($listGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct navigation list gap projects onto core/navigation');
+$assert('pass' === ($listGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'direct navigation list gap preserves semantic parity');
+$assert('pass' === ($listGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'direct navigation list gap serializes to a valid WordPress block');
+$assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation {"style":{"spacing":{"blockGap":"0"}}'), 'direct navigation list gap uses canonical dynamic navigation serialization');
+
+$outerGapNavigation = ( new HtmlTransformer() )->transform(
+    '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
+)->toArray();
+$assert('1rem' === ($outerGapNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'outer navigation gap takes precedence over direct list gap');
+
 $footerNavigationSections = ( new HtmlTransformer() )->transform(
     '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
 )->toArray();
