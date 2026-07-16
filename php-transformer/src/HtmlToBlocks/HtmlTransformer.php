@@ -4641,12 +4641,47 @@ final class HtmlTransformer
 
     private function hasWorkspaceSurface(DOMElement $element): bool
     {
-		foreach ( $this->descendantElements($element) as $descendant ) {
-			$tagName = strtolower($descendant->tagName);
-			if ( in_array($tagName, array( 'canvas', 'iframe', 'template', 'textarea' ), true) ) {
-				return true;
-			}
-			if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) ) {
+                return true;
+            }
+            if ( 'textarea' === $tagName && $this->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
+                return true;
+            }
+            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function textareaIsRuntimeWorkspaceSurface(DOMElement $textarea, DOMElement $root): bool
+    {
+        if ( ! $this->isRuntimeDomTarget($textarea) || $this->hasFormAncestor($textarea) ) {
+            return false;
+        }
+
+        // A plain wrapper that pairs data entry with a submit action is a
+        // pseudo-form, not an editor surface. Only a non-control target inside
+        // that same candidate upgrades it to a runtime workspace.
+        for ( $ancestor = $textarea->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $this->isDivBasedPseudoForm($ancestor) ) {
+                return $ancestor === $root && $this->hasNonFormControlRuntimeTarget($ancestor);
+            }
+            if ( $ancestor === $root ) {
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasNonFormControlRuntimeTarget(DOMElement $element): bool
+    {
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            if ( $this->isRuntimeDomTarget($descendant) && ! $this->isFormControlElement($descendant) ) {
                 return true;
             }
         }

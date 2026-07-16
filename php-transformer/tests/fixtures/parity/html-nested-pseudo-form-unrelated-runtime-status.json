@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nested-pseudo-form-unrelated-runtime-status",
+  "description": "Keeps an editorial wrapper editable when a nested pseudo-form and an unrelated runtime status target are siblings.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nested-pseudo-form-unrelated-runtime-status.json",
+    "notes": "Product-neutral boundary fixture: only a preview target inside the pseudo-form can promote it to a workspace shell."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><h2>Notes</h2><div><textarea id=\"message\" name=\"message\"></textarea><button id=\"submit\" type=\"submit\">Send</button></div><span id=\"status\">Ready</span></section>",
+    "options": {
+      "runtime_dom_selectors": ["#message", "#submit", "#status"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<section><h2>Notes</h2><div><textarea id=\"message\" name=\"message\"></textarea><button id=\"submit\" type=\"submit\">Send</button></div><span id=\"status\">Ready</span></section>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span id=\"status\">Ready</span>" },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 3 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "control" }
+  ]
+}

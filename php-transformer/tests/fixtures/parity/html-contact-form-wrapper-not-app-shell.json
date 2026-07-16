@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-contact-form-wrapper-not-app-shell",
+  "description": "Converts a static contact layout containing a textarea into native columns instead of preserving the entire wrapper as a runtime application shell.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-contact-form-wrapper-not-app-shell.json",
+    "notes": "Product-neutral contact layout with runtime-targeted controls; the form remains independently classified while its static wrapper stays editable."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"contact-content\"><aside class=\"contact-sidebar\"><h2>Studio visits</h2><p>Appointments available weekdays.</p></aside><form class=\"contact-form\" action=\"/contact\" method=\"post\"><label for=\"message\">Message</label><textarea id=\"message\" name=\"message\"></textarea><button class=\"contact-submit\" type=\"submit\">Send message</button></form></section>",
+    "options": {
+      "runtime_dom_selectors": ["textarea", ".contact-submit"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "contact-content" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "contact-sidebar" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "contact-form" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"contact-content\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:column {\"className\":\"contact-sidebar\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"\\u003csection class=\\u0022contact-content" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form class=\"contact-form\" action=\"/contact\" method=\"post\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea id=\"message\" name=\"message\"></textarea>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button class=\"contact-submit\" type=\"submit\">Send message</button>" }
+  ]
+}

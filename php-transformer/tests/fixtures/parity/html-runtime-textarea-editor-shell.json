@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-textarea-editor-shell",
+  "description": "Preserves a runtime-bound textarea editor surface with save and preview controls as one bounded HTML island without requiring an app-root class.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-textarea-editor-shell.json",
+    "notes": "Product-neutral editor surface recognized from runtime-bound textarea, save control, and preview target rather than source naming."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save draft</button><output id=\"preview\"></output></section>",
+    "options": {
+      "runtime_dom_selectors": ["#draft", "#save", "#preview"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save draft</button><output id=\"preview\"></output></section>" },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "app_shell" },
+    { "path": "source_reports.runtime_islands.0.target_count", "assert": "equals", "value": 3 },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
