@@ -907,7 +907,7 @@ final class StaticHtmlEmitter
                 'page_path' => $this->currentPagePath,
             );
         }
-        $children = $this->nodeList($node);
+        $children = $this->childrenInEmissionOrder($node);
         $imageElement = $this->imageElementMetadata($node, $type, $children);
         if ( null !== $imageElement ) {
             $tag = 'img';
@@ -6502,6 +6502,11 @@ final class StaticHtmlEmitter
             foreach ( $this->flexItemStyles($node, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
+            if ( ! $positioningStyleDecision->willPositionAbsolute ) {
+                foreach ( $this->inferredGridItemStyles($node, $parentNode) as $style ) {
+                    $styles[] = $style;
+                }
+            }
         }
 
         $styles = $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
@@ -6585,6 +6590,76 @@ final class StaticHtmlEmitter
             LayoutIntentClassifier::LAYOUT_INTENT_ARTICLE_GRID,
             LayoutIntentClassifier::LAYOUT_INTENT_CTA,
         ), true);
+    }
+
+    /**
+     * Inferred flow layouts use source geometry to reconstruct their visual
+     * placement. Keep declared auto-layout and layered children source-ordered.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, mixed>
+     */
+    private function childrenInEmissionOrder(array $node): array
+    {
+        $children = $this->nodeList($node);
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
+        if (
+            ! empty($layout['display'] ?? null)
+            || ! is_array($layoutIntent)
+            || ! in_array($layoutIntent['display'] ?? null, array('grid', 'flex'), true)
+            || ('flex' === ($layoutIntent['display'] ?? null) && 'row' !== ($layoutIntent['direction'] ?? null))
+        ) {
+            return $children;
+        }
+
+        $participating = array();
+        foreach ( $children as $index => $child ) {
+            if ( ! is_array($child) || ! $this->normalFlexFlowChild($child, $node) ) {
+                continue;
+            }
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($childLayout['positioning'] ?? null) ) {
+                continue;
+            }
+
+            $stackingPlan = $this->layoutIntentClassifier()->stackingContextPlan($child, $node);
+            if ( null !== ($stackingPlan['z_index'] ?? null) ) {
+                continue;
+            }
+
+            $box = is_array($child['box'] ?? null) ? $child['box'] : $child;
+            $x = $box['x'] ?? null;
+            $y = $box['y'] ?? null;
+            if ( ! is_numeric($x) || ('grid' === ($layoutIntent['display'] ?? null) && ! is_numeric($y)) ) {
+                return $children;
+            }
+            $participating[] = array('index' => $index, 'child' => $child, 'x' => (float) $x, 'y' => is_numeric($y) ? (float) $y : 0.0);
+        }
+
+        if ( count($participating) < 2 ) {
+            return $children;
+        }
+
+        $isGrid = 'grid' === ($layoutIntent['display'] ?? null);
+        usort($participating, static function (array $left, array $right) use ($isGrid): int {
+            if ( $isGrid && $left['y'] !== $right['y'] ) {
+                return $left['y'] <=> $right['y'];
+            }
+            if ( $left['x'] !== $right['x'] ) {
+                return $left['x'] <=> $right['x'];
+            }
+
+            return $left['index'] <=> $right['index'];
+        });
+
+        $slots = array_column($participating, 'index');
+        sort($slots, SORT_NUMERIC);
+        foreach ( $slots as $position => $index ) {
+            $children[$index] = $participating[$position]['child'];
+        }
+
+        return $children;
     }
 
     /** @param array<string, mixed> $node */
@@ -7471,6 +7546,86 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * Preserve source-relative placement that equal inferred grid tracks do not
+     * represent, including asymmetric container insets and item widths.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array<int, string>
+     */
+    private function inferredGridItemStyles(array $node, ?array $parentNode): array
+    {
+        if ( null === $parentNode || ! $this->normalFlexFlowChild($node, $parentNode) ) {
+            return array();
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($parentNode);
+        if (
+            ! empty($parentLayout['display'] ?? null)
+            || true !== ($parentLayout['freeform'] ?? null)
+            || 'absolute' === ($layout['positioning'] ?? null)
+            || ! is_array($layoutIntent)
+            || 'grid' !== ($layoutIntent['display'] ?? null)
+        ) {
+            return array();
+        }
+
+        $columns = $layoutIntent['column_count'] ?? null;
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! is_int($columns) || $columns < 2 || ! is_numeric($parentBox['width'] ?? null) ) {
+            return array();
+        }
+
+        $flowChildren = array_values(array_filter(
+            $this->childrenInEmissionOrder($parentNode),
+            function (mixed $child) use ($parentNode): bool {
+                if (
+                    ! is_array($child)
+                    || ! $this->normalFlexFlowChild($child, $parentNode)
+                    || 'absolute' === ($child['layout']['positioning'] ?? null)
+                ) {
+                    return false;
+                }
+
+                $childBox = is_array($child['box'] ?? null) ? $child['box'] : $child;
+                $stackingPlan = $this->layoutIntentClassifier()->stackingContextPlan($child, $parentNode);
+                return null === ($stackingPlan['z_index'] ?? null)
+                    && is_numeric($childBox['x'] ?? null)
+                    && is_numeric($childBox['y'] ?? null);
+            }
+        ));
+        $index = null;
+        foreach ( $flowChildren as $position => $child ) {
+            if ( (string) ($child['id'] ?? '') === (string) ($node['id'] ?? '') ) {
+                $index = $position;
+                break;
+            }
+        }
+        if ( null === $index ) {
+            return array();
+        }
+
+        $sourceOffset = $this->layoutIntentClassifier()->positionOffset($box, $parentBox, 'x', $parentNode);
+        $parentWidth = (float) $parentBox['width'];
+        $gap = is_numeric($layoutIntent['gap'] ?? null) ? (float) $layoutIntent['gap'] : 0.0;
+        $trackWidth = ($parentWidth - ($gap * ($columns - 1))) / $columns;
+        if ( null === $sourceOffset || $trackWidth <= 0.0 ) {
+            return array();
+        }
+
+        $gridOffset = ($index % $columns) * ($trackWidth + $gap);
+        $residual = $sourceOffset - $gridOffset;
+        if ( abs($residual) <= 0.5 ) {
+            return array();
+        }
+
+        return array('margin-left:' . $this->number($residual) . 'px');
     }
 
     /**
