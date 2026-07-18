@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-text-token-native-decomposition",
+  "description": "Decomposes classed inline text tokens containing passive SVGs into native paragraphs and materialized images in source order rather than storing unsupported SVG markup in RichText.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-text-token-native-decomposition.json",
+    "notes": "Covers generic marquee, badge, and label tokens where SVG artwork and text are siblings."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream native decomposition has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"ticker\"><span class=\"ticker-item ticker-item--leading\"><svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle></svg>Open source</span><span class=\"ticker-item ticker-item--split\">Before <svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle></svg> after</span></div>",
+    "options": {
+      "static_css": ".ticker-item{display:inline-flex;gap:8px;color:#125e8a}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "ticker" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-item ticker-item--leading" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Open source" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "ticker-item ticker-item--split" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Before" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "after" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-item ticker-item--leading" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Open source</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
