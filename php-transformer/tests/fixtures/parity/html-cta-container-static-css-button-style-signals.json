@@ -17,16 +17,16 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Book now", "url": "/book", "className": "primary", "style": { "color": { "background": "#2563eb", "text": "#fff" }, "border": { "width": "2px", "style": "solid", "color": "#2563eb", "radius": "999px" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } }, "typography": { "fontWeight": "700" } } } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "is-style-outline", "style": { "color": { "text": "#2563eb", "background": "transparent" }, "border": { "width": "2px", "style": "solid", "color": "currentColor", "radius": "999px" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } }, "typography": { "fontWeight": "700" } } } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Book now", "url": "/book", "style": { "color": { "background": "#2563eb", "text": "#fff" }, "border": { "width": "2px", "style": "solid", "color": "#2563eb", "radius": "999px" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } }, "typography": { "fontWeight": "700" } } } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "style": { "color": { "text": "#2563eb", "background": "transparent" }, "border": { "width": "2px", "style": "solid", "color": "currentColor", "radius": "999px" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } }, "typography": { "fontWeight": "700" } } } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary blocks-engine-control-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "border-color:#2563eb;border-style:solid;border-width:2px;border-radius:999px;color:#fff;background-color:#2563eb;padding-top:14px;padding-right:28px;padding-bottom:14px;padding-left:28px;font-weight:700" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline blocks-engine-control-" },
     { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "border-color:currentColor;border-style:solid;border-width:2px;border-radius:999px;color:#2563eb;background-color:transparent;padding-top:14px;padding-right:28px;padding-bottom:14px;padding-left:28px;font-weight:700" }
   ]
 }

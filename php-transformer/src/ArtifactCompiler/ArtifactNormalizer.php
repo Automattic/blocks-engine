@@ -42,7 +42,15 @@ final class ArtifactNormalizer
             }
         }
 
-        $rawFiles = $this->withInlineScriptFiles($this->withInlineStyleFiles($this->rawFiles($artifact)));
+        $rawFiles = $this->rawFiles($artifact);
+        $reservedPaths = array();
+        foreach ( $rawFiles as $file ) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if ( '' !== $path ) {
+                $reservedPaths[$path] = true;
+            }
+        }
+        $rawFiles = $this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles, $reservedPaths));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -125,7 +133,7 @@ final class ArtifactNormalizer
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
             }
-            foreach ( array('placement', 'type', 'source_path', 'selector') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
@@ -217,34 +225,42 @@ final class ArtifactNormalizer
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function withInlineStyleFiles(array $files): array
+    private function withInlineStyleFiles(array $files, array &$reservedPaths): array
     {
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $content, $matches) ) {
+            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b([^>]*)>(.*?)</style>@is', $content, $matches, PREG_SET_ORDER) ) {
                 continue;
             }
 
-            $css = trim(implode("\n", array_filter(array_map(
-                static fn (string $style): string => trim($style),
-                $matches[1]
-            ), static fn (string $style): bool => '' !== $style)));
-            if ( '' === $css ) {
-                continue;
+            $styles = array();
+            foreach ( $matches as $match ) {
+                $attributes = (string) $match[1];
+                $css = trim((string) $match[2]);
+                if ( '' === $css || ! $this->isCssType($this->htmlAttribute($attributes, 'type')) ) {
+                    continue;
+                }
+                $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
             }
-
-            $expanded[] = array(
-                'path'      => $this->inlineStylePath((string) ($file['path'] ?? 'index.html')),
-                'content'   => $css,
-                'kind'      => 'css',
-                'mime_type' => 'text/css',
-                'role'      => 'stylesheet',
-                'intent'    => 'style',
-                'source'    => 'inline-style',
-            );
+            foreach ( $styles as $index => $style ) {
+                $path = $this->allocateGeneratedPath($this->inlineStylePath((string) ($file['path'] ?? 'index.html'), count($styles), $index + 1), $reservedPaths);
+                $expanded[] = array(
+                    'path'      => $path,
+                    'content'   => $style['content'],
+                    'kind'      => 'css',
+                    'mime_type' => 'text/css',
+                    'role'      => 'stylesheet',
+                    'intent'    => 'style',
+                    'source'    => 'inline-style',
+                    'source_path' => (string) ($file['path'] ?? 'index.html'),
+                    'stylesheet_index' => $index + 1,
+                    'media' => $style['media'],
+                    'type' => $style['type'],
+                );
+            }
         }
 
         return $expanded;
@@ -264,18 +280,38 @@ final class ArtifactNormalizer
             && ( '' === $path || preg_match('/\.html?$/', $path) || 'index.html' === $path );
     }
 
-    private function inlineStylePath(string $htmlPath): string
+    private function inlineStylePath(string $htmlPath, int $count = 1, int $index = 1): string
     {
         $path = ArtifactPath::safeRelativePath($htmlPath);
         if ( '' === $path ) {
-            return 'inline-styles.css';
+            return 1 === $count ? 'inline-styles.css' : 'inline-styles-' . $index . '.css';
         }
 
         $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
         $filename = pathinfo($path, PATHINFO_FILENAME);
-        $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline.css';
+        $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline' . (1 === $count ? '' : '-' . $index) . '.css';
 
         return '' === $directory ? $stylePath : $directory . '/' . $stylePath;
+    }
+
+    /** @param array<string, true> $reservedPaths */
+    private function allocateGeneratedPath(string $candidate, array &$reservedPaths): string
+    {
+        $path = $candidate;
+        $index = 1;
+        while ( isset($reservedPaths[$path]) ) {
+            $extension = pathinfo($candidate, PATHINFO_EXTENSION);
+            $base = '' === $extension ? $candidate : substr($candidate, 0, -strlen($extension) - 1);
+            $path = $base . '-generated-' . $index++ . ('' === $extension ? '' : '.' . $extension);
+        }
+        $reservedPaths[$path] = true;
+        return $path;
+    }
+
+    private function isCssType(string $type): bool
+    {
+        $type = strtolower(trim($type));
+        return '' === $type || 1 === preg_match("/^text\\/css(?:\\s*;\\s*[!#$%&'*+\\-.^_`|~0-9a-z]+(?:\\s*=\\s*(?:[!#$%&'*+\\-.^_`|~0-9a-z]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)*\\s*$/i", $type);
     }
 
     /**

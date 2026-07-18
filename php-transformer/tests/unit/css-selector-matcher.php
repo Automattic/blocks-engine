@@ -1,0 +1,86 @@
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
+
+$failures = 0;
+$passes = 0;
+$assert = static function (bool $condition, string $message) use (&$failures, &$passes): void {
+    if ( $condition ) {
+        ++$passes;
+        return;
+    }
+    ++$failures;
+    fwrite(STDERR, "FAIL: {$message}\n");
+};
+
+$dom = new DOMDocument();
+libxml_use_internal_errors(true);
+$dom->loadHTML('<!doctype html><div id="root"><section class="outer"><p id="one" class="item a" DATA-VALUE="alpha beta" DATA-LANG="en-US" DATA-START="prefix-value" DATA-END="value-suffix" DATA-CONTAINS="x-mid-y" DATA-QUOTED="a, b c">one</p><!-- note --><p id="two" class="item 10">two</p><input id="control" TYPE="text"><span id="target" class="final">target</span></section></div>');
+libxml_clear_errors();
+$byId = static fn (string $id): DOMElement => $dom->getElementById($id);
+$match = static fn (string $selector, DOMElement $element, bool $suffix = false): array => CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector), $suffix);
+
+foreach ( array( 'p.item#one', '*#one' ) as $selector ) {
+    $result = $match($selector, $byId('one'));
+    $assert($result['supported'] && $result['matches'], "matches compound {$selector}");
+}
+$result = $match('P.outer', $byId('one'));
+$assert($result['supported'] && ! $result['matches'], 'matches HTML tag names case-insensitively');
+
+foreach ( array( '[data-value]', '[DATA-VALUE="alpha beta"]', '[DaTa-VaLuE~=beta]', '[DATA-LANG|=en]', '[data-start^=prefix]', '[DATA-END$=suffix]', '[data-contains*=mid]', '[DATA-QUOTED="a, b c"]', '[data-lang="EN-us" i]' ) as $selector ) {
+    $result = $match($selector, $byId('one'));
+    $assert($result['supported'] && $result['matches'], "matches case-insensitive HTML attribute name {$selector}");
+}
+$result = $match('[\\44 ATA-VALUE="alpha beta"]', $byId('one'));
+$assert($result['supported'] && $result['matches'], 'decodes and normalizes escaped HTML attribute names');
+
+$result = $match('div section > p + p', $byId('two'));
+$assert($result['supported'] && $result['matches'], 'matches adjacent sibling through a comment');
+foreach ( array( 'div>section>p~span', 'div section .final' ) as $selector ) {
+    $result = $match($selector, $byId('target'));
+    $assert($result['supported'] && $result['matches'], "matches combinators {$selector}");
+}
+
+foreach ( array( '.\\31 0', '#\\74 wo', '\\64 iv', '--name', '-name', '.\\31 0', '[data-quoted="a\\2c  b c"]' ) as $selector ) {
+    $element = '#\\74 wo' === $selector || '.\\31 0' === $selector ? $byId('two') : ('\\64 iv' === $selector ? $byId('root') : $byId('one'));
+    $result = $match($selector, $element);
+    $assert($result['supported'], "accepts valid identifier grammar {$selector}");
+}
+$result = $match('\\64 iv', $byId('root'));
+$assert($result['supported'] && $result['matches'], 'decodes an escaped type-selector start');
+$result = $match('.\\31 0', $byId('two'));
+$assert($result['matches'], 'decodes escaped class identifier');
+$result = $match('[data-quoted="a\\2c  b c"]', $byId('one'));
+$assert($result['matches'], 'decodes escaped attribute value');
+
+$parsed = CssSelectorMatcher::parse('.final:hover:focus:active');
+$assert($parsed['supported'] && array( 'start' => 6, 'end' => 25 ) === $parsed['pseudo_state_suffix_span'] && 6 === $parsed['rightmost_rewrite_end'], 'exposes dynamic pseudo suffix span and rewrite boundary');
+$assert(! CssSelectorMatcher::matches($byId('target'), $parsed)['supported'], 'dynamic suffix requires caller acknowledgement');
+$assert(CssSelectorMatcher::matches($byId('target'), $parsed, true)['matches'], 'caller acknowledgement permits structural dynamic-pseudo match');
+
+foreach ( array( ':disabled', ':not(.x)', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(2)', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+    $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
+}
+
+foreach ( array( '[type=text]', '[TYPE="TEXT"]' ) as $selector ) {
+    $result = $match($selector, $byId('control'));
+    $assert(! $result['supported'], "declines unmodeled HTML enumerated value semantics {$selector}");
+}
+$result = $match('[TYPE="TEXT" I]', $byId('control'));
+$assert($result['supported'] && $result['matches'], 'explicit ASCII-insensitive attribute flag is matched');
+$result = $match('[TYPE="TEXT" s]', $byId('control'));
+$assert($result['supported'] && ! $result['matches'], 'explicit case-sensitive attribute flag is matched');
+
+$invalidUtf8 = ".\xff";
+$assert(! CssSelectorMatcher::parse($invalidUtf8)['supported'], 'rejects malformed UTF-8');
+$parsed = CssSelectorMatcher::parse('/*x*/ div > .final:hover');
+$assert($parsed['supported'] && array( 'start' => 12, 'end' => 24 ) === $parsed['rightmost_compound_span'] && array( 'start' => 18, 'end' => 24 ) === $parsed['pseudo_state_suffix_span'], 'preserves original source spans around comments and whitespace');
+
+if ( $failures > 0 ) {
+    fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
+    exit(1);
+}
+fwrite(STDOUT, "CssSelectorMatcher unit tests: {$passes} passed\n");

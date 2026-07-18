@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-author-selector-inline-projection",
+  "description": "Rewrites normalized inline stylesheet assets in place after canonical block conversion.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-author-selector-inline-projection.json",
+    "notes": "The original stale p and button selectors must not remain in the materialized inline asset."
+  },
+  "legacy_comparison": { "skip": true, "reason": "Author selector projection is a native artifact materialization behavior." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        { "path": "index.html", "kind": "html", "content": "<!doctype html><html><head><style>.hero-text p{color:red}a.cta:hover{padding:1rem}</style></head><body><main><div class=\"hero-text\"><p>Copy</p></div><a class=\"cta\" href=\"/go\" style=\"padding:1px;background:#000\">Go</a></main></body></html>" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": ".hero-text p" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "a.cta:hover" },
+    { "path": "source_reports.materialization_plan.assets.0.target_path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "not_contains", "value": ".hero-text p" }
+  ]
+}

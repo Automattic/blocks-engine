@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-author-selector-provenance",
+  "description": "Projects supported author selectors through canonical block serialization without falling back to opaque HTML.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-author-selector-provenance.json",
+    "notes": "Source p type selectors use a zero-specificity provenance marker; standalone spans remain ordinary canonical blocks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Selector provenance is a native-block materialization behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>p{color:#123456}span{color:#654321}</style></head><body><main><span>Standalone</span><p>Paragraph</p></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" }
+  ]
+}

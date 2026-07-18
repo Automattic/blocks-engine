@@ -24,7 +24,7 @@ final class ButtonsPattern
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
     public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
@@ -45,7 +45,7 @@ final class ButtonsPattern
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $createBlock): array
@@ -67,7 +67,7 @@ final class ButtonsPattern
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
     public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
@@ -97,7 +97,7 @@ final class ButtonsPattern
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
@@ -107,7 +107,7 @@ final class ButtonsPattern
         return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle), array(
             'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
-        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement);
+        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
     private function buttonText(DOMElement $element, string $html): string
