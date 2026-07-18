@@ -1297,6 +1297,11 @@ final class HtmlTransformer
                 return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
 
+            $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
+            if ( null !== $inlineSvgTextGroup ) {
+                return $inlineSvgTextGroup;
+            }
+
             $dynamicText = $this->dynamicTextContent($element);
             if ( null !== $dynamicText ) {
                 return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
@@ -2772,6 +2777,106 @@ final class HtmlTransformer
         return $this->stripDecorativeSvgFromRichText($this->innerHtml($element));
     }
 
+    /**
+     * Convert an inline text token with a passive SVG into native sibling blocks.
+     * RichText cannot retain SVG markup, but a materialized core/image can retain
+     * the artwork while the wrapper class remains available to the stylesheet.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgTextGroupBlockFromElement(DOMElement $element): ?array
+    {
+        if ( 'span' !== strtolower($element->tagName) || '' === trim($this->attr($element, 'class')) || 0 === $element->getElementsByTagName('svg')->length ) {
+            return null;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'svg' === $tagName ) {
+                continue;
+            }
+
+            if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                return null;
+            }
+
+            foreach ( $child->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+
+                $descendantTagName = strtolower($descendant->tagName);
+                if ( 'a' !== $descendantTagName && 'br' !== $descendantTagName && ! $this->isInlineContentElement($descendantTagName) ) {
+                    return null;
+                }
+            }
+        }
+
+        $blocks = array();
+        $textRun = '';
+        $hasTextRun = false;
+        $flushTextRun = function () use ( &$blocks, &$textRun, &$hasTextRun ): bool {
+            $content = trim($textRun);
+            $textRun = '';
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return true;
+            }
+            if ( $this->richTextRequiresHtmlFallback($content) ) {
+                return false;
+            }
+
+            $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $content ));
+            $hasTextRun = true;
+            return true;
+        };
+
+        $generatedAssets = $this->generatedAssets;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $textRun .= htmlspecialchars($child->textContent ?? '', ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                $this->generatedAssets = $generatedAssets;
+                return null;
+            }
+
+            if ( 'svg' !== strtolower($child->tagName) ) {
+                $textRun .= $this->outerHtml($child);
+                continue;
+            }
+
+            if ( ! $flushTextRun() ) {
+                $this->generatedAssets = $generatedAssets;
+                return null;
+            }
+
+            $image = $this->inlineSvgBlockFromElement($child);
+            if ( ! is_array($image) || 'core/image' !== ($image['blockName'] ?? '') ) {
+                $this->generatedAssets = $generatedAssets;
+                return null;
+            }
+
+            $blocks[] = $image;
+        }
+
+        if ( ! $flushTextRun() || ! $hasTextRun ) {
+            $this->generatedAssets = $generatedAssets;
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element);
+    }
+
     private function stripDecorativeSvgFromRichText(string $content): string
     {
         $content = preg_replace('/<(?:span|i|b)\b(?=[^>]*\baria-hidden\s*=\s*(["\'])true\1)[^>]*>\s*<svg\b[\s\S]*?<\/svg>\s*<\/(?:span|i|b)>\s*/i', '', $content) ?? $content;
@@ -2993,6 +3098,12 @@ final class HtmlTransformer
 
             if ( ! $this->isClassedPhrasingItem($child) ) {
                 return null;
+            }
+
+            $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($child);
+            if ( null !== $inlineSvgTextGroup ) {
+                $blocks[] = $inlineSvgTextGroup;
+                continue;
             }
 
             $content = $this->innerHtml($child);
