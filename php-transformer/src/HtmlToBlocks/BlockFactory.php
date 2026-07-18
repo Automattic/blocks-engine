@@ -467,12 +467,22 @@ final class BlockFactory
         }
 
         if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-            $style[] = 'height:auto';
+            // Gutenberg's image save shape keeps percentage widths as width-only
+            // styles. The image's intrinsic dimensions (including an SVG viewBox)
+            // provide the automatic aspect ratio without serializing height:auto.
+            if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
+                $style[] = 'height:auto';
+            }
         } else {
             $style[] = 'height:' . (string) $attrs['height'];
         }
 
         return implode(';', $style);
+    }
+
+    private function isPercentageWidth(string $width): bool
+    {
+        return 1 === preg_match('/%\s*$/', trim($width));
     }
 
     /**

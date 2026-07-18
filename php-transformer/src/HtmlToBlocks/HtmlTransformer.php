@@ -343,6 +343,12 @@ final class HtmlTransformer
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
+    /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
+    private array $sourceSemanticMarkers = array();
+
+    /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
+    private array $sourceRichTextSemanticMarkers = array();
+
     private string $combinedAuthorCss = '';
 
     private ?DOMElement $authorStyleSourceBody = null;
@@ -422,6 +428,8 @@ final class HtmlTransformer
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
         $this->sourceControlPaths = array();
+        $this->sourceSemanticMarkers = array();
+        $this->sourceRichTextSemanticMarkers = array();
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
         $this->authorMarkerSeed = '';
@@ -504,7 +512,7 @@ final class HtmlTransformer
             );
         }
 
-        $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $normalizedHtml, $options);
+        $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
@@ -647,7 +655,7 @@ final class HtmlTransformer
     }
 
     /** @param array<string, mixed> $options */
-    private function prepareAuthorSelectorSemantics(string $html, string $staticCss, string $normalizedHtml, array $options): void
+    private function prepareAuthorSelectorSemantics(string $html, string $staticCss, DOMElement $sourceBody, array $options): void
     {
         $this->authorStylesheetAssets = $this->authorStylesheetAssetsFromOptions($options);
         $this->combinedAuthorCss = array() === $this->authorStylesheetAssets
@@ -666,15 +674,7 @@ final class HtmlTransformer
             return;
         }
 
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        if ( ! $loaded || ! ($document->getElementsByTagName('body')->item(0) instanceof DOMElement) ) {
-            return;
-        }
-        $this->authorStyleSourceBody = $document->getElementsByTagName('body')->item(0);
+        $this->authorStyleSourceBody = $sourceBody;
 
         $hasParagraphTypeSelector = false;
         ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, static function (string $prelude) use (&$hasParagraphTypeSelector): string {
@@ -693,6 +693,7 @@ final class HtmlTransformer
             $this->sourceTagMarkers['p'] = $this->allocateAuthorMarker('source-p');
         }
         $this->discoverAuthorControlPaths();
+        $this->discoverAuthorInlineSemanticPaths();
     }
 
     private function discoverAuthorControlPaths(): void
@@ -712,6 +713,38 @@ final class HtmlTransformer
                     $path = $control->getNodePath() ?? '';
                     if ( '' !== $path ) {
                         $this->sourceControlPaths[$path] = true;
+                    }
+                }
+            }
+            return $prelude;
+        });
+    }
+
+    private function discoverAuthorInlineSemanticPaths(): void
+    {
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = CssSelectorMatcher::parse($selector);
+                if ( ! $parsed['supported'] ) {
+                    continue;
+                }
+                foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                    if ( 'span' !== strtolower($element->tagName) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($element);
+                    if ( '' === $path ) {
+                        continue;
+                    }
+                    if ( $this->requiresIndependentSemanticWrapper($element) ) {
+                        if ( '' !== $path ) {
+                            $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
+                        }
+                    } elseif ( $this->richTextSelectorNeedsHook($parsed) ) {
+                        $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
+                        // Carry the generated identity through intermediate
+                        // wrapper conversions before RichText normalizes spans.
+                        $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                     }
                 }
             }
@@ -805,26 +838,41 @@ final class HtmlTransformer
             }
 
             $controls = array();
-            $hasNonControl = false;
+            $semanticLeaves = array();
+            $richTextLeaves = array();
+            $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
                 if ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
+                } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
+                    $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
+                } elseif ( isset($this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
+                    $richTextLeaves[] = $this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)];
                 } else {
-                    $hasNonControl = true;
+                    $hasNonProjected = true;
                 }
             }
             $controls = array_values(array_unique($controls));
-            if ( array() === $controls ) {
+            $semanticLeaves = array_values(array_unique($semanticLeaves));
+            $richTextLeaves = array_values(array_unique($richTextLeaves));
+            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
 
-            if ( $hasNonControl ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, ':not(:where(.' . implode(',.', $controls) . '))');
+            $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
+            if ( $hasNonProjected ) {
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker);
+            }
+            foreach ( $semanticLeaves as $marker ) {
+                $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
+            }
+            foreach ( $richTextLeaves as $marker ) {
+                $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
             }
         }
         return implode(',', $rewritten);
@@ -865,6 +913,20 @@ final class HtmlTransformer
         // this control. Project through it rather than assuming source attributes
         // or ancestors survive canonical core/button serialization.
         return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . '> :where(.wp-block-button__link)' . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectSemanticLeafSelector(string $selector, array $parsed, string $marker): string
+    {
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectRichTextSemanticSelector(string $selector, array $parsed, string $marker): string
+    {
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1300,6 +1362,25 @@ final class HtmlTransformer
             $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
             if ( null !== $inlineSvgTextGroup ) {
                 return $inlineSvgTextGroup;
+            }
+
+            if ( $this->hasAuthorSemanticMarker($element) ) {
+                $content = $this->innerHtml($element);
+                if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(
+                        $this->createBlock('core/paragraph', array( 'content' => $content )),
+                    ), $element);
+                }
+            }
+
+            $richTextMarker = $this->richTextMarkerForElement($element);
+            if ( '' !== $richTextMarker ) {
+                $content = $this->innerHtml($element);
+                if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    return $this->createBlock('core/paragraph', array(
+                        'content' => '<mark style="--blocks-engine-richtext-marker:' . $richTextMarker . '">' . $content . '</mark>',
+                    ), array(), $element);
+                }
             }
 
             $dynamicText = $this->dynamicTextContent($element);
@@ -1979,8 +2060,12 @@ final class HtmlTransformer
             if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
             }
+            $semanticMarkers = $this->authorSemanticMarkersForElement($sourceElement);
+            if ( array() !== $semanticMarkers ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$semanticMarkers);
+            }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
-            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) ) {
+            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
                 $path = $logicalControl->getNodePath() ?? '';
                 if ( '' !== $path && ! isset($this->sourceControlMarkers[$path]) ) {
                     $this->sourceControlMarkers[$path] = $this->allocateAuthorMarker('control');
@@ -2014,6 +2099,106 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    private function hasAuthorSemanticMarker(DOMElement $element): bool
+    {
+        return array() !== $this->authorSemanticMarkersForElement($element);
+    }
+
+    /** @return list<string> */
+    private function authorSemanticMarkersForElement(DOMElement $element): array
+    {
+        if ( 'span' !== strtolower($element->tagName) ) {
+            return array();
+        }
+
+        $marker = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
+        return '' === $marker ? array() : array( $marker );
+    }
+
+    private function requiresIndependentSemanticWrapper(DOMElement $element): bool
+    {
+        if ( 'span' !== strtolower($element->tagName) || $this->isRichTextInlineContext($element) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+            return false;
+        }
+
+        $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
+            return true;
+        }
+
+        foreach ( array( 'font-size', 'line-height', 'letter-spacing', 'text-transform', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-color', 'border-radius', 'margin', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isStructuralLayoutElement(DOMElement $element): bool
+    {
+        $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        return in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function richTextSelectorNeedsHook(array $parsed): bool
+    {
+        foreach ( $parsed['compounds'] as $compound ) {
+            if ( array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, string> */
+    private function authorSemanticDeclarations(DOMElement $element): array
+    {
+        $declarations = array();
+        foreach ( $this->staticStyleRules as $rule ) {
+            $parsed = CssSelectorMatcher::parse($rule['selector']);
+            if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+
+        return $declarations;
+    }
+
+    private function isRichTextInlineContext(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function sourceElementIdentity(DOMElement $element): string
+    {
+        return $element->getNodePath() ?? '';
+    }
+
+    private function richTextMarkerForElement(DOMElement $element): string
+    {
+        $marker = trim($this->attr($element, 'data-blocks-engine-richtext-marker'));
+        if ( '' !== $marker ) {
+            return $marker;
+        }
+
+        return $this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
     }
 
     /**
@@ -2192,7 +2377,7 @@ final class HtmlTransformer
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
-            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+            if ( ! in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) ) {
                 return false;
             }
             if ( '' !== trim($attribute->nodeValue ?? '') ) {
@@ -2327,6 +2512,10 @@ final class HtmlTransformer
             }
 
             $inline = $this->richTextInlineVisualDeclarations($sourceInline);
+            $marker = $this->richTextMarkerForElement($sourceInline);
+            if ( '' !== $marker ) {
+                $inline['--blocks-engine-richtext-marker'] = $marker;
+            }
             if ( array() === $inline ) {
                 continue;
             }
@@ -2375,8 +2564,14 @@ final class HtmlTransformer
         }
 
         $declarations = $this->richTextInlineVisualDeclarations($element);
-        if ( array() === $declarations ) {
+        $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
+        if ( '' === $marker && array() === $declarations ) {
             return false;
+        }
+
+        if ( '' !== $marker ) {
+            $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
         if ( ! isset($declarations['background-color']) ) {
@@ -2980,6 +3175,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+            return null;
+        }
+
         $content = $this->richTextContentWithMaterializedInlineStyles($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallback($content) ) {
             return null;
@@ -3028,17 +3227,46 @@ final class HtmlTransformer
             return null;
         }
 
+        // A CSS-addressed inline leaf needs an independent native wrapper. Do
+        // not absorb it into this parent RichText paragraph, where its selector
+        // path and flex/grid item geometry would be lost.
+        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+            return null;
+        }
+
         $structuredInlineItems = $this->structuredInlineItemBlocks($element);
         if ( null !== $structuredInlineItems ) {
             return $this->createBlock('core/group', $this->presentationAttributes($element), $structuredInlineItems, $element);
         }
 
-        $content = $this->innerHtml($element);
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->hasAuthorSemanticMarker($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasRichTextMarkedDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('span') as $span ) {
+            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasOnlyPhrasingChildren(DOMElement $element): bool
