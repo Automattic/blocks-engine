@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-resolved-split-grid-stays-group",
+  "description": "A two-child split container resolved as CSS grid stays a core/group so source grid tracks and alignment are not replaced by Gutenberg Columns flex geometry.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-resolved-split-grid-stays-group.json",
+    "notes": "Uses a generic split-layout class that the columns recognizer accepts without resolved-style awareness. The resolved CSS grid must take precedence over the class-name heuristic."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer resolved-layout behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"feature-row\" style=\"display:grid;grid-template-columns:520px 520px;gap:64px;align-items:center\"><div class=\"feature-copy\"><h2>Fast setup</h2><p>Start with a stable foundation.</p></div><div class=\"feature-visual\"><p>Preview</p></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-row" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-copy" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-visual" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-row\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

@@ -108,9 +108,14 @@ final class ColumnsPattern
         // vertical stack. Emitting core/columns would render them horizontally —
         // the wrong direction. Decline here so the host transformer routes the
         // element to a vertical core/group instead, preserving its classes and
-        // styles. Horizontal flex (row / row-reverse / default) and grid layouts
-        // are unaffected, so legitimate horizontal columns are never disturbed.
+        // styles. Horizontal flex (row / row-reverse / default) remains eligible.
         if ( $this->isVerticalFlexContainer($style) ) {
+            return false;
+        }
+
+        // core/columns is a flex layout. Preserve resolved grid containers as
+        // groups so their source classes continue to control track geometry.
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?grid\b/', $style) ) {
             return false;
         }
 
