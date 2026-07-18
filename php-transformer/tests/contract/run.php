@@ -566,6 +566,26 @@ $largeCssSizedInlineSvgArtworkMarkup = (string) ($largeCssSizedInlineSvgArtwork[
 $assert(str_contains($largeCssSizedInlineSvgArtworkMarkup, '<!-- wp:image'), 'large CSS-sized inline SVG artwork materializes as native image without a data URI budget');
 $assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover" width="500" height="500"'), 'large CSS-sized inline SVG artwork does not inject intrinsic SVG dimensions over source CSS sizing');
 
+$percentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
+$percentageWidthSvgMarkup = (string) ($percentageWidthSvg['serialized_blocks'] ?? '');
+$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image uses canonical width-only markup while the SVG viewBox supplies its intrinsic aspect ratio');
+
+$fractionalPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width=".5%" viewBox="0 0 620 380" role="img" aria-label="Fractional responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
+$fractionalPercentageWidthSvgMarkup = (string) ($fractionalPercentageWidthSvg['serialized_blocks'] ?? '');
+$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+
+$signedPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="+.5%" viewBox="0 0 620 380" role="img" aria-label="Signed responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
+$signedPercentageWidthSvgMarkup = (string) ($signedPercentageWidthSvg['serialized_blocks'] ?? '');
+$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+
+$exponentPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="1e2%" viewBox="0 0 620 380" role="img" aria-label="Exponent responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
+$exponentPercentageWidthSvgMarkup = (string) ($exponentPercentageWidthSvg['serialized_blocks'] ?? '');
+$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses canonical width-only responsive markup');
+
+$negativePercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="-1%" viewBox="0 0 620 380" role="img" aria-label="Invalid negative responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
+$negativePercentageWidthSvgMarkup = (string) ($negativePercentageWidthSvg['serialized_blocks'] ?? '');
+$assert(! str_contains($negativePercentageWidthSvgMarkup, 'width:-1%') && str_contains($negativePercentageWidthSvgMarkup, 'height:380px'), 'negative SVG percentage width is rejected as invalid non-negative SVG geometry');
+
 $fixedBackgroundLayer = ( new HtmlTransformer() )->transform(
     '<style>.page-bg{position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#211,#000)}</style><main><div class="page-bg" aria-hidden="true"></div><section class="hero"><h1>Hero</h1></section></main>'
 )->toArray();

@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-author-selector-provenance.json",
-    "notes": "Source p type selectors use a zero-specificity provenance marker; standalone spans remain ordinary canonical blocks."
+    "notes": "Source p type selectors use a zero-specificity provenance marker; ordinary inline spans remain canonical paragraph content."
   },
   "legacy_comparison": {
     "skip": true,

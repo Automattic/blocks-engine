@@ -266,7 +266,15 @@ trait SvgMaterializationTrait
      */
     private function svgImageDimensions(DOMElement $element, string $html): array
     {
-        $width = $this->svgLengthAttributeForImage($this->attr($element, 'width'));
+        $sourceWidth = trim($this->attr($element, 'width'));
+        // A percentage SVG width has a used size from its containing block. Keep
+        // that responsive width on the native image and let its viewBox provide
+        // the intrinsic aspect ratio instead of pinning a viewBox-height value.
+        if ( null !== $this->svgPercentageWidth($sourceWidth) ) {
+            return array( 'width' => $sourceWidth );
+        }
+
+        $width = $this->svgLengthAttributeForImage($sourceWidth);
         $height = $this->svgLengthAttributeForImage($this->attr($element, 'height'));
         if ( '' !== $width && '' !== $height ) {
             return array( 'width' => $width, 'height' => $height );
@@ -283,6 +291,19 @@ trait SvgMaterializationTrait
         }
 
         return array_filter(array( 'width' => $width, 'height' => $height ), static fn (string $value): bool => '' !== $value);
+    }
+
+    private function svgPercentageWidth(string $value): ?float
+    {
+        if ( 1 !== preg_match('/^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?%$/', $value) ) {
+            return null;
+        }
+
+        $number = (float) substr($value, 0, -1);
+        // SVG width is a non-negative length. Keep valid signed/exponent CSS
+        // numbers when usable, and fall back to intrinsic dimensions for a
+        // negative used width rather than emitting invalid image geometry.
+        return is_finite($number) && $number >= 0 ? $number : null;
     }
 
     private function svgLengthAttributeForImage(string $value): string

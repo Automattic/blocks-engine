@@ -65,6 +65,50 @@ $wrapperCss = $css($wrapper);
 $wrapperButton = $wrapper['blocks'][0]['innerBlocks'][0] ?? array();
 $assert('core/button' === ($wrapperButton['blockName'] ?? '') && str_contains((string) ($wrapperButton['attrs']['className'] ?? ''), 'blocks-engine-control-') && 2 === substr_count($wrapperCss, '> :where(.wp-block-button__link)') && str_contains($wrapperCss, ':hover') && str_contains($wrapperCss, ':focus') && 'pass' === ($wrapper['source_reports']['wp_block_validity']['status'] ?? ''), 'wrapper-driven role=button promotion retains logical anchor selectors, presentation wrapper attributes, and valid blocks');
 
+$navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
+$navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
+$navCtaCss = $css($navCta);
+$assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+
+$inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
+$inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
+$inlineCss = $css($inlineLeaves);
+$assert(3 === substr_count($inlineMarkup, '<div class="wp-block-group blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain independent native wrapper identities and projected selector paths without HTML fallback');
+
+$repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
+$repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
+$repeatedCss = $css($repeatedParents);
+preg_match_all('/blocks-engine-semantic-[a-f0-9]+-\d+/', $repeatedMarkup . "\n" . $repeatedCss, $repeatedMarkers);
+$assert(2 === count(array_unique($repeatedMarkers[0] ?? array())) && 2 === substr_count($repeatedCss, ':where(.blocks-engine-semantic-') && str_contains($repeatedMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($repeatedCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-'), 'repeated structural parents allocate unique source-path markers without leaking their box styles into an unrelated inline sibling');
+
+$richTextPill = $transform('<style>p .pill{padding:2px 8px;border:1px solid #999}</style><p>Read <span class="pill">more</span>.</p>');
+$richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
+$richTextPillCss = $css($richTextPill);
+$assert(str_contains($richTextPillMarkup, '<mark style="') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
+
+$richTextStates = $transform('<style>p .pill:hover{color:red}p .pill:focus{color:blue}p .pill:active{color:green}p .pill:visited{color:purple}</style><p>Read <span class="pill">more</span>.</p>');
+$richTextStatesMarkup = (string) ($richTextStates['serialized_blocks'] ?? '');
+$richTextStatesCss = $css($richTextStates);
+$assert(str_contains($richTextStatesMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && 4 === substr_count($richTextStatesCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextStatesCss, ':hover{color:red}') && str_contains($richTextStatesCss, ':focus{color:blue}') && str_contains($richTextStatesCss, ':active{color:green}') && str_contains($richTextStatesCss, ':visited{color:purple}') && ! str_contains($richTextStatesMarkup, ':hover') && ! str_contains($richTextStatesMarkup, ':focus') && ! str_contains($richTextStatesMarkup, ':active') && ! str_contains($richTextStatesMarkup, ':visited'), 'RichText marker projections retain dynamic pseudo-state suffixes without inlining a permanent state');
+
+$nestedLeaf = $transform('<style>.meta{display:flex}.pill{padding:2px 8px;border:1px solid #999}.meta > .item .pill{color:red}</style><div class="meta"><div class="item"><span class="pill">Nested</span></div></div>');
+$nestedLeafMarkup = (string) ($nestedLeaf['serialized_blocks'] ?? '');
+$nestedLeafCss = $css($nestedLeaf);
+$assert(! str_contains($nestedLeafMarkup, 'blocks-engine-semantic-') && str_contains($nestedLeafMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($nestedLeafCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($nestedLeaf['source_reports']['wp_block_validity']['status'] ?? ''), 'nested selector-addressable leaves retain a valid inline marker instead of becoming a structural group');
+
+$proseBadge = $transform('<style>.card{display:flex}.badge{padding:2px 8px;border:1px solid #999}.card .badge{color:red}</style><div class="card"><div class="copy">Read <span class="badge">new</span> notes.</div></div>');
+$proseBadgeMarkup = (string) ($proseBadge['serialized_blocks'] ?? '');
+$proseBadgeCss = $css($proseBadge);
+$assert(! str_contains($proseBadgeMarkup, 'blocks-engine-semantic-') && str_contains($proseBadgeMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($proseBadgeCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($proseBadge['source_reports']['wp_block_validity']['status'] ?? ''), 'a padded badge inside prose in a flex card remains an inline RichText marker');
+
+$ordinaryInline = $transform('<style>span{color:red}</style><p>Read <span>this</span> now.</p>');
+$ordinaryInlineMarkup = (string) ($ordinaryInline['serialized_blocks'] ?? '');
+$assert(! str_contains($ordinaryInlineMarkup, 'blocks-engine-semantic-') && 'core/paragraph' === ($ordinaryInline['blocks'][0]['blockName'] ?? '') && 'pass' === ($ordinaryInline['source_reports']['wp_block_validity']['status'] ?? ''), 'ordinary inline span styling remains RichText flow rather than becoming a group wrapper');
+
+$structural = $transform('<style>.product-layout{display:grid;grid-template-columns:1fr 20rem;gap:3rem}.product-layout > .detail-pane{min-width:0}</style><div class="product-layout"><div>Primary</div><aside class="detail-pane">Secondary</aside></div>');
+$structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
+$assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($css($structural), '.product-layout > .detail-pane') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group and child classes survive native grid materialization');
+
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
 $second = $instance->transform('<style>.cta:hover{padding:1rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>')->toArray();
