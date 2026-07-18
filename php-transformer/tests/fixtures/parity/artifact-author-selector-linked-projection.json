@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-author-selector-linked-projection",
+  "description": "Retains separate linked stylesheet paths and order while projecting selectors in each asset independently.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-author-selector-linked-projection.json",
+    "notes": "Multiple linked CSS assets remain independently materializable after selector rewriting."
+  },
+  "legacy_comparison": { "skip": true, "reason": "Per-asset selector projection is a native artifact materialization behavior." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        { "path": "index.html", "kind": "html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"assets/buttons.css\"><link rel=\"stylesheet\" href=\"assets/type.css\"></head><body><main><a class=\"cta\" href=\"/go\" style=\"padding:1px;background:#000\">Go</a><p>Copy</p></main></body></html>" },
+        { "path": "assets/buttons.css", "kind": "css", "content": "a.cta:hover{padding:1rem}" },
+        { "path": "assets/type.css", "kind": "css", "content": "p{color:red}" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.path", "assert": "equals", "value": "assets/buttons.css" },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/type.css" },
+    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "a.cta:hover" },
+    { "path": "assets.1.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": "p{color:red}" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "assets/buttons.css" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "assets/type.css" }
+  ]
+}

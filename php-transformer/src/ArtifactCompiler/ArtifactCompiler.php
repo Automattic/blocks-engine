@@ -42,12 +42,14 @@ final class ArtifactCompiler
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
-        $referenceReports = $this->referenceReports($normalized['files']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
+        $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $entryBlocks['author_stylesheet_projections']);
+        $referenceReports = $this->referenceReports($normalized['files']);
+        $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
         $otherGeneratedAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => ! in_array($asset, $geometryAssets, true)));
         // Runtime loads the manifest in array order. Put carrier CSS before
@@ -154,7 +156,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -170,12 +172,13 @@ final class ArtifactCompiler
             'generated_blocks'  => $result['generated_blocks'],
             'interaction_candidates' => $result['interaction_candidates'],
             'superseded_selectors' => $result['superseded_selectors'],
+            'author_stylesheet_projections' => $result['author_stylesheet_projections'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
     {
@@ -190,6 +193,7 @@ final class ArtifactCompiler
                 'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
+                'author_stylesheet_projections' => array(),
             );
         }
 
@@ -204,6 +208,7 @@ final class ArtifactCompiler
                 'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
+                'author_stylesheet_projections' => array(),
             );
         }
 
@@ -211,6 +216,7 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
@@ -236,6 +242,7 @@ final class ArtifactCompiler
                 is_array($result['source_reports']['superseded_selectors'] ?? null) ? $result['source_reports']['superseded_selectors'] : array(),
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
+            'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
         );
     }
 
@@ -569,11 +576,11 @@ final class ArtifactCompiler
         foreach ( $matches[0] as $tag ) {
             $rel = $this->htmlAttribute((string) $tag, 'rel');
             $href = $this->htmlAttribute((string) $tag, 'href');
-            if ( '' === $href || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $rel) ) {
+            if ( '' === $href || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $rel) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
                 continue;
             }
 
-            $path = ArtifactPath::resolveRelativePath($href, $sourcePath);
+            $path = $this->stylesheetPathFromHref($href, $sourcePath);
             if ( '' === $path ) {
                 continue;
             }
@@ -587,6 +594,178 @@ final class ArtifactCompiler
         }
 
         return trim(implode("\n", $css));
+    }
+
+    /**
+     * Preserve authored stylesheet boundaries and document order for selector
+     * projection. Inline CSS is normalized as its own asset by ArtifactNormalizer.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return list<array{path: string, content: string, source_hash: string}>
+     */
+    private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
+    {
+        $byPath = array();
+        $inline = array();
+        $occurrencePaths = array();
+        foreach ( $files as $file ) {
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['path'] ?? null) || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            $byPath[$file['path']] = $file;
+            if ( 'inline-style' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') ) {
+                $inline[(int) ($file['stylesheet_index'] ?? 0)] = $file;
+            }
+            if ( is_string($file['stylesheet_source_path'] ?? null) && isset($file['stylesheet_occurrence']) ) {
+                $occurrencePaths[$file['stylesheet_source_path']][(int) $file['stylesheet_occurrence']] = $file['path'];
+            }
+        }
+        $assets = array();
+        $seenPaths = array();
+        $inlineIndex = 0;
+        $linkOccurrences = array();
+        if ( preg_match_all('/<style\b[^>]*>.*?<\/style>|<link\b[^>]*>/is', $html, $matches) ) {
+            foreach ( $matches[0] as $tag ) {
+                if ( preg_match('/^<style\b/i', $tag) ) {
+                    $attributes = '';
+                    preg_match('/^<style\b([^>]*)>/i', $tag, $styleMatch);
+                    $attributes = (string) ($styleMatch[1] ?? '');
+                    if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
+                        continue;
+                    }
+                    if ( '' === trim((string) preg_replace('@^<style\b[^>]*>|</style>$@is', '', $tag)) ) {
+                        continue;
+                    }
+                    ++$inlineIndex;
+                    $file = $inline[$inlineIndex] ?? null;
+                    if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
+                        $assets[] = array( 'path' => $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                        $seenPaths[$file['path']] = true;
+                    }
+                    continue;
+                }
+                if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                    continue;
+                }
+                $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+                $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
+                $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
+                $file = $byPath[$path] ?? null;
+                if ( is_array($file) && ! isset($seenPaths[$path]) ) {
+                    $assets[] = array( 'path' => $path, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                    $seenPaths[$path] = true;
+                }
+            }
+        }
+        return $assets;
+    }
+
+    /** @param array<int, array<string, mixed>> $files @return array<int, array<string, mixed>> */
+    private function withStylesheetOccurrenceAssets(string $html, string $sourcePath, array $files): array
+    {
+        $byPath = array();
+        $reserved = array();
+        foreach ( $files as $index => $file ) {
+            $path = (string) ($file['path'] ?? '');
+            $byPath[$path] = $index;
+            $reserved[$path] = true;
+        }
+        $occurrences = array();
+        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
+            return $files;
+        }
+        foreach ( $matches[0] as $tag ) {
+            if ( ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel')) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                continue;
+            }
+            $originalPath = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+            if ( '' === $originalPath || ! isset($byPath[$originalPath]) || 'css' !== ($files[$byPath[$originalPath]]['kind'] ?? '') ) {
+                continue;
+            }
+            $occurrences[$originalPath] = ($occurrences[$originalPath] ?? 0) + 1;
+            $occurrence = $occurrences[$originalPath];
+            $media = $this->htmlAttribute((string) $tag, 'media');
+            $type = $this->htmlAttribute((string) $tag, 'type');
+            if ( 1 === $occurrence ) {
+                $files[$byPath[$originalPath]]['media'] = $media;
+                $files[$byPath[$originalPath]]['type'] = $type;
+                $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
+                $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
+                continue;
+            }
+            $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
+            $aliasFile = $files[$byPath[$originalPath]];
+            $aliasFile['path'] = $alias;
+            $aliasFile['source'] = 'stylesheet-occurrence';
+            $aliasFile['source_path'] = $originalPath;
+            $aliasFile['stylesheet_source_path'] = $originalPath;
+            $aliasFile['stylesheet_occurrence'] = $occurrence;
+            $aliasFile['media'] = $media;
+            $aliasFile['type'] = $type;
+            $aliasFile['provenance']['source_path'] = $originalPath;
+            $files[] = $aliasFile;
+            $byPath[$alias] = count($files) - 1;
+        }
+        return $files;
+    }
+
+    private function stylesheetPathFromHref(string $href, string $sourcePath): string
+    {
+        return ArtifactPath::resolveRelativePath((string) preg_replace('/[?#].*$/', '', $href), $sourcePath);
+    }
+
+    private function stylesheetOccurrencePath(string $path, int $occurrence): string
+    {
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        $base = '' === $extension ? $path : substr($path, 0, -strlen($extension) - 1);
+        return $base . '.occurrence-' . $occurrence . ('' === $extension ? '' : '.' . $extension);
+    }
+
+    /** @param array<string, true> $reserved */
+    private function allocateStylesheetOccurrencePath(string $candidate, array &$reserved): string
+    {
+        $path = $candidate;
+        $index = 1;
+        while ( isset($reserved[$path]) ) {
+            $extension = pathinfo($candidate, PATHINFO_EXTENSION);
+            $base = '' === $extension ? $candidate : substr($candidate, 0, -strlen($extension) - 1);
+            $path = $base . '-generated-' . $index++ . ('' === $extension ? '' : '.' . $extension);
+        }
+        $reserved[$path] = true;
+        return $path;
+    }
+
+    private function isCssStylesheetType(string $type): bool
+    {
+        $type = strtolower(trim($type));
+        return '' === $type || 1 === preg_match("/^text\\/css(?:\\s*;\\s*[!#$%&'*+\\-.^_`|~0-9a-z]+(?:\\s*=\\s*(?:[!#$%&'*+\\-.^_`|~0-9a-z]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)*\\s*$/i", $type);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $projections
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyAuthorStylesheetProjections(array $files, array $projections): array
+    {
+        $byPath = array();
+        foreach ( $projections as $projection ) {
+            if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
+                $byPath[$projection['path']] = $projection;
+            }
+        }
+        foreach ( $files as &$file ) {
+            $projection = $byPath[$file['path'] ?? ''] ?? null;
+            if ( ! is_array($projection) || 'css' !== ($file['kind'] ?? '') ) {
+                continue;
+            }
+            $file['content'] = $projection['content'];
+            $file['bytes'] = $projection['bytes'];
+            $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
+            $file['provenance']['hash'] = $projection['hash'];
+        }
+        unset($file);
+        return $files;
     }
 
     /**
@@ -1801,6 +1980,7 @@ final class ArtifactCompiler
                     'role'             => $asset['role'] ?? '',
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
+                    'media'            => $asset['media'] ?? '',
                     'mime_type'        => $asset['mime_type'] ?? '',
                     'bytes'            => $asset['bytes'] ?? 0,
                     'binary'           => $asset['binary'] ?? false,
@@ -2035,11 +2215,12 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function assetManifest(array $files, string $entryPath, array $assetReferences = array()): array
+    private function assetManifest(array $files, string $entryPath, array $assetReferences = array(), string $entryHtml = ''): array
     {
         $assets = array();
+        $unsupportedStylesheets = $this->unsupportedStylesheetPaths($entryHtml, $entryPath);
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) ) {
+            if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) || isset($unsupportedStylesheets[$file['path'] ?? '']) ) {
                 continue;
             }
             $asset = array(
@@ -2055,6 +2236,7 @@ final class ArtifactCompiler
                 'content_encoding' => $file['encoding'],
                 'binary'           => $file['binary'],
                 'hash'             => $file['provenance']['hash'] ?? '',
+                'source_hash'      => $file['provenance']['projected_from_hash'] ?? ($file['provenance']['hash'] ?? ''),
                 'provenance'       => $file['provenance'],
             );
             if ( ! empty($file['content_base64']) ) {
@@ -2071,6 +2253,9 @@ final class ArtifactCompiler
                     $asset[$field] = (string) $file[$field];
                 }
             }
+            if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
+                $asset['media'] = (string) $file['media'];
+            }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
                     $asset[$field] = (bool) $file[$field];
@@ -2082,8 +2267,59 @@ final class ArtifactCompiler
             }
             $assets[] = $asset;
         }
+        if ( '' === $entryHtml ) {
+            return $assets;
+        }
+        $orderedPaths = array_column($this->stylesheetAssetsForSource($entryHtml, $entryPath, $files), 'path');
+        $ordered = array();
+        $consumed = array();
+        foreach ( $orderedPaths as $path ) {
+            if ( isset($consumed[$path]) ) {
+                continue;
+            }
+            foreach ( $assets as $asset ) {
+                if ( $path === ($asset['path'] ?? '') ) {
+                    $ordered[] = $asset;
+                    $consumed[$path] = true;
+                    break;
+                }
+            }
+        }
+        foreach ( $assets as $asset ) {
+            if ( isset($consumed[$asset['path'] ?? '']) ) {
+                continue;
+            }
+            $ordered[] = $asset;
+        }
+        return $ordered;
+    }
 
-        return $assets;
+    /** @return array<string, true> */
+    private function unsupportedStylesheetPaths(string $html, string $sourcePath): array
+    {
+        $unsupported = array();
+        $supported = array();
+        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
+            return $unsupported;
+        }
+        foreach ( $matches[0] as $tag ) {
+            if ( ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel')) ) {
+                continue;
+            }
+            $path = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+            if ( '' === $path ) {
+                continue;
+            }
+            if ( $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                $supported[$path] = true;
+            } else {
+                $unsupported[$path] = true;
+            }
+        }
+        foreach ( $supported as $path => $_true ) {
+            unset($unsupported[$path]);
+        }
+        return $unsupported;
     }
 
     /**

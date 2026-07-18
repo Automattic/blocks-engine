@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-stylesheet-media-type-occurrences",
+  "description": "Carries supported CSS media/type metadata through ordered stylesheet occurrences while leaving unsupported types out of materialization.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-stylesheet-media-type-occurrences.json",
+    "notes": "Nonce attributes are intentionally absent from static asset metadata; media/type survive for runtime link emission."
+  },
+  "legacy_comparison": { "skip": true, "reason": "Stylesheet occurrence metadata is an artifact materialization behavior." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        { "path": "assets/print.css", "kind": "css", "content": ".print{color:black}" },
+        { "path": "index.inline.css", "kind": "css", "content": ".authored{color:purple}" },
+        { "path": "index.html", "kind": "html", "content": "<!doctype html><html><head><style media=\"print\" type=\"text/css\" nonce=\"secret\">.inline-print{color:black}</style><link rel=\"stylesheet\" href=\"assets/print.css?cache=1#top\" media=\"print\" type=\"text/css\" nonce=\"secret\"><style type=\"text/less\">.unsupported{color:red}</style><link rel=\"stylesheet\" href=\"assets/print.css\" type=\"text/less\"></head><body><p>Copy</p></body></html>" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.path", "assert": "equals", "value": "index.inline-generated-1.css" },
+    { "path": "assets.0.media", "assert": "equals", "value": "print" },
+    { "path": "assets.0.type", "assert": "equals", "value": "text/css" },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/print.css" },
+    { "path": "assets.1.media", "assert": "equals", "value": "print" },
+    { "path": "assets.1.type", "assert": "equals", "value": "text/css" },
+    { "path": "assets.2.path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.compiled_site.assets.0.media", "assert": "equals", "value": "print" },
+    { "path": "source_reports.materialization_plan.assets.0.media", "assert": "equals", "value": "print" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": "secret" },
+    { "path": "assets.0.content", "assert": "not_contains", "value": ".unsupported" }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-stylesheet-occurrence-order",
+  "description": "Preserves entry HTML stylesheet occurrence order across interleaved inline and linked CSS regardless of artifact file order.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-stylesheet-occurrence-order.json",
+    "notes": "Single inline styles keep index.inline.css; multiple inline occurrences receive deterministic indexed paths."
+  },
+  "legacy_comparison": { "skip": true, "reason": "Stylesheet occurrence ordering is an artifact materialization behavior." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        { "path": "assets/theme.css", "kind": "css", "content": ".blue{color:blue}" },
+        { "path": "index.html", "kind": "html", "content": "<!doctype html><html><head><style>.red{color:red}</style><link rel=\"stylesheet\" href=\"assets/theme.css\"><style>.green{color:green}</style></head><body><main><p class=\"red blue green\">Copy</p></main></body></html>" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.path", "assert": "equals", "value": "index.inline-1.css" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".red{color:red}" },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/theme.css" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".blue{color:blue}" },
+    { "path": "assets.2.path", "assert": "equals", "value": "index.inline-2.css" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".green{color:green}" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "index.inline-1.css" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "assets/theme.css" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.2", "assert": "equals", "value": "index.inline-2.css" }
+  ]
+}

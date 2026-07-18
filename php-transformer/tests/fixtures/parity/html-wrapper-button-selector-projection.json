@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-wrapper-button-selector-projection",
+  "description": "A role=button presentation wrapper promotes its logical anchor to core/button while retaining supported hover and focus selectors on the canonical link.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-wrapper-button-selector-projection.json",
+    "notes": "The source wrapper remains the presentation/provenance element and its descendant anchor remains the selector-control identity."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Logical-control selector projection is a native-block materialization behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style></head><body><main><div class=\"wrap\" role=\"button\"><a class=\"cta\" href=\"/go\">Go</a></div></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Go", "url": "/go" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):focus" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn cta" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "benefits" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "benefit-card" } }
   ],

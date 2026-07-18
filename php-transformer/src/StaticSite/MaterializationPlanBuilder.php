@@ -282,6 +282,7 @@ final class MaterializationPlanBuilder
                 'role'             => (string) ($asset['role'] ?? ''),
                 'intent'           => (string) ($asset['intent'] ?? ''),
                 'media_type'       => (string) ($asset['media_type'] ?? $asset['mime_type'] ?? ''),
+                'media'            => (string) ($asset['media'] ?? ''),
                 'mime_type'        => (string) ($asset['mime_type'] ?? ''),
                 'bytes'            => (int) ($asset['bytes'] ?? 0),
                 'binary'           => ! empty($asset['binary']),
