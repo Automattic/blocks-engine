@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -345,6 +346,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
+    /** @var array<string, string> Source wrapper paths promoted into core/button. */
+    private array $sourceButtonPresentationMarkers = array();
+
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
@@ -438,6 +442,7 @@ final class HtmlTransformer
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
+        $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
@@ -2413,6 +2418,11 @@ final class HtmlTransformer
                 }
                 if ( isset($this->sourceControlMarkers[$path]) ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                }
+                $presentationPath = $sourceElement->getNodePath() ?? '';
+                if ( '' !== $presentationPath && $presentationPath !== $path ) {
+                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
+                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
                 }
             }
             $provenanceId = $this->nextSourceProvenanceId++;
