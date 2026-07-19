@@ -1286,6 +1286,15 @@ final class HtmlTransformer
             return null;
         }
 
+        // Handle a safe SVG at a phrasing-to-block boundary before generic
+        // preservation rules see the SVG as an unsupported document fragment.
+        if ( 'svg' === $tagName && $this->svgNeedsPhrasingHost($element) ) {
+            $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+            if ( null !== $imageMarkup ) {
+                return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+            }
+        }
+
         if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
@@ -1305,7 +1314,7 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            if ( $this->richTextRequiresHtmlFallback($content) ) {
+            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
@@ -1320,7 +1329,11 @@ final class HtmlTransformer
 
         if ( 'p' === $tagName ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            if ( $this->richTextRequiresHtmlFallback($content) ) {
+            $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
+            if ( null !== $inlineSvgContent ) {
+                $content = $inlineSvgContent;
+            }
+            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
             }
             if ( $this->hasEmptyVisualInlineChild($element) ) {
@@ -1329,7 +1342,7 @@ final class HtmlTransformer
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
             }
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            if ( '' === trim($this->runtime->stripAllTags($content)) && ! $this->richTextContainsNativeSvgImageObject($content) ) {
                 if ( $this->isRuntimeDomTarget($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
@@ -1704,6 +1717,12 @@ final class HtmlTransformer
                 $isDecorativeChrome = $this->isVisualLayerElement($element)
                     || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
                 if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
+                    if ( $this->svgNeedsPhrasingHost($element) ) {
+                        $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+                        if ( null !== $imageMarkup ) {
+                            return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                        }
+                    }
                     $svgBlock = $this->inlineSvgBlockFromElement($element);
                     if ( null !== $svgBlock ) {
                         return $svgBlock;
@@ -1713,6 +1732,13 @@ final class HtmlTransformer
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
                 return null;
+            }
+
+            if ( $this->svgNeedsPhrasingHost($element) ) {
+                $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+                if ( null !== $imageMarkup ) {
+                    return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                }
             }
 
             $svgBlock = $this->inlineSvgBlockFromElement($element);
@@ -2048,9 +2074,9 @@ final class HtmlTransformer
     {
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
 
-        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
-            if ( $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
                 return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
             }
         }
@@ -3024,7 +3050,7 @@ final class HtmlTransformer
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return true;
             }
-            if ( $this->richTextRequiresHtmlFallback($content) ) {
+            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return false;
             }
 
@@ -3050,18 +3076,13 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( ! $flushTextRun() ) {
+            $image = $this->inlineSvgRichTextImageMarkup($child);
+            if ( null === $image ) {
                 $this->generatedAssets = $generatedAssets;
                 return null;
             }
 
-            $image = $this->inlineSvgBlockFromElement($child);
-            if ( ! is_array($image) || 'core/image' !== ($image['blockName'] ?? '') ) {
-                $this->generatedAssets = $generatedAssets;
-                return null;
-            }
-
-            $blocks[] = $image;
+            $textRun .= $image;
         }
 
         if ( ! $flushTextRun() || ! $hasTextRun ) {
@@ -3070,6 +3091,75 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element);
+    }
+
+    private function richTextContentWithMaterializedSvgImages(DOMElement $element, string $content): ?string
+    {
+        if ( 0 === $element->getElementsByTagName('svg')->length ) {
+            return $content;
+        }
+
+        $generatedAssets = $this->generatedAssets;
+        foreach ( $element->getElementsByTagName('svg') as $svg ) {
+            if ( ! $svg instanceof DOMElement ) {
+                continue;
+            }
+            $image = $this->inlineSvgRichTextImageMarkup($svg, false);
+            if ( null === $image ) {
+                $this->generatedAssets = $generatedAssets;
+                return null;
+            }
+            // RichText preparation may normalize SVG casing (viewBox -> viewbox),
+            // so the DOM serialization is not a stable replacement key.
+            $replaced = preg_replace('@<svg\b[^>]*>.*?</svg>@is', $image, $content, 1);
+            if ( ! is_string($replaced) || $replaced === $content ) {
+                $this->generatedAssets = $generatedAssets;
+                return null;
+            }
+            $content = $replaced;
+        }
+
+        return $content;
+    }
+
+    private function richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool
+    {
+        // RichText stores core/image objects as <img> nodes. The generic fallback
+        // detector intentionally rejects arbitrary images, so remove only our
+        // materialized SVG image objects before applying that conservative gate.
+        $content = preg_replace_callback(
+            '@<img\b[^>]*\s*/?>@i',
+            fn (array $matches): string => $this->isGeneratedInlineSvgSource($this->imageSourceFromMarkup($matches[0])) ? '' : $matches[0],
+            $content
+        ) ?? $content;
+        return $this->richTextRequiresHtmlFallback($content);
+    }
+
+    private function richTextContainsNativeSvgImageObject(string $content): bool
+    {
+        if ( ! preg_match_all('@<img\b[^>]*\s*/?>@i', $content, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[0] as $markup ) {
+            if ( $this->isGeneratedInlineSvgSource($this->imageSourceFromMarkup($markup)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function imageSourceFromMarkup(string $markup): string
+    {
+        return preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/i', $markup, $matches)
+            ? html_entity_decode($matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : '';
+    }
+
+    private function isGeneratedInlineSvgSource(string $source): bool
+    {
+        return isset($this->generatedAssets[$source]) && 'inline-svg' === ($this->generatedAssets[$source]['source'] ?? '');
     }
 
     private function stripDecorativeSvgFromRichText(string $content): string

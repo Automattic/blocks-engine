@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-text-token-native-decomposition",
-  "description": "Decomposes classed inline text tokens containing passive SVGs into native paragraphs and materialized images in source order rather than storing unsupported SVG markup in RichText.",
+  "description": "Represents passive SVGs in classed inline text tokens as native RichText core/image objects, preserving source order and phrasing flow.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-text-token-native-decomposition.json",
@@ -21,20 +21,19 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "ticker" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-item ticker-item--leading" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Open source" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "ticker-item ticker-item--split" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Before" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/image" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "after" } }
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "Open source" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.content", "assert": "contains", "value": "Before" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-item ticker-item--leading" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Open source</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<img src=\"assets/materialized-svg/" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
