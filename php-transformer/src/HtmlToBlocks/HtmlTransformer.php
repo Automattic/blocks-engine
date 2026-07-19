@@ -624,6 +624,10 @@ final class HtmlTransformer
             // remain able to override them.
             $cssParts[] = $geometryCss;
         }
+        $markerReset = $this->richTextMarkerResetCss();
+        if ( '' !== $markerReset ) {
+            $cssParts[] = $markerReset;
+        }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
         }
@@ -652,6 +656,15 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    private function richTextMarkerResetCss(): string
+    {
+        if ( array() === $this->sourceRichTextSemanticMarkers ) {
+            return '';
+        }
+
+        return ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}';
     }
 
     /** @param array<string, mixed> $options */
@@ -790,8 +803,13 @@ final class HtmlTransformer
     private function authorStylesheetProjections(): array
     {
         $projections = array();
+        $markerReset = $this->richTextMarkerResetCss();
         foreach ( $this->authorStylesheetAssets as $asset ) {
             $content = $this->rewriteAuthorStylesheet($asset['content']);
+            if ( '' !== $markerReset ) {
+                $content = $markerReset . "\n" . $content;
+                $markerReset = '';
+            }
             $hash = hash('sha256', $content);
             $projections[] = array(
                 'path'        => $asset['path'],
@@ -2600,10 +2618,10 @@ final class HtmlTransformer
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
-        if ( ! isset($declarations['background-color']) ) {
+        if ( '' === $marker && ! isset($declarations['background-color']) ) {
             $declarations['background-color'] = 'transparent';
         }
-        if ( ! isset($declarations['color']) ) {
+        if ( '' === $marker && ! isset($declarations['color']) ) {
             $declarations['color'] = 'inherit';
         }
 

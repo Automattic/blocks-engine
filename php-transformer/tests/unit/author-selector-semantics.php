@@ -86,6 +86,11 @@ $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
 $richTextPillCss = $css($richTextPill);
 $assert(str_contains($richTextPillMarkup, '<mark style="') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
 
+$richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:4rem;color:var(--amber)}</style><p><span class="quote-mark">&quot;</span>Testimonial</p>');
+$richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
+$richTextColorCss = $css($richTextColor);
+$assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker reset stays below projected author paint instead of overriding it inline');
+
 $richTextStates = $transform('<style>p .pill:hover{color:red}p .pill:focus{color:blue}p .pill:active{color:green}p .pill:visited{color:purple}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextStatesMarkup = (string) ($richTextStates['serialized_blocks'] ?? '');
 $richTextStatesCss = $css($richTextStates);
