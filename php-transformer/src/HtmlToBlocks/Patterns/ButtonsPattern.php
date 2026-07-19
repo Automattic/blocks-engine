@@ -57,8 +57,9 @@ final class ButtonsPattern
                 array(
                     'tagName' => 'button',
                     'text'    => $this->buttonText($button, $innerHtml($button)),
+                    'title'   => $this->buttonAccessibleTitle($button, $innerHtml($button)),
                 )
-            ), array(), $button),
+            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);
     }
 
@@ -116,6 +117,7 @@ final class ButtonsPattern
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
             'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
+            'title' => $this->buttonAccessibleTitle($anchor, $innerHtml($anchor)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
@@ -145,7 +147,14 @@ final class ButtonsPattern
             return $html;
         }
 
-        return $this->accessibleFallbackLabel($element);
+        return '';
+    }
+
+    private function buttonAccessibleTitle(DOMElement $element, string $html): string
+    {
+        return '' === $this->buttonText($element, $html)
+            ? html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : '';
     }
 
     private function plainText(string $html): string

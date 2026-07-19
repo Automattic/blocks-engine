@@ -358,6 +358,7 @@ final class BlockFactory
         $controlAttrs = array(
             'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
             'style' => $support['style'],
+            'title' => (string) ($attrs['title'] ?? ''),
         );
 
         if ( 'button' === ($attrs['tagName'] ?? '') ) {
