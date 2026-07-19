@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "/", "linkDestination": "custom", "width": "38px", "height": "38px", "style": { "typography": { "lineHeight": "0" } } } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "/", "linkDestination": "custom", "width": "38px", "height": "38px" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -27,7 +27,8 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stroke=\"#faf4e8\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized\" style=\"line-height:0\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "line-height:0" },
     { "path": "serialized_blocks", "assert": "contains", "value": "background-color:transparent" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },

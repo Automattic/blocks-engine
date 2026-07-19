@@ -70,7 +70,7 @@ trait SvgMaterializationTrait
      *
      * @return array<string, mixed>|null
      */
-    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html): ?array
+    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html, bool $richTextImage = false): ?array
     {
         if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
             return null;
@@ -100,11 +100,23 @@ trait SvgMaterializationTrait
         );
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
+        $sourceDisplay = strtolower(trim((string) ($this->presentationDeclarations($element)['display'] ?? '')));
+        $parent = $element->parentNode;
+        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) : '';
+        $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+        $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
+        $geometryClass = '';
+        if ( $preserveInlineGeometry ) {
+            $imageDisplay = '' === $sourceDisplay ? 'inline' : $sourceDisplay;
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . '}';
+            $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
+            $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
+        }
         $attrs = array_filter(array_merge(array(
             'url'          => $path,
             'alt'          => $this->svgImageAlt($element),
-            'className'    => $this->attr($element, 'class'),
-            'style'        => array(
+            'className'    => $this->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
+            'style'        => $preserveInlineGeometry ? null : array(
                 'typography' => array(
                     'lineHeight' => '0',
                 ),
@@ -135,7 +147,7 @@ trait SvgMaterializationTrait
                 ? $this->ensureInlineSvgBoxStyle($html, $element)
                 : $this->ensureInlineSvgSizing($html, $element)
         );
-        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element));
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element), true);
         if ( null === $attrs ) {
             return null;
         }
