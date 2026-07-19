@@ -559,6 +559,18 @@ $assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image alb
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
 
+$artifactInlineSvg = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'website/index.html',
+        'files'      => array(
+            'website/index.html' => '<main><div><svg class="feature-icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48"/></svg><h3>Feature</h3></div></main>',
+        ),
+    )
+)->toArray();
+$artifactInlineSvgMarkup = (string) ($artifactInlineSvg['serialized_blocks'] ?? '');
+$assert(str_contains($artifactInlineSvgMarkup, '<!-- wp:paragraph') && str_contains($artifactInlineSvgMarkup, 'website/assets/materialized-svg/'), 'source-relative materialized SVG remains a native RichText image object');
+$assert(! str_contains($artifactInlineSvgMarkup, '<!-- wp:html'), 'source-relative materialized SVG does not fall back to core/html');
+
 $largeCssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.hero-cover{width:100%;max-width:380px;aspect-ratio:1;display:block}</style><main><svg class="hero-cover" viewBox="0 0 500 500" role="img" aria-label="Hero cover">' . str_repeat('<rect width="500" height="500" fill="#111"/>', 2000) . '</svg></main>'
 )->toArray();
@@ -916,9 +928,10 @@ $paragraphSvgResult = ( new HtmlTransformer() )->transform(
 )->toArray();
 $paragraphSvgBlock = $paragraphSvgResult['blocks'][0] ?? array();
 $paragraphSvgSerialized = (string) ($paragraphSvgResult['serialized_blocks'] ?? '');
-$assert('core/html' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph content with inline SVG falls back to core/html instead of invalid RichText');
-$assert(str_contains($paragraphSvgSerialized, '<!-- wp:html'), 'paragraph inline SVG serializes as a bounded custom HTML block');
-$assert(! preg_match('/<!-- wp:paragraph[^>]*-->.*<svg\b.*<!-- \/wp:paragraph -->/s', $paragraphSvgSerialized), 'paragraph inline SVG is not stored inside core/paragraph RichText');
+$assert('core/paragraph' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph content with a safe inline SVG remains a native RichText paragraph');
+$assert(str_contains($paragraphSvgSerialized, '<!-- wp:paragraph'), 'paragraph inline SVG serializes as a native paragraph block');
+$assert(str_contains($paragraphSvgSerialized, '<a href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object');
+$assert(! str_contains($paragraphSvgSerialized, '<svg'), 'paragraph inline SVG is not stored as unsupported SVG RichText markup');
 
 $coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeHtml, array())->toArray();

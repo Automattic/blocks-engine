@@ -57,6 +57,21 @@ trait SvgMaterializationTrait
      */
     private function inlineSvgImageBlockFromMarkup(DOMElement $element, string $html): ?array
     {
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $html);
+        if ( null === $attrs ) {
+            return null;
+        }
+
+        return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    /**
+     * Materialize a passive SVG as the native image object accepted by RichText.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html): ?array
+    {
         if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
             return null;
         }
@@ -96,7 +111,137 @@ trait SvgMaterializationTrait
             ),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
-        return $this->createBlock('core/image', $attrs, array(), $element);
+        return $attrs;
+    }
+
+    /**
+     * Return Gutenberg RichText's native image object markup for a passive SVG.
+     * The image is deliberately an object inside the surrounding RichText rather
+     * than a core/image block figure, which would break phrasing flow.
+     */
+    private function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
+    {
+        if ( ! $this->svgHasDrawableContent($element) ) {
+            return null;
+        }
+
+        $html = $this->sanitizeInlineSvgMarkup($element);
+        if ( ! $this->isSafeSvgContent($html) ) {
+            return null;
+        }
+
+        $html = $this->restoreSvgCasing(
+            $this->cssOwnsMediaBox($element)
+                ? $this->ensureInlineSvgBoxStyle($html, $element)
+                : $this->ensureInlineSvgSizing($html, $element)
+        );
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element));
+        if ( null === $attrs ) {
+            return null;
+        }
+
+        $style = trim($this->attr($element, 'style'));
+        foreach ( array( 'width', 'height' ) as $dimension ) {
+            if ( empty($attrs[$dimension]) || preg_match('/(?:^|;)\s*' . $dimension . '\s*:/i', $style) ) {
+                continue;
+            }
+            $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $attrs[$dimension];
+        }
+
+        $imageAttributes = array(
+            'src' => (string) $attrs['url'],
+            'alt' => (string) ($attrs['alt'] ?? ''),
+            'class' => (string) ($attrs['className'] ?? ''),
+            'style' => $style,
+        );
+        $markup = '<img' . $this->svgRichTextHtmlAttributes($imageAttributes, array( 'alt' )) . ' />';
+
+        if ( $includeLink ) {
+            $link = $this->svgImageLinkAttributes($element);
+            if ( array() !== $link ) {
+                $markup = '<a' . $this->svgRichTextHtmlAttributes($link) . '>' . $markup . '</a>';
+            }
+        }
+
+        return $markup;
+    }
+
+    /** @param array<string, string> $attributes */
+    private function svgRichTextHtmlAttributes(array $attributes, array $alwaysInclude = array()): string
+    {
+        $html = '';
+        foreach ( $attributes as $name => $value ) {
+            if ( '' === $value && ! in_array($name, $alwaysInclude, true) ) {
+                continue;
+            }
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
+    /** @return array<string, string> */
+    private function svgImageLinkAttributes(DOMElement $element): array
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || 'a' !== strtolower($parent->tagName) ) {
+            return array();
+        }
+
+        $href = trim($this->attr($parent, 'href'));
+        if ( '' === $href || preg_match('/^\s*javascript\s*:/i', $href) ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'href' => $href,
+            'target' => trim($this->attr($parent, 'target')),
+            'rel' => trim($this->attr($parent, 'rel')),
+            'aria-label' => trim($this->attr($parent, 'aria-label')),
+        ), static fn (string $value): bool => '' !== $value);
+    }
+
+    private function svgNeedsPhrasingHost(DOMElement $element): bool
+    {
+        if ( $this->isVisualLayerElement($element) || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio'))) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode;
+        if ( $parent instanceof DOMElement ) {
+            $parentTag = strtolower($parent->tagName);
+            if ( 'p' === $parentTag ) {
+                return true;
+            }
+            if ( 'article' === $parentTag && 'img' === strtolower(trim($this->attr($element, 'role'))) ) {
+                return false;
+            }
+            if ( ( $this->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+                return true;
+            }
+        }
+
+        // A flex/grid child is a standalone layout item, even where its next
+        // sibling is a block. Keep its native image figure as the media column.
+        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->presentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+
+        // An SVG directly beside a block starts a phrasing-to-block transition.
+        // A paragraph is the editor-valid native host for the image object.
+        for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                $tag = strtolower($sibling->tagName);
+                return 'svg' !== $tag && ! $this->isInlineContentElement($tag);
+            }
+        }
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                $tag = strtolower($sibling->tagName);
+                return 'svg' !== $tag && ! $this->isInlineContentElement($tag);
+            }
+        }
+
+        return false;
     }
 
     private function cssOwnsMediaBox(DOMElement $element): bool

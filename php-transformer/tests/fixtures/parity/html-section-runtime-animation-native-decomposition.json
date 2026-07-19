@@ -24,7 +24,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Native sections", "level": 2 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-grid", "layout": { "type": "grid" } } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "One", "level": 3 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } }
   ],

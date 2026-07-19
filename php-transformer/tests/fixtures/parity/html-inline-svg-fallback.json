@@ -17,14 +17,14 @@
   },
   "expected_blocks": [
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Icon row", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/image" }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "blocks.0.innerBlocks.1.attrs.alt", "assert": "equals", "value": "Status" },
+    { "path": "blocks.0.innerBlocks.1.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.1.attrs.content", "assert": "contains", "value": "alt=\"Status\"" },
     { "path": "assets", "assert": "count", "count": 1 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
