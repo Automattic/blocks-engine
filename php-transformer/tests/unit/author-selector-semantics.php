@@ -56,6 +56,12 @@ $assert('' !== $match[0] && str_contains($css($collisionResult), 'blocks-engine-
 $nested = $transform('<style>@media (min-width:1px){@supports (display:grid){p + a.cta:hover{padding:1rem}}}</style><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
 
+$rootChildren = $transform('<style>body > *{position:relative;z-index:1}section{color:red}</style><section id="hero"><h1>Hero</h1></section><section id="features"><h2>Features</h2></section>');
+$rootChildrenMarkup = (string) ($rootChildren['serialized_blocks'] ?? '');
+$rootChildrenCss = $css($rootChildren);
+preg_match_all('/blocks-engine-root-child-[a-f0-9]+-\d+/', $rootChildrenMarkup . "\n" . $rootChildrenCss, $rootChildMarkers);
+$assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && str_contains($rootChildrenCss, ':where(.blocks-engine-root-child-') && str_contains($rootChildrenCss, 'section{color:red}') && 'pass' === ($rootChildren['source_reports']['wp_block_validity']['status'] ?? ''), 'root-child selectors project through isolated markers without rewriting unrelated selectors for the same elements');
+
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
 $assert(4 === substr_count($attributeCss, '> :where(.wp-block-button__link)') && str_contains($attributeCss, ':focus') && ! str_contains($attributeCss, '[data-cta]') && ! str_contains($attributeCss, '[aria-label]') && ! str_contains($attributeCss, '[data-kind') && ! str_contains($attributeCss, '#cta-id') && ! str_contains($attributes['serialized_blocks'], 'core/html') && 'pass' === ($attributes['source_reports']['wp_block_validity']['status'] ?? ''), 'data, aria, attribute-operator, ID, and class selectors project through exact control markers with canonical validity');
@@ -90,6 +96,10 @@ $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);
 $assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker reset stays below projected author paint instead of overriding it inline');
+
+$richTextPunctuation = $transform('<style>.quote-mark{font-size:4rem}</style><p><span class="quote-mark">"</span>The team\'s launch</p>');
+$richTextPunctuationMarkup = (string) ($richTextPunctuation['serialized_blocks'] ?? '');
+$assert(str_contains($richTextPunctuationMarkup, '&quot;') && str_contains($richTextPunctuationMarkup, 'team&#039;s') && 'pass' === ($richTextPunctuation['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText straight punctuation uses entities that retain source glyphs through WordPress texturization');
 
 $richTextStates = $transform('<style>p .pill:hover{color:red}p .pill:focus{color:blue}p .pill:active{color:green}p .pill:visited{color:purple}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextStatesMarkup = (string) ($richTextStates['serialized_blocks'] ?? '');

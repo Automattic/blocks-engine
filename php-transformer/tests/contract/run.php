@@ -551,7 +551,7 @@ $assert(str_contains((string) ($inlineSvgArtwork['assets'][0]['content'] ?? ''),
 $assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art be-inline-geometry-'), 'passive meaningful inline SVG artwork preserves source class and inline line-box geometry on the image block wrapper');
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
-$assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline}'), 'default-inline SVG core/image preserves its source line-box geometry despite generated img markup');
+$assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
 $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'

@@ -346,6 +346,9 @@ final class HtmlTransformer
     /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
     private array $sourceSemanticMarkers = array();
 
+    /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
+    private array $sourceRootChildMarkers = array();
+
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
     private array $sourceRichTextSemanticMarkers = array();
 
@@ -429,6 +432,7 @@ final class HtmlTransformer
         $this->sourceControlMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
+        $this->sourceRootChildMarkers = array();
         $this->sourceRichTextSemanticMarkers = array();
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
@@ -707,6 +711,7 @@ final class HtmlTransformer
         }
         $this->discoverAuthorControlPaths();
         $this->discoverAuthorInlineSemanticPaths();
+        $this->discoverAuthorRootChildPaths();
     }
 
     private function discoverAuthorControlPaths(): void
@@ -763,6 +768,40 @@ final class HtmlTransformer
             }
             return $prelude;
         });
+    }
+
+    private function discoverAuthorRootChildPaths(): void
+    {
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = CssSelectorMatcher::parse($selector);
+                if ( ! $parsed['supported'] || ! $this->isRootChildSelector($parsed) ) {
+                    continue;
+                }
+                foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                    if ( in_array(strtolower($element->tagName), array( 'link', 'meta', 'script', 'style', 'template', 'title' ), true) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($element);
+                    if ( '' !== $path ) {
+                        $this->sourceRootChildMarkers[$path] ??= $this->allocateAuthorMarker('root-child');
+                    }
+                }
+            }
+            return $prelude;
+        });
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function isRootChildSelector(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        $combinators = $parsed['combinators'] ?? array();
+        $last = count($compounds) - 1;
+
+        return $last >= 1
+            && 'body' === strtolower((string) ($compounds[$last - 1]['type'] ?? ''))
+            && '>' === ($combinators[$last - 1] ?? '');
     }
 
     private function combinedAuthorStylesheet(string $html, string $staticCss): string
@@ -852,6 +891,20 @@ final class HtmlTransformer
             $matches = $this->matchingAuthorSourceElements($parsed);
             if ( array() === $matches ) {
                 $rewritten[] = $selector;
+                continue;
+            }
+            if ( $this->isRootChildSelector($parsed) ) {
+                $markers = array_values(array_unique(array_filter(array_map(
+                    fn (DOMElement $element): string => $this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '',
+                    $matches
+                ))));
+                if ( array() === $markers ) {
+                    $rewritten[] = $selector;
+                    continue;
+                }
+                foreach ( $markers as $marker ) {
+                    $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
+                }
                 continue;
             }
 
@@ -2153,12 +2206,15 @@ final class HtmlTransformer
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
-        if ( 'span' !== strtolower($element->tagName) ) {
-            return array();
+        $markers = array();
+        $path = $this->sourceElementIdentity($element);
+        if ( 'span' === strtolower($element->tagName) && isset($this->sourceSemanticMarkers[$path]) ) {
+            $markers[] = $this->sourceSemanticMarkers[$path];
         }
-
-        $marker = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
-        return '' === $marker ? array() : array( $marker );
+        if ( isset($this->sourceRootChildMarkers[$path]) ) {
+            $markers[] = $this->sourceRootChildMarkers[$path];
+        }
+        return $markers;
     }
 
     private function requiresIndependentSemanticWrapper(DOMElement $element): bool

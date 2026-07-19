@@ -108,7 +108,7 @@ trait SvgMaterializationTrait
         $geometryClass = '';
         if ( $preserveInlineGeometry ) {
             $imageDisplay = '' === $sourceDisplay ? 'inline' : $sourceDisplay;
-            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . '}';
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ';vertical-align:baseline}';
             $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
             $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
         }
