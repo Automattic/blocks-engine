@@ -343,7 +343,7 @@ final class HtmlTransformer
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
-    /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
+    /** @var array<string, string> CSS-addressed elements keyed by stable source DOM path. */
     private array $sourceSemanticMarkers = array();
 
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
@@ -729,10 +729,14 @@ final class HtmlTransformer
                     continue;
                 }
                 foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                    $path = $this->sourceElementIdentity($element);
+                    if ( $this->isRootChildSelector($parsed) && '' !== $path && ! in_array(strtolower($element->tagName), array( 'link', 'meta', 'script', 'style', 'template', 'title' ), true) ) {
+                        $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
+                        continue;
+                    }
                     if ( 'span' !== strtolower($element->tagName) ) {
                         continue;
                     }
-                    $path = $this->sourceElementIdentity($element);
                     if ( '' === $path ) {
                         continue;
                     }
@@ -750,6 +754,18 @@ final class HtmlTransformer
             }
             return $prelude;
         });
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function isRootChildSelector(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        $combinators = $parsed['combinators'] ?? array();
+        $last = count($compounds) - 1;
+
+        return $last >= 1
+            && 'body' === strtolower((string) ($compounds[$last - 1]['type'] ?? ''))
+            && '>' === ($combinators[$last - 1] ?? '');
     }
 
     private function combinedAuthorStylesheet(string $html, string $staticCss): string
@@ -2135,10 +2151,6 @@ final class HtmlTransformer
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
-        if ( 'span' !== strtolower($element->tagName) ) {
-            return array();
-        }
-
         $marker = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
         return '' === $marker ? array() : array( $marker );
     }

@@ -56,6 +56,12 @@ $assert('' !== $match[0] && str_contains($css($collisionResult), 'blocks-engine-
 $nested = $transform('<style>@media (min-width:1px){@supports (display:grid){p + a.cta:hover{padding:1rem}}}</style><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $assert(str_contains($css($nested), '@media') && str_contains($css($nested), '@supports') && str_contains($css($nested), '> :where(.wp-block-button__link):hover'), 'nested media and supports rules preserve declarations while projecting selectors');
 
+$rootChildren = $transform('<style>body > *{position:relative;z-index:1}</style><section id="hero"><h1>Hero</h1></section><section id="features"><h2>Features</h2></section>');
+$rootChildrenMarkup = (string) ($rootChildren['serialized_blocks'] ?? '');
+$rootChildrenCss = $css($rootChildren);
+preg_match_all('/blocks-engine-semantic-[a-f0-9]+-\d+/', $rootChildrenMarkup . "\n" . $rootChildrenCss, $rootChildMarkers);
+$assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && 4 === substr_count($rootChildrenMarkup, 'blocks-engine-semantic-') && str_contains($rootChildrenCss, ':where(.blocks-engine-semantic-') && 'pass' === ($rootChildren['source_reports']['wp_block_validity']['status'] ?? ''), 'root-child selectors project onto source sections when WordPress inserts outer document wrappers');
+
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
 $assert(4 === substr_count($attributeCss, '> :where(.wp-block-button__link)') && str_contains($attributeCss, ':focus') && ! str_contains($attributeCss, '[data-cta]') && ! str_contains($attributeCss, '[aria-label]') && ! str_contains($attributeCss, '[data-kind') && ! str_contains($attributeCss, '#cta-id') && ! str_contains($attributes['serialized_blocks'], 'core/html') && 'pass' === ($attributes['source_reports']['wp_block_validity']['status'] ?? ''), 'data, aria, attribute-operator, ID, and class selectors project through exact control markers with canonical validity');
