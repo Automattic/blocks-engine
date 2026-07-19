@@ -1669,8 +1669,13 @@ final class HtmlTransformer
             if ( '' !== $richTextMarker ) {
                 $content = $this->innerHtml($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    $declarations = $this->richTextInlineVisualDeclarations($element);
+                    if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
+                        $declarations['color'] = 'transparent';
+                    }
+                    $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
                     return $this->createBlock('core/paragraph', array(
-                        'content' => '<mark style="--blocks-engine-richtext-marker:' . $richTextMarker . '">' . $content . '</mark>',
+                        'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                     ), array(), $element);
                 }
             }
@@ -2887,7 +2892,18 @@ final class HtmlTransformer
     private function richTextInlineVisualDeclarations(DOMElement $element): array
     {
         $allowed = array_flip(array(
+            '-webkit-background-clip',
+            '-webkit-text-fill-color',
+            'background',
+            'background-clip',
             'background-color',
+            'border',
+            'border-bottom',
+            'border-color',
+            'border-left',
+            'border-radius',
+            'border-right',
+            'border-top',
             'color',
             'display',
             'font-family',
@@ -2896,6 +2912,16 @@ final class HtmlTransformer
             'font-weight',
             'letter-spacing',
             'line-height',
+            'margin',
+            'margin-bottom',
+            'margin-left',
+            'margin-right',
+            'margin-top',
+            'padding',
+            'padding-bottom',
+            'padding-left',
+            'padding-right',
+            'padding-top',
             'text-decoration',
             'text-transform',
         ));
@@ -2907,6 +2933,10 @@ final class HtmlTransformer
             }
         }
         $declarations = array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+
+        if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
+            $declarations['color'] = 'transparent';
+        }
 
         return array_intersect_key($declarations, $allowed);
     }
@@ -3377,24 +3407,7 @@ final class HtmlTransformer
             }
         }
 
-        $blocks = array();
         $textRun = '';
-        $hasTextRun = false;
-        $flushTextRun = function () use ( &$blocks, &$textRun, &$hasTextRun ): bool {
-            $content = trim($textRun);
-            $textRun = '';
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return true;
-            }
-            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return false;
-            }
-
-            $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $content ));
-            $hasTextRun = true;
-            return true;
-        };
-
         $generatedAssets = $this->generatedAssets;
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
@@ -3421,12 +3434,13 @@ final class HtmlTransformer
             $textRun .= $image;
         }
 
-        if ( ! $flushTextRun() || ! $hasTextRun ) {
+        $content = trim($textRun);
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             $this->generatedAssets = $generatedAssets;
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element);
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     private function richTextContentWithMaterializedSvgImages(DOMElement $element, string $content): ?string
@@ -3656,7 +3670,7 @@ final class HtmlTransformer
         // A CSS-addressed inline leaf needs an independent native wrapper. Do
         // not absorb it into this parent RichText paragraph, where its selector
         // path and flex/grid item geometry would be lost.
-        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+        if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }
 

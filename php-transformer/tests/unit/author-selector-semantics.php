@@ -106,6 +106,11 @@ $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
 $assert('24px' === ($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left'] ?? '') && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && preg_match('/where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\)\{margin-left:24px\}/', $controlMarginCss) && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins map to native buttons flex-item spacing while typography remains on its link');
 
+$structuredLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}.logo-mark{width:38px;height:38px;background:#111}.logo:hover{color:red}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark" aria-hidden="true"></span><span class="logo-text">The Block <span>Party</span></span></a></header>');
+$structuredLogoMarkup = (string) ($structuredLogo['serialized_blocks'] ?? '');
+$structuredLogoCss = $css($structuredLogo);
+$assert(str_contains($structuredLogoMarkup, '<!-- wp:button') && str_contains($structuredLogoMarkup, 'blocks-engine-control-') && str_contains($structuredLogoMarkup, '<span class="logo-mark" aria-hidden="true"') && str_contains($structuredLogoMarkup, 'background-color:transparent') && str_contains($structuredLogoMarkup, 'border-radius:0') && str_contains($structuredLogoMarkup, 'padding-top:0') && ! str_contains($structuredLogoMarkup, '<!-- wp:html') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link){display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link):hover{color:red}') && 'pass' === ($structuredLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured logo anchors neutralize invented button chrome, retain native inline content, and project authored control styling onto valid core/button links');
+
 $iconOnlyButton = $transform('<style>.toolbar .icon-cta{width:42px;height:42px;padding:8px;border:2px solid #111;border-radius:50%;background:#f4c542}.toolbar .icon-cta:hover{background:#111}.toolbar .icon-cta:focus{outline:3px solid #d14}</style><div class="toolbar"><button class="icon-cta" aria-label="Open filters" style="width:42px;height:42px"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M6 12h12M9 18h6"/></svg></button></div>');
 $iconOnlyMarkup = (string) ($iconOnlyButton['serialized_blocks'] ?? '');
 $iconOnlyCss = $css($iconOnlyButton);
@@ -135,6 +140,18 @@ $assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:bloc
 $richTextPunctuation = $transform('<style>.quote-mark{font-size:4rem}</style><p><span class="quote-mark">"</span>The team\'s launch</p>');
 $richTextPunctuationMarkup = (string) ($richTextPunctuation['serialized_blocks'] ?? '');
 $assert(str_contains($richTextPunctuationMarkup, '&quot;') && str_contains($richTextPunctuationMarkup, 'team&#039;s') && 'pass' === ($richTextPunctuation['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText straight punctuation uses entities that retain source glyphs through WordPress texturization');
+
+$standaloneBadge = $transform('<style>.card .badge{display:inline-block;margin-top:1rem;padding:.25rem .7rem;border:1px solid #999;border-radius:999px;background:#eee;color:#6040cc}</style><article class="card"><h2>Feature</h2><span class="badge">Stable</span></article>');
+$standaloneBadgeMarkup = (string) ($standaloneBadge['serialized_blocks'] ?? '');
+$assert(str_contains($standaloneBadgeMarkup, '<mark style="') && str_contains($standaloneBadgeMarkup, 'display:inline-block') && str_contains($standaloneBadgeMarkup, 'padding:.25rem .7rem') && str_contains($standaloneBadgeMarkup, 'border-radius:999px') && str_contains($standaloneBadgeMarkup, 'background:#eee') && 'pass' === ($standaloneBadge['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone RichText styling hooks carry static visual declarations without depending on runtime selector markers');
+
+$inlineStat = $transform('<style>.stat-num{font-size:4rem}.stat-num .suffix{font-size:2rem;color:#6040cc}</style><div class="stat-num"><span data-count="43">43</span><span class="suffix">%</span></div>');
+$inlineStatMarkup = (string) ($inlineStat['serialized_blocks'] ?? '');
+$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark style=') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
+
+$gradientText = $transform('<style>:root{--hero:linear-gradient(90deg,#26f,#f56)}h1 .grad{background:var(--hero);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent}</style><h1>Open <span class="grad">forever</span></h1>');
+$gradientTextMarkup = (string) ($gradientText['serialized_blocks'] ?? '');
+$assert(str_contains($gradientTextMarkup, 'background:var(--hero)') && str_contains($gradientTextMarkup, 'background-clip:text') && str_contains($gradientTextMarkup, '-webkit-text-fill-color:transparent') && str_contains($gradientTextMarkup, 'color:transparent'), 'gradient RichText carries its clipped background and transparent text fallback inline');
 
 $richTextStates = $transform('<style>p .pill:hover{color:red}p .pill:focus{color:blue}p .pill:active{color:green}p .pill:visited{color:purple}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextStatesMarkup = (string) ($richTextStates['serialized_blocks'] ?? '');

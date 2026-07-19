@@ -26,7 +26,23 @@ final class LogoPattern
         }
 
         if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
-            return $createBlock('core/html', array( 'content' => $outerHtml($element) ), array(), $element);
+            $content = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element);
+            $attrs = array_filter(array(
+                'text'  => trim($content),
+                'url'   => $this->safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
+                'title' => trim($element->hasAttribute('aria-label') ? $element->getAttribute('aria-label') : ''),
+                'style' => array(
+                    'color' => array( 'background' => 'transparent' ),
+                    'border' => array( 'radius' => '0' ),
+                    'spacing' => array(
+                        'padding' => array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ),
+                    ),
+                ),
+            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+
+            return $createBlock('core/buttons', array(), array(
+                $createBlock('core/button', $attrs, array(), $element, $element),
+            ));
         }
 
         $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element)) : $this->logoLabelHtml($innerHtml($element));

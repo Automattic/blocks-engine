@@ -765,6 +765,8 @@ trait StyleResolutionTrait
     private function safeVisualDeclarations(array $declarations): array
     {
         $safe = array_flip(array(
+            '-webkit-background-clip',
+            '-webkit-text-fill-color',
             'background',
             'background-attachment',
             'background-clip',

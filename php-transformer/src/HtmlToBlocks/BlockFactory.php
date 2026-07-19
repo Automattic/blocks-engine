@@ -600,11 +600,12 @@ final class BlockFactory
         $declarations = array();
 
         $background = (string) ($style['color']['background'] ?? '');
+        $gradient = (string) ($style['color']['gradient'] ?? '');
         $text = (string) ($style['color']['text'] ?? '');
         if ( '' !== $text ) {
             $classes[] = 'has-text-color';
         }
-        if ( '' !== $background ) {
+        if ( '' !== $background || '' !== $gradient ) {
             $classes[] = 'has-background';
         }
 
@@ -628,6 +629,9 @@ final class BlockFactory
         }
         if ( '' !== $background ) {
             $declarations[] = 'background-color:' . $background;
+        }
+        if ( '' !== $gradient ) {
+            $declarations[] = 'background:' . $gradient;
         }
 
         $shadow = trim((string) ($style['shadow'] ?? ''));

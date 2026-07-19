@@ -32,9 +32,18 @@ final class HtmlAdapter implements FormatAdapterInterface
             return array();
         }
 
-        $result = $this->transformer->transform($content, $options)->toArray();
+        $result = $this->transformResult($content, $options);
 
         return is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function transformResult(string $content, array $options = array()): array
+    {
+        return $this->transformer->transform($content, $options)->toArray();
     }
 
     /**

@@ -976,6 +976,15 @@ $assert(str_contains($paragraphSvgSerialized, '<!-- wp:paragraph'), 'paragraph i
 $assert(str_contains($paragraphSvgSerialized, '<a href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object');
 $assert(! str_contains($paragraphSvgSerialized, '<svg'), 'paragraph inline SVG is not stored as unsupported SVG RichText markup');
 
+$inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
+    '<style>.track{display:flex}.token{display:inline-flex;align-items:center;gap:8px}.token svg{width:18px;height:18px}</style><main><div class="track"><span class="token">Open Source <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg></span></div></main>'
+)->toArray();
+$inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
+$assert(str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph {"className":"token'), 'inline flex text and SVG collapse to one styled native paragraph instead of a one-child group');
+$assert(str_contains($inlineFlexSvgMarkup, '<p class="token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled paragraph');
+$assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+$assert('pass' === ($inlineFlexSvgResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline flex SVG paragraph remains editor-valid');
+
 $coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeHtml, array())->toArray();
 $coffeeSerialized = (string) ($coffeeResult['serialized_blocks'] ?? '');
@@ -1925,6 +1934,7 @@ $artifactInlineSvgImageAssets = array_values(array_filter($artifactInlineSvgAsse
 $assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
 $assert(1 === count($artifactInlineSvgImageAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
 $assert(str_contains((string) ($artifactInlineSvgImageAssets[0]['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact inline SVG asset preserves sanitized SVG content');
+$assert('importer_owned' === ($artifactInlineSvgImageAssets[0]['source_role'] ?? '') && true === ($artifactInlineSvgImageAssets[0]['pipeline_sanitized'] ?? null), 'artifact materialization plan preserves generated SVG ownership and sanitization provenance');
 $assert(str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'assets/materialized-svg/'), 'artifact safe inline SVG serializes a materialized image URL');
 
 $artifactNonEntryInlineSvg = $compiler->compile(
@@ -3312,6 +3322,9 @@ assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schem
 assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Format bridge result conversion should expose block arrays.');
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
+$htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
+assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $unsupportedSourceResult = $bridge->convertResult('<p>Hello</p>', 'xml', 'html')->toArray();
 assertSame('failed', $unsupportedSourceResult['status'], 'Unsupported source formats should fail through diagnostics.');
 assertSame('unsupported_source_format', $unsupportedSourceResult['diagnostics'][0]['code'], 'Unsupported source diagnostics should identify the source format.');
