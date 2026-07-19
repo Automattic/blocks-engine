@@ -22,7 +22,8 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btn btn-primary blocks-engine-control-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button blocks-engine-control-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button btn btn-primary" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:6px;color:#ffffff;background-color:#13314f;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "is-style-outline" }

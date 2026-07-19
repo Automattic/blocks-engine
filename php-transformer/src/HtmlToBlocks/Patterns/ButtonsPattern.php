@@ -103,8 +103,17 @@ final class ButtonsPattern
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
     {
         $presentationElement ??= $anchor;
+        $resolvedPresentation = trim((string) $resolvedStyle($presentationElement));
+        $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
+        $attrs = $this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle);
+        // The canonical core/button wrapper is structural. A source control's
+        // classes would otherwise let an unprojected stylesheet paint that outer
+        // div instead of the link that Gutenberg actually renders as the button.
+        if ( $presentationElement === $anchor && $hasAuthoredStyleRules ) {
+            $this->removeSourceControlClasses($attrs, $anchor);
+        }
 
-        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle), array(
+        return $createBlock('core/button', array_filter(array_merge($attrs, array(
             'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
@@ -302,6 +311,33 @@ final class ButtonsPattern
         }
 
         return array( 'type' => $button->getAttribute('type') );
+    }
+
+    private function hasRuntimeBehaviorSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function removeSourceControlClasses(array &$attrs, DOMElement $element): void
+    {
+        $sourceClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = array_filter(
+            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
+        );
+        if ( array() === $classes ) {
+            unset($attrs['className']);
+            return;
+        }
+
+        $attrs['className'] = implode(' ', $classes);
     }
 
     private function hasOutlineSignal(DOMElement $element, string $style): bool
