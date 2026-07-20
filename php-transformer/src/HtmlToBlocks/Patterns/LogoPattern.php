@@ -226,7 +226,9 @@ final class LogoPattern
                 continue;
             }
 
-            if ( '' !== trim($child->getAttribute('class')) || $this->descendantHasClassedInlineChrome($child) ) {
+            if ( in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg' ), true)
+                || '' !== trim($child->getAttribute('class'))
+                || $this->descendantHasClassedInlineChrome($child) ) {
                 return true;
             }
         }
