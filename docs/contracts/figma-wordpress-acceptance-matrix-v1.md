@@ -37,4 +37,17 @@ Each fixture declares an additive `blocks-engine/wordpress-site-plan/v1` file an
 }
 ```
 
-`figma_matrix_command` runs the existing Figma fixture matrix for the `.fig` decode, normalized IR, and static-artifact stages. `provider_commands` remain generic external commands for artifact compilation, isolated WordPress materialization, editor validation, and visual capture. Every evidence file has schema `blocks-engine/figma-wordpress-stage-evidence/v1`, `status: "passed"`, and non-empty reviewer-resolvable relative `references` that exist beneath the matrix output directory. Desktop and mobile parity evidence also requires existing relative `source_screenshot`, `rendered_screenshot`, and `diff_report` artifacts. Fallback evidence requires integer `fallback_count: 0`. Responsive selection evidence requires `selection_source` of `dev_status` or `heuristic_fallback` and non-empty `responsive_routes`, where every route identifies at least two `source_frames`. The supplied site plan is validated by `WordPressSitePlan::assertValid()`. Missing or malformed input, site-plan, screenshots, editor proof, imports, or parity evidence fails closed with a stable `<stage>_<reason>` code in `summary.json`.
+`figma_matrix_command` runs the existing Figma fixture matrix for the `.fig` decode, normalized IR, and static-artifact stages. `provider_commands` remain generic external commands for artifact compilation, isolated WordPress materialization, editor validation, and visual capture.
+
+Every evidence envelope has schema `blocks-engine/figma-wordpress-stage-evidence/v1`, `status: "passed"`, exact `fixture_id` and `stage`, and `source_sha256` equal to the supplied `.fig` file. References are non-empty relative paths that exist beneath the matrix output directory.
+
+- Decode metrics require `missing_text_count`, `missing_asset_count`, and `vector_placeholder_count` all equal to zero.
+- Normalize requires positive `normalized_node_count`.
+- Emit requires positive `emitted_route_count` and zero missing emitted assets and text.
+- Import requires `isolated_fresh_wordpress_import: true`, positive `imported_route_count`, and non-empty provider and runtime identities.
+- Editor validity requires positive parsed and native editable block counts with zero invalid blocks.
+- Fallback requires integer `fallback_count: 0`.
+- Desktop and mobile parity require existing screenshots and a parseable diff report with `pixel_difference_count: 0` and `geometry_difference_count: 0`.
+- Responsive selection requires `selection_source` of `dev_status` or `heuristic_fallback`; each route identifies one output route, explicit desktop and mobile source frames, and an increasing bounded breakpoint range.
+
+The supplied site plan is validated by `WordPressSitePlan::assertValid()` and must contain at least one page and route; an empty templates list remains allowed. Missing or malformed inputs, metrics, imports, editor proof, parity proof, or site-plan content fail closed with stable stage/reason codes in `summary.json`.

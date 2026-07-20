@@ -84,6 +84,7 @@ function acceptance_fixture(array $fixture, string $fixtureOutput, string $artif
     if ('' === $input || !is_readable($input)) {
         $record['failures'][] = acceptance_failure('decode', 'decode_missing_input');
     }
+    $sourceHash = is_readable($input) ? hash_file('sha256', $input) : '';
 
     $commands = is_array($fixture['provider_commands'] ?? null) ? $fixture['provider_commands'] : array();
     if (isset($fixture['figma_matrix_command'])) {
@@ -103,7 +104,7 @@ function acceptance_fixture(array $fixture, string $fixtureOutput, string $artif
     $evidence = is_array($fixture['evidence'] ?? null) ? $fixture['evidence'] : array();
     foreach (STAGES as $stage) {
         $path = is_string($evidence[$stage] ?? null) ? $evidence[$stage] : '';
-        $stageRecord = acceptance_stage($stage, $path, $artifactRoot);
+        $stageRecord = acceptance_stage($stage, $path, $artifactRoot, $id, $sourceHash);
         $record['stages'][$stage] = $stageRecord;
         if ('passed' !== $stageRecord['status']) {
             $record['failures'][] = acceptance_failure($stage, $stageRecord['reason_code']);
@@ -111,14 +112,15 @@ function acceptance_fixture(array $fixture, string $fixtureOutput, string $artif
     }
 
     $sitePlan = is_string($fixture['site_plan'] ?? null) ? $fixture['site_plan'] : '';
-    if (!acceptance_valid_site_plan($sitePlan)) {
-        $record['failures'][] = acceptance_failure('import', 'import_missing_site_plan');
+    $sitePlanReason = acceptance_site_plan_reason($sitePlan);
+    if (null !== $sitePlanReason) {
+        $record['failures'][] = acceptance_failure('import', $sitePlanReason);
     }
     $record['status'] = empty($record['failures']) ? 'passed' : 'failed';
     return $record;
 }
 
-function acceptance_stage(string $stage, string $path, string $output): array {
+function acceptance_stage(string $stage, string $path, string $output, string $fixtureId, string $sourceHash): array {
     $missing = $stage . '_missing_evidence';
     if ('' === $path || !is_readable($path)) {
         return array('status' => 'failed', 'reason_code' => $missing);
@@ -126,6 +128,15 @@ function acceptance_stage(string $stage, string $path, string $output): array {
     $evidence = json_decode((string) file_get_contents($path), true);
     if (!is_array($evidence) || 'blocks-engine/figma-wordpress-stage-evidence/v1' !== ($evidence['schema'] ?? null)) {
         return array('status' => 'failed', 'reason_code' => $stage . '_invalid_evidence');
+    }
+    if ($fixtureId !== ($evidence['fixture_id'] ?? null)) {
+        return array('status' => 'failed', 'reason_code' => $stage . '_fixture_mismatch');
+    }
+    if ($stage !== ($evidence['stage'] ?? null)) {
+        return array('status' => 'failed', 'reason_code' => $stage . '_stage_mismatch');
+    }
+    if ('' === $sourceHash || $sourceHash !== ($evidence['source_sha256'] ?? null)) {
+        return array('status' => 'failed', 'reason_code' => $stage . '_source_hash_mismatch');
     }
     if ('passed' !== ($evidence['status'] ?? null)) {
         return array('status' => 'failed', 'reason_code' => $stage . '_failed');
@@ -136,31 +147,79 @@ function acceptance_stage(string $stage, string $path, string $output): array {
     if (in_array($stage, array('desktop_parity', 'mobile_parity'), true) && !acceptance_screenshot_proof($evidence, $output)) {
         return array('status' => 'failed', 'reason_code' => $stage . '_missing_screenshots');
     }
+    $semanticReason = acceptance_stage_semantic_reason($stage, $evidence, $output);
+    if (null !== $semanticReason) {
+        return array('status' => 'failed', 'reason_code' => $semanticReason);
+    }
     if ('fallback' === $stage && !is_int($evidence['fallback_count'] ?? null)) {
         return array('status' => 'failed', 'reason_code' => 'fallback_missing_count');
     }
     if ('fallback' === $stage && 0 !== $evidence['fallback_count']) {
         return array('status' => 'failed', 'reason_code' => 'fallback_blocks_present');
     }
-    if ('responsive_selection' === $stage && !acceptance_responsive_selection($evidence)) {
-        return array('status' => 'failed', 'reason_code' => 'responsive_selection_invalid_routes');
-    }
     return array('status' => 'passed', 'reason_code' => 'ok', 'references' => array_values($evidence['references']));
 }
 
-function acceptance_valid_site_plan(string $path): bool {
+function acceptance_stage_semantic_reason(string $stage, array $evidence, string $output): ?string {
+    $metrics = is_array($evidence['metrics'] ?? null) ? $evidence['metrics'] : null;
+    if (null === $metrics && !in_array($stage, array('fallback', 'responsive_selection'), true)) {
+        return $stage . '_missing_metrics';
+    }
+    if ('decode' === $stage && (!acceptance_zero_metric($metrics, 'missing_text_count') || !acceptance_zero_metric($metrics, 'missing_asset_count') || !acceptance_zero_metric($metrics, 'vector_placeholder_count'))) {
+        return 'decode_incomplete_output';
+    }
+    if ('normalize' === $stage && !acceptance_positive_metric($metrics, 'normalized_node_count')) {
+        return 'normalize_missing_nodes';
+    }
+    if ('emit' === $stage && (!acceptance_positive_metric($metrics, 'emitted_route_count') || !acceptance_zero_metric($metrics, 'missing_emitted_asset_count') || !acceptance_zero_metric($metrics, 'missing_emitted_text_count'))) {
+        return 'emit_incomplete_artifact';
+    }
+    if ('import' === $stage && (!acceptance_positive_metric($metrics, 'imported_route_count') || true !== ($evidence['isolated_fresh_wordpress_import'] ?? null) || !is_string($evidence['provider_identity'] ?? null) || '' === $evidence['provider_identity'] || !is_string($evidence['runtime_identity'] ?? null) || '' === $evidence['runtime_identity'])) {
+        return 'import_incomplete_materialization';
+    }
+    if ('editor_validity' === $stage && (!acceptance_positive_metric($metrics, 'parsed_block_count') || !acceptance_positive_metric($metrics, 'native_editable_block_count') || !acceptance_zero_metric($metrics, 'invalid_block_count'))) {
+        return 'editor_validity_invalid_blocks';
+    }
+    if (in_array($stage, array('desktop_parity', 'mobile_parity'), true)) {
+        return acceptance_parity_reason($stage, $evidence, $metrics, $output);
+    }
+    if ('responsive_selection' === $stage && !acceptance_responsive_selection($evidence)) {
+        return 'responsive_selection_invalid_routes';
+    }
+    return null;
+}
+
+function acceptance_zero_metric(?array $metrics, string $key): bool {
+    return is_array($metrics) && isset($metrics[$key]) && is_int($metrics[$key]) && 0 === $metrics[$key];
+}
+
+function acceptance_positive_metric(?array $metrics, string $key): bool {
+    return is_array($metrics) && isset($metrics[$key]) && is_int($metrics[$key]) && $metrics[$key] > 0;
+}
+
+function acceptance_parity_reason(string $stage, array $evidence, ?array $metrics, string $output): ?string {
+    $report = json_decode((string) file_get_contents($output . '/' . $evidence['diff_report']), true);
+    $reportMetrics = is_array($report['metrics'] ?? null) ? $report['metrics'] : $report;
+    $metrics = is_array($reportMetrics) ? $reportMetrics : $metrics;
+    if (!is_array($metrics) || !isset($metrics['pixel_difference_count'], $metrics['geometry_difference_count']) || !is_int($metrics['pixel_difference_count']) || !is_int($metrics['geometry_difference_count'])) {
+        return $stage . '_missing_metrics';
+    }
+    return 0 === $metrics['pixel_difference_count'] && 0 === $metrics['geometry_difference_count'] ? null : $stage . '_nonzero_difference';
+}
+
+function acceptance_site_plan_reason(string $path): ?string {
     if ('' === $path || !is_readable($path)) {
-        return false;
+        return 'import_missing_site_plan';
     }
     $plan = json_decode((string) file_get_contents($path), true);
     if (!is_array($plan) || SITE_PLAN_SCHEMA !== ($plan['schema'] ?? null) || !class_exists('Automattic\\BlocksEngine\\PhpTransformer\\WordPressSitePlan\\WordPressSitePlan')) {
-        return false;
+        return 'import_invalid_site_plan';
     }
     try {
         \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan::assertValid($plan);
-        return true;
+        return !empty($plan['pages']) && !empty($plan['routes']) ? null : 'import_empty_site_plan';
     } catch (Throwable) {
-        return false;
+        return 'import_invalid_site_plan';
     }
 }
 
@@ -178,7 +237,7 @@ function acceptance_responsive_selection(array $evidence): bool {
         return false;
     }
     foreach ($evidence['responsive_routes'] as $route) {
-        if (!is_array($route) || !is_string($route['route'] ?? null) || '' === $route['route'] || !is_array($route['source_frames'] ?? null) || count($route['source_frames']) < 2) {
+        if (!is_array($route) || !is_string($route['output_route'] ?? null) || '' === $route['output_route'] || !is_string($route['desktop_source_frame'] ?? null) || '' === $route['desktop_source_frame'] || !is_string($route['mobile_source_frame'] ?? null) || '' === $route['mobile_source_frame'] || !is_int($route['breakpoint_min_width'] ?? null) || !is_int($route['breakpoint_max_width'] ?? null) || $route['breakpoint_min_width'] >= $route['breakpoint_max_width']) {
             return false;
         }
     }
