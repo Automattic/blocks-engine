@@ -1253,6 +1253,20 @@ $explicitGapNavigationBlock = $explicitGapNavigation['blocks'][0] ?? array();
 $assert('4px' === ($explicitGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'explicit direct-anchor navigation gap remains authoritative over item margins');
 $assert('18px' === ($explicitGapNavigationBlock['innerBlocks'][1]['attrs']['style']['spacing']['margin']['left'] ?? ''), 'explicit navigation gap leaves authored item margins intact');
 
+$quickLinkCards = ( new HtmlTransformer() )->transform(
+    '<div class="quick-links"><a class="quick-link" href="/apply"><h3>Apply</h3><p>Choose a program.</p></a><a class="quick-link" href="/visit"><h3>Visit</h3><p>Plan your trip.</p></a></div>'
+)->toArray();
+$quickLinkCardsBlock = $quickLinkCards['blocks'][0] ?? array();
+$assert('core/group' === ($quickLinkCardsBlock['blockName'] ?? '') && 'quick-links' === ($quickLinkCardsBlock['attrs']['className'] ?? ''), 'card-like quick-links container remains a layout group rather than a navigation menu');
+$assert('core/group' === ($quickLinkCardsBlock['innerBlocks'][0]['blockName'] ?? '') && 'quick-link' === ($quickLinkCardsBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'block-content quick link remains a card group');
+
+$inlineMetadataFlow = ( new HtmlTransformer() )->transform(
+    '<style>.event-meta{font-size:.82rem}.event-meta .pipe{margin:0 8px}.event-meta .room-code{font-family:monospace}</style><div class="event-meta">Committee chair: Prof. Mahalingam <span class="pipe">·</span> <span class="room-code">M-302</span> Mendel Hall</div>'
+)->toArray();
+$inlineMetadataBlock = $inlineMetadataFlow['blocks'][0] ?? array();
+$assert('core/paragraph' === ($inlineMetadataBlock['blockName'] ?? '') && 'event-meta' === ($inlineMetadataBlock['attrs']['className'] ?? ''), 'phrasing-only div with direct text remains one metadata flow');
+$assert(str_contains((string) ($inlineMetadataBlock['attrs']['content'] ?? ''), 'Prof. Mahalingam') && str_contains((string) ($inlineMetadataBlock['attrs']['content'] ?? ''), 'M-302'), 'metadata flow preserves text and inline semantic tokens together');
+
 $wrappingNavigation = ( new HtmlTransformer() )->transform(
     '<nav><ul style="display:flex;flex-wrap:wrap;gap:1rem"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
 )->toArray();
@@ -2145,6 +2159,7 @@ $footerShellAboutPage = array_values(array_filter($footerShellPages, static fn (
 $footerShellPart = $footerShellTemplateParts[0] ?? array();
 $assert(! str_contains((string) ($footerShellIndexPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site removes global footer shell from page body when a footer template part exists');
 $assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), 'Global footer copy'), 'compiled site preserves global footer copy in the footer template part');
+$assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), '"className":"site-footer"'), 'compiled footer template part preserves the source shell class boundary');
 $assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content while pruning global footer shell');
 $assert(! str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site does not duplicate global footer shell on secondary page bodies');
 

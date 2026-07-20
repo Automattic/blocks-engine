@@ -769,7 +769,7 @@ final class HtmlTransformer
             return '';
         }
 
-        return ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}';
+        return ':where(mark[class*="blocks-engine-richtext-"]){background-color:transparent;color:inherit}';
     }
 
     /** @param array<string, mixed> $options */
@@ -1281,7 +1281,7 @@ final class HtmlTransformer
     private function projectRichTextSemanticSelector(string $selector, array $parsed, string $marker): string
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
+        return 'mark.' . $marker . $this->selectorSpecificityShims($parsed) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2985,7 +2985,7 @@ final class HtmlTransformer
             $inline = $this->richTextInlineVisualDeclarations($sourceInline);
             $marker = $this->richTextMarkerForElement($sourceInline);
             if ( '' !== $marker ) {
-                $inline['--blocks-engine-richtext-marker'] = $marker;
+                $targetInline->setAttribute('class', $this->mergeClassNames($this->attr($targetInline, 'class'), $marker));
             }
             if ( array() === $inline ) {
                 continue;
@@ -3065,13 +3065,15 @@ final class HtmlTransformer
 
         $declarations = $this->richTextInlineVisualDeclarations($element);
         $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
-        $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
+        $marker = '';
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $className ) {
+            if ( preg_match('/^blocks-engine-richtext-[a-f0-9]+-\d+$/', $className) ) {
+                $marker = $className;
+                break;
+            }
+        }
         if ( '' === $marker && array() === $declarations ) {
             return false;
-        }
-
-        if ( '' !== $marker ) {
-            $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
         if ( '' === $marker && ! isset($declarations['background-color']) ) {
@@ -3087,6 +3089,9 @@ final class HtmlTransformer
         }
 
         $mark = $document->createElement('mark');
+        if ( '' !== $marker ) {
+            $mark->setAttribute('class', $marker);
+        }
         $mark->setAttribute('style', $this->cssDeclarationString($declarations));
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
@@ -3464,8 +3469,12 @@ final class HtmlTransformer
         }
 
         $hasLineBreak = false;
+        $hasDirectText = false;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    $hasDirectText = true;
+                }
                 continue;
             }
 
@@ -3478,11 +3487,11 @@ final class HtmlTransformer
             }
         }
 
-        if ( ! $hasLineBreak ) {
+        if ( ! $hasLineBreak && ! $hasDirectText ) {
             return null;
         }
 
-        $content = $this->richTextContentWithoutDecorativeSvg($element);
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
         }

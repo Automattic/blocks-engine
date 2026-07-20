@@ -989,7 +989,23 @@ final class NavigationPattern implements PatternRecognizerInterface
                 if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu' ), true) ) {
                     return true;
                 }
-                if ( 'links' === $token && ! $this->isContactLinkCluster($element) ) {
+                if ( 'links' === $token && ! $this->isContactLinkCluster($element) && ! $this->hasCardLikeDirectAnchor($element) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function hasCardLikeDirectAnchor(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            foreach ( $child->childNodes as $anchorChild ) {
+                if ( $anchorChild instanceof DOMElement && preg_match('/^(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')$/i', $anchorChild->tagName) ) {
                     return true;
                 }
             }

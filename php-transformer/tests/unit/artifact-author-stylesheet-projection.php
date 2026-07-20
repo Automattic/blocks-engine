@@ -48,7 +48,7 @@ $richText = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $richTextAssets = $richText['assets'] ?? array();
-$assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
+$assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark[class*="blocks-engine-richtext-"]){background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
