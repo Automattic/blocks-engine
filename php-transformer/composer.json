@@ -51,6 +51,7 @@
       "php tests/contract/plugin-bootstrap.php",
       "php tests/contract/run.php",
       "php tests/contract/finding-contract.php",
+      "php tests/contract/wordpress-site-plan.php",
       "@test:unit"
     ],
     "test:unit": [
