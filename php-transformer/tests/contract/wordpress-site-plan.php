@@ -14,9 +14,10 @@ $writeMap = static function (array $writes): array { $map = array(); foreach ($w
 $artifact = array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<main><img src="assets/logo.svg"><h1>Home</h1></main>',
+        'index.html' => '<main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main>',
         'about.html' => '<main><img src="assets/logo.svg"><h1>About</h1></main>',
         'parts/header.html' => '<header><img src="assets/logo.svg"><p>Header</p></header>',
+        'parts/footer.html' => '<footer><p>Footer</p></footer>',
         'assets/site.css' => '@font-face{font-family:test;src:url(assets/font.woff2)}main{background:url("assets/logo.svg")}',
         'assets/site.js' => 'window.siteAsset="assets/logo.svg";',
         'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
@@ -29,8 +30,11 @@ $plan = $first['source_reports']['wordpress_site_plan'] ?? array();
 $writes = $writeMap($plan['writes']);
 
 $assert(WordPressSitePlan::SCHEMA === ($plan['schema'] ?? null), 'Compiler projects the v2 canonical WordPress site plan.');
-$assert(isset($writes['style.css'], $writes['theme.json'], $writes['functions.php'], $writes['templates/index.html'], $writes['templates/page.html'], $writes['templates/front-page.html'], $writes['parts/header.html']), 'Plan declares the complete block-theme scaffold.');
+$assert(isset($writes['style.css'], $writes['theme.json'], $writes['functions.php'], $writes['templates/index.html'], $writes['templates/page.html'], $writes['templates/front-page.html'], $writes['parts/header.html'], $writes['parts/footer.html']), 'Plan declares the complete block-theme scaffold.');
 $assert(str_contains((string) $writes['style.css']['payload']['data'], 'Theme Name:'), 'Theme stylesheet has a recognition header.');
+$assert(3 === (json_decode((string) $writes['theme.json']['payload']['data'], true)['version'] ?? null), 'Theme configuration is parseable and supported.');
+$assert(str_contains((string) $writes['templates/index.html']['payload']['data'], '"slug":"header"') && str_contains((string) $writes['templates/index.html']['payload']['data'], '"slug":"footer"'), 'Templates reference ordered header and footer parts.');
+$assert('site_reading' === ($plan['operations'][0]['kind'] ?? null) && 'index.html' === ($plan['operations'][0]['front_page_source_path'] ?? null), 'Plan declares deterministic front-page desired state.');
 $assert(str_contains((string) ($plan['pages'][1]['canonical_block_markup'] ?? ''), '{{wordpress-site-plan:asset:'), 'Canonical page markup uses declared destination-independent references.');
 $assert(!isset($plan['pages'][1]['resolved_block_markup']), 'Canonical markup is explicitly distinct from resolved markup.');
 $assert(count($plan['reference_tokens']) === count($plan['assets']), 'Every asset has one deterministic resolver token.');
@@ -52,17 +56,28 @@ foreach ($resolved['writes'] as $write) {
     if (!is_dir(dirname($path))) mkdir(dirname($path), 0777, true);
     file_put_contents($path, 'base64' === $write['payload']['encoding'] ? base64_decode($write['payload']['data'], true) : $write['payload']['data']);
 }
-foreach (array('style.css', 'theme.json', 'functions.php', 'templates/index.html', 'templates/page.html', 'templates/front-page.html', 'parts/header.html', 'assets/assets/site.css', 'assets/assets/site.js', 'assets/assets/logo.svg', 'assets/assets/font.woff2') as $required) $assert(is_file($destination . '/' . $required), "Materialization writes {$required}.");
+foreach (array('style.css', 'theme.json', 'functions.php', 'templates/index.html', 'templates/page.html', 'templates/front-page.html', 'parts/header.html', 'parts/footer.html', 'assets/assets/site.css', 'assets/assets/site.js', 'assets/assets/logo.svg', 'assets/assets/font.woff2') as $required) $assert(is_file($destination . '/' . $required), "Materialization writes {$required}.");
 $assert(false === str_contains((string) file_get_contents($destination . '/assets/assets/site.css'), WordPressSitePlan::TOKEN_PREFIX), 'Materialized assets contain no unresolved resolver tokens.');
+$runtime = array('pages' => array(), 'front_page' => null);
+foreach ($resolved['pages'] as $page) $runtime['pages'][$page['reconciliation_identity']] = $page;
+foreach ($resolved['operations'] as $operation) if ('site_reading' === $operation['kind']) $runtime['front_page'] = $runtime['pages'][$operation['front_page_reconciliation_identity']] ?? null;
+$assert('index.html' === ($runtime['front_page']['source_path'] ?? null), 'Operations apply verbatim to the deterministic runtime harness.');
 
 $throws(static fn() => $resolver->resolve($plan, array()), 'Resolution rejects missing destination context.');
 $throws(static fn() => $resolver->resolve($plan, array('theme_uri' => '/themes/site')), 'Resolution rejects relative destination context.');
+foreach (array('https://example.test/theme?x=1', 'https://example.test/theme#x', 'https://user@example.test/theme', 'ftp://example.test/theme', 'https:///theme', 'https://example.test/a/../theme', "https://example.test/theme\n") as $uri) $throws(static fn() => $resolver->resolve($plan, array('theme_uri' => $uri)), 'Resolution rejects ambiguous runtime context.');
 $undeclared = $plan; $undeclared['pages'][0]['canonical_block_markup'] .= '{{wordpress-site-plan:asset:asset-0000000000000000}}';
 $throws(static fn() => WordPressSitePlan::assertValid($undeclared), 'Validation rejects undeclared tokens.');
 $traversal = $plan; $traversal['writes'][0]['target_path'] = '../escape.css';
 $throws(static fn() => WordPressSitePlan::assertValid($traversal), 'Validation rejects traversal writes.');
 $collision = $plan; $collision['writes'][1]['target_path'] = $collision['writes'][0]['target_path'];
 $throws(static fn() => WordPressSitePlan::assertValid($collision), 'Validation rejects colliding writes.');
+$caseCollision = $plan; $caseCollision['writes'][1]['target_path'] = 'STYLE.css';
+$throws(static fn() => WordPressSitePlan::assertValid($caseCollision), 'Validation rejects case-folded collisions.');
+$invalidScaffold = $plan; $invalidScaffold['writes'][0]['kind'] = 'theme_asset';
+$throws(static fn() => WordPressSitePlan::assertValid($invalidScaffold), 'Validation rejects malformed scaffold writes.');
+$unresolvedLocal = $plan; $unresolvedLocal['pages'][0]['canonical_block_markup'] .= '<img src="images/missing.svg">';
+$throws(static fn() => WordPressSitePlan::assertValid($unresolvedLocal), 'Validation rejects unresolved local browser references.');
 $invalidCompiledAsset = $first; $invalidCompiledAsset['source_reports']['compiled_site']['assets'][0]['target_path'] = 'C:\\theme\\site.css';
 $throws(static fn() => (new WordPressSitePlan())->fromResult($invalidCompiledAsset), 'Projection rejects unsafe compiled asset targets.');
 
