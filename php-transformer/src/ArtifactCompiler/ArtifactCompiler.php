@@ -1648,6 +1648,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files']),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
@@ -1902,6 +1903,33 @@ final class ArtifactCompiler
             ),
             static fn (mixed $value): bool => '' !== $value && array() !== $value
         );
+    }
+
+    /** @param array<int, array<string, mixed>> $files @return array<string, mixed> */
+    private function fullDocumentMetadata(string $html, string $sourcePath, array $files): array
+    {
+        $headEnd = preg_match('/<head\b[^>]*>.*?<\/head\s*>/is', $html, $head) ? (int) strpos($html, $head[0]) + strlen($head[0]) : 0;
+        $reference = function (string $value) use ($sourcePath, $files): array {
+            $asset = $this->findAssetByHtmlReference($value, $sourcePath, $files);
+            return is_array($asset) ? array('asset_source_path' => (string) $asset['path']) : array('url' => $value);
+        };
+        $meta = array(); $links = array(); $scripts = array();
+        if (preg_match_all('/<meta\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
+            $tag = (string) $match[0];
+            $row = array_filter(array('charset' => $this->htmlAttribute($tag, 'charset'), 'name' => $this->htmlAttribute($tag, 'name'), 'property' => $this->htmlAttribute($tag, 'property'), 'http_equiv' => $this->htmlAttribute($tag, 'http-equiv'), 'content' => $this->htmlAttribute($tag, 'content')), static fn(string $value): bool => '' !== $value);
+            if (array() !== $row) $meta[] = $row;
+        }
+        if (preg_match_all('/<link\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
+            $tag = (string) $match[0]; $href = $this->htmlAttribute($tag, 'href');
+            if ('' === $href) continue;
+            $links[] = array_merge(array_filter(array('rel' => $this->htmlAttribute($tag, 'rel'), 'type' => $this->htmlAttribute($tag, 'type'), 'media' => $this->htmlAttribute($tag, 'media'), 'placement' => (int) $match[1] < $headEnd ? 'head' : 'body'), static fn(string $value): bool => '' !== $value), $reference($href));
+        }
+        if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
+            $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
+            $scripts[] = array_merge(array_filter(array('placement' => (int) $match[1] < $headEnd ? 'head' : 'body', 'type' => $this->htmlAttribute($open, 'type'), 'defer' => preg_match('/\sdefer(?:\s|=|>|$)/i', $open) === 1, 'async' => preg_match('/\sasync(?:\s|=|>|$)/i', $open) === 1, 'load' => preg_match('/\sasync(?:\s|=|>|$)/i', $open) ? 'async' : (preg_match('/\sdefer(?:\s|=|>|$)/i', $open) ? 'defer' : 'blocking')), static fn(mixed $value): bool => '' !== $value), '' !== $src ? $reference($src) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', (string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag))));
+        }
+        $title = preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ? trim(html_entity_decode(strip_tags((string) $match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
+        return array('title' => $title, 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
     }
 
     /**

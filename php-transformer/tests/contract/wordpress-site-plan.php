@@ -14,8 +14,8 @@ $writeMap = static function (array $writes): array { $map = array(); foreach ($w
 $artifact = array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<header><p>Entry Header</p></header><main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main><footer><p>Entry Footer</p></footer>',
-        'about.html' => '<header><p>About Chrome</p></header><main><img src="assets/logo.svg"><h1>About</h1></main>',
+        'index.html' => '<!doctype html><html><head><title>Home title</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="assets/site.css"></head><body><header><p>Entry Header</p></header><main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main><footer><p>Entry Footer</p></footer><script src="assets/site.js" defer></script></body></html>',
+        'about.html' => '<!doctype html><html><head><title>About title</title><link rel="stylesheet" href="assets/site.css"></head><body><header><p>About Chrome</p></header><main><img src="assets/logo.svg"><h1>About</h1></main></body></html>',
         'parts/sidebar.html' => '<aside><p>Unbound Sidebar</p></aside>',
         'assets/site.css' => '@font-face{font-family:test;src:url(assets/font.woff2)}main{background:url("assets/logo.svg")}',
         'assets/site.js' => 'window.siteAsset="assets/logo.svg";',
@@ -43,6 +43,10 @@ $assert(!isset($plan['pages'][0]['resolved_block_markup']), 'Canonical markup is
 $assert(count($plan['reference_tokens']) === count($plan['assets']), 'Every asset has one deterministic resolver token.');
 $assert(true === ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null), 'Plan exposes dynamic client asset capability limits.');
 $assert($plan === ($second['source_reports']['wordpress_site_plan'] ?? null), 'Canonical WordPress site plans are deterministic.');
+$home = $pagesBySource['index.html'];
+$assert('Home title' === ($home['document_metadata']['title'] ?? null) && 'utf-8' === ($home['document_metadata']['meta'][0]['charset'] ?? null) && 'viewport' === ($home['document_metadata']['meta'][1]['name'] ?? null), 'Plan projects title, charset, and viewport metadata from the compiler document report.');
+$assert(str_starts_with((string) ($home['document_metadata']['links'][0]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && 'body' === ($home['document_metadata']['scripts'][0]['placement'] ?? null) && 'defer' === ($home['document_metadata']['scripts'][0]['load'] ?? null), 'Plan retains stylesheet and deferred body-script declarations through canonical asset tokens.');
+$assert(2 === ($plan['reporting']['metrics']['source_document_count'] ?? null) && 2 === ($plan['reporting']['metrics']['block_document_count'] ?? null) && is_array($plan['reporting']['diagnostic_codes'] ?? null), 'Plan carries generic compiler reporting summaries and diagnostic linkage.');
 
 $resolver = new WordPressSitePlanResolver();
 $resolved = $resolver->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/site'));
@@ -53,6 +57,12 @@ $assert(str_contains($about, 'https://example.test/wp-content/themes/site/assets
 $resolvedWrites = $writeMap($resolved['writes']);
 $assert(str_contains((string) $resolvedWrites['assets/assets/site.css']['payload']['data'], 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Stylesheet references resolve through the same declared token.');
 $assert(str_contains((string) $resolvedWrites['assets/assets/site.js']['payload']['data'], 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Script metadata references resolve through the same declared token.');
+$assert('https://example.test/wp-content/themes/site/assets/assets/site.css' === ($resolved['pages'][0]['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/site/assets/assets/site.js' === ($resolved['pages'][0]['document_metadata']['scripts'][0]['resolved_url'] ?? null), 'Resolver resolves document metadata references only through declared writes.');
+
+// A downstream consumer needs only this public plan and its own receipt to project a stable report.
+$receipt = array('writes' => array_map(static fn(array $write): array => array('target_path' => $write['target_path'], 'status' => 'written'), $resolved['writes']));
+$projection = array('documents' => array_map(static fn(array $page): array => array('source_path' => $page['source_path'], 'title' => $page['document_metadata']['title'], 'meta' => $page['document_metadata']['meta'], 'links' => $page['document_metadata']['links'], 'scripts' => $page['document_metadata']['scripts']), $resolved['pages']), 'reporting' => $resolved['reporting'], 'receipt' => $receipt);
+$assert('Home title' === ($projection['documents'][0]['title'] ?? null) && 2 === ($projection['reporting']['metrics']['source_document_count'] ?? null) && count($projection['receipt']['writes']) === count($resolved['writes']), 'A generic consumer projects document/report content from only the resolved plan and receipt.');
 
 $destination = sys_get_temp_dir() . '/blocks-engine-site-plan-' . bin2hex(random_bytes(6));
 foreach ($resolved['writes'] as $write) {
@@ -83,6 +93,10 @@ $invalidScaffold = $plan; $invalidScaffold['writes'][0]['kind'] = 'theme_asset';
 $throws(static fn() => WordPressSitePlan::assertValid($invalidScaffold), 'Validation rejects malformed scaffold writes.');
 $unresolvedLocal = $plan; $unresolvedLocal['pages'][0]['canonical_block_markup'] .= '<img src="images/missing.svg">';
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedLocal), 'Validation rejects unresolved local browser references.');
+$invalidMetadata = $plan; $invalidMetadata['pages'][0]['document_metadata']['scripts'][0]['asset_reference'] = '{{wordpress-site-plan:asset:asset-0000000000000000}}';
+$throws(static fn() => WordPressSitePlan::assertValid($invalidMetadata), 'Validation rejects undeclared document metadata references.');
+$invalidLoad = $plan; $invalidLoad['pages'][0]['document_metadata']['scripts'][0]['load'] = 'later';
+$throws(static fn() => WordPressSitePlan::assertValid($invalidLoad), 'Validation rejects invalid document script load semantics.');
 $invalidCompiledAsset = $first; $invalidCompiledAsset['source_reports']['compiled_site']['assets'][0]['target_path'] = 'C:\\theme\\site.css';
 $throws(static fn() => (new WordPressSitePlan())->fromResult($invalidCompiledAsset), 'Projection rejects unsafe compiled asset targets.');
 

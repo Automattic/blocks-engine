@@ -24,7 +24,10 @@ final class WordPressSitePlanResolver
         unset($template);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) $write['payload']['data'] = self::replace($write['payload']['data'], $references);
         unset($write);
+        foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::replace($declaration['asset_reference'], $references); }
+        unset($declaration, $document);
         $plan['resolution'] = array('theme_uri' => $themeUri);
+        self::assertResolvedMetadata($plan, $references);
         return $plan;
     }
 
@@ -46,4 +49,6 @@ final class WordPressSitePlanResolver
         $authority = strtolower($parts['host']) . (isset($parts['port']) ? ':' . $parts['port'] : '');
         return strtolower($parts['scheme']) . '://' . $authority . rtrim($path, '/');
     }
+    /** @param array<string,mixed> $plan @param array<string,string> $references */
+    private static function assertResolvedMetadata(array $plan, array $references): void { foreach(array('pages','template_parts') as $documents)foreach($plan[$documents] as $document)foreach(array('links','scripts') as $kind)foreach($document['document_metadata'][$kind]??array() as $declaration)if(is_string($declaration['asset_reference']??null)){if(!isset($references[$declaration['asset_reference']])||$references[$declaration['asset_reference']]!==($declaration['resolved_url']??null))throw new InvalidArgumentException('WordPress site plan metadata URL does not correspond to a declared resolved write.');} }
 }
