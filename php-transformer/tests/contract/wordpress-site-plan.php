@@ -97,6 +97,8 @@ $invalidMetadata = $plan; $invalidMetadata['pages'][0]['document_metadata']['scr
 $throws(static fn() => WordPressSitePlan::assertValid($invalidMetadata), 'Validation rejects undeclared document metadata references.');
 $invalidLoad = $plan; $invalidLoad['pages'][0]['document_metadata']['scripts'][0]['load'] = 'later';
 $throws(static fn() => WordPressSitePlan::assertValid($invalidLoad), 'Validation rejects invalid document script load semantics.');
+$invalidOrder = $plan; $invalidOrder['pages'][0]['document_metadata']['links'][0]['order'] = 1;
+$throws(static fn() => WordPressSitePlan::assertValid($invalidOrder), 'Validation rejects non-deterministic document metadata ordering.');
 $invalidCompiledAsset = $first; $invalidCompiledAsset['source_reports']['compiled_site']['assets'][0]['target_path'] = 'C:\\theme\\site.css';
 $throws(static fn() => (new WordPressSitePlan())->fromResult($invalidCompiledAsset), 'Projection rejects unsafe compiled asset targets.');
 
