@@ -2,41 +2,40 @@ name: PHP Transformer
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/php-transformer.yml"
-      - "php-transformer/**"
   push:
-    branches:
-      - trunk
-    paths:
-      - ".github/workflows/php-transformer.yml"
-      - "php-transformer/**"
 
 jobs:
-  validate:
-    name: Composer validate and test
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: php-transformer
-
+  wordpress-site-plan:
+    name: WordPress site plan integration
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.0.36
+        env:
+          MYSQL_DATABASE: wordpress_test
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.1"
-          coverage: none
+          extensions: mysqli
           tools: composer:v2
-
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Validate Composer package metadata
-        run: composer validate --strict
-
-      - name: Run package tests
-        run: composer test
+      - name: Install package dependencies
+        working-directory: php-transformer
+        run: composer install --no-interaction --prefer-dist
+      - name: Provision pinned WordPress PHPUnit runtime
+        run: git clone --depth=1 --branch 6.7.4 https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop" && "$RUNNER_TEMP/wordpress-develop/tests/phpunit/install-test-suite.sh" wordpress_test root '' 127.0.0.1:3306 6.7.4
+      - name: Run required WordPress site plan integration
+        working-directory: php-transformer
+        env:
+          REQUIRE_WP_TESTS: "1"
+          WP_TESTS_DIR: ${{ runner.temp }}/wordpress-develop/tests/phpunit
+        run: composer test:wordpress-integration
