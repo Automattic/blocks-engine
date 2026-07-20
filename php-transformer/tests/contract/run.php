@@ -1220,6 +1220,7 @@ $listGapNavigation = ( new HtmlTransformer() )->transform(
 $listGapNavigationBlock = $listGapNavigation['blocks'][0] ?? array();
 $listGapNavigationSerialized = (string) ($listGapNavigation['serialized_blocks'] ?? '');
 $assert('0' === ($listGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct navigation list gap projects onto core/navigation');
+$assert('nowrap' === ($listGapNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'direct navigation list preserves its implicit non-wrapping row');
 $assert('pass' === ($listGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'direct navigation list gap preserves semantic parity');
 $assert('pass' === ($listGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'direct navigation list gap serializes to a valid WordPress block');
 $assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation ') && str_contains($listGapNavigationSerialized, '"blockGap":"0"'), 'direct navigation list gap uses canonical dynamic navigation serialization');
@@ -1227,7 +1228,29 @@ $assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation ') && str
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
 )->toArray();
-$assert('1rem' === ($outerGapNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'outer navigation gap takes precedence over direct list gap');
+$assert('0' === ($outerGapNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct list gap owns item spacing over its outer one-child navigation wrapper');
+
+$directAnchorNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><a href="/one">One</a><a href="/two">Two</a></nav>'
+)->toArray();
+$directAnchorNavigationBlock = $directAnchorNavigation['blocks'][0] ?? array();
+$assert('0' === ($directAnchorNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct anchor navigation preserves its implicit zero item gap');
+$assert('nowrap' === ($directAnchorNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'direct anchor navigation preserves its implicit non-wrapping row');
+
+$wrappingNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><ul style="display:flex;flex-wrap:wrap;gap:1rem"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
+)->toArray();
+$wrappingNavigationBlock = $wrappingNavigation['blocks'][0] ?? array();
+$assert('1rem' === ($wrappingNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct list intentional gap projects onto core/navigation');
+$assert('wrap' === ($wrappingNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'direct list intentional wrapping projects onto core/navigation');
+
+$itemMarginNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><a href="/one" style="margin-right:1rem">One</a><a href="/two" style="margin-left:2rem">Two</a></nav>'
+)->toArray();
+$itemMarginNavigationBlock = $itemMarginNavigation['blocks'][0] ?? array();
+$itemMarginLinks = $itemMarginNavigationBlock['innerBlocks'] ?? array();
+$assert('0' === ($itemMarginNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'horizontal item margins do not become core navigation gap');
+$assert('1rem' === ($itemMarginLinks[0]['attrs']['style']['spacing']['margin']['right'] ?? '') && '2rem' === ($itemMarginLinks[1]['attrs']['style']['spacing']['margin']['left'] ?? ''), 'navigation item margins retain their authored horizontal directions');
 
 $footerNavigationSections = ( new HtmlTransformer() )->transform(
     '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'

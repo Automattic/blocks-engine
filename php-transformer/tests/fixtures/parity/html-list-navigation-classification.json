@@ -32,7 +32,7 @@
     { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 3 },
     { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"site-nav blocks-engine-list-navigation\",\"overlayMenu\":\"mobile\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"site-nav blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0\"}},\"layout\":{\"type\":\"flex\",\"flexWrap\":\"nowrap\"},\"overlayMenu\":\"mobile\"}" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:list {\"className\":\"features\"}" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

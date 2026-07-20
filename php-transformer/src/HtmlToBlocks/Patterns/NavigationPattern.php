@@ -412,6 +412,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
+        if ( $item->isSameNode($anchor) && isset($anchorAttrs['style']['spacing']['margin']) ) {
+            // Direct anchors become navigation items. Keep their item margins on
+            // the item rather than reinterpreting horizontal spacing as row gap.
+            $itemAttrs['style']['spacing']['margin'] = $anchorAttrs['style']['spacing']['margin'];
+        }
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
@@ -515,20 +520,40 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $this->isListNavigationSource($element) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
         }
-        if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
-            return $attrs;
-        }
 
+        // core/navigation owns the item row. For a direct list, its declarations
+        // (rather than the nav wrapper's one-child layout) control that row.
+        $layoutOwner = $element;
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
                 continue;
             }
 
-            $listGap = (string) ($presentationAttributes($child)['style']['spacing']['blockGap'] ?? '');
-            if ( '' !== $listGap ) {
-                $attrs['style']['spacing']['blockGap'] = $listGap;
-                break;
-            }
+            $layoutOwner = $child;
+            break;
+        }
+
+        $ownerAttrs = $layoutOwner->isSameNode($element) ? $attrs : $this->withoutCoreNavigationClasses($presentationAttributes($layoutOwner));
+        $ownerLayout = is_array($ownerAttrs['layout'] ?? null) ? $ownerAttrs['layout'] : array();
+        $ownerGap = (string) ($ownerAttrs['style']['spacing']['blockGap'] ?? '');
+
+        if ( '' !== $ownerGap ) {
+            $attrs['style']['spacing']['blockGap'] = $ownerGap;
+        } else {
+            // Native navigation supplies a theme gap by default; source inline
+            // links and un-gapped list rows have no equivalent item spacing.
+            $attrs['style']['spacing']['blockGap'] = '0';
+        }
+
+        if ( 'flex' === ($ownerLayout['type'] ?? '') ) {
+            $attrs['layout'] = $ownerLayout;
+        } else {
+            $attrs['layout'] = array( 'type' => 'flex' );
+        }
+
+        if ( 'vertical' !== ($attrs['layout']['orientation'] ?? '') && ! isset($attrs['layout']['flexWrap']) ) {
+            // CSS flex rows default to nowrap, whereas core/navigation defaults to wrap.
+            $attrs['layout']['flexWrap'] = 'nowrap';
         }
 
         return $attrs;
