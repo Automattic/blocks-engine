@@ -21,6 +21,13 @@ final class HighValueStyleBoundaryPolicy
             return true;
         }
 
+        if ( '' === trim($element->textContent ?? '') && in_array($tagName, array( 'span', 'i', 'b' ), true) && $element->parentNode instanceof DOMElement ) {
+            $parentTokens = strtolower($this->attr($element->parentNode, 'class') . ' ' . $this->attr($element->parentNode, 'id'));
+            if ( preg_match('/(?:^|[^a-z0-9])(?:dots?|icons?|badges?|chips?|pills?|indicators?|markers?|orbs?)(?:[^a-z0-9]|$)/', $parentTokens) ) {
+                return true;
+            }
+        }
+
         $tokens = strtolower(trim(implode(' ', array(
             $this->attr($element, 'class'),
             $this->attr($element, 'id'),
@@ -33,6 +40,9 @@ final class HighValueStyleBoundaryPolicy
 
         if ( 'a' === $tagName ) {
             for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( 'nav' === strtolower($node->tagName) ) {
+                    return true;
+                }
                 $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
                 if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
                     return true;

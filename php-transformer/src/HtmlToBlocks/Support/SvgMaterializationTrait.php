@@ -103,7 +103,7 @@ trait SvgMaterializationTrait
         $presentation = $this->presentationDeclarations($element);
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
-        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) : '';
+        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''))) : '';
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
         $geometryClass = '';
@@ -241,7 +241,7 @@ trait SvgMaterializationTrait
 
         // A flex/grid child is a standalone layout item, even where its next
         // sibling is a block. Keep its native image figure as the media column.
-        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->presentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return false;
         }
 

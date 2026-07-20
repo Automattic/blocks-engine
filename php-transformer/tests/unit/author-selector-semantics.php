@@ -22,6 +22,13 @@ $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose 
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');
 $assert('' !== $paragraphClass && str_contains($css($paragraph), ':where(.' . $paragraphClass . '):not(blocks-engine-specificity-') && ! str_contains($paragraph['serialized_blocks'], 'core/html'), 'p type selectors retain provenance and type specificity only on canonical p serialization');
 
+$navigationShell = $transform('<style>nav{height:60px;padding:0 28px}.nav-links{display:flex}</style><header><nav><a class="nav-logo" href="/">Logo</a><ul class="nav-links"><li><a href="#one">One</a></li></ul></nav></header>');
+$navigationShellCss = $css($navigationShell);
+$navigationShellBlock = $navigationShell['blocks'][0] ?? array();
+$navigationMenuBlock = $navigationShellBlock['innerBlocks'][1] ?? array();
+$navigationShellClass = (string) ($navigationShellBlock['attrs']['className'] ?? '');
+$assert(str_contains($navigationShellClass, 'blocks-engine-source-nav-') && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellClass . '):not(blocks-engine-specificity-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
 $assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
@@ -82,7 +89,8 @@ $assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($n
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
-$assert(str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && preg_match('/where\(\.blocks-engine-control-[^)]+\)[^{]*\{margin-left:24px\}/', $controlMarginCss) && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins project onto the canonical button wrapper while typography remains on its link');
+$controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
+$assert('24px' === ($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left'] ?? '') && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && preg_match('/where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\)\{margin-left:24px\}/', $controlMarginCss) && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins map to native buttons flex-item spacing while typography remains on its link');
 
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');

@@ -673,6 +673,10 @@ final class HtmlTransformer
         if ( '' !== $markerReset ) {
             $cssParts[] = $markerReset;
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
+        }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
         }
@@ -734,21 +738,21 @@ final class HtmlTransformer
 
         $this->authorStyleSourceBody = $sourceBody;
 
-        $hasParagraphTypeSelector = false;
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, static function (string $prelude) use (&$hasParagraphTypeSelector): string {
+        $sourceTagSelectorNames = array();
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, static function (string $prelude) use (&$sourceTagSelectorNames): string {
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                 $parsed = CssSelectorMatcher::parse($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
-                    if ( 'p' === strtolower($typeSpan['name']) ) {
-                        $hasParagraphTypeSelector = true;
-                        break 2;
+                    $tagName = strtolower($typeSpan['name']);
+                    if ( in_array($tagName, array( 'nav', 'p' ), true) ) {
+                        $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }
             }
             return $prelude;
         });
-        if ( $hasParagraphTypeSelector ) {
-            $this->sourceTagMarkers['p'] = $this->allocateAuthorMarker('source-p');
+        foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
+            $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
         $this->discoverAuthorControlPaths();
         $this->discoverAuthorInlineSemanticPaths();
@@ -1054,7 +1058,7 @@ final class HtmlTransformer
         // Source matching is complete before mutation and the marker is unique to
         // this control. Project through it rather than assuming source attributes
         // or ancestors survive canonical core/button serialization.
-        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . ($wrapper ? '' : '> :where(.wp-block-button__link)') . $suffix;
+        return ':where(.' . $marker . ')' . ($wrapper ? ':where(.wp-block-buttons)' : $this->selectorSpecificityShims($parsed) . '> :where(.wp-block-button__link)') . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2239,7 +2243,7 @@ final class HtmlTransformer
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$semanticMarkers);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
-            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
+            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
                 $path = $logicalControl->getNodePath() ?? '';
                 if ( '' !== $path && ! isset($this->sourceControlMarkers[$path]) ) {
                     $this->sourceControlMarkers[$path] = $this->allocateAuthorMarker('control');
@@ -3022,20 +3026,11 @@ final class HtmlTransformer
             return true;
         }
 
-        if ( 0 !== $this->childElementCount($element) ) {
-            return false;
-        }
-
         if ( in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden')) ) {
             return true;
         }
 
-        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
-            return false;
-        }
-
-        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
-        if ( ! preg_match('/(?:^|[^a-z0-9])(?:badge|chip|pill|status|indicator|marker|dot|orb|icon)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
             return false;
         }
 
@@ -3047,6 +3042,19 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function isEmptyVisualInlineCandidate(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
+            return false;
+        }
+
+        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
+        if ( '' === $tokens && $element->parentNode instanceof DOMElement ) {
+            $tokens = strtolower(trim($this->attr($element->parentNode, 'class') . ' ' . $this->attr($element->parentNode, 'id')));
+        }
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:badges?|chips?|pills?|status|indicators?|markers?|dots?|orbs?|icons?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
