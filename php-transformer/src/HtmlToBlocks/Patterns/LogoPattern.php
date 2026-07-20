@@ -11,10 +11,11 @@ final class LogoPattern
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement): string $outerHtml
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $outerHtml, callable $createBlock): ?array
+    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $outerHtml, callable $materializeSvgImages, callable $createBlock): ?array
     {
         if ( ! $this->hasLogoSignal($element) || '' === trim($element->textContent ?? '') ) {
             return null;
@@ -26,7 +27,7 @@ final class LogoPattern
         }
 
         if ( 'a' === $tagName && $this->hasStructuredAnchorChrome($element) ) {
-            $content = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element);
+            $content = $materializeSvgImages($element, $innerHtml($element)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element));
             $attrs = array_filter(array(
                 'text'  => trim($content),
                 'url'   => $this->safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
@@ -45,7 +46,7 @@ final class LogoPattern
             ));
         }
 
-        $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element)) : $this->logoLabelHtml($innerHtml($element));
+        $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element), $materializeSvgImages) : $this->logoLabelHtml($element, $innerHtml($element), $materializeSvgImages);
         if ( '' === trim($content) ) {
             return null;
         }
@@ -53,9 +54,10 @@ final class LogoPattern
         return $createBlock('core/paragraph', array_merge($presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
-    private function anchorLogoContent(DOMElement $anchor, string $html): string
+    /** @param callable(DOMElement, string): ?string $materializeSvgImages */
+    private function anchorLogoContent(DOMElement $anchor, string $html, callable $materializeSvgImages): string
     {
-        $label = $this->logoLabelHtml($html);
+        $label = $this->logoLabelHtml($anchor, $html, $materializeSvgImages);
         if ( '' === trim($this->plainText($label)) ) {
             $label = $this->accessibleFallbackLabel($anchor);
         }
@@ -79,11 +81,12 @@ final class LogoPattern
         return '<a' . $this->htmlAttributeString($attrs) . '>' . $label . '</a>';
     }
 
-    private function logoLabelHtml(string $html): string
+    /** @param callable(DOMElement, string): ?string $materializeSvgImages */
+    private function logoLabelHtml(DOMElement $element, string $html, callable $materializeSvgImages): string
     {
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
+        $html = $materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = trim($html);
         $text = $this->plainText($html);

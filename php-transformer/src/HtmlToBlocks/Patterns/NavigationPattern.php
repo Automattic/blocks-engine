@@ -40,6 +40,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $label = $this->directSectionLabel($element);
+        $navigationAttrs = $label instanceof DOMElement
+            ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
+            : $this->navigationContainerAttributes($element, $presentationAttributes);
+        $navigationAttrs['overlayMenu'] = 'mobile';
+        if ( $label instanceof DOMElement ) {
+            $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
+        }
+
         // Declare responsive-overlay intent explicitly so the saved block carries
         // its interactive behavior in the content itself rather than relying on
         // WordPress applying the block.json `overlayMenu` default at render time.
@@ -50,14 +59,49 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $this->isListNavigationSource($element) ) {
             unset($commonTextAttrs['style']['typography']);
         }
-        $containerAttrs = array_replace_recursive(
-            $this->navigationContainerAttributes($element, $presentationAttributes),
+        $navigationAttrs = array_replace_recursive(
+			$navigationAttrs,
             $commonTextAttrs
         );
 
-        return $createBlock('core/navigation', array_merge($containerAttrs, array(
-            'overlayMenu' => 'mobile',
-        )), $links, $element);
+        $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
+
+        if ( ! $label instanceof DOMElement ) {
+            return $navigation;
+        }
+
+        $labelTag = strtolower($label->tagName);
+        $labelBlock = preg_match('/^h([1-6])$/', $labelTag, $matches)
+            ? $createBlock('core/heading', array_merge($presentationAttributes($label), array(
+                'content' => $innerHtml($label),
+                'level' => (int) $matches[1],
+            )), array(), $label)
+            : $createBlock('core/paragraph', array_merge($presentationAttributes($label), array(
+                'content' => $innerHtml($label),
+            )), array(), $label);
+
+        return $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element);
+    }
+
+    private function directSectionLabel(DOMElement $element): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isSectionLabelElement($child) ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<string, mixed> */
+    private function nestedLabeledNavigationAttributes(DOMElement $element, callable $presentationAttributes): array
+    {
+        $attrs = $this->navigationContainerAttributes($element, $presentationAttributes);
+        $blockGap = (string) ($attrs['style']['spacing']['blockGap'] ?? '');
+        return '' === $blockGap ? array() : array(
+            'style' => array( 'spacing' => array( 'blockGap' => $blockGap ) ),
+        );
     }
 
     /**

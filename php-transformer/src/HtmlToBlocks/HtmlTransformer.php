@@ -2092,6 +2092,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $logo ) {
@@ -2197,6 +2198,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
             );
@@ -2912,6 +2914,9 @@ final class HtmlTransformer
             'font-weight',
             'letter-spacing',
             'line-height',
+            'height',
+            'max-height',
+            'max-width',
             'margin',
             'margin-bottom',
             'margin-left',
@@ -2924,6 +2929,7 @@ final class HtmlTransformer
             'padding-top',
             'text-decoration',
             'text-transform',
+            'width',
         ));
 
         $declarations = array();
@@ -3307,7 +3313,9 @@ final class HtmlTransformer
 
     private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
     {
-        return $this->hasLogoBrandSignal($anchor) && 0 < $anchor->getElementsByTagName('svg')->length;
+        return $this->hasLogoBrandSignal($anchor)
+            && 0 < $anchor->getElementsByTagName('svg')->length
+            && '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' ))));
     }
 
     private function hasLogoBrandSignal(DOMElement $element): bool
