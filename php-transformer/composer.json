@@ -77,6 +77,7 @@
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison",
+    "test:wordpress-integration": "php tests/integration/wordpress-site-plan.php",
     "test:packaging": "php tests/packaging/install-proof.php"
   },
   "config": {

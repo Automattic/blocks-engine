@@ -2050,8 +2050,8 @@ $canonicalShellCompiled = $canonicalShellSite['source_reports']['compiled_site']
 $canonicalShellPlan = $canonicalShellSite['source_reports']['materialization_plan'] ?? array();
 $canonicalHeaderPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? '')))[0] ?? array();
 $canonicalFooterPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
-preg_match('/blocks-engine-control-[a-f0-9]+-\d+/', (string) ($canonicalShellSite['serialized_blocks'] ?? ''), $canonicalDocumentControlMarker);
-$assert('' !== ($canonicalDocumentControlMarker[0] ?? '') && str_contains((string) ($canonicalHeaderPart['block_markup'] ?? ''), $canonicalDocumentControlMarker[0]), 'canonical entry header part reuses the full-document control identity without fragment retransformation');
+$canonicalEntryPage = array_values(array_filter($canonicalShellCompiled['pages'] ?? array(), static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
+$assert(! str_contains((string) ($canonicalEntryPage['block_markup'] ?? ''), 'Get started') && str_contains((string) ($canonicalHeaderPart['block_markup'] ?? ''), 'Get started'), 'canonical entry header is projected only to its shell part, without duplicate post-content chrome');
 $assert(str_contains((string) ($canonicalFooterPart['block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
 $assert(2 === count($canonicalShellPlan['template_part_writes'] ?? array()), 'materialization plan exposes canonical entry header and footer writes');
 

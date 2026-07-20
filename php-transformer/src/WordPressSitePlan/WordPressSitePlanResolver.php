@@ -12,6 +12,7 @@ final class WordPressSitePlanResolver
     public function resolve(array $plan, array $context): array
     {
         WordPressSitePlan::assertValid($plan);
+        if (true === ($context['require_proven_dynamic_client_assets'] ?? false) && 'not_proven' === ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null)) throw new InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.');
         $themeUri = self::themeUri($context['theme_uri'] ?? null);
         $references = array();
         foreach ($plan['reference_tokens'] as $reference) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $themeUri . '/' . $reference['target_path'];

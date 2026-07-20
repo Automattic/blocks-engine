@@ -149,6 +149,8 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 Run the package contract, parity fixtures, and clean package-install proof with `composer test`. The checked-in fixtures assert current transformer behavior, and the install proof verifies that Composer can install `automattic/blocks-engine-php-transformer` from the `php-transformer/` package root without symlinking back to the working tree.
 
+Run the real WordPress materialization integration against a standard WordPress test-suite runtime with `WP_TESTS_DIR=/path/to/wordpress-tests-lib composer test:wordpress-integration`.
+
 ## Release Consumption
 
 The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag. After release, consumers need either a subtree-split/Packagist package whose root is `php-transformer/`, or an explicit Composer `package` repository that points at the release archive and maps autoloading to the subtree.

@@ -38,7 +38,8 @@ and `WordPressSitePlanResolver::resolve()`.
 - Static browser references in markup and CSS (`src`, stylesheet `href`, `srcset`,
   `poster`, applicable `action`, `url()`, and `@import`) must be declared asset
   tokens or absolute/root-relative URLs. Dynamic script references are explicitly
-  `not_proven`; only literal declared tokens in JavaScript are resolved.
+  `not_proven`; only literal declared tokens in JavaScript are resolved. The
+  `dynamic_client_assets.materializer_may_reject` capability flag is `true`.
 
 ## Runtime Resolution
 
@@ -57,6 +58,8 @@ normalizes only scheme, host, optional port, and trailing path slash. It replace
 only declared tokens in markup and UTF-8 write payloads. Materializers write
 `resolved['writes']` and apply `resolved['operations']` verbatim; they never rewrite
 HTML, CSS, scripts, or URLs.
+Consumers requiring proven dynamic client assets pass
+`require_proven_dynamic_client_assets => true` and receive a deterministic rejection.
 
 ## Migration From v1
 

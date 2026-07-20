@@ -186,7 +186,7 @@ final class ArtifactCompiler
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace);
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
 
         return array(
             'blocks'            => $result['blocks'],
@@ -207,7 +207,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
@@ -252,6 +252,7 @@ final class ArtifactCompiler
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
+            'extract_global_shell'       => $extractGlobalShell,
         ))->toArray();
 
         return array(
@@ -1627,6 +1628,13 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
+            if ( $path === $entryPath ) {
+                foreach ( $entryShellArtifacts as $shellArtifact ) {
+                    if ( is_array($shellArtifact) && is_string($shellArtifact['block_markup'] ?? null) ) {
+                        $blockMarkup = str_replace($shellArtifact['block_markup'], '', $blockMarkup);
+                    }
+                }
+            }
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
@@ -1680,9 +1688,14 @@ final class ArtifactCompiler
         }
 
         $templateParts = $this->compiledSiteTemplateParts($artifact['files']);
-        $explicitAreas = array_fill_keys(array_column($templateParts, 'area'), true);
+        $partSlugs = array_fill_keys(array_column($templateParts, 'slug'), true);
         foreach ( $entryShellArtifacts as $shellArtifact ) {
-            if ( is_array($shellArtifact) && ! isset($explicitAreas[(string) ($shellArtifact['area'] ?? '')]) ) {
+            if ( is_array($shellArtifact) ) {
+                $slug = (string) ($shellArtifact['slug'] ?? '');
+                if ( isset($partSlugs[$slug]) ) {
+                    $shellArtifact['slug'] = 'entry-' . $slug;
+                }
+                $partSlugs[(string) $shellArtifact['slug']] = true;
                 $templateParts[] = $shellArtifact;
             }
         }
@@ -1916,6 +1929,7 @@ final class ArtifactCompiler
                     'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),
+                    'placement'    => array('kind' => 'unbound'),
                 ),
                 static fn (mixed $value): bool => '' !== $value && array() !== $value
             );

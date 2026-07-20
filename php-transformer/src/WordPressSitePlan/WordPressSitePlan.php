@@ -38,7 +38,7 @@ final class WordPressSitePlan
             'template_parts' => $parts,
             'assets' => $assets,
             'reference_tokens' => $tokens,
-            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => 'not_proven'),
+            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => 'not_proven', 'dynamic_client_assets' => array('status' => 'not_proven', 'materializer_may_reject' => true)),
             'writes' => $writes,
             'operations' => $this->operations($pages),
             'routes' => $routes,
@@ -65,6 +65,7 @@ final class WordPressSitePlan
             }
         }
         self::assertSource($plan['source']);
+        if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || true !== ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null)) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
         self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'));
@@ -127,10 +128,11 @@ final class WordPressSitePlan
             if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $part['canonical_block_markup'] ) {
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
+            $boundTemplates = 'entry_shell' === ($part['placement']['kind'] ?? null) ? $part['placement']['template_slugs'] : array();
             foreach ( $plan['templates'] as $template ) {
-                if ( ! str_contains($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"') ) {
-                    throw new InvalidArgumentException('WordPress site plan template does not reference its template part.');
-                }
+                $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
+                if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
+                if (!in_array($template['slug'], $boundTemplates, true) && 0 !== $references) throw new InvalidArgumentException('WordPress site plan has an unproven template part binding.');
             }
         }
         foreach ( $plan['assets'] as $asset ) {
@@ -159,7 +161,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('Compiled site document lacks a safe identity or block markup.');
             }
             $markup = $this->tokenize($document['block_markup'], $tokens, $document['source_path']);
-            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'canonical_block_markup' => $this->routeLinks($markup, $document['source_path'], $routes), 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => hash('sha256', $document['source_path'] . "\n" . $document['block_markup']));
+            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $this->routeLinks($markup, $document['source_path'], $routes), 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => hash('sha256', $document['source_path'] . "\n" . $document['block_markup']));
         }
         return $rows;
     }
@@ -189,16 +191,19 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
     private function templates(array $pages, array $parts): array
     {
-        usort($parts, static function (array $left, array $right): int {
+        $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell'), true)));
+        usort($bound, static function (array $left, array $right): int {
             $priority = array('header' => 0, 'footer' => 2);
             return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
         });
-        $markup = '';
-        foreach ($parts as $part) $markup .= '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '"} /-->' . "\n";
-        $markup .= '<!-- wp:post-content /-->' . "\n";
-        $templates = array(array('slug' => 'index', 'target_path' => 'templates/index.html', 'canonical_block_markup' => $markup));
-        if ( array() !== $pages ) $templates[] = array('slug' => 'page', 'target_path' => 'templates/page.html', 'canonical_block_markup' => $markup);
-        foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = array('slug' => 'front-page', 'target_path' => 'templates/front-page.html', 'canonical_block_markup' => $markup); break; }
+        $markup = static function (string $templateSlug) use ($bound): string {
+            $content = '';
+            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true)) $content .= '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '"} /-->' . "\n";
+            return $content . '<!-- wp:post-content /-->' . "\n";
+        };
+        $templates = array(array('slug' => 'index', 'target_path' => 'templates/index.html', 'canonical_block_markup' => $markup('index')));
+        if ( array() !== $pages ) $templates[] = array('slug' => 'page', 'target_path' => 'templates/page.html', 'canonical_block_markup' => $markup('page'));
+        foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = array('slug' => 'front-page', 'target_path' => 'templates/front-page.html', 'canonical_block_markup' => $markup('front-page')); break; }
         return $templates;
     }
 
@@ -316,7 +321,7 @@ final class WordPressSitePlan
         }
     }
     /** @param array<string,string> $tokens */
-    private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if (!is_array($document) || !self::safePath($document['source_path'] ?? null) || !is_string($document['slug'] ?? null) || !is_string($document['title'] ?? null) || !is_string($document['post_type'] ?? null) || !is_string($document['parent_source_path'] ?? null) || !is_bool($document['entrypoint'] ?? null) || !is_string($document['canonical_block_markup'] ?? null) || '' === trim($document['canonical_block_markup']) || !is_array($document['metadata'] ?? null) || !is_array($document['provenance'] ?? null) || !is_string($document['reconciliation_identity'] ?? null) || ($part && (!is_string($document['area'] ?? null) || '' === $document['area'])) || (!$part && null !== ($document['area'] ?? null))) throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid."); self::assertTokens($document['canonical_block_markup'], $tokens); self::assertNoLocalBrowserReferences($document['canonical_block_markup']); }
+    private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['provenance']??null)||!is_string($document['reconciliation_identity']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&'entry_shell'===($document['placement']['kind']??null)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');self::assertTokens($document['canonical_block_markup'],$tokens);self::assertNoLocalBrowserReferences($document['canonical_block_markup']); }
     /** @param array<string,string> $tokens */
     private static function assertWrite(mixed $write, array $tokens): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64'), true) || !is_string($write['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan write is structurally invalid.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); self::assertNoLocalBrowserReferences($write['payload']['data']); } }
     /** @param array<string,string> $tokens */
