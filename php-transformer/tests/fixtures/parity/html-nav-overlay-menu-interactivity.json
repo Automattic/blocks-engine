@@ -16,7 +16,7 @@
     "content": "<nav class=\"main-nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></nav>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "main-nav", "overlayMenu": "mobile" } },
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "main-nav blocks-engine-list-navigation", "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } }
@@ -29,7 +29,7 @@
     { "path": "blocks.0.attrs.overlayMenu", "assert": "equals", "value": "mobile" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Home\",\"url\":\"/\",\"kind\":\"custom\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"main-nav\",\"overlayMenu\":\"mobile\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"main-nav blocks-engine-list-navigation\",\"overlayMenu\":\"mobile\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
