@@ -521,7 +521,7 @@ final class HtmlTransformer
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
-        $shellArtifacts = $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'));
+        $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
@@ -608,9 +608,10 @@ final class HtmlTransformer
      *
      * @return array<int, array<string, mixed>>
      */
-    private function globalShellArtifacts(DOMElement $body, string $source): array
+    private function globalShellArtifacts(DOMElement $body, string $source, bool $removeFromContent = false): array
     {
         $artifacts = array();
+        $removals = array();
         foreach ( $body->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
@@ -635,8 +636,14 @@ final class HtmlTransformer
                 'block_markup' => $markup,
                 'source_selector' => strtolower($child->tagName),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
+                'placement' => array('kind' => 'entry_shell', 'source_path' => $source, 'template_slugs' => array('front-page')),
             );
+            // A successfully projected global shell is owned by the template part,
+            // not duplicated in the entry page's post-content markup.
+            if ($removeFromContent) $removals[] = $child;
         }
+
+        foreach ($removals as $child) $body->removeChild($child);
 
         return $artifacts;
     }

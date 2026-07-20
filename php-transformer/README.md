@@ -41,6 +41,8 @@ Consumers should treat these classes and interface as the public entrypoints for
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
 - `StaticSite\MaterializationView` - validates a `TransformerResult` object or canonical result array and returns a stable product-neutral array view for importer planning.
+- `WordPressSitePlan\WordPressSitePlan` - projects an artifact result to the self-contained v2 block-theme plan.
+- `WordPressSitePlan\WordPressSitePlanResolver` - resolves that plan's declared asset tokens with an explicit runtime `theme_uri`.
 - `WordPress\Runtime` - adapter for WordPress functions used by the transformer when running inside or outside WordPress.
 
 The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/ArtifactCompiler` are implementation details. Concrete bundled adapters, registries, normalizers, and factories may change as the bridge expands.
@@ -70,6 +72,10 @@ $artifactResult = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 
 $materialization = (new MaterializationView())->fromResult($artifactResult);
+$plan = (new WordPressSitePlan())->fromResult($artifactResult);
+$resolvedPlan = (new WordPressSitePlanResolver())->resolve($plan, array(
+    'theme_uri' => 'https://example.test/wp-content/themes/generated-site',
+));
 ```
 
 ### WordPress Plugin Usage
@@ -142,6 +148,8 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 ## Parity Checks
 
 Run the package contract, parity fixtures, and clean package-install proof with `composer test`. The checked-in fixtures assert current transformer behavior, and the install proof verifies that Composer can install `automattic/blocks-engine-php-transformer` from the `php-transformer/` package root without symlinking back to the working tree.
+
+Run the real WordPress materialization integration against a standard WordPress test-suite runtime with `REQUIRE_WP_TESTS=1 WP_TESTS_DIR=/path/to/wordpress-develop/tests/phpunit composer test:wordpress-integration`. Without `REQUIRE_WP_TESTS=1`, the command reports an explicit local skip when that runtime is unavailable. CI provisions WordPress `6.7.4`, MySQL `8.0.36`, and runs the required form of this command in `.github/workflows/php-transformer.yml`.
 
 ## Release Consumption
 
