@@ -251,25 +251,89 @@ $assert('var(--wp--preset--color--text)' === ($textPresetAttrs['style']['color']
 $assert('masthead__bio' === ($textPresetAttrs['className'] ?? ''), '37: source paragraph class remains preserved without generated color class leakage', json_encode($textPresetAttrs));
 $assert(! str_contains($textPresetInnerHtml, 'has-text-color has-text-color'), '38: rendered paragraph does not carry duplicate generated text color classes', $textPresetInnerHtml);
 
+$inlineFlexText = ( new HtmlTransformer() )->transform('<div style="display:flex"><span>Utility copy</span><nav><a href="/">Home</a></nav></div>')->toArray();
+$inlineFlexParagraph = $inlineFlexText['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$inlineFlexMarkup = (string) ($inlineFlexText['serialized_blocks'] ?? '');
+$inlineFlexMargins = $inlineFlexParagraph['attrs']['style']['spacing']['margin'] ?? array();
+
+$assert(
+    array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ) === $inlineFlexMargins,
+    '39: standalone inline text retains its zero source margin when canonicalized as a flex-item paragraph',
+    json_encode($inlineFlexMargins)
+);
+$assert(
+    str_contains($inlineFlexMarkup, 'margin-top:0;margin-right:0;margin-bottom:0;margin-left:0'),
+    '40: standalone inline text serializes the margin reset through native paragraph supports',
+    $inlineFlexMarkup
+);
+
+$selectorMarginText = ( new HtmlTransformer() )->transform(
+    '<div class="utility" style="display:flex"><span>Label</span><span>Copy</span><nav><a href="/">Home</a></nav></div>',
+    array( 'static_css' => '.utility > span:nth-child(2){margin:3px 7px 11px 13px}' )
+)->toArray();
+$selectorMarginCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $selectorMarginText['assets'] ?? array()));
+$selectorMarginFlexItem = $selectorMarginText['blocks'][0]['innerBlocks'][1] ?? array();
+$selectorMarginWrapper = $selectorMarginFlexItem['innerBlocks'][0] ?? array();
+$selectorMarginParagraph = $selectorMarginWrapper['innerBlocks'][0] ?? array();
+$selectorMarginClass = (string) ($selectorMarginFlexItem['attrs']['className'] ?? '');
+
+$assert(
+    str_starts_with($selectorMarginClass, 'blocks-engine-semantic-')
+    && $selectorMarginClass === ($selectorMarginWrapper['attrs']['className'] ?? '')
+    && str_contains($selectorMarginCss, '.' . $selectorMarginClass)
+    && ! isset($selectorMarginParagraph['attrs']['style']['spacing']['margin']),
+    '41: structural-selector margin stays on the emitted flex-item wrapper without a competing paragraph margin',
+    json_encode(array( 'flex_item' => $selectorMarginFlexItem, 'paragraph' => $selectorMarginParagraph, 'css' => $selectorMarginCss ))
+);
+
+$idMarginText = ( new HtmlTransformer() )->transform(
+    '<div style="display:flex"><span>Label</span><span id="utility-copy">Copy</span><nav><a href="/">Home</a></nav></div>',
+    array( 'static_css' => '#utility-copy{margin:3px 7px 11px 13px}' )
+)->toArray();
+$idMarginCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $idMarginText['assets'] ?? array()));
+$idMarginFlexItem = $idMarginText['blocks'][0]['innerBlocks'][1] ?? array();
+$idMarginWrapper = $idMarginFlexItem['innerBlocks'][0] ?? array();
+$idMarginParagraph = $idMarginWrapper['innerBlocks'][0] ?? array();
+$idMarginClass = (string) ($idMarginFlexItem['attrs']['className'] ?? '');
+
+$assert(
+    'utility-copy' === ($idMarginFlexItem['attrs']['anchor'] ?? '')
+    && $idMarginClass === ($idMarginWrapper['attrs']['className'] ?? '')
+    && str_contains($idMarginCss, '.' . $idMarginClass)
+    && ! isset($idMarginParagraph['attrs']['style']['spacing']['margin']),
+    '42: ID-selector margin stays on the emitted flex-item wrapper without a competing paragraph margin',
+    json_encode(array( 'flex_item' => $idMarginFlexItem, 'paragraph' => $idMarginParagraph, 'css' => $idMarginCss ))
+);
+
+$inlineMarginText = ( new HtmlTransformer() )->transform('<div style="display:flex"><span style="margin:3px 7px 11px 13px">Copy</span><nav><a href="/">Home</a></nav></div>')->toArray();
+$inlineMarginParagraph = $inlineMarginText['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$inlineMargins = $inlineMarginParagraph['attrs']['style']['spacing']['margin'] ?? array();
+
+$assert(
+    array( 'top' => '3px', 'right' => '7px', 'bottom' => '11px', 'left' => '13px' ) === $inlineMargins,
+    '43: resolved source inline margins become native paragraph margins after canonicalization',
+    json_encode($inlineMargins)
+);
+
 $paintCss = '.pricing-card{background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4);background-position:center top;background-size:120% 80%,100% 100%;background-repeat:no-repeat;box-shadow:0 28px 80px rgba(20,12,4,.18);padding:2rem;border-radius:24px}';
 $paintHtml = '<main><section class="pricing-card"><h2>Roast Club</h2><p>Fresh coffee every week.</p></section></main>';
 $paintResult = ( new HtmlTransformer() )->transform($paintHtml, array('static_css' => $paintCss))->toArray();
 $paintBlock = $paintResult['blocks'][0] ?? array();
 $paintAttrs = is_array($paintBlock['attrs'] ?? null) ? $paintBlock['attrs'] : array();
 
-$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '39: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
-$assert(! isset($paintAttrs['style']['box-shadow']), '40: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
-$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '41: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
+$assert('pricing-card' === ($paintAttrs['className'] ?? ''), '44: high-value card wrapper keeps source class for class-owned paint CSS', json_encode($paintAttrs));
+$assert(! isset($paintAttrs['style']['box-shadow']), '45: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
+$assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '46: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
 $rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
 $paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
-$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '43: background-position survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '44: background-size survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '45: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
-$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '46: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '47: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-position'] ?? '') === 'center top', '48: background-position survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '49: background-size survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '50: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '51: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
