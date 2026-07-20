@@ -1954,6 +1954,19 @@ $artifactNavAnchorCss = $compiler->compile(
 $artifactNavAnchorStaticCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
 $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
 $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through core/navigation wrappers');
+
+$artifactAdjacentNavSpacing = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><div class="utility-bar"><nav><a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a></nav></div></body></html>',
+            'styles.css' => '.utility-bar a{margin-left:18px}.utility-bar a:first-of-type{margin-left:0}',
+        ),
+    )
+)->toArray();
+$artifactAdjacentNavBlock = $artifactAdjacentNavSpacing['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('18px' === ($artifactAdjacentNavBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'linked CSS first-of-type reset promotes uniform adjacent navigation spacing to native block gap');
+$assert(! isset($artifactAdjacentNavBlock['innerBlocks'][1]['attrs']['style']['spacing']['margin']['left']), 'linked CSS navigation spacing is not duplicated on promoted child margins');
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');

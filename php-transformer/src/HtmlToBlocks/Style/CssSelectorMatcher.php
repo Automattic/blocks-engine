@@ -85,7 +85,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'first_of_type' => false );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -112,6 +112,11 @@ final class CssSelectorMatcher
                 $lowerName = strtolower($name);
                 if ( in_array($lowerName, array( 'first-child', 'last-child' ), true) && '(' !== ($source[ $offset ] ?? '') ) {
                     $compound['first-child' === $lowerName ? 'first_child' : 'last_child'] = true;
+                    $hasSimple = true;
+                    continue;
+                }
+                if ( 'first-of-type' === $lowerName && '(' !== ($source[ $offset ] ?? '') ) {
+                    $compound['first_of_type'] = true;
                     $hasSimple = true;
                     continue;
                 }
@@ -440,6 +445,13 @@ final class CssSelectorMatcher
         }
         if ( $compound['last_child'] && self::hasNextElementSibling($element) ) {
             return false;
+        }
+        if ( $compound['first_of_type'] ) {
+            for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {
+                if ( 0 === strcasecmp($element->tagName, $previous->tagName) ) {
+                    return false;
+                }
+            }
         }
         return true;
     }
