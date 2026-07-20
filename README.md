@@ -8,4 +8,4 @@ Blocks Engine is a collection of tools for generating, transforming, and materia
 - [`php-transformer`](php-transformer/) - PHP primitives for converting HTML, Markdown, and generated website artifacts into WordPress-native block outputs.
 - [`figma-transformer`](figma-transformer/) - PHP primitives for converting Figma `.fig` archives and Figma-derived scenegraphs into static HTML website artifacts with parity diagnostics.
 
-Artifact compilation also emits the additive [`wordpress-site-plan/v1`](docs/contracts/wordpress-site-plan-v1.md) downstream materialization contract.
+Artifact compilation also emits the self-contained [`wordpress-site-plan/v2`](docs/contracts/wordpress-site-plan-v2.md) block-theme materialization contract.

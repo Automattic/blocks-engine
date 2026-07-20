@@ -41,6 +41,8 @@ Consumers should treat these classes and interface as the public entrypoints for
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
 - `StaticSite\MaterializationView` - validates a `TransformerResult` object or canonical result array and returns a stable product-neutral array view for importer planning.
+- `WordPressSitePlan\WordPressSitePlan` - projects an artifact result to the self-contained v2 block-theme plan.
+- `WordPressSitePlan\WordPressSitePlanResolver` - resolves that plan's declared asset tokens with an explicit runtime `theme_uri`.
 - `WordPress\Runtime` - adapter for WordPress functions used by the transformer when running inside or outside WordPress.
 
 The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/ArtifactCompiler` are implementation details. Concrete bundled adapters, registries, normalizers, and factories may change as the bridge expands.
@@ -70,6 +72,10 @@ $artifactResult = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 
 $materialization = (new MaterializationView())->fromResult($artifactResult);
+$plan = (new WordPressSitePlan())->fromResult($artifactResult);
+$resolvedPlan = (new WordPressSitePlanResolver())->resolve($plan, array(
+    'theme_uri' => 'https://example.test/wp-content/themes/generated-site',
+));
 ```
 
 ### WordPress Plugin Usage

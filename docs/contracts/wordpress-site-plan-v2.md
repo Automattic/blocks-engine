@@ -1,0 +1,50 @@
+# WordPress Site Plan v2
+
+`blocks-engine/wordpress-site-plan/v2` is the complete, destination-independent
+block-theme materialization contract emitted at
+`TransformerResult.source_reports.wordpress_site_plan` for artifact compilation.
+
+The public API is `WordPressSitePlan::fromResult()`, `WordPressSitePlan::assertValid()`,
+and `WordPressSitePlanResolver::resolve()`.
+
+## Canonical Plan
+
+- `writes` declares every theme file, with unique normalized relative targets:
+  `style.css`, `theme.json`, `functions.php` when asset enqueues are required,
+  fallback `templates/index.html`, `templates/page.html` when pages exist,
+  `templates/front-page.html` when an entry page exists, and each template part
+  under `parts/`. Every materializable asset has exactly one write under `assets/`.
+- `style.css` includes a valid theme header and `theme.json` is a valid minimal
+  block-theme configuration. The generated bootstrap uses WordPress runtime APIs
+  to enqueue CSS and JavaScript assets.
+- Pages, templates, and template parts carry `canonical_block_markup`. It is
+  materialization-ready but destination-independent: every local asset reference
+  is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
+  markup. Resolution adds `resolved_block_markup` without changing canonical data.
+- `reference_tokens` is the only allowed token-to-artifact mapping. Each token maps
+  to exactly one declared asset target. Validation rejects unsafe paths, missing
+  scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
+  template or part writes that do not match their declarations.
+
+## Runtime Resolution
+
+The compiler cannot infer a deployed theme URL. Pass it explicitly:
+
+```php
+$resolved = (new WordPressSitePlanResolver())->resolve($plan, array(
+    'theme_uri' => 'https://example.test/wp-content/themes/generated-site',
+));
+```
+
+`theme_uri` must be an absolute HTTP(S) URL. The resolver replaces only declared
+tokens in markup and UTF-8 write payloads. It deterministically rejects invalid
+context and residual or undeclared tokens. Materializers write `resolved['writes']`
+verbatim and must not perform HTML, CSS, or script rewriting.
+
+## Migration From v1
+
+v1 was additive but incomplete: it emitted no block-theme scaffold or templates and
+left source-relative asset URLs for consumers to interpret. It is not compatible
+with v2 and consumers must switch to `canonical_block_markup`, resolve with explicit
+destination context, and materialize the resolved writes. This is a breaking public
+contract correction and warrants a major package version bump.
