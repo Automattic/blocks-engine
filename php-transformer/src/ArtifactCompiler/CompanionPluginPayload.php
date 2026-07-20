@@ -20,8 +20,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  *   - site_name   (string)  optional human-readable name; defaults to slug.
  *   - mu_plugin   (bool)    optional; emit as a must-use loader.
  *   - blocks[]    (array)   each: name, block_json, render, view_js, assets{}.
- *   - preserved_js[] (array) each: content, handle, src, block. Slot for the
- *                            JS->plugin wire-up (SSI #488); empty for now.
+ *   - preserved_js[] (array) each: content, handle, src, block, selector,
+ *                            source_path. Populated from the generic runtime
+ *                            island package for downstream plugin materialization.
  *
  * When the artifact carries no custom blocks (mapping still prefers
  * core/Automattic blocks with a core/html fallback, and no subtree qualified for
@@ -47,10 +48,11 @@ final class CompanionPluginPayload
      * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
-     * @param array<int, array<string, mixed>> $generatedBlocks Dynamic blocks generated at core/html fallbacks (issue #497).
-     * @return array<string, mixed> Empty array when there are no generated blocks.
+     * @param array<int, array<string, mixed>> $generatedBlocks     Dynamic blocks generated at core/html fallbacks (issue #497).
+     * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
+     * @return array<string, mixed> Empty array when there are no generated blocks or preserved scripts.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array()): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array()): array
     {
         $blocks = array();
         $seenNames = array();
@@ -82,18 +84,15 @@ final class CompanionPluginPayload
             $blocks[] = $block;
         }
 
-        if ( array() === $blocks ) {
-            // No generated custom blocks: the payload is absent. SSI keeps the
-            // existing required-plugin path and the core/html fallback applies.
+        $preservedJs = $this->preservedJs($runtimeIslandPackage);
+        if ( array() === $blocks && array() === $preservedJs ) {
             return array();
         }
 
         $payload = array(
             'schema' => self::SCHEMA,
             'blocks' => $blocks,
-            // Slot for preserved island JS. Populated by the JS->plugin wire-up
-            // (SSI #488); empty here so the producer seam exists today.
-            'preserved_js' => array(),
+            'preserved_js' => $preservedJs,
         );
 
         $siteSlug = $this->siteSlug($artifact);
@@ -109,6 +108,54 @@ final class CompanionPluginPayload
         }
 
         return $payload;
+    }
+
+    /**
+     * Map preserved first-party runtime scripts into SSI's companion payload.
+     *
+     * @param array<string, mixed> $runtimeIslandPackage
+     * @return array<int, array<string, string>>
+     */
+    private function preservedJs(array $runtimeIslandPackage): array
+    {
+        $entries = array();
+        $seen = array();
+        $islands = array_values(array_filter(
+            is_array($runtimeIslandPackage['islands'] ?? null) ? $runtimeIslandPackage['islands'] : array(),
+            static fn (mixed $island): bool => is_array($island)
+        ));
+        usort($islands, static fn (array $left, array $right): int => ('script' === ($right['kind'] ?? '')) <=> ('script' === ($left['kind'] ?? '')));
+        foreach ( $islands as $island ) {
+            if ( ! is_array($island) || 'preserve' !== ($island['disposition'] ?? '') ) {
+                continue;
+            }
+            $handleHint = $this->sanitizeSlug((string) ($island['handle_hint'] ?? 'runtime'));
+            foreach ( $island['scripts'] ?? array() as $index => $script ) {
+                if ( ! is_array($script) || 'telemetry' === ($script['role'] ?? '') ) {
+                    continue;
+                }
+                $content = is_scalar($script['content'] ?? null) ? trim((string) $script['content']) : '';
+                if ( '' === $content ) {
+                    continue;
+                }
+                $handle = trim($handleHint . '-' . ((int) $index + 1), '-');
+                $block = '';
+                $signature = hash('sha256', $block . "\0" . $content);
+                if ( isset($seen[$signature]) ) {
+                    continue;
+                }
+                $seen[$signature] = true;
+                $entries[] = array_filter(array(
+                    'handle'      => $handle,
+                    'content'     => $content,
+                    'block'       => $block,
+                    'selector'    => is_scalar($island['selector'] ?? null) ? (string) $island['selector'] : '',
+                    'source_path' => is_scalar($island['source_path'] ?? null) ? (string) $island['source_path'] : '',
+                ), static fn (string $value): bool => '' !== $value);
+            }
+        }
+
+        return $entries;
     }
 
     /**
