@@ -38,7 +38,7 @@ final class ButtonsPattern
             return null;
         }
 
-        return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock) ), $anchor);
+        return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock) ), $anchor);
     }
 
     /**
@@ -50,7 +50,7 @@ final class ButtonsPattern
      */
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $createBlock): array
     {
-        return $createBlock('core/buttons', array(), array(
+        return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes), array(
             $createBlock('core/button', array_merge(
                 $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle),
                 $this->buttonRuntimeAttributes($button),
@@ -74,7 +74,7 @@ final class ButtonsPattern
     {
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element) ) {
-            return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
+            return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
         }
 
 		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
@@ -108,6 +108,20 @@ final class ButtonsPattern
             'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
+    }
+
+    /**
+     * External spacing belongs to the core/buttons flex item, not its child link.
+     *
+     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @return array<string, mixed>
+     */
+    private function buttonWrapperAttributes(DOMElement $element, callable $presentationAttributes): array
+    {
+        $margin = $presentationAttributes($element)['style']['spacing']['margin'] ?? null;
+        return is_array($margin) && array() !== $margin
+            ? array( 'style' => array( 'spacing' => array( 'margin' => $margin ) ) )
+            : array();
     }
 
     private function buttonText(DOMElement $element, string $html): string

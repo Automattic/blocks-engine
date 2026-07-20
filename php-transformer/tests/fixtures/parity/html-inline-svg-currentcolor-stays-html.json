@@ -16,7 +16,7 @@
     "content": "<main><svg class=\"notice-icon\" style=\"color:#c2410c\" width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"none\" aria-hidden=\"true\"><path d=\"M10 2.5L17.5 16H2.5L10 2.5Z\" fill=\"rgba(255,255,255,0.15)\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><line x1=\"10\" y1=\"8\" x2=\"10\" y2=\"12\" stroke=\"currentColor\"></line></svg></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "notice-icon", "width": "20px", "height": "20px" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "width": "20px", "height": "20px" } }
   ],
   "expected_fallbacks": [],
   "expect": [

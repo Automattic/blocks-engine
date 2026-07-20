@@ -85,7 +85,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array() );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -106,10 +106,30 @@ final class CssSelectorMatcher
                     return null;
                 }
                 $name = self::identifier($source, $offset);
-                if ( null === $name || '(' === ($source[ $offset ] ?? '') || ! $isRightmost ) {
+                if ( null === $name ) {
                     return null;
                 }
-                if ( ! in_array(strtolower($name), array( 'hover', 'focus', 'active', 'visited' ), true) ) {
+                $lowerName = strtolower($name);
+                if ( in_array($lowerName, array( 'first-child', 'last-child' ), true) && '(' !== ($source[ $offset ] ?? '') ) {
+                    $compound['first-child' === $lowerName ? 'first_child' : 'last_child'] = true;
+                    $hasSimple = true;
+                    continue;
+                }
+                if ( 'nth-child' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                    $closing = strpos($source, ')', $offset + 1);
+                    if ( false === $closing ) {
+                        return null;
+                    }
+                    $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
+                    if ( ! preg_match('/^[1-9][0-9]*$/', $argument) ) {
+                        return null;
+                    }
+                    $compound['nth_child'] = (int) $argument;
+                    $offset = $closing + 1;
+                    $hasSimple = true;
+                    continue;
+                }
+                if ( '(' === ($source[ $offset ] ?? '') || ! $isRightmost || ! in_array($lowerName, array( 'hover', 'focus', 'active', 'visited' ), true) ) {
                     return null;
                 }
                 if ( null === $suffix ) {
@@ -405,7 +425,33 @@ final class CssSelectorMatcher
                 return false;
             }
         }
+        $childIndex = null;
+        if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
+            $childIndex = 1;
+            for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {
+                ++$childIndex;
+            }
+        }
+        if ( null !== $compound['nth_child'] && $childIndex !== $compound['nth_child'] ) {
+            return false;
+        }
+        if ( $compound['first_child'] && 1 !== $childIndex ) {
+            return false;
+        }
+        if ( $compound['last_child'] && self::hasNextElementSibling($element) ) {
+            return false;
+        }
         return true;
+    }
+
+    private static function hasNextElementSibling(DOMElement $element): bool
+    {
+        for ( $next = $element->nextSibling; $next instanceof DOMNode; $next = $next->nextSibling ) {
+            if ( $next instanceof DOMElement ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array{name: string, operator: string|null, value: string|null, flag: string|null} $attribute */

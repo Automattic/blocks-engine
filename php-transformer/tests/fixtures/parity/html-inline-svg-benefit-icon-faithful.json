@@ -25,8 +25,8 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "assets", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "class=\"benefit-icon\"" },
+    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "class=\"benefit-icon be-inline-geometry-" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

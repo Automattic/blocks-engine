@@ -61,7 +61,13 @@ $assert($parsed['supported'] && array( 'start' => 6, 'end' => 25 ) === $parsed['
 $assert(! CssSelectorMatcher::matches($byId('target'), $parsed)['supported'], 'dynamic suffix requires caller acknowledgement');
 $assert(CssSelectorMatcher::matches($byId('target'), $parsed, true)['matches'], 'caller acknowledgement permits structural dynamic-pseudo match');
 
-foreach ( array( ':disabled', ':not(.x)', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(2)', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+foreach ( array( 'p:first-child' => 'one', 'p:nth-child(2)' => 'two', 'span:last-child' => 'target' ) as $selector => $id ) {
+    $result = $match($selector, $byId($id));
+    $assert($result['supported'] && $result['matches'], "matches structural pseudo-class {$selector}");
+}
+$assert(! $match('p:nth-child(1)', $byId('two'))['matches'], 'rejects a non-matching structural child index');
+
+foreach ( array( ':disabled', ':not(.x)', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 

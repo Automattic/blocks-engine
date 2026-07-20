@@ -260,6 +260,24 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Resolve structural context even when the element is not itself a style
+     * boundary. Child classification still needs parent flex/grid semantics.
+     *
+     * @return array<string, string>
+     */
+    private function structuralPresentationDeclarations(DOMElement $element): array
+    {
+        $declarations = array();
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+
+        return array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+    }
+
+    /**
      * Remove responsive/JS-revealed hidden base states (display:none /
      * visibility:hidden / opacity:0) from content-bearing or interactive
      * elements so they are not frozen permanently invisible (#259). Genuinely
@@ -408,7 +426,7 @@ trait StyleResolutionTrait
             }
         }
 
-        return array_slice($rules, 0, 200);
+        return $rules;
     }
 
     /**
@@ -455,7 +473,7 @@ trait StyleResolutionTrait
             }
         }
 
-        return array_slice($rules, 0, 200);
+        return $rules;
     }
 
     private function topLevelCssRules(string $css): string
@@ -593,7 +611,9 @@ trait StyleResolutionTrait
             'display',
             'flex-direction',
             'flex-wrap',
+            'font-family',
             'font-size',
+            'font-style',
             'font-weight',
             'letter-spacing',
             'gap',
@@ -663,47 +683,13 @@ trait StyleResolutionTrait
 
     private function isSupportedCssSelector(string $selector): bool
     {
-        $selector = $this->normalizeCssSelector($selector);
-        if ( '' === $selector || preg_match('/[>+~\[\]=]/', $selector) ) {
-            return false;
-        }
-
-        foreach ( preg_split('/\s+/', $selector) ?: array() as $part ) {
-            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$|^[a-z][a-z0-9_-]*$/i', $part) ) {
-                return false;
-            }
-        }
-
-        return true;
+        return (bool) (CssSelectorMatcher::parse($selector)['supported'] ?? false);
     }
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $parts = preg_split('/\s+/', $this->normalizeCssSelector($selector)) ?: array();
-        if ( array() === $parts ) {
-            return false;
-        }
-
-        if ( ! $this->matchesCssSelectorPart($element, $parts[count($parts) - 1]) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 2; $index >= 0; --$index ) {
-            $matched = false;
-            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                if ( $this->matchesCssSelectorPart($node, $parts[$index]) ) {
-                    $matched = true;
-                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
-                    break;
-                }
-            }
-            if ( ! $matched ) {
-                return false;
-            }
-        }
-
-        return true;
+        $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
+        return $match['supported'] && $match['matches'];
     }
 
     /**
@@ -721,36 +707,6 @@ trait StyleResolutionTrait
     private function selectorCarriesPseudoState(string $selector): bool
     {
         return 1 === preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selector);
-    }
-
-    private function normalizeCssSelector(string $selector): string
-    {
-        return trim(preg_replace('/:(?:hover|focus|active|visited|before|after|focus-visible)\b.*/', '', $selector) ?? $selector);
-    }
-
-    private function matchesCssSelectorPart(DOMElement $element, string $selector): bool
-    {
-        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)*)$/i', $selector, $match) ) {
-            return false;
-        }
-
-        if ( empty($match['tag']) && empty($match['classes']) ) {
-            return false;
-        }
-
-        if ( ! empty($match['tag']) && strtolower($match['tag']) !== strtolower($element->tagName) ) {
-            return false;
-        }
-
-        $classes = array_values(array_filter(preg_split('/\./', ltrim((string) ($match['classes'] ?? ''), '.')) ?: array(), static fn (string $class): bool => '' !== $class));
-        $elementClasses = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
-        foreach ( $classes as $class ) {
-            if ( ! in_array($class, $elementClasses, true) ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private function presentationClassName(string $className): string

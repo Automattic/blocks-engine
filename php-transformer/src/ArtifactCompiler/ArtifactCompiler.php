@@ -90,7 +90,7 @@ final class ArtifactCompiler
                 'image_references'  => $referenceReports['image_references'],
             ),
         );
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts']);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks']);
         if ( array() !== $companionPluginPayload ) {
@@ -156,7 +156,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -173,12 +173,13 @@ final class ArtifactCompiler
             'interaction_candidates' => $result['interaction_candidates'],
             'superseded_selectors' => $result['superseded_selectors'],
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
+            'shell_artifacts' => $result['shell_artifacts'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
     {
@@ -194,6 +195,7 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'shell_artifacts' => array(),
             );
         }
 
@@ -209,6 +211,7 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'shell_artifacts' => array(),
             );
         }
 
@@ -243,6 +246,7 @@ final class ArtifactCompiler
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
             'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
+            'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
         );
     }
 
@@ -1576,7 +1580,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array()): array
     {
         $pages = array();
         foreach ( $artifact['files'] as $file ) {
@@ -1649,13 +1653,21 @@ final class ArtifactCompiler
             );
         }
 
+        $templateParts = $this->compiledSiteTemplateParts($artifact['files']);
+        $explicitAreas = array_fill_keys(array_column($templateParts, 'area'), true);
+        foreach ( $entryShellArtifacts as $shellArtifact ) {
+            if ( is_array($shellArtifact) && ! isset($explicitAreas[(string) ($shellArtifact['area'] ?? '')]) ) {
+                $templateParts[] = $shellArtifact;
+            }
+        }
+
         return array(
             'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
             'source_hash' => hash('sha256', $artifact['hash_payload']),
             'entry_path'  => $entryPath,
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
-            'template_parts' => $this->compiledSiteTemplateParts($artifact['files']),
+            'template_parts' => $templateParts,
             'visual_repair' => $this->compiledSiteVisualRepair($assets, $artifact['files']),
             'theme'       => array_filter(
                 array(
@@ -1667,7 +1679,7 @@ final class ArtifactCompiler
                     'static_css'  => $this->themeStaticCss($artifact['files']),
                     'template_parts' => array_values(array_map(
                         static fn (array $part): string => (string) ($part['source_path'] ?? ''),
-                        $this->compiledSiteTemplateParts($artifact['files'])
+                        $templateParts
                     )),
                     'block_types' => array_values(array_map(
                         static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),

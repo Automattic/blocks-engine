@@ -140,19 +140,20 @@ final class BlockFactory
         if ( 'core/heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 2);
             $level = max(1, min(6, $level));
-            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-heading') . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-heading') . '>' . $this->preserveRichTextPunctuation((string) ($attrs['content'] ?? '')) . '</h' . $level . '>';
         }
 
         if ( 'core/paragraph' === $name ) {
-            return '<p' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</p>';
+            return '<p' . $this->blockSupportAttrs($attrs) . '>' . $this->preserveRichTextPunctuation((string) ($attrs['content'] ?? '')) . '</p>';
         }
 
         if ( 'core/list-item' === $name ) {
+            $content = $this->preserveRichTextPunctuation((string) ($attrs['content'] ?? ''));
             if ( array() !== $innerBlocks ) {
-                return array( 'opening' => '<li' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? ''), 'closing' => '</li>' );
+                return array( 'opening' => '<li' . $this->blockSupportAttrs($attrs) . '>' . $content, 'closing' => '</li>' );
             }
 
-            return '<li' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</li>';
+            return '<li' . $this->blockSupportAttrs($attrs) . '>' . $content . '</li>';
         }
 
         if ( 'core/list' === $name ) {
@@ -161,13 +162,15 @@ final class BlockFactory
         }
 
         if ( 'core/quote' === $name ) {
-            $closing = '' !== ($attrs['citation'] ?? '') ? '<cite>' . $attrs['citation'] . '</cite></blockquote>' : '</blockquote>';
+            $citation = $this->preserveRichTextPunctuation((string) ($attrs['citation'] ?? ''));
+            $closing = '' !== $citation ? '<cite>' . $citation . '</cite></blockquote>' : '</blockquote>';
             return array( 'opening' => '<blockquote' . $this->blockSupportAttrs($attrs, 'wp-block-quote') . '>', 'closing' => $closing );
         }
 
         if ( 'core/pullquote' === $name ) {
-            $citation = '' !== ($attrs['citation'] ?? '') ? '<cite>' . $attrs['citation'] . '</cite>' : '';
-            return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-pullquote') . '><blockquote>' . ($attrs['value'] ?? '') . $citation . '</blockquote></figure>';
+            $citation = $this->preserveRichTextPunctuation((string) ($attrs['citation'] ?? ''));
+            $citation = '' !== $citation ? '<cite>' . $citation . '</cite>' : '';
+            return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-pullquote') . '><blockquote>' . $this->preserveRichTextPunctuation((string) ($attrs['value'] ?? '')) . $citation . '</blockquote></figure>';
         }
 
         if ( 'core/code' === $name ) {
@@ -360,11 +363,11 @@ final class BlockFactory
         if ( 'button' === ($attrs['tagName'] ?? '') ) {
             $controlAttrs = array( 'type' => (string) ($attrs['type'] ?? 'button') ) + $controlAttrs;
 
-            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($controlAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($controlAttrs) . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</button></div>';
         }
 
         $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
     }
 
     /**
@@ -398,7 +401,7 @@ final class BlockFactory
                 $html .= '<tr>';
                 foreach ( $row['cells'] ?? array() as $cell ) {
                     $cellTag = 'th' === ($cell['tag'] ?? '') ? 'th' : 'td';
-                    $html .= '<' . $cellTag . '>' . ($cell['content'] ?? '') . '</' . $cellTag . '>';
+                    $html .= '<' . $cellTag . '>' . $this->preserveRichTextPunctuation((string) ($cell['content'] ?? '')) . '</' . $cellTag . '>';
                 }
                 $html .= '</tr>';
             }
@@ -406,7 +409,7 @@ final class BlockFactory
         }
         $html .= '</table>';
         if ( ! empty($attrs['caption']) ) {
-            $html .= '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>';
+            $html .= '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>';
         }
         return $html . '</figure>';
     }
@@ -448,7 +451,7 @@ final class BlockFactory
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
-        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
     }
 
@@ -522,7 +525,7 @@ final class BlockFactory
             $downloadButton = '<a class="wp-block-file__button wp-element-button" href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" download>Download</a>';
         }
 
-        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $text . '</a>' . $downloadButton . '</div>';
+        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $this->preserveRichTextPunctuation($text) . '</a>' . $downloadButton . '</div>';
     }
 
     /**
@@ -538,7 +541,7 @@ final class BlockFactory
             'height'   => (string) ($attrs['height'] ?? ''),
             'controls' => ! empty($attrs['controls']) ? 'controls' : '',
         );
-        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
 
         return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
     }
@@ -663,13 +666,23 @@ final class BlockFactory
         $support = $this->styleSupport($attrs['style'] ?? null);
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
-        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, (string) ($attrs['className'] ?? ''));
+        $alignmentClasses = $this->textAlignmentClasses($attrs);
+        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
         $style = trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';');
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
             'style' => $style,
         ));
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function textAlignmentClasses(array $attrs): string
+    {
+        $align = strtolower(trim((string) ($attrs['align'] ?? '')));
+        return in_array($align, array( 'left', 'center', 'right' ), true) ? 'has-text-align-' . $align : '';
     }
 
     /**
@@ -734,6 +747,47 @@ final class BlockFactory
     {
         $value = strtolower(trim($value));
         return preg_match('/^[a-z0-9_-]+$/', $value) ? $value : '';
+    }
+
+    /**
+     * Keep source-authored straight punctuation stable through wptexturize.
+     */
+    private function preserveRichTextPunctuation(string $html): string
+    {
+        $output = '';
+        $inTag = false;
+        $attributeQuote = '';
+        $length = strlen($html);
+
+        for ( $index = 0; $index < $length; ++$index ) {
+            $character = $html[$index];
+            if ( ! $inTag && '<' === $character ) {
+                $inTag = true;
+                $output .= $character;
+                continue;
+            }
+            if ( $inTag ) {
+                if ( '' !== $attributeQuote ) {
+                    if ( $attributeQuote === $character ) {
+                        $attributeQuote = '';
+                    }
+                } elseif ( '"' === $character || "'" === $character ) {
+                    $attributeQuote = $character;
+                } elseif ( '>' === $character ) {
+                    $inTag = false;
+                }
+                $output .= $character;
+                continue;
+            }
+
+            $output .= match ( $character ) {
+                '"' => '&quot;',
+                "'" => '&#039;',
+                default => $character,
+            };
+        }
+
+        return $output;
     }
 
     /**

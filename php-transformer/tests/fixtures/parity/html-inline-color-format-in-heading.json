@@ -17,13 +17,13 @@
     "options": { "static_css": ".brand em{font-style:normal;color:#b8552a}" }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/heading", "attrs": { "className": "brand", "content": "Mara <em><mark style=\"color:#b8552a;background-color:transparent\">Vale</mark></em>", "level": 1 } }
+    { "path": "blocks.0", "name": "core/heading", "attrs": { "className": "brand", "content": "Mara <em><mark style=\"font-style:normal;color:#b8552a;background-color:transparent\">Vale</mark></em>", "level": 1 } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<h1 class=\"wp-block-heading brand\">Mara <em><mark style=\"color:#b8552a;background-color:transparent\">Vale</mark></em></h1>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h1 class=\"wp-block-heading brand\">Mara <em><mark style=\"font-style:normal;color:#b8552a;background-color:transparent\">Vale</mark></em></h1>" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

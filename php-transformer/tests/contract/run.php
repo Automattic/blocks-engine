@@ -548,8 +548,33 @@ $assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'p
 $assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'passive meaningful inline SVG artwork serializes as core/image');
 $assert(str_contains($inlineSvgMarkup, 'assets/materialized-svg/'), 'passive meaningful inline SVG artwork uses a materialized SVG asset URL');
 $assert(str_contains((string) ($inlineSvgArtwork['assets'][0]['content'] ?? ''), '<svg'), 'passive meaningful inline SVG artwork carries sanitized SVG asset content');
-$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art"'), 'passive meaningful inline SVG artwork preserves source class and core/image resize class on the image block wrapper');
+$assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-art be-inline-geometry-'), 'passive meaningful inline SVG artwork preserves source class and inline line-box geometry on the image block wrapper');
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
+$inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
+
+$flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
+)->toArray();
+$flexItemSvg = $flexItemSvgArtwork['blocks'][0]['innerBlocks'][0] ?? array();
+$assert(! str_contains((string) ($flexItemSvg['attrs']['className'] ?? ''), 'be-inline-geometry-') && '0' === ($flexItemSvg['attrs']['style']['typography']['lineHeight'] ?? ''), 'standalone SVG flex items use block image geometry without an inline baseline carrier');
+
+$classSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.map-art{width:100%}</style><main><div><svg class="map-art" viewBox="0 0 440 280" role="img" aria-label="Map"><rect width="440" height="280" fill="#111"/></svg></div></main>'
+)->toArray();
+$classSizedInlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $classSizedInlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($classSizedInlineSvgCss, '>img{display:inline;vertical-align:baseline;width:100%}'), 'inline SVG core/image applies class-owned responsive width to the image element');
+
+$emptyVisualCluster = ( new HtmlTransformer() )->transform(
+    '<style>.titlebar-dots{display:flex;gap:5px}.titlebar-dots span{width:10px;height:10px;border-radius:50%}.titlebar-dots span:nth-child(1){background:#ff5f57}.titlebar-dots span:nth-child(2){background:#ffbd2e}.titlebar-dots span:nth-child(3){background:#28ca41}</style><div class="titlebar-dots"><span></span><span></span><span></span></div>'
+)->toArray();
+$emptyVisualItems = $emptyVisualCluster['blocks'][0]['innerBlocks'] ?? array();
+$emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyVisualCluster['assets'] ?? array()));
+$assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
+$assert(array( '#ff5f57', '#ffbd2e', '#28ca41' ) === array_map(static fn (array $block): string => (string) ($block['attrs']['style']['color']['background'] ?? ''), $emptyVisualItems), 'decorative cluster items preserve their resolved native background colors');
+$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/group' !== ($block['blockName'] ?? '')), 'decorative cluster items use native core/group blocks');
+$assert(str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}'), 'decorative cluster items preserve dimensions through semantic author CSS translation');
+$assert(! str_contains($emptyVisualCss, '!important'), 'decorative cluster translation does not introduce important declarations');
 
 $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
@@ -558,6 +583,7 @@ $cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialize
 $assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover"'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && ! str_contains($cssSizedInlineSvgArtworkMarkup, 'be-inline-geometry-'), 'explicit block SVG core/image keeps collapsed line-box geometry');
 
 $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     array(
@@ -1056,14 +1082,14 @@ $assert('core/image' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 
 $assert('Status badge' === ($safeInlineSvgAsset['blocks'][0]['attrs']['alt'] ?? ''), 'safe accessible inline SVG maps its accessible label to image alt text');
 $assert(str_contains($safeInlineSvgAssetUrl, 'assets/materialized-svg/'), 'safe accessible inline SVG serializes a materialized SVG asset URL');
 $assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its correct-case viewBox in the materialized SVG source');
-$assert(1 === count($safeInlineSvgAsset['assets'] ?? array()), 'safe accessible inline SVG icon generates one image asset');
+$assert(1 === count(array_filter($safeInlineSvgAsset['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'safe accessible inline SVG icon generates one image asset');
 
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
 $complexSvgContent = (string) ($complexSvgAsset['assets'][0]['content'] ?? '');
 $assert('core/image' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large passive illustrative inline SVG is represented as native core/image');
-$assert(1 === count($complexSvgAsset['assets'] ?? array()), 'inline illustrative SVG is externalized to one generated .svg image asset');
+$assert(1 === count(array_filter($complexSvgAsset['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'inline illustrative SVG is externalized to one generated .svg image asset');
 $assert(str_contains($complexSvgContent, '<svg') && str_contains($complexSvgContent, 'viewBox="0 0 400 200"'), 'inline illustrative SVG preserves its viewBox casing so it scales correctly');
 $assert(str_contains($complexSvgContent, 'role="img"') && str_contains($complexSvgContent, 'aria-label="Site illustration"'), 'inline illustrative SVG preserves accessibility attributes');
 
@@ -1150,7 +1176,7 @@ $listGapNavigationSerialized = (string) ($listGapNavigation['serialized_blocks']
 $assert('0' === ($listGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct navigation list gap projects onto core/navigation');
 $assert('pass' === ($listGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'direct navigation list gap preserves semantic parity');
 $assert('pass' === ($listGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'direct navigation list gap serializes to a valid WordPress block');
-$assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation {"style":{"spacing":{"blockGap":"0"}}'), 'direct navigation list gap uses canonical dynamic navigation serialization');
+$assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation ') && str_contains($listGapNavigationSerialized, '"blockGap":"0"'), 'direct navigation list gap uses canonical dynamic navigation serialization');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -1358,15 +1384,31 @@ $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textD
 $assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
 
 $activeNavigationColor = ( new HtmlTransformer() )->transform(
-    '<style>.nav-links a{color:var(--bone)}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
+    '<style>.nav-links a{color:var(--bone);font-family:monospace;font-size:12px;line-height:1.65;letter-spacing:.05em}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
 )->toArray();
 $activeNavigationColorLinks = $activeNavigationColor['blocks'][0]['innerBlocks'] ?? array();
+$activeNavigationColorAttrs = $activeNavigationColor['blocks'][0]['attrs'] ?? array();
 $activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
+$activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $activeNavigationColor['assets'] ?? array()));
+$assert('var(--bone)' === ($activeNavigationColorLinks[0]['attrs']['style']['color']['text'] ?? ''), 'navigation link carries source anchor text color as a native block attribute');
+$assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
+$assert('var(--bone)' === ($activeNavigationColorAttrs['customTextColor'] ?? '') && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation'), 'list navigation keeps source container typography separate from anchor styling while retaining shared color context');
+$assert(str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation preserves source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
 $assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
 $assert(str_contains($activeNavigationColorSerialized, '"textDecorationColor":"var(--ember)"'), 'active navigation underline color is serialized into the dynamic navigation-link block attrs');
 $assert(! str_contains($activeNavigationColorSerialized, '<li class="wp-block-navigation-item'), 'active navigation color serialization emits no invalid static navigation item markup');
+
+$leadingStyleRules = implode('', array_map(static fn (int $index): string => '.rule-' . $index . '{color:#111}', range(1, 201)));
+$lateNavigationStyle = ( new HtmlTransformer() )->transform(
+    '<style>' . $leadingStyleRules . '.footer-links a{color:#637188;font-family:monospace;font-size:11px;letter-spacing:.05em}</style><footer><nav class="footer-links"><a href="#privacy">Privacy</a></nav></footer>'
+)->toArray();
+$lateNavigationLinkAttrs = $lateNavigationStyle['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$lateNavigationAttrs = $lateNavigationStyle['blocks'][0]['attrs'] ?? array();
+$assert('#637188' === ($lateNavigationLinkAttrs['style']['color']['text'] ?? ''), 'stylesheet rules after the first 200 preserve navigation text color');
+$assert('monospace' === ($lateNavigationLinkAttrs['style']['typography']['fontFamily'] ?? ''), 'stylesheet rules after the first 200 preserve navigation typography');
+$assert('#637188' === ($lateNavigationAttrs['customTextColor'] ?? ''), 'late shared link color reaches core navigation context');
 
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
@@ -1862,9 +1904,10 @@ $artifactInlineSvg = $compiler->compile(
     )
 )->toArray();
 $artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineSvgImageAssets = array_values(array_filter($artifactInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
 $assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
-$assert(1 === count($artifactInlineSvgAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
-$assert(str_contains((string) ($artifactInlineSvgAssets[0]['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact inline SVG asset preserves sanitized SVG content');
+$assert(1 === count($artifactInlineSvgImageAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
+$assert(str_contains((string) ($artifactInlineSvgImageAssets[0]['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact inline SVG asset preserves sanitized SVG content');
 $assert(str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'assets/materialized-svg/'), 'artifact safe inline SVG serializes a materialized image URL');
 
 $artifactNonEntryInlineSvg = $compiler->compile(
@@ -1880,7 +1923,7 @@ $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['m
 $artifactNonEntryInlineSvgAssets = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
 $assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
 $assert(str_contains((string) ($artifactNonEntryInlineSvgAssets[0]['content'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgAssets[0]['content'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox in the generated asset');
-$assert(1 === count($artifactNonEntryInlineSvgAssets), 'non-entry artifact simple icon SVG materializes one generated image asset');
+$assert(1 === count(array_filter($artifactNonEntryInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'non-entry artifact simple icon SVG materializes one generated image asset');
 
 $artifactInlineScript = $compiler->compile(
     array(
@@ -1994,6 +2037,23 @@ $assert(! str_contains((string) ($footerShellIndexPage['block_markup'] ?? ''), '
 $assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), 'Global footer copy'), 'compiled site preserves global footer copy in the footer template part');
 $assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content while pruning global footer shell');
 $assert(! str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site does not duplicate global footer shell on secondary page bodies');
+
+$canonicalShellSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<style>header{position:sticky;background:#fff}footer{padding:24px}.site-nav{display:flex}.nav-links{display:flex}.btn{display:inline-flex;padding:9px 20px;background:#e8a020}</style><header><nav class="site-nav"><a class="nav-logo" href="/">Brand</a><ul class="nav-links" role="list"><li><a href="/product">Product</a></li></ul><a class="btn nav-cta" href="/start">Get started</a></nav></header><main><h1>Home</h1></main><footer><p>Global footer</p></footer>',
+        ),
+    )
+)->toArray();
+$canonicalShellCompiled = $canonicalShellSite['source_reports']['compiled_site'] ?? array();
+$canonicalShellPlan = $canonicalShellSite['source_reports']['materialization_plan'] ?? array();
+$canonicalHeaderPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? '')))[0] ?? array();
+$canonicalFooterPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
+preg_match('/blocks-engine-control-[a-f0-9]+-\d+/', (string) ($canonicalShellSite['serialized_blocks'] ?? ''), $canonicalDocumentControlMarker);
+$assert('' !== ($canonicalDocumentControlMarker[0] ?? '') && str_contains((string) ($canonicalHeaderPart['block_markup'] ?? ''), $canonicalDocumentControlMarker[0]), 'canonical entry header part reuses the full-document control identity without fragment retransformation');
+$assert(str_contains((string) ($canonicalFooterPart['block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
+$assert(2 === count($canonicalShellPlan['template_part_writes'] ?? array()), 'materialization plan exposes canonical entry header and footer writes');
 
 $runtimeDependencySite = $compiler->compile(
     array(
@@ -2993,7 +3053,7 @@ $canonicalStyleResult = ( new HtmlTransformer() )->transform(
     '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}</style>'
     . '<main>'
     . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
-    . '<p class="lede" style="color:#222;line-height:1.6">Styled paragraph</p>'
+    . '<p class="lede" style="color:#222;line-height:1.6;text-align:center;font-family:var(--font-mono)">Styled paragraph</p>'
     . '<div class="hero" style="display:flex;gap:1rem;padding:2rem;background:#101010;color:#fff;position:fixed;inset:0;overflow:hidden">'
     . '<h3>Hero heading</h3><p>Hero content</p></div>'
     . '<div class="class-owned-flex"><p>Class-owned layout</p></div>'
@@ -3085,6 +3145,10 @@ $paragraph = $findBlock($canonicalStyleResult['blocks'], 'core/paragraph');
 $assert(is_array($paragraph), 'styled paragraph block is emitted');
 $assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
 assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
+assertSame('var(--font-mono)', $paragraph['attrs']['style']['typography']['fontFamily'] ?? null, 'paragraph font-family maps to style.typography.fontFamily');
+assertSame('center', $paragraph['attrs']['align'] ?? null, 'paragraph text-align maps to native align attribute');
+$assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'has-text-align-center'), 'paragraph saved markup carries native text alignment class');
+$assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'font-family:var(--font-mono)'), 'paragraph saved markup carries canonical font-family style');
 
 // Positive + negative: display:flex maps to layout; unmappable props (position,
 // inset, overflow) drop to className instead of a raw style string; the mappable

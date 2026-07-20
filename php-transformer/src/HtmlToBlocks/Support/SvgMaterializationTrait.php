@@ -70,7 +70,7 @@ trait SvgMaterializationTrait
      *
      * @return array<string, mixed>|null
      */
-    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html): ?array
+    private function inlineSvgImageAttributesFromMarkup(DOMElement $element, string $html, bool $richTextImage = false): ?array
     {
         if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
             return null;
@@ -100,11 +100,30 @@ trait SvgMaterializationTrait
         );
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
+        $presentation = $this->presentationDeclarations($element);
+        $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
+        $parent = $element->parentNode;
+        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''))) : '';
+        $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+        $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
+        $geometryClass = '';
+        if ( $preserveInlineGeometry ) {
+            $imageDisplay = '' === $sourceDisplay ? 'inline' : $sourceDisplay;
+            $mediaBox = '';
+            foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
+                if ( isset($presentation[$property]) && '' !== trim((string) $presentation[$property]) ) {
+                    $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
+                }
+            }
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ';vertical-align:baseline' . $mediaBox . '}';
+            $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
+            $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
+        }
         $attrs = array_filter(array_merge(array(
             'url'          => $path,
             'alt'          => $this->svgImageAlt($element),
-            'className'    => $this->attr($element, 'class'),
-            'style'        => array(
+            'className'    => $this->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
+            'style'        => $preserveInlineGeometry ? null : array(
                 'typography' => array(
                     'lineHeight' => '0',
                 ),
@@ -135,7 +154,7 @@ trait SvgMaterializationTrait
                 ? $this->ensureInlineSvgBoxStyle($html, $element)
                 : $this->ensureInlineSvgSizing($html, $element)
         );
-        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element));
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element), true);
         if ( null === $attrs ) {
             return null;
         }
@@ -222,7 +241,7 @@ trait SvgMaterializationTrait
 
         // A flex/grid child is a standalone layout item, even where its next
         // sibling is a block. Keep its native image figure as the media column.
-        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->presentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return false;
         }
 

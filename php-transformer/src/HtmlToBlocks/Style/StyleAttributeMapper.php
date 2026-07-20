@@ -194,6 +194,7 @@ final class StyleAttributeMapper
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
         $typographyMap = array(
+            'fontFamily'    => 'font-family',
             'fontSize'      => 'font-size',
             'fontWeight'    => 'font-weight',
             'lineHeight'    => 'line-height',
@@ -224,6 +225,7 @@ final class StyleAttributeMapper
     {
         $typography = array();
         $map = array(
+            'font-family'     => 'fontFamily',
             'font-size'       => 'fontSize',
             'font-weight'     => 'fontWeight',
             'line-height'     => 'lineHeight',

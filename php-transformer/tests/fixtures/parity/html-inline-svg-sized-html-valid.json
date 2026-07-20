@@ -26,7 +26,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "equals", "value": "status-icon" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "status-icon be-inline-geometry-" },
     { "path": "blocks.0.innerBlocks.0.attrs.width", "assert": "equals", "value": "24px" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
     { "path": "blocks.0.innerBlocks.1.attrs.alt", "assert": "equals", "value": "Hero flame" },
@@ -35,7 +35,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:icon" },
-    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets", "assert": "count", "count": 3 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

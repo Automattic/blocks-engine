@@ -21,7 +21,20 @@ final class CssStylesheetTransformer
         if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
             return $stylesheet;
         }
-        return $this->transformRules($stylesheet, $transformSelectorPrelude);
+        return $this->transformRules($stylesheet, $transformSelectorPrelude, null);
+    }
+
+    /**
+     * Transform complete style rules while retaining at-rule nesting.
+     *
+     * @param callable(string, string): string $transformStyleRule
+     */
+    public function transformStyleRules(string $stylesheet, callable $transformStyleRule): string
+    {
+        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+            return $stylesheet;
+        }
+        return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule);
     }
 
     /**
@@ -60,7 +73,7 @@ final class CssStylesheetTransformer
     /**
      * @param callable(string): string $transformSelectorPrelude
      */
-    private function transformRules(string $css, callable $transformSelectorPrelude): string
+    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule): string
     {
         $output = '';
         $offset = 0;
@@ -88,11 +101,13 @@ final class CssStylesheetTransformer
             if ( $this->isAtRule($prelude) ) {
                 $output .= $prelude . '{';
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude) : $body;
+                $output .= $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule) : $body;
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
-                $output .= $transformSelectorPrelude($prelude) . '{';
-                $output .= substr($css, $boundary + 1, $blockEnd - $boundary - 1) . '}';
+                $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
+                $output .= null === $transformStyleRule
+                    ? $transformSelectorPrelude($prelude) . '{' . $body . '}'
+                    : $transformStyleRule($prelude, $body);
             } else {
                 $output .= substr($css, $offset, $blockEnd - $offset + 1);
             }

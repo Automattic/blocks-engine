@@ -46,9 +46,69 @@ final class NavigationPattern implements PatternRecognizerInterface
         // `mobile` matches the core default: WP renders the responsive overlay
         // container and enqueues the `navigation/view` Interactivity module so the
         // hamburger menu functions on the rendered site (#native-interactivity).
-        return $createBlock('core/navigation', array_merge($this->navigationContainerAttributes($element, $presentationAttributes), array(
+        $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
+        if ( $this->isListNavigationSource($element) ) {
+            unset($commonTextAttrs['style']['typography']);
+        }
+        $containerAttrs = array_replace_recursive(
+            $this->navigationContainerAttributes($element, $presentationAttributes),
+            $commonTextAttrs
+        );
+
+        return $createBlock('core/navigation', array_merge($containerAttrs, array(
             'overlayMenu' => 'mobile',
         )), $links, $element);
+    }
+
+    /**
+     * Core navigation links render text styles from their parent block context.
+     * Promote only values shared by every link so mixed menus retain their own
+     * companion CSS rather than receiving an incorrect uniform native style.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @return array<string, mixed>
+     */
+    private function commonNavigationLinkTextAttributes(array $links): array
+    {
+        $first = $links[0]['attrs'] ?? array();
+        if ( ! is_array($first) ) {
+            return array();
+        }
+
+        $attrs = array();
+        foreach ( array( 'textColor' ) as $name ) {
+            $value = $first[ $name ] ?? null;
+            if ( null !== $value && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs[ $name ] ?? null, $value) ) {
+                $attrs[ $name ] = $value;
+            }
+        }
+
+        $customTextColor = $first['style']['color']['text'] ?? null;
+        if ( is_string($customTextColor) && '' !== trim($customTextColor) && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['color']['text'] ?? null, $customTextColor) ) {
+            $attrs['customTextColor'] = trim($customTextColor);
+        }
+
+        $typography = is_array($first['style']['typography'] ?? null) ? $first['style']['typography'] : array();
+        foreach ( $typography as $name => $value ) {
+            if ( $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['typography'][ $name ] ?? null, $value) ) {
+                $attrs['style']['typography'][ $name ] = $value;
+            }
+        }
+
+        return $attrs;
+    }
+
+    /** @param array<int, array<string, mixed>> $links */
+    private function allNavigationLinksShare(array $links, callable $value, mixed $expected): bool
+    {
+        foreach ( $links as $link ) {
+            $linkAttrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            if ( $value($linkAttrs) !== $expected ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function safeNavigationUrl(string $url): string
@@ -302,6 +362,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
 
+        $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
+
         if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
             $baseAttrs['style']['typography']['textDecoration'] = 'underline';
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
@@ -316,10 +378,37 @@ final class NavigationPattern implements PatternRecognizerInterface
         // The anchor/submenu CSS rides on the preserved classNames + companion CSS;
         // a raw inline `style` string on the navigation-link/submenu inner markup
         // would diverge from the block save() output, so it is not emitted (#261).
-        return array_filter(array_merge($itemAttrs, $baseAttrs, array(
+        return array_filter(array_replace_recursive($itemAttrs, $baseAttrs, array(
             'anchorClassName'  => $anchorAttrs['className'] ?? '',
             'submenuClassName' => $submenuAttrs['className'] ?? '',
         )), static fn ($value): bool => '' !== $value);
+    }
+
+    /**
+     * Carry inheritable anchor paint and typography through core's dynamic link.
+     * Box styles remain owned by the source classes and companion stylesheet.
+     *
+     * @param array<string, mixed> $anchorAttrs
+     * @return array<string, mixed>
+     */
+    private function navigationAnchorTextAttributes(array $anchorAttrs, bool $includeTypography = true): array
+    {
+        $attrs = array();
+        if ( isset($anchorAttrs['textColor']) ) {
+            $attrs['textColor'] = $anchorAttrs['textColor'];
+        }
+
+        $style = is_array($anchorAttrs['style'] ?? null) ? $anchorAttrs['style'] : array();
+        $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $textColor = $style['color']['text'] ?? null;
+        if ( $includeTypography && array() !== $typography ) {
+            $attrs['style']['typography'] = $typography;
+        }
+        if ( is_string($textColor) && '' !== trim($textColor) ) {
+            $attrs['style']['color']['text'] = trim($textColor);
+        }
+
+        return $attrs;
     }
 
     /**
@@ -369,6 +458,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        if ( $this->isListNavigationSource($element) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
+        }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             return $attrs;
         }
@@ -386,6 +478,21 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    private function isListNavigationSource(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
+            return true;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
