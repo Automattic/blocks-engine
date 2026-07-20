@@ -3281,6 +3281,19 @@ final class HtmlTransformer
         return false;
     }
 
+    private function authoredDisplay(DOMElement $element): string
+    {
+        $display = '';
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( isset($rule['declarations']['display']) && $this->matchesCssSelector($element, $rule['selector']) ) {
+                $display = (string) $rule['declarations']['display'];
+            }
+        }
+
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
+    }
+
     private function isInlineContentElement(string $tagName): bool
     {
         return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);

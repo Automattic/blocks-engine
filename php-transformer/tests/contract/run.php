@@ -1483,6 +1483,14 @@ $quoteCitationParity = $quoteCitationFooter['source_reports']['semantic_parity']
 $assert('pass' === ($quoteCitationParity['status'] ?? ''), 'blockquote citation footer is not counted as a page footer landmark');
 $assert(1 === ($quoteCitationParity['landmarks']['source']['footer'] ?? null), 'semantic parity counts only the actual page footer landmark');
 
+$decoratedFigureQuote = ( new HtmlTransformer() )->transform(
+    '<style>.quote-card .mark{font-size:3rem}.quote-who{display:flex;gap:.8rem}.quote-avatar{width:44px;height:44px}</style><figure class="quote-card"><div class="mark" aria-hidden="true">&ldquo;</div><blockquote>Open publishing matters.</blockquote><figcaption class="quote-who"><span class="quote-avatar" aria-hidden="true">RM</span><span><b>Rosa Medina</b><span>Writer</span></span></figcaption></figure>'
+)->toArray();
+$decoratedFigureQuoteSerialized = (string) ($decoratedFigureQuote['serialized_blocks'] ?? '');
+$assert(str_contains($decoratedFigureQuoteSerialized, '<p class="mark">“</p>'), 'figure quote preserves a styled decorative lead mark as native content');
+$assert(str_contains($decoratedFigureQuoteSerialized, '<cite><span class="quote-who">'), 'figure quote preserves the figcaption layout class around native citation content');
+$assert('pass' === ($decoratedFigureQuote['source_reports']['wp_block_validity']['status'] ?? ''), 'decorated figure quote remains block-valid');
+
 $assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
     $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
     $assert(! in_array('inner_content_child_count_mismatch', $findingCodes, true), $message, implode(', ', $findingCodes));

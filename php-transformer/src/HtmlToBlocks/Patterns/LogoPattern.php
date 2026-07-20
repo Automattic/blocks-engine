@@ -32,6 +32,7 @@ final class LogoPattern
                 'text'  => trim($content),
                 'url'   => $this->safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
                 'title' => trim($element->hasAttribute('aria-label') ? $element->getAttribute('aria-label') : ''),
+                'inlineGeometryStyle' => 'display:flex',
                 'style' => array(
                     'color' => array( 'background' => 'transparent' ),
                     'border' => array( 'radius' => '0' ),

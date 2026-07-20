@@ -47,16 +47,21 @@ final class ButtonsPattern
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): ?string $materializeSvgImages
+     * @param callable(DOMElement): bool $isGridItem
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $createBlock): array
+    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $isGridItem, callable $createBlock): array
     {
+        $attrs = $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle);
+        if ( $isGridItem($button) ) {
+            $attrs['width'] = 100;
+        }
         $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
 
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes), array(
             $createBlock('core/button', array_merge(
-                $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle),
+                $attrs,
                 $this->buttonRuntimeAttributes($button),
                 array(
                     'tagName' => 'button',
