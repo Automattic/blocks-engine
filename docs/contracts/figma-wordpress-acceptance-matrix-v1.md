@@ -8,7 +8,7 @@ php scripts/production-acceptance-matrix.php --manifest=path/to/private-fixtures
 
 The manifest supplies private `.fig` files, authoritative screenshots, and generic provider commands. Inputs may be outside the repository; the resulting `summary.json` intentionally never includes their paths. Required fixture IDs are `fse-pilot-build-theme`, `twenty-twenty-five-community`, and `fisiostetic`.
 
-Each fixture declares an additive `blocks-engine/wordpress-site-plan/v1` file and versioned evidence for `decode`, `normalize`, `emit`, `import`, `editor_validity`, `fallback`, `desktop_parity`, `mobile_parity`, and `responsive_selection`. A provider may call Static Site Importer and an isolated WordPress runtime, but this repository only consumes its generic command and evidence contract.
+Each fixture declares a self-contained deployable `blocks-engine/wordpress-site-plan/v2` block-theme file and versioned evidence for `decode`, `normalize`, `emit`, `import`, `editor_validity`, `fallback`, `desktop_parity`, `mobile_parity`, and `responsive_selection`. A provider may call Static Site Importer and an isolated WordPress runtime, but this repository only consumes its generic command and evidence contract.
 
 ```json
 {
@@ -50,4 +50,4 @@ Every evidence envelope has schema `blocks-engine/figma-wordpress-stage-evidence
 - Desktop and mobile parity require existing screenshots and a parseable diff report with `pixel_difference_count: 0` and `geometry_difference_count: 0`.
 - Responsive selection requires `selection_source` of `dev_status` or `heuristic_fallback`; each route identifies one output route, explicit desktop and mobile source frames, and an increasing bounded breakpoint range.
 
-The supplied site plan is validated by `WordPressSitePlan::assertValid()` and must contain at least one page and route; an empty templates list remains allowed. Missing or malformed inputs, metrics, imports, editor proof, parity proof, or site-plan content fail closed with stable stage/reason codes in `summary.json`.
+The supplied site plan is validated by `WordPressSitePlan::assertValid()` and must contain at least one page and route. It includes the v2 deployable theme scaffold, canonical markup, reference tokens, writes, and operations; missing or malformed inputs, metrics, imports, editor proof, parity proof, or site-plan content fail closed with stable stage/reason codes in `summary.json`.

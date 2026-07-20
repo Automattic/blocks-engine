@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 const ACCEPTANCE_SCHEMA = 'blocks-engine/figma-wordpress-acceptance/v1';
-const SITE_PLAN_SCHEMA = 'blocks-engine/wordpress-site-plan/v1';
+const SITE_PLAN_SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
 const FIXTURE_IDS = array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiostetic');
 const STAGES = array('decode', 'normalize', 'emit', 'import', 'editor_validity', 'fallback', 'desktop_parity', 'mobile_parity', 'responsive_selection');
 
@@ -268,7 +268,7 @@ function acceptance_help(): void {
     echo <<<'HELP'
 Usage: php scripts/production-acceptance-matrix.php --manifest=acceptance.json [--output=artifacts/figma-wordpress-acceptance]
 
-The manifest supplies private .fig inputs and generic external provider commands. Provider commands may use {fig} and {fixture_output}; they must write versioned stage evidence and a wordpress-site-plan/v1 JSON file. The generated summary contains only repository-relative evidence references, never input paths or URLs.
+The manifest supplies private .fig inputs and generic external provider commands. Provider commands may use {fig} and {fixture_output}; they must write versioned stage evidence and a wordpress-site-plan/v2 JSON file. The generated summary contains only repository-relative evidence references, never input paths or URLs.
 
 Required fixture ids: fse-pilot-build-theme, twenty-twenty-five-community, fisiostetic.
 Required stages: decode, normalize, emit, import, editor_validity, fallback, desktop_parity, mobile_parity, responsive_selection.

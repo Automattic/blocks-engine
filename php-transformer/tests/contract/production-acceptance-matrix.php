@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+
 $root = dirname(__DIR__, 3);
 $temporary = sys_get_temp_dir() . '/blocks-engine-acceptance-' . bin2hex(random_bytes(4));
 mkdir($temporary . '/evidence', 0777, true);
@@ -67,14 +71,11 @@ foreach (array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiost
         $paths[$stage] = $path;
     }
     $sitePlan = $temporary . '/evidence/' . $fixtureId . '-site-plan.json';
-    file_put_contents($sitePlan, json_encode(array(
-        'schema' => 'blocks-engine/wordpress-site-plan/v1',
-        'source' => array('schema' => 'blocks-engine/php-transformer/compiled-site/v1', 'source_hash' => str_repeat('a', 64), 'entry_path' => 'index.html', 'provenance' => array()),
-        'pages' => array(array('source_path' => 'index.html', 'slug' => 'home', 'title' => 'Home', 'post_type' => 'page', 'parent_source_path' => '', 'entrypoint' => true, 'area' => null, 'final_block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->', 'metadata' => array(), 'provenance' => array(), 'reconciliation_identity' => hash('sha256', "index.html\n<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->"))),
-        'templates' => array(), 'template_parts' => array(), 'assets' => array(), 'writes' => array(),
-        'routes' => array(array('kind' => 'page', 'source_path' => 'index.html', 'target_path' => '/', 'target_slug' => 'home', 'source_relation' => 'entrypoint', 'order' => 0)), 'navigation_links' => array(), 'menus' => array(), 'asset_rewrite_candidates' => array(),
-        'theme' => array(), 'visual_repair' => array(), 'diagnostics' => array(), 'quality' => array('status' => 'completed', 'metrics' => array(), 'fallbacks' => array()),
-    )));
+    $result = (new ArtifactCompiler())->compile(array(
+        'entrypoint' => 'index.html',
+        'files' => array('index.html' => '<main><h1>Home</h1></main>'),
+    ))->toArray();
+    file_put_contents($sitePlan, json_encode($result['source_reports']['wordpress_site_plan']));
     $fixtures[] = array('id' => $fixtureId, 'fig' => $fig, 'site_plan' => $sitePlan, 'evidence' => $paths);
 }
 
@@ -125,6 +126,7 @@ file_put_contents($fixtures[0]['evidence']['editor_validity'], json_encode($edit
 $plan = json_decode((string) file_get_contents($fixtures[0]['site_plan']), true);
 $plan['pages'] = array();
 $plan['routes'] = array();
+$plan['operations'] = array();
 file_put_contents($fixtures[0]['site_plan'], json_encode($plan));
 $runFailure($fixtures, 'import', 'import_empty_site_plan');
 

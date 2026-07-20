@@ -78,6 +78,7 @@
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison",
+    "test:wordpress-integration": "php tests/integration/wordpress-site-plan.php",
     "test:packaging": "php tests/packaging/install-proof.php"
   },
   "config": {
@@ -90,5 +91,9 @@
     "branch-alias": {
       "dev-trunk": "0.1.x-dev"
     }
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6",
+    "yoast/phpunit-polyfills": "^3.0"
   }
 }
