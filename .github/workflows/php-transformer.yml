@@ -2,9 +2,45 @@ name: PHP Transformer
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/php-transformer.yml"
+      - "php-transformer/**"
   push:
+    branches:
+      - trunk
+    paths:
+      - ".github/workflows/php-transformer.yml"
+      - "php-transformer/**"
 
 jobs:
+  validate:
+    name: Composer validate and test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: php-transformer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
+        with:
+          php-version: "8.1"
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Validate Composer package metadata
+        run: composer validate --strict
+
+      - name: Run package tests
+        run: composer test
+
   wordpress-site-plan:
     name: WordPress site plan integration
     runs-on: ubuntu-24.04
@@ -23,7 +59,7 @@ jobs:
           --health-retries=10
     steps:
       - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
         with:
           php-version: "8.1"
           extensions: mysqli
