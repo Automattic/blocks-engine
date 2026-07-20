@@ -90,5 +90,9 @@
     "branch-alias": {
       "dev-trunk": "0.1.x-dev"
     }
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6",
+    "yoast/phpunit-polyfills": "^3.0"
   }
 }

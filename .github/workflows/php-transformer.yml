@@ -68,7 +68,20 @@ jobs:
         working-directory: php-transformer
         run: composer install --no-interaction --prefer-dist
       - name: Provision pinned WordPress PHPUnit runtime
-        run: git clone --depth=1 --branch 6.7.4 https://github.com/WordPress/wordpress-develop.git "$RUNNER_TEMP/wordpress-develop" && "$RUNNER_TEMP/wordpress-develop/tests/phpunit/install-test-suite.sh" wordpress_test root '' 127.0.0.1:3306 6.7.4
+        env:
+          WORDPRESS_DEVELOP_DIR: ${{ runner.temp }}/wordpress-develop
+          WORDPRESS_TEST_DB: wordpress_site_plan_test
+        run: |
+          git clone --depth=1 --branch 6.7.4 https://github.com/WordPress/wordpress-develop.git "$WORDPRESS_DEVELOP_DIR"
+          composer install --working-dir="$WORDPRESS_DEVELOP_DIR" --no-interaction --prefer-dist --no-progress
+          for attempt in $(seq 1 30); do
+            if mysql --host=127.0.0.1 --port=3306 --user=root --execute='SELECT 1'; then break; fi
+            if [ "$attempt" = 30 ]; then exit 1; fi
+            sleep 2
+          done
+          mysql --host=127.0.0.1 --port=3306 --user=root --execute="DROP DATABASE IF EXISTS $WORDPRESS_TEST_DB; CREATE DATABASE $WORDPRESS_TEST_DB;"
+          cp "$WORDPRESS_DEVELOP_DIR/wp-tests-config-sample.php" "$WORDPRESS_DEVELOP_DIR/wp-tests-config.php"
+          WORDPRESS_DEVELOP_DIR="$WORDPRESS_DEVELOP_DIR" WORDPRESS_TEST_DB="$WORDPRESS_TEST_DB" php -r '$config = file_get_contents(getenv("WORDPRESS_DEVELOP_DIR") . "/wp-tests-config.php"); $config = preg_replace("/define\(\s*\x27DB_NAME\x27\s*,\s*[^)]*\);/", "define( \x27DB_NAME\x27, \x27" . getenv("WORDPRESS_TEST_DB") . "\x27 );", $config); $config = preg_replace("/define\(\s*\x27DB_USER\x27\s*,\s*[^)]*\);/", "define( \x27DB_USER\x27, \x27root\x27 );", $config); $config = preg_replace("/define\(\s*\x27DB_PASSWORD\x27\s*,\s*[^)]*\);/", "define( \x27DB_PASSWORD\x27, \x27\x27 );", $config); $config = preg_replace("/define\(\s*\x27DB_HOST\x27\s*,\s*[^)]*\);/", "define( \x27DB_HOST\x27, \x27127.0.0.1:3306\x27 );", $config); file_put_contents(getenv("WORDPRESS_DEVELOP_DIR") . "/wp-tests-config.php", $config);'
       - name: Run required WordPress site plan integration
         working-directory: php-transformer
         env:
