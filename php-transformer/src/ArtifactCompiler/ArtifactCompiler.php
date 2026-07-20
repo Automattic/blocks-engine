@@ -796,6 +796,9 @@ final class ArtifactCompiler
                 $file['content_base64'] = base64_encode($projection['content']);
             }
             $file['bytes'] = $projection['bytes'];
+            $file['encoding'] = 'text';
+            $file['binary'] = false;
+            unset($file['content_base64']);
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
             $file['provenance']['hash'] = $projection['hash'];
         }
