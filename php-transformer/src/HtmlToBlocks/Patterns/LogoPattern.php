@@ -41,9 +41,14 @@ final class LogoPattern
                 ),
             ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
 
-            return $createBlock('core/buttons', array(), array(
+            $margin = $presentationAttributes($element)['style']['spacing']['margin'] ?? null;
+            $wrapperAttrs = is_array($margin) && array() !== $margin
+                ? array( 'style' => array( 'spacing' => array( 'margin' => $margin ) ) )
+                : array();
+
+            return $createBlock('core/buttons', $wrapperAttrs, array(
                 $createBlock('core/button', $attrs, array(), $element, $element),
-            ));
+            ), $element);
         }
 
         $content = 'a' === $tagName ? $this->anchorLogoContent($element, $innerHtml($element), $materializeSvgImages) : $this->logoLabelHtml($element, $innerHtml($element), $materializeSvgImages);
