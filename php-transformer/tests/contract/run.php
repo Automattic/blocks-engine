@@ -1237,6 +1237,22 @@ $directAnchorNavigationBlock = $directAnchorNavigation['blocks'][0] ?? array();
 $assert('0' === ($directAnchorNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct anchor navigation preserves its implicit zero item gap');
 $assert('nowrap' === ($directAnchorNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'direct anchor navigation preserves its implicit non-wrapping row');
 
+$uniformMarginNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><a href="/one">One</a><a href="/two" style="margin-left:18px">Two</a><a href="/three" style="margin-left:18px">Three</a></nav>'
+)->toArray();
+$uniformMarginNavigationBlock = $uniformMarginNavigation['blocks'][0] ?? array();
+$uniformMarginNavigationLinks = $uniformMarginNavigationBlock['innerBlocks'] ?? array();
+$assert('18px' === ($uniformMarginNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'uniform adjacent direct-anchor margins become core navigation gap');
+$assert('nowrap' === ($uniformMarginNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'uniform adjacent direct-anchor margins retain the non-wrapping row');
+$assert(! isset($uniformMarginNavigationLinks[1]['attrs']['style']['spacing']['margin']['left']) && ! isset($uniformMarginNavigationLinks[2]['attrs']['style']['spacing']['margin']['left']), 'promoted direct-anchor margins are removed from navigation links to avoid duplicate spacing');
+
+$explicitGapNavigation = ( new HtmlTransformer() )->transform(
+    '<nav style="display:flex;gap:4px"><a href="/one">One</a><a href="/two" style="margin-left:18px">Two</a><a href="/three" style="margin-left:18px">Three</a></nav>'
+)->toArray();
+$explicitGapNavigationBlock = $explicitGapNavigation['blocks'][0] ?? array();
+$assert('4px' === ($explicitGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'explicit direct-anchor navigation gap remains authoritative over item margins');
+$assert('18px' === ($explicitGapNavigationBlock['innerBlocks'][1]['attrs']['style']['spacing']['margin']['left'] ?? ''), 'explicit navigation gap leaves authored item margins intact');
+
 $wrappingNavigation = ( new HtmlTransformer() )->transform(
     '<nav><ul style="display:flex;flex-wrap:wrap;gap:1rem"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
 )->toArray();

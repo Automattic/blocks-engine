@@ -73,6 +73,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        $this->promoteDirectAnchorSpacing($element, $presentationAttributes, $containerAttrs, $links);
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
@@ -557,6 +558,73 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /**
+     * Core navigation links do not reproduce sibling margins reliably. A uniform
+     * leading margin on every adjacent direct anchor is equivalent to row gap.
+     *
+     * @param array<string, mixed> $containerAttrs
+     * @param array<int, array<string, mixed>> $links
+     */
+    private function promoteDirectAnchorSpacing(DOMElement $element, callable $presentationAttributes, array &$containerAttrs, array &$links): void
+    {
+        if ( 'vertical' === ($containerAttrs['layout']['orientation'] ?? '') ) {
+            return;
+        }
+
+        $sourceAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        if ( '' !== (string) ($sourceAttrs['style']['spacing']['blockGap'] ?? '') ) {
+            return;
+        }
+
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                $anchors[] = $child;
+            }
+        }
+        if ( count($anchors) < 2 || count($anchors) !== count($links) ) {
+            return;
+        }
+
+        $leadingMargins = array_map(static function (array $link): string {
+            $margin = trim((string) ($link['attrs']['style']['spacing']['margin']['left'] ?? ''));
+            return '' === $margin ? '0' : $margin;
+        }, $links);
+        foreach ( $links as $link ) {
+            $trailingMargin = trim((string) ($link['attrs']['style']['spacing']['margin']['right'] ?? ''));
+            if ( '' !== $trailingMargin && ! in_array($trailingMargin, array( '0', '0px', '0rem', '0em' ), true) ) {
+                return;
+            }
+        }
+        $gap = $leadingMargins[1];
+        if ( ! in_array($leadingMargins[0], array( '0', '0px', '0rem', '0em' ), true) || in_array($gap, array( '0', '0px', '0rem', '0em' ), true) ) {
+            return;
+        }
+        foreach ( array_slice($leadingMargins, 2) as $margin ) {
+            if ( $gap !== $margin ) {
+                return;
+            }
+        }
+
+        $containerAttrs['style']['spacing']['blockGap'] = $gap;
+        foreach ( $links as $index => &$link ) {
+            if ( 0 === $index ) {
+                continue;
+            }
+            unset($link['attrs']['style']['spacing']['margin']['left']);
+            if ( empty($link['attrs']['style']['spacing']['margin']) ) {
+                unset($link['attrs']['style']['spacing']['margin']);
+            }
+            if ( empty($link['attrs']['style']['spacing']) ) {
+                unset($link['attrs']['style']['spacing']);
+            }
+            if ( empty($link['attrs']['style']) ) {
+                unset($link['attrs']['style']);
+            }
+        }
+        unset($link);
     }
 
     private function isListNavigationSource(DOMElement $element): bool
