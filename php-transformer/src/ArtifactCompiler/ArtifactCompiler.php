@@ -27,6 +27,27 @@ final class ArtifactCompiler
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
     /**
+     * Resolve the runtime selector context used when a caller converts one
+     * source document or landmark separately from full artifact compilation.
+     *
+     * @param array<int|string, mixed> $files
+     * @return array<string, mixed>
+     */
+    public function runtimeContextForSource(string $html, string $sourcePath, array $files): array
+    {
+        $normalized = ( new ArtifactNormalizer() )->normalize(array(
+            'entrypoint' => $sourcePath,
+            'files'      => $files,
+        ));
+
+        return array(
+            'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
+            'runtime_dom_selectors'    => $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']),
+            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
+        );
+    }
+
+    /**
      * @param array<string, mixed> $artifact
      */
     public function compile(array $artifact): TransformerResult
@@ -1496,6 +1517,13 @@ final class ArtifactCompiler
         if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*\.\s*forEach\s*\(\s*(?:\(\s*)?([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\))?\s*=>\s*\{([\s\S]{0,2000}?)\n\s*\}\s*\)/', $script, $callbacks, PREG_SET_ORDER) ) {
+            foreach ( $callbacks as $callback ) {
+                if ( preg_match('/\b' . preg_quote((string) $callback[3], '/') . '\s*' . $runtimeUsePattern . '/', (string) $callback[4]) ) {
+                    $selectors[(string) $callback[2]] = true;
+                }
             }
         }
         if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {

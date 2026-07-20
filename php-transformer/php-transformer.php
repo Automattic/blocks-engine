@@ -123,3 +123,15 @@ function blocks_engine_php_transformer_compile_artifact(array $artifact, array $
         ->compile($artifact, $options)
         ->toArray();
 }
+
+/**
+ * Resolve script-derived runtime context for a source document conversion.
+ *
+ * @param array<int|string, mixed> $files Source artifact files.
+ * @return array<string, mixed>
+ */
+function blocks_engine_php_transformer_runtime_context(string $html, string $sourcePath, array $files): array
+{
+    return ( new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler() )
+        ->runtimeContextForSource($html, $sourcePath, $files);
+}

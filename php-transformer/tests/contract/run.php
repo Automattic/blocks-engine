@@ -805,6 +805,16 @@ $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'arti
 $assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+$runtimeContext = ( new ArtifactCompiler() )->runtimeContextForSource(
+    '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
+    'index.html',
+    array(
+        'index.html' => '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
+        'js/app.js'  => "document.querySelectorAll('.theme-toggle').forEach(button => {\n  const sync = () => button.setAttribute('aria-label', 'Toggle theme');\n  button.addEventListener('click', toggleTheme);\n});",
+    )
+);
+$assert(in_array('.theme-toggle', $runtimeContext['runtime_dom_selectors'] ?? array(), true), 'standalone source runtime context exposes behavior-bearing DOM selectors');
+$assert('js/app.js' === ($runtimeContext['runtime_script_metadata'][0]['path'] ?? ''), 'standalone source runtime context exposes materialized script metadata');
 
 $artifactSvgSelectors = ( new ArtifactCompiler() )->compile(
     array(
