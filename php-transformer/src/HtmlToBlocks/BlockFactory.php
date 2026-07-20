@@ -666,13 +666,23 @@ final class BlockFactory
         $support = $this->styleSupport($attrs['style'] ?? null);
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
-        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, (string) ($attrs['className'] ?? ''));
+        $alignmentClasses = $this->textAlignmentClasses($attrs);
+        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
         $style = trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';');
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
             'style' => $style,
         ));
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function textAlignmentClasses(array $attrs): string
+    {
+        $align = strtolower(trim((string) ($attrs['align'] ?? '')));
+        return in_array($align, array( 'left', 'center', 'right' ), true) ? 'has-text-align-' . $align : '';
     }
 
     /**

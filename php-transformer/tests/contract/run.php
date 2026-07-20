@@ -553,6 +553,12 @@ $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful i
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
+$classSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.map-art{width:100%}</style><main><div><svg class="map-art" viewBox="0 0 440 280" role="img" aria-label="Map"><rect width="440" height="280" fill="#111"/></svg></div></main>'
+)->toArray();
+$classSizedInlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $classSizedInlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($classSizedInlineSvgCss, '>img{display:inline;vertical-align:baseline;width:100%}'), 'inline SVG core/image applies class-owned responsive width to the image element');
+
 $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
 )->toArray();
@@ -1999,6 +2005,23 @@ $assert(str_contains((string) ($footerShellPart['block_markup'] ?? ''), 'Global 
 $assert(str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Article byline footer'), 'compiled site preserves page-local article footer content while pruning global footer shell');
 $assert(! str_contains((string) ($footerShellAboutPage['block_markup'] ?? ''), 'Global footer copy'), 'compiled site does not duplicate global footer shell on secondary page bodies');
 
+$canonicalShellSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<style>header{position:sticky;background:#fff}footer{padding:24px}.site-nav{display:flex}.nav-links{display:flex}.btn{display:inline-flex;padding:9px 20px;background:#e8a020}</style><header><nav class="site-nav"><a class="nav-logo" href="/">Brand</a><ul class="nav-links" role="list"><li><a href="/product">Product</a></li></ul><a class="btn nav-cta" href="/start">Get started</a></nav></header><main><h1>Home</h1></main><footer><p>Global footer</p></footer>',
+        ),
+    )
+)->toArray();
+$canonicalShellCompiled = $canonicalShellSite['source_reports']['compiled_site'] ?? array();
+$canonicalShellPlan = $canonicalShellSite['source_reports']['materialization_plan'] ?? array();
+$canonicalHeaderPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? '')))[0] ?? array();
+$canonicalFooterPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
+preg_match('/blocks-engine-control-[a-f0-9]+-\d+/', (string) ($canonicalShellSite['serialized_blocks'] ?? ''), $canonicalDocumentControlMarker);
+$assert('' !== ($canonicalDocumentControlMarker[0] ?? '') && str_contains((string) ($canonicalHeaderPart['block_markup'] ?? ''), $canonicalDocumentControlMarker[0]), 'canonical entry header part reuses the full-document control identity without fragment retransformation');
+$assert(str_contains((string) ($canonicalFooterPart['block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
+$assert(2 === count($canonicalShellPlan['template_part_writes'] ?? array()), 'materialization plan exposes canonical entry header and footer writes');
+
 $runtimeDependencySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
@@ -2997,7 +3020,7 @@ $canonicalStyleResult = ( new HtmlTransformer() )->transform(
     '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}</style>'
     . '<main>'
     . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
-    . '<p class="lede" style="color:#222;line-height:1.6">Styled paragraph</p>'
+    . '<p class="lede" style="color:#222;line-height:1.6;text-align:center;font-family:var(--font-mono)">Styled paragraph</p>'
     . '<div class="hero" style="display:flex;gap:1rem;padding:2rem;background:#101010;color:#fff;position:fixed;inset:0;overflow:hidden">'
     . '<h3>Hero heading</h3><p>Hero content</p></div>'
     . '<div class="class-owned-flex"><p>Class-owned layout</p></div>'
@@ -3089,6 +3112,10 @@ $paragraph = $findBlock($canonicalStyleResult['blocks'], 'core/paragraph');
 $assert(is_array($paragraph), 'styled paragraph block is emitted');
 $assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
 assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
+assertSame('var(--font-mono)', $paragraph['attrs']['style']['typography']['fontFamily'] ?? null, 'paragraph font-family maps to style.typography.fontFamily');
+assertSame('center', $paragraph['attrs']['align'] ?? null, 'paragraph text-align maps to native align attribute');
+$assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'has-text-align-center'), 'paragraph saved markup carries native text alignment class');
+$assert(str_contains((string) ($paragraph['innerHTML'] ?? ''), 'font-family:var(--font-mono)'), 'paragraph saved markup carries canonical font-family style');
 
 // Positive + negative: display:flex maps to layout; unmappable props (position,
 // inset, overflow) drop to className instead of a raw style string; the mappable

@@ -521,6 +521,7 @@ final class HtmlTransformer
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
+        $shellArtifacts = $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html'));
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
@@ -557,6 +558,7 @@ final class HtmlTransformer
             'generated_blocks' => $this->generatedBlocks,
             'interaction_candidates' => $interactionCandidates,
             'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
+            'shell_artifacts' => $shellArtifacts,
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
@@ -598,6 +600,45 @@ final class HtmlTransformer
             context: $context,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Convert reusable document shell interiors through the same transformer
+     * state as the full page so projected selector identities remain canonical.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function globalShellArtifacts(DOMElement $body, string $source): array
+    {
+        $artifacts = array();
+        foreach ( $body->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $area = ShellLandmarkPolicy::landmarkKind(strtolower($child->tagName), $this->attr($child, 'role'));
+            if ( ! in_array($area, array( 'header', 'footer' ), true) ) {
+                continue;
+            }
+
+            $shellFallbacks = array();
+            $blocks = $this->deduplicateNavigationBlocks($this->convertChildren($child, $shellFallbacks, true));
+            $markup = $this->runtime->serializeBlocks($blocks);
+            if ( '' === trim($markup) ) {
+                continue;
+            }
+            $artifacts[] = array(
+                'source_path' => $source . '#' . $area,
+                'slug' => $area,
+                'title' => ucfirst($area),
+                'area' => $area,
+                'body_format' => 'blocks',
+                'block_markup' => $markup,
+                'source_selector' => strtolower($child->tagName),
+                'source_hash' => hash('sha256', $this->outerHtml($child)),
+            );
+        }
+
+        return $artifacts;
     }
 
     /**
@@ -871,10 +912,22 @@ final class HtmlTransformer
 
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
-        return ( new CssStylesheetTransformer() )->transform($stylesheet, fn (string $prelude): string => $this->rewriteAuthorSelectorPrelude($prelude));
+        return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
+            $declarations = $this->cssDeclarations($body);
+            $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+            if ( array() === $margins ) {
+                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}';
+            }
+
+            $inner = array_diff_key($declarations, $margins);
+            $rules = '' === $this->cssDeclarationString($inner)
+                ? ''
+                : $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $this->cssDeclarationString($inner) . '}';
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}';
+        });
     }
 
-    private function rewriteAuthorSelectorPrelude(string $prelude): string
+    private function rewriteAuthorSelectorPrelude(string $prelude, bool $controlWrapper = false): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
@@ -894,16 +947,34 @@ final class HtmlTransformer
                 continue;
             }
             if ( $this->isRootChildSelector($parsed) ) {
-                $markers = array_values(array_unique(array_filter(array_map(
-                    fn (DOMElement $element): string => $this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '',
+                $shellTags = array_values(array_unique(array_filter(array_map(
+                    function (DOMElement $element): string {
+                        if ( $element->parentNode !== $this->authorStyleSourceBody ) {
+                            return '';
+                        }
+                        $tag = strtolower($element->tagName);
+                        $area = ShellLandmarkPolicy::landmarkKind($tag, $this->attr($element, 'role'));
+                        return in_array($area, array( 'header', 'footer' ), true) ? $tag : '';
+                    },
                     $matches
                 ))));
-                if ( array() === $markers ) {
+                $markers = array_values(array_unique(array_filter(array_map(
+                    function (DOMElement $element) use ($shellTags): string {
+                        return in_array(strtolower($element->tagName), $shellTags, true)
+                            ? ''
+                            : ($this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '');
+                    },
+                    $matches
+                ))));
+                if ( array() === $markers && array() === $shellTags ) {
                     $rewritten[] = $selector;
                     continue;
                 }
                 foreach ( $markers as $marker ) {
                     $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
+                }
+                foreach ( $shellTags as $tag ) {
+                    $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed);
                 }
                 continue;
             }
@@ -937,7 +1008,7 @@ final class HtmlTransformer
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
             }
             foreach ( $controls as $marker ) {
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker);
+                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $controlWrapper);
             }
             foreach ( $semanticLeaves as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
@@ -977,13 +1048,13 @@ final class HtmlTransformer
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectControlSelector(string $selector, array $parsed, string $marker): string
+    private function projectControlSelector(string $selector, array $parsed, string $marker, bool $wrapper = false): string
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         // Source matching is complete before mutation and the marker is unique to
         // this control. Project through it rather than assuming source attributes
         // or ancestors survive canonical core/button serialization.
-        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . '> :where(.wp-block-button__link)' . $suffix;
+        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . ($wrapper ? '' : '> :where(.wp-block-button__link)') . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2144,6 +2215,12 @@ final class HtmlTransformer
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
+            $textAlign = strtolower(trim((string) ($this->presentationDeclarations($sourceElement)['text-align'] ?? '')));
+            if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
+                $attrs['align'] = $textAlign;
+            }
+        }
 
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));

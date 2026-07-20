@@ -100,7 +100,8 @@ trait SvgMaterializationTrait
         );
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
-        $sourceDisplay = strtolower(trim((string) ($this->presentationDeclarations($element)['display'] ?? '')));
+        $presentation = $this->presentationDeclarations($element);
+        $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
         $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) : '';
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
@@ -108,7 +109,13 @@ trait SvgMaterializationTrait
         $geometryClass = '';
         if ( $preserveInlineGeometry ) {
             $imageDisplay = '' === $sourceDisplay ? 'inline' : $sourceDisplay;
-            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ';vertical-align:baseline}';
+            $mediaBox = '';
+            foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
+                if ( isset($presentation[$property]) && '' !== trim((string) $presentation[$property]) ) {
+                    $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
+                }
+            }
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ';vertical-align:baseline' . $mediaBox . '}';
             $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
             $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
         }
