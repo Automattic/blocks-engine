@@ -51,7 +51,7 @@ $assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(
 
 $types = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style type="TEXT/CSS; charset=UTF-8">.style-ok{color:red}</style><style type="text/css-not-a-mime">.style-bad{color:red}</style><link rel="stylesheet" href="ok.css" type="text/css; charset=utf-8"><link rel="stylesheet" href="bad.css" type="text/css-not-a-mime">' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style type="TEXT/CSS; charset=UTF-8">.style-ok{color:red}</style><style type="text/css-not-a-mime">.style-bad{color:red}</style><link rel="stylesheet" href="ok.css" type="text/css; charset=utf-8"><link rel="stylesheet" href="bad.css" type="text/css-not-a-mime"><main><p>Types</p></main>' ),
         array( 'path' => 'ok.css', 'kind' => 'css', 'content' => '.link-ok{color:green}' ),
         array( 'path' => 'bad.css', 'kind' => 'css', 'content' => '.link-bad{color:blue}' ),
     ),

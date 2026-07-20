@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
 
@@ -123,6 +124,27 @@ final class ArtifactCompiler
             'output_bytes'          => strlen($serializedBlocks),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $entryBlocks['fallbacks'], $sourceReports, $assets, $provenance, $metrics);
+
+        // Failed compilations have no materializable source identity and no site plan.
+        if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
+            $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
+                'schema' => TransformerResult::SCHEMA,
+                'status' => $this->statusFromDiagnostics($diagnostics),
+                'components' => $components,
+                'block_types' => $blockTypes,
+                'source_reports' => $sourceReports,
+                'blocks' => $entryBlocks['blocks'],
+                'serialized_blocks' => $serializedBlocks,
+                'documents' => $documents['documents'],
+                'assets' => $assets,
+                'diagnostics' => $diagnostics,
+                'fallbacks' => $entryBlocks['fallbacks'],
+                'provenance' => $provenance,
+                'coverage' => array(),
+                'context' => array(),
+                'metrics' => $metrics,
+            ));
+        }
 
         return new TransformerResult(
             status: $this->statusFromDiagnostics($diagnostics),

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
 use InvalidArgumentException;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 final class TransformerResult
 {
@@ -149,6 +150,14 @@ final class TransformerResult
                 if ( ! array_key_exists($key, $materializationPlan) || ! is_array($materializationPlan[$key]) ) {
                     throw new InvalidArgumentException(sprintf('Canonical artifact result materialization plan %s must be an array.', $key));
                 }
+            }
+
+            $wordpressSitePlan = $sourceReports['wordpress_site_plan'] ?? null;
+            if ( null !== $wordpressSitePlan ) {
+                if ( ! is_array($wordpressSitePlan) ) {
+                    throw new InvalidArgumentException('Canonical artifact result wordpress site plan must be an array.');
+                }
+                WordPressSitePlan::assertValid($wordpressSitePlan);
             }
         }
     }

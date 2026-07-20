@@ -2834,7 +2834,7 @@ $assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''
 $companionNoSite = $compiler->compile(
     array(
         'files' => array(
-            'index.html'             => '<main></main>',
+            'index.html'             => '<main><p>Card</p></main>',
             'blocks/card/block.json' => json_encode(array( 'apiVersion' => 3, 'name' => 'x/card', 'render' => 'file:./render.php' )),
             'blocks/card/render.php' => '<?php echo "card";',
         ),
