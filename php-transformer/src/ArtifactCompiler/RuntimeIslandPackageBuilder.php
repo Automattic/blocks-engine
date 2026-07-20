@@ -127,6 +127,7 @@ final class RuntimeIslandPackageBuilder
             'id'                  => $this->islandId($kind, $selector, $markup),
             'kind'                => $kind,
             'selector'            => $selector,
+            'source_path'         => $sourcePath,
             'tag'                 => is_scalar($runtimeIsland['tag'] ?? null) ? (string) $runtimeIsland['tag'] : '',
             'markup'              => $markup,
             'markup_truncated'    => (bool) ($runtimeIsland['source_truncated'] ?? false),

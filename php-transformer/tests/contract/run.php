@@ -2816,6 +2816,21 @@ $assert(! isset($companionBlock['assets']['render.php']), 'render is not duplica
 $assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
 
+$scriptCompanion = $compiler->compile(
+    array(
+        'site' => array( 'name' => 'Runtime Site', 'slug' => 'runtime-site' ),
+        'files' => array(
+            'index.html' => '<main><p class="status">Ready</p></main><script>document.querySelector(".status").dataset.ready="true";</script>',
+        ),
+    )
+)->toArray();
+$scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
+$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
+$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
+$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
+$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+
 $companionNoSite = $compiler->compile(
     array(
         'files' => array(
