@@ -106,9 +106,18 @@ final class CssStylesheetTransformer
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= null === $transformStyleRule
-                    ? $transformSelectorPrelude($prelude) . '{' . $body . '}'
-                    : $transformStyleRule($prelude, $body);
+                if ( null !== $transformStyleRule ) {
+                    $output .= $transformStyleRule($prelude, $body);
+                } else {
+                    $transformed = $transformSelectorPrelude($prelude, $body);
+                    if ( is_array($transformed) ) {
+                        foreach ( $transformed as $rule ) {
+                            $output .= $rule['prelude'] . '{' . $rule['body'] . '}';
+                        }
+                    } else {
+                        $output .= $transformed . '{' . $body . '}';
+                    }
+                }
             } else {
                 $output .= substr($css, $offset, $blockEnd - $offset + 1);
             }

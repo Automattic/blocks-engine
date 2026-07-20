@@ -978,9 +978,96 @@ final class HtmlTransformer
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
-                : $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $this->cssDeclarationString($inner) . '}';
+                : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
         });
+    }
+
+    private function rewriteAuthorStyleRule(string $prelude, string $body): string
+    {
+        $projectedPrelude = $this->rewriteAuthorSelectorPrelude($prelude);
+        $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
+        if ( '' === $wrapperPrelude ) {
+            return $projectedPrelude . '{' . $body . '}';
+        }
+
+        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
+        if ( '' === $layout ) {
+            return $projectedPrelude . '{' . $body . '}';
+        }
+        if ( '' === $control ) {
+            return $wrapperPrelude . '{' . $body . '}';
+        }
+
+        return $wrapperPrelude . '{' . $layout . '}' . $projectedPrelude . '{' . $control . '}';
+    }
+
+    private function buttonPresentationWrapperPrelude(string $prelude): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return '';
+        }
+
+        $rewritten = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
+                continue;
+            }
+            $matches = $this->matchingAuthorSourceElements($parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $markers = array();
+            foreach ( $matches as $element ) {
+                $marker = $this->sourceButtonPresentationMarkers[$element->getNodePath() ?? ''] ?? null;
+                if ( ! is_string($marker) ) {
+                    continue 2;
+                }
+                $markers[] = $marker;
+            }
+            foreach ( array_unique($markers) as $marker ) {
+                $rewritten[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed);
+            }
+        }
+
+        return implode(',', $rewritten);
+    }
+
+    /** @return array{string, string} */
+    private function splitButtonPresentationDeclarations(string $body): array
+    {
+        $layout = array();
+        $control = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $name = strtolower(trim(strtok($declaration, ':')));
+            if ( '' === $name || ! str_contains($declaration, ':') ) {
+                $control[] = $declaration;
+                continue;
+            }
+            if ( $this->isButtonWrapperLayoutProperty($name) ) {
+                $layout[] = $declaration;
+            } else {
+                $control[] = $declaration;
+            }
+        }
+
+        return array( implode(';', $layout), implode(';', $control) );
+    }
+
+    private function isButtonWrapperLayoutProperty(string $property): bool
+    {
+        return in_array($property, array(
+            'align-content', 'align-items', 'align-self', 'clear', 'display', 'float',
+            'flex', 'flex-basis', 'flex-direction', 'flex-flow', 'flex-grow', 'flex-shrink',
+            'flex-wrap', 'gap', 'grid', 'grid-area', 'grid-auto-columns', 'grid-auto-flow',
+            'grid-auto-rows', 'grid-column', 'grid-row', 'grid-template', 'grid-template-areas',
+            'grid-template-columns', 'grid-template-rows', 'isolation', 'justify-content',
+            'justify-items', 'justify-self', 'order', 'overflow', 'overflow-x', 'overflow-y',
+            'place-content', 'place-items', 'place-self', 'position', 'top', 'right', 'bottom',
+            'left', 'z-index',
+        ), true);
     }
 
     private function rewriteAuthorSelectorPrelude(string $prelude, bool $controlWrapper = false): string
