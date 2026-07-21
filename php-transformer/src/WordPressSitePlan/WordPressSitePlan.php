@@ -209,7 +209,8 @@ final class WordPressSitePlan
             $markup = $this->routeLinks($references->content($candidate['block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes);
             $classes = array_values(array_filter($candidate['source_classes'] ?? array(), 'is_string'));
             sort($classes, SORT_STRING);
-            $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'classes' => $classes);
+            $innerMarkup = is_string($candidate['inner_block_markup'] ?? null) ? $this->routeLinks($references->content($candidate['inner_block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes) : $markup;
+            $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'classes' => $classes);
         }
         return $candidates;
     }
@@ -252,7 +253,8 @@ final class WordPressSitePlan
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
             $templateSlugs = $singlePage ? array('front-page') : array('index', 'page', 'front-page');
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $first['markup'], 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => array('shell_identity' => $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($first['markup']));
+            $partMarkup = $singlePage ? $first['inner_markup'] : $first['markup'];
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => array('shell_identity' => $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted one semantically equivalent {$area} shell for all pages.", 'area' => $area, 'page_count' => count($applicable));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);

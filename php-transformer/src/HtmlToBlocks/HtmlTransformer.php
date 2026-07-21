@@ -626,6 +626,7 @@ final class HtmlTransformer
 
             $shellFallbacks = array();
             $blocks = $this->deduplicateNavigationBlocks($this->convertChildren($child, $shellFallbacks, true));
+            $innerMarkup = $this->runtime->serializeBlocks($blocks);
             $wrapperAttrs = $this->hoistedStylingAttributes($child);
             $wrapperAttrs['tagName'] = $area;
             $inlineStyle = trim($this->attr($child, 'style'));
@@ -652,6 +653,7 @@ final class HtmlTransformer
                 'area' => $area,
                 'body_format' => 'blocks',
                 'block_markup' => $markup,
+                'inner_block_markup' => $innerMarkup,
                 'source_selector' => strtolower($child->tagName),
                 'source_classes' => $this->shellSourceClasses($child),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
