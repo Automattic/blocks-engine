@@ -1793,7 +1793,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files']),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
@@ -2059,8 +2059,8 @@ final class ArtifactCompiler
         );
     }
 
-    /** @param array<int, array<string, mixed>> $files @return array<string, mixed> */
-    private function fullDocumentMetadata(string $html, string $sourcePath, array $files): array
+    /** @param array<int, array<string, mixed>> $files @param array<int, array<string, mixed>> $generatedAssets @return array<string, mixed> */
+    private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array()): array
     {
         $headEnd = preg_match('/<head\b[^>]*>.*?<\/head\s*>/is', $html, $head) ? (int) strpos($html, $head[0]) + strlen($head[0]) : 0;
         $reference = static fn(string $value): array => array('url' => $value);
@@ -2075,6 +2075,8 @@ final class ArtifactCompiler
             return $values;
         };
         $placement = static fn(int $offset): string => $offset < $headEnd ? 'head' : 'body';
+        $inlineScripts = array();
+        foreach ($generatedAssets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
         if (preg_match_all('/<meta\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0];
@@ -2089,7 +2091,8 @@ final class ArtifactCompiler
         if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
-            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag)))));
+            $selector = 'script:nth-of-type(' . (count($scripts) + 1) . ')';
+            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : (isset($inlineScripts[$selector]) ? $reference($inlineScripts[$selector]) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag))))));
         }
         $title = preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ? trim(html_entity_decode(strip_tags((string) $match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
