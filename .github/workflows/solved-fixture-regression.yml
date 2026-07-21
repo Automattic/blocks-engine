@@ -40,14 +40,14 @@ jobs:
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
           printf '{\n  "runId": "%s",\n  "candidateSha": "%s",\n  "staticSiteImporterRef": "%s",\n  "homeboyVersion": "%s",\n  "wpCodeboxVersion": "%s"\n}\n' \
-            "$RUN_ID" "$GITHUB_SHA" "c8ebbbe571bf328c298a70c2e133c944b609b43a" "$HOMEBOY_VERSION" "$WP_CODEBOX_VERSION" \
+            "$RUN_ID" "$GITHUB_SHA" "0dcefb3fde53561e3682263f9deddfd451ddaa32" "$HOMEBOY_VERSION" "$WP_CODEBOX_VERSION" \
             > "$RUN_DIR/homeboy-artifacts/runtime-inputs.json"
 
       - name: Checkout pinned Static Site Importer
         uses: actions/checkout@v4
         with:
           repository: Automattic/static-site-importer
-          ref: c8ebbbe571bf328c298a70c2e133c944b609b43a
+          ref: 0dcefb3fde53561e3682263f9deddfd451ddaa32
           path: static-site-importer
 
       - name: Setup Node
