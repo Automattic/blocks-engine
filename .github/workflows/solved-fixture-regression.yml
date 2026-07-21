@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout candidate
         uses: actions/checkout@v4
+        with:
+          path: blocks-engine
 
       - name: Initialize run evidence
         run: |
@@ -102,7 +104,7 @@ jobs:
             --solved-only \
             --local \
             --static-site-importer "$GITHUB_WORKSPACE/static-site-importer" \
-            --blocks-engine "$GITHUB_WORKSPACE" \
+            --blocks-engine "$GITHUB_WORKSPACE/blocks-engine" \
             --homeboy-bin "$HOMEBOY_BIN" \
             --wp-codebox-bin "$WP_CODEBOX_BIN" \
             --run-id "$RUN_ID" \
