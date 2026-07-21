@@ -34,7 +34,10 @@ final class WordPressSitePlan
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routeMap);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $routes = $this->routesForPages($pages);
-        $existingParts = $this->documents($compiled['template_parts'] ?? null, true, $tokens, $references, $routeMap);
+        // Entry shells remain in compiled-site/v1 for existing consumers; the
+        // canonical plan rebuilds them from full page shell candidates.
+        $compiledParts = is_array($compiled['template_parts'] ?? null) ? array_values(array_filter($compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
+        $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
         $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);

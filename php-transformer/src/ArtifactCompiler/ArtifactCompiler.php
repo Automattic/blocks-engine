@@ -1676,6 +1676,17 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
+            if ( $path === $entryPath ) {
+                foreach ( $entryShellArtifacts as $shellArtifact ) {
+                    if ( ! is_array($shellArtifact) ) {
+                        continue;
+                    }
+                    $shellMarkup = is_string($shellArtifact['inner_block_markup'] ?? null) ? $shellArtifact['inner_block_markup'] : ($shellArtifact['block_markup'] ?? null);
+                    if ( is_string($shellMarkup) ) {
+                        $blockMarkup = str_replace($shellMarkup, '', $blockMarkup);
+                    }
+                }
+            }
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
@@ -1731,6 +1742,24 @@ final class ArtifactCompiler
         }
 
         $templateParts = $this->compiledSiteTemplateParts($artifact['files']);
+        // Preserve the v1 report's established entry-shell shape while the v2
+        // plan uses complete shell candidates for cross-page comparison.
+        $partSlugs = array_fill_keys(array_column($templateParts, 'slug'), true);
+        foreach ( $entryShellArtifacts as $shellArtifact ) {
+            if ( ! is_array($shellArtifact) ) {
+                continue;
+            }
+            $slug = (string) ($shellArtifact['slug'] ?? '');
+            if ( isset($partSlugs[$slug]) ) {
+                $shellArtifact['slug'] = 'entry-' . $slug;
+            }
+            $partSlugs[(string) $shellArtifact['slug']] = true;
+            if ( is_string($shellArtifact['inner_block_markup'] ?? null) ) {
+                $shellArtifact['block_markup'] = $shellArtifact['inner_block_markup'];
+                unset($shellArtifact['inner_block_markup']);
+            }
+            $templateParts[] = $shellArtifact;
+        }
 
         return array(
             'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
