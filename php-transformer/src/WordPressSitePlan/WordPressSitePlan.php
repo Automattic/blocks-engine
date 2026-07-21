@@ -635,7 +635,7 @@ final class WordPressSitePlan
     private static function assertNoLocalBrowserReferences(string $content): void
     {
         $patterns = array('/\b(?:src|href|srcset|poster|action)\s*=\s*["\']([^"\']+)["\']/i', '/["\'](?:url|src|href|srcset|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', '/(?:url\(\s*["\']?|@import\s+(?:url\(\s*)?["\']?)([^\s\)"\';]+)/i');
-        foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (explode(',', (string) $value) as $candidate) {
+        foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (preg_match('~^[a-z][a-z0-9+.-]*:~i', trim((string) $value)) ? array($value) : explode(',', (string) $value) as $candidate) {
             $url = trim(preg_split('/\s+/', trim($candidate))[0] ?? '');
             if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $url)) throw new InvalidArgumentException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url));
         }
