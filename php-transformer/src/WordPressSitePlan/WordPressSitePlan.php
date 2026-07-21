@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -72,7 +73,7 @@ final class WordPressSitePlan
             }
         }
         self::assertSource($plan['source']);
-        self::assertRuntimeDeclarations($plan['runtime_declarations']);
+        RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -81,7 +82,8 @@ final class WordPressSitePlan
         $assetTokens = array();
         $assetIdentities = array();
         foreach ( $plan['assets'] as $asset ) {
-            if ( ! is_array($asset) || ! self::safePath($asset['source_path'] ?? null) || ! self::safePath($asset['target_path'] ?? null) || ! is_string($asset['token'] ?? null) || !self::hash($asset['reconciliation_identity'] ?? null) || !self::hash($asset['content_hash'] ?? null) || $asset['reconciliation_identity'] !== self::identity('asset', $asset['source_path'], $asset['target_path']) ) {
+            $assetContent = is_array($asset) ? (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : ($asset['content'] ?? null)) : null;
+            if ( ! is_array($asset) || ! self::safePath($asset['source_path'] ?? null) || ! self::safePath($asset['target_path'] ?? null) || ! is_string($asset['token'] ?? null) || !self::hash($asset['reconciliation_identity'] ?? null) || !self::hash($asset['content_hash'] ?? null) || !is_string($assetContent) || $asset['reconciliation_identity'] !== self::identity('asset', $asset['source_path'], $asset['target_path']) || $asset['content_hash'] !== self::contentHash($assetContent) ) {
                 throw new InvalidArgumentException('WordPress site plan asset is structurally invalid.');
             }
             self::unique($assetTargets, $asset['target_path'], 'asset target');
@@ -101,11 +103,13 @@ final class WordPressSitePlan
         $partSlugs = array();
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
+            if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
             self::unique($partSlugs, $part['slug'], 'template part slug');
         }
         $pagePaths = array(); $pagesBySource = array(); $documentIdentities = array();
         foreach ( $plan['pages'] as $page ) {
             self::assertDocument($page, 'page', false, $tokens);
+            if ($page['content_hash'] !== self::contentHash($page['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan page has a stale content hash.');
             self::assertRoute($page);
             self::unique($pagePaths, $page['source_path'], 'page source');
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
@@ -117,7 +121,7 @@ final class WordPressSitePlan
         self::assertOperations($plan['operations'], $plan['pages']);
         $templateTargets = array();
         foreach ( $plan['templates'] as $template ) {
-            if ( ! is_array($template) || ! is_string($template['slug'] ?? null) || ! self::safePath($template['target_path'] ?? null) || ! is_string($template['canonical_block_markup'] ?? null) || '' === trim($template['canonical_block_markup']) || !self::hash($template['reconciliation_identity'] ?? null) || !self::hash($template['content_hash'] ?? null) || $template['reconciliation_identity'] !== self::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']) ) {
+            if ( ! is_array($template) || ! is_string($template['slug'] ?? null) || ! self::safePath($template['target_path'] ?? null) || ! is_string($template['canonical_block_markup'] ?? null) || '' === trim($template['canonical_block_markup']) || !self::hash($template['reconciliation_identity'] ?? null) || !self::hash($template['content_hash'] ?? null) || $template['reconciliation_identity'] !== self::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']) || $template['content_hash'] !== self::contentHash($template['canonical_block_markup']) ) {
                 throw new InvalidArgumentException('WordPress site plan template is structurally invalid.');
             }
             self::unique($templateTargets, $template['target_path'], 'template target');
@@ -134,14 +138,14 @@ final class WordPressSitePlan
         self::assertScaffold($plan, $writesByTarget);
         foreach ( $plan['templates'] as $template ) {
             $write = $writesByTarget[$template['target_path']] ?? null;
-            if ( ! is_array($write) || 'theme_template' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $template['canonical_block_markup'] ) {
+            if ( ! is_array($write) || 'theme_template' !== ($write['kind'] ?? null) || (!isset($plan['resolution']) && $write['payload']['data'] !== $template['canonical_block_markup']) ) {
                 throw new InvalidArgumentException('WordPress site plan template lacks its canonical write.');
             }
         }
         foreach ( $plan['template_parts'] as $part ) {
             $target = 'parts/' . $part['slug'] . '.html';
             $write = $writesByTarget[$target] ?? null;
-            if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $part['canonical_block_markup'] ) {
+            if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || (!isset($plan['resolution']) && $write['payload']['data'] !== $part['canonical_block_markup']) ) {
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
             $boundTemplates = 'entry_shell' === ($part['placement']['kind'] ?? null) ? $part['placement']['template_slugs'] : array();
@@ -179,7 +183,7 @@ final class WordPressSitePlan
             $markup = $references->content($document['block_markup'], $document['source_path']);
             $canonical = $this->routeLinks($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
-            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => hash('sha256', $canonical));
+            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
         }
         return $rows;
     }
@@ -199,7 +203,7 @@ final class WordPressSitePlan
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
-            $rows[] = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => hash('sha256', $payload));
+            $rows[] = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => self::contentHash($payload));
         }
         return $rows;
     }
@@ -254,7 +258,7 @@ final class WordPressSitePlan
             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true)) $content .= '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '"} /-->' . "\n";
             return $content . '<!-- wp:post-content /-->' . "\n";
         };
-        $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => hash('sha256', $content)); };
+        $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
         $templates = array($make('index', 'templates/index.html', $markup('index')));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
@@ -369,7 +373,7 @@ final class WordPressSitePlan
         return implode("\n", $lines) . "\n";
     }
     /** @return array<string,mixed> */
-    private function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => hash('sha256', $content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
+    private function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
     private static function relativePath(string $origin, string $target): string
     {
         $from = '' === $origin ? array() : explode('/', dirname($origin));
@@ -441,12 +445,13 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $reporting @param array<string,bool> $pagePaths @param array<string,bool> $tokens */
     private static function assertReporting(array $reporting, array $pagePaths, array $tokens): void { if(!is_array($reporting['source_documents']??null)||!is_array($reporting['metrics']??null)||!is_array($reporting['diagnostic_codes']??null))throw new InvalidArgumentException('WordPress site plan reporting summary is invalid.');$sources=array();foreach($reporting['source_documents'] as $document){if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['kind']??null)||!is_string($document['body_format']??null)||!is_bool($document['block_document']??null)||!is_array($document['provenance']??null))throw new InvalidArgumentException('WordPress site plan source document summary is invalid.');self::unique($sources,$document['source_path'],'source document');}if(count($sources)!==count($pagePaths)||array_keys($sources)!==array_keys($pagePaths))throw new InvalidArgumentException('WordPress site plan source document summaries do not match pages.');foreach(array('source_document_count','block_document_count','native_block_count','fallback_count') as $key)if(!is_int($reporting['metrics'][$key]??null))throw new InvalidArgumentException('WordPress site plan reporting metric is invalid.');foreach($reporting['diagnostic_codes'] as $code)if(!is_string($code)||''===$code)throw new InvalidArgumentException('WordPress site plan diagnostic linkage is invalid.');}
     /** @param array<string,string> $tokens */
-    private static function assertWrite(mixed $write, array $tokens): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !self::hash($write['reconciliation_identity'] ?? null) || !self::hash($write['payload_hash'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64'), true) || !is_string($write['payload']['data'] ?? null) || $write['reconciliation_identity'] !== self::identity('write', $write['source_path'], $write['target_path']) || $write['payload_hash'] !== hash('sha256', $write['payload']['data'])) throw new InvalidArgumentException('WordPress site plan write is structurally invalid.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); self::assertNoLocalBrowserReferences($write['payload']['data']); } }
+    private static function assertWrite(mixed $write, array $tokens): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !self::hash($write['reconciliation_identity'] ?? null) || !self::hash($write['payload_hash'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64'), true) || !is_string($write['payload']['data'] ?? null) || $write['reconciliation_identity'] !== self::identity('write', $write['source_path'], $write['target_path']) || $write['payload_hash'] !== self::contentHash($write['payload']['data'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); self::assertNoLocalBrowserReferences($write['payload']['data']); } }
     /** @param array<string,string> $tokens */
     private static function assertTokens(string $content, array $tokens): void { if (preg_match_all('/\{\{wordpress-site-plan:asset:([^}]+)\}\}/', $content, $matches)) foreach ($matches[1] as $token) if (!isset($tokens[$token])) throw new InvalidArgumentException('WordPress site plan contains an undeclared reference token.'); }
     /** @param array<string,bool> $values */
     private static function unique(array &$values, string $value, string $kind): void { $key = strtolower($value); if (isset($values[$key])) throw new InvalidArgumentException("WordPress site plan has colliding {$kind}s."); $values[$key] = true; }
     private static function identity(string $kind, string $source, string $target): string { return hash('sha256', "wordpress-site-plan/{$kind}/v2\n{$source}\n{$target}"); }
+    public static function contentHash(string $content): string { return hash('sha256', $content); }
     private static function hash(mixed $value): bool { return is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value); }
     /** @param array<int,mixed> $declarations */
     private static function assertRuntimeDeclarations(array $declarations): void { $identities=array(); $keys=array(); foreach($declarations as $declaration){if(!is_array($declaration)||!is_string($declaration['kind']??null)||(!is_string($declaration['type']??null)&&!is_string($declaration['capability']??null))||(isset($declaration['type'])&&isset($declaration['capability']))||!self::safePath($declaration['source_path']??null)||!self::hash($declaration['reconciliation_identity']??null))throw new InvalidArgumentException('WordPress site plan runtime declaration is invalid.');$name=$declaration['type']??$declaration['capability'];$key=$declaration['kind'].':'.$name;if($declaration['reconciliation_identity']!==hash('sha256',"wordpress-site-plan/runtime-declaration/v1\n{$declaration['source_path']}\n{$key}"))throw new InvalidArgumentException('WordPress site plan runtime declaration identity is invalid.');self::unique($identities,$declaration['reconciliation_identity'],'runtime declaration reconciliation identity');self::unique($keys,$key,'runtime declaration key');if(isset($declaration['payload'])&&(!is_array($declaration['payload'])||!is_string($declaration['payload']['schema']??null)))throw new InvalidArgumentException('WordPress site plan runtime declaration payload is invalid.');if('entity_collection'===$declaration['kind']&&(!isset($declaration['type'],$declaration['payload']['entities'])||!is_array($declaration['payload']['entities'])))throw new InvalidArgumentException('WordPress site plan entity collection declaration is invalid.');}foreach($declarations as $declaration)foreach($declaration['required_for']??array() as $required)if(!is_string($required)||!isset($keys[strtolower($required)]))throw new InvalidArgumentException('WordPress site plan runtime declaration required_for is unresolved.'); }

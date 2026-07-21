@@ -21,6 +21,12 @@ final class RuntimeDeclarations
         if (null !== $topLevel && null !== $metadata) throw new InvalidArgumentException('Runtime declarations must be provided in exactly one canonical artifact location.');
         $raw = $topLevel ?? $metadata;
         if (null === $raw) return array();
+        return self::normalizeList($raw);
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    public static function normalizeList(mixed $raw): array
+    {
         if (!is_array($raw) || !array_is_list($raw) || count($raw) > self::MAX_DECLARATIONS) throw new InvalidArgumentException('Runtime declarations must be a bounded ordered collection.');
 
         $declarations = array();
@@ -42,22 +48,27 @@ final class RuntimeDeclarations
 
             $normalized = array('kind' => $kind, is_string($type) ? 'type' : 'capability' => $name, 'source_path' => $sourcePath, 'reconciliation_identity' => $identity);
             if (isset($declaration['provenance'])) {
-                if (!is_array($declaration['provenance'])) throw new InvalidArgumentException("Runtime declaration {$index} provenance must be an object.");
+                if (!is_array($declaration['provenance']) || (isset($declaration['provenance']['source_path']) && (!is_string($declaration['provenance']['source_path']) || $declaration['provenance']['source_path'] !== $sourcePath))) throw new InvalidArgumentException("Runtime declaration {$index} provenance must retain its safe source path.");
                 $normalized['provenance'] = self::canonical($declaration['provenance']);
             }
             if (isset($declaration['payload'])) {
-                if (!is_array($declaration['payload']) || !is_string($declaration['payload']['schema'] ?? null) || '' === $declaration['payload']['schema']) throw new InvalidArgumentException("Runtime declaration {$index} payload requires a schema.");
+                if (!is_array($declaration['payload']) || !is_string($declaration['payload']['schema'] ?? null) || '' === trim($declaration['payload']['schema']) || trim($declaration['payload']['schema']) !== $declaration['payload']['schema'] || strlen($declaration['payload']['schema']) > 255) throw new InvalidArgumentException("Runtime declaration {$index} payload requires a bounded nonblank schema.");
                 $payload = self::canonical($declaration['payload']);
-                try { $encoded = json_encode($payload, JSON_THROW_ON_ERROR); } catch (JsonException) { throw new InvalidArgumentException("Runtime declaration {$index} payload is not serializable."); }
+                try { $encoded = self::canonicalJson($payload); } catch (InvalidArgumentException) { throw new InvalidArgumentException("Runtime declaration {$index} payload is not serializable."); }
                 if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} payload exceeds the byte limit.");
                 $normalized['payload'] = $payload;
             }
             if ('entity_collection' === $kind && (!isset($normalized['type'], $normalized['payload']['entities']) || !array_is_list($normalized['payload']['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if (isset($declaration['required_for'])) {
                 if (!is_array($declaration['required_for']) || !array_is_list($declaration['required_for']) || array_filter($declaration['required_for'], static fn(mixed $value): bool => !is_string($value) || '' === $value)) throw new InvalidArgumentException("Runtime declaration {$index} required_for must be a list of declaration keys.");
-                $normalized['required_for'] = array_values(array_unique($declaration['required_for']));
+                if (count($declaration['required_for']) !== count(array_unique($declaration['required_for']))) throw new InvalidArgumentException("Runtime declaration {$index} required_for must not contain duplicates.");
+                $normalized['required_for'] = array_values($declaration['required_for']);
                 sort($normalized['required_for'], SORT_STRING);
             }
+            $normalized['payload_hash'] = self::hash($normalized['payload'] ?? null);
+            $mutable = $normalized;
+            unset($mutable['reconciliation_identity'], $mutable['payload_hash']);
+            $normalized['content_hash'] = self::hash($mutable);
             $declarations[] = $normalized;
             $keys[$key] = $identity;
             $identities[$identity] = true;
@@ -65,6 +76,22 @@ final class RuntimeDeclarations
         foreach ($declarations as $index => $declaration) foreach ($declaration['required_for'] ?? array() as $required) if (!isset($keys[$required])) throw new InvalidArgumentException("Runtime declaration {$index} required_for references unresolved declaration {$required}.");
         usort($declarations, static fn(array $left, array $right): int => strcmp($left['reconciliation_identity'], $right['reconciliation_identity']));
         return $declarations;
+    }
+
+    /** @param array<int,mixed> $declarations */
+    public static function assertNormalized(array $declarations): void
+    {
+        if ($declarations !== self::normalizeList($declarations)) throw new InvalidArgumentException('Runtime declarations are not canonically normalized or have stale hashes.');
+    }
+
+    public static function canonicalJson(mixed $value): string
+    {
+        try { return json_encode(self::canonical($value), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); } catch (JsonException) { throw new InvalidArgumentException('Runtime declaration payload is not serializable.'); }
+    }
+
+    public static function hash(mixed $value): string
+    {
+        return hash('sha256', self::canonicalJson($value));
     }
 
     private static function canonical(mixed $value, int $depth = 0): mixed

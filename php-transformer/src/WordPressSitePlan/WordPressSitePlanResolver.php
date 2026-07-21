@@ -22,11 +22,12 @@ final class WordPressSitePlanResolver
         unset($part);
         foreach ($plan['templates'] as &$template) $template['resolved_block_markup'] = self::replace($template['canonical_block_markup'], $references);
         unset($template);
-        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) $write['payload']['data'] = self::replace($write['payload']['data'], $references);
+        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['payload']['data'] = self::replace($write['payload']['data'], $references); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::replace($declaration['asset_reference'], $references); }
         unset($declaration, $document);
         $plan['resolution'] = array('theme_uri' => $themeUri);
+        WordPressSitePlan::assertValid($plan);
         self::assertResolvedMetadata($plan, $references);
         return $plan;
     }

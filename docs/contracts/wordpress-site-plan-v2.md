@@ -26,6 +26,8 @@ and `WordPressSitePlanResolver::resolve()`.
   template parts follow the same source-plus-target rule. Mutable markup and file
   payloads never affect reconciliation identity; their deterministic
   `content_hash` or `payload_hash` provides change detection instead.
+  For declarations, `kind`, `type` or `capability`, and `source_path` are immutable
+  identity fields; provenance, requirements, and payload are mutable content.
 - `quality.pass` is the canonical boolean quality predicate. It is true exactly
   when `quality.status` is `success` or `success_with_warnings`; metrics and
   fallbacks remain available for detailed policy.

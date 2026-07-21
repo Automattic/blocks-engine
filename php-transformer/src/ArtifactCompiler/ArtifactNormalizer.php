@@ -159,7 +159,7 @@ final class ArtifactNormalizer
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
-            'hash_payload'   => $this->fileHashPayload($files),
+            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations),
             'runtime_declarations' => $runtimeDeclarations,
         );
     }
