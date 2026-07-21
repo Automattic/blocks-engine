@@ -52,6 +52,7 @@
       "php tests/contract/run.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/shared-shell-plan.php",
       "@test:unit"
     ],
     "test:unit": [

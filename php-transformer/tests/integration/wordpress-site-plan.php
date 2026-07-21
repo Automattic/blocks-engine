@@ -37,9 +37,9 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'assets/async.js' => 'window.asyncAsset=true;',
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
-    'about.html' => '<!doctype html><html><body><main><h1>Root About</h1></main><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
-    'nested/about.html' => '<!doctype html><html><head><script src="assets/about-head.js" defer></script></head><body><main><h1>About</h1></main><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
-    'nested/deep/about.html' => '<!doctype html><html><body><main><h1>Deep About</h1></main><script src="assets/deep-about.js"></script></body></html>',
+    'about.html' => '<!doctype html><html><body><header><p>Integration Header</p></header><main><h1>Root About</h1></main><footer><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
+    'nested/about.html' => '<!doctype html><html><head><script src="assets/about-head.js" defer></script></head><body><header><p>Integration Header</p></header><main><h1>About</h1></main><footer><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
+    'nested/deep/about.html' => '<!doctype html><html><body><header><p>Integration Header</p></header><main><h1>Deep About</h1></main><footer><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
     'assets/root-about.js' => 'window.rootAboutAsset=true;',
     'assets/deep-about.js' => 'window.deepAboutAsset=true;',
@@ -93,6 +93,9 @@ $post = $frontPage; $setRequest($post, true);
 $rendered = do_blocks($front); wp_reset_postdata();
 $assert(1 === substr_count($rendered, 'Integration Header') && 1 === substr_count($rendered, 'Integration Footer'), 'WordPress renders each bound template part exactly once.');
 $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp-content/themes/' . $theme . '/assets/assets/logo.svg')), 'WordPress renders front-page content with a browser-valid resolved image URL.');
+$pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
+$post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
+$assert(1 === substr_count($nestedRendered, 'Integration Header') && 1 === substr_count($nestedRendered, 'Integration Footer') && str_contains($nestedRendered, 'About'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

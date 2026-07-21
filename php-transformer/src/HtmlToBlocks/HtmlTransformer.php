@@ -635,6 +635,7 @@ final class HtmlTransformer
                 'body_format' => 'blocks',
                 'block_markup' => $markup,
                 'source_selector' => strtolower($child->tagName),
+                'source_classes' => $this->shellSourceClasses($child),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
                 'placement' => array('kind' => 'entry_shell', 'source_path' => $source, 'template_slugs' => array('front-page')),
             );
@@ -646,6 +647,15 @@ final class HtmlTransformer
         foreach ($removals as $child) $body->removeChild($child);
 
         return $artifacts;
+    }
+
+    /** @return array<int, string> */
+    private function shellSourceClasses(DOMElement $element): array
+    {
+        $classes = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
+        $classes = array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class)));
+        sort($classes, SORT_STRING);
+        return $classes;
     }
 
     /**
