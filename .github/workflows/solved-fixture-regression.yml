@@ -18,8 +18,8 @@ permissions:
 
 jobs:
   solved-site-promotion:
-    uses: Automattic/static-site-importer/.github/workflows/solved-site-promotion.yml@90655edb8cdbbb838accc98b8b11828f1cd2e0a4
+    uses: Automattic/static-site-importer/.github/workflows/solved-site-promotion.yml@09ae365e9c075312ffc62b49f26bd7d8cca3bd40
     with:
-      static-site-importer-sha: 90655edb8cdbbb838accc98b8b11828f1cd2e0a4
+      static-site-importer-sha: 09ae365e9c075312ffc62b49f26bd7d8cca3bd40
       blocks-engine-sha: ${{ github.event.pull_request.head.sha || github.sha }}
       blocks-engine-repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
