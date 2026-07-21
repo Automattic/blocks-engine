@@ -1409,6 +1409,16 @@ $assert(str_contains($redundantToggleSerialized, '<!-- wp:navigation'), 'redunda
 $assert(! str_contains($redundantToggleSerialized, '<!-- wp:button'), 'redundant JS hamburger menu-toggle is dropped instead of emitted as a dead core/button');
 $assert(! str_contains($redundantToggleSerialized, 'nav-toggle'), 'redundant menu-toggle chrome class is not emitted into block output');
 
+$runtimeTargetRedundantToggle = ( new HtmlTransformer() )->transform(
+    '<header><button class="menu-trigger" aria-label="Open navigation" aria-controls="site-menu" aria-expanded="false"><span></span><span></span><span></span></button><nav id="site-menu" class="site-menu" aria-label="Primary"><a href="/">Home</a><a href="/about">About</a></nav></header>',
+    array('runtime_dom_selectors' => array('.menu-trigger', '#site-menu', '.site-menu'))
+)->toArray();
+$runtimeTargetRedundantMarkup = (string) ($runtimeTargetRedundantToggle['serialized_blocks'] ?? '');
+$runtimeTargetRedundantIslands = $runtimeTargetRedundantToggle['source_reports']['runtime_islands'] ?? array();
+$assert(str_contains($runtimeTargetRedundantMarkup, '<!-- wp:navigation'), 'runtime-targeted controlled menu converts to core/navigation when native navigation supersedes its script behavior');
+$assert(! str_contains($runtimeTargetRedundantMarkup, '<!-- wp:html'), 'superseded controlled menu is not preserved as a raw runtime island');
+$assert(array() === array_values(array_filter($runtimeTargetRedundantIslands, static fn (array $island): bool => in_array($island['selector'] ?? '', array('.menu-trigger', '#site-menu', '.site-menu'), true))), 'superseded toggle and controlled menu are not reported as runtime islands');
+
 // Negative: a real labeled button, and a toggle-looking control with no associated
 // navigation, must still convert to core/button — only redundant chrome is dropped.
 $labeledButtons = ( new HtmlTransformer() )->transform(
@@ -1469,6 +1479,15 @@ $nonConvertingSerialized = (string) ($nonConvertingNavbar['serialized_blocks'] ?
 $assert(0 === $countBlockName($nonConvertingBlocks, 'core/button'), 'hamburger toggle for a non-converting nav is dropped rather than emitted as a dead core/button');
 $assert(! str_contains($nonConvertingSerialized, 'burger'), 'non-converting navbar hamburger toggle chrome class is not emitted into block output');
 $assert(str_contains($nonConvertingSerialized, 'Studio'), 'non-converting navbar preserves the brand/logo content');
+
+$runtimeTargetNonConvertingNavbar = ( new HtmlTransformer() )->transform(
+    '<header><button class="burger" aria-label="Toggle menu" aria-controls="mixed-menu" aria-expanded="false"><span></span><span></span></button><nav id="mixed-menu" class="mixed-menu" aria-label="Primary"><ul><li>Announcement</li><li><a href="/music">Music</a></li></ul></nav></header>',
+    array('runtime_dom_selectors' => array('#mixed-menu', '.mixed-menu'))
+)->toArray();
+$runtimeTargetNonConvertingMarkup = (string) ($runtimeTargetNonConvertingNavbar['serialized_blocks'] ?? '');
+$runtimeTargetNonConvertingIslands = $runtimeTargetNonConvertingNavbar['source_reports']['runtime_islands'] ?? array();
+$assert(! str_contains($runtimeTargetNonConvertingMarkup, '<!-- wp:navigation'), 'runtime-targeted non-converting navigation is not incorrectly replaced by core/navigation');
+$assert(1 === count(array_filter($runtimeTargetNonConvertingIslands, static fn (array $island): bool => '#mixed-menu' === ($island['selector'] ?? ''))), 'runtime-targeted non-converting navigation remains protected as a runtime island');
 
 // Negative (#232): a labelless toggle-shaped control with no associated navigation in
 // scope must NOT be over-suppressed by the broadened rule — it still converts to

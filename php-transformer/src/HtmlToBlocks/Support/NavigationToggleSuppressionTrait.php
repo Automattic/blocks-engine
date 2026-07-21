@@ -56,10 +56,10 @@ trait NavigationToggleSuppressionTrait
     /**
      * Record the source selectors made redundant when a hamburger menu-toggle is
      * dropped in favor of the native navigation overlay: the toggle's own id and
-     * class selectors, plus the id/class selectors of the menu/overlay it
-     * controlled via `aria-controls`. A preserved site script may still reference
-     * these selectors (e.g. `.nav-toggle`, `#nav-mobile`); the runtime-dependency
-     * parity report uses this set to mark a resulting "missing DOM target"
+     * class selectors, plus the id/class selectors of a native-convertible
+     * menu/overlay it controlled via `aria-controls`. A preserved site script may
+     * still reference these selectors (e.g. `.nav-toggle`, `#nav-mobile`); the
+     * runtime-dependency parity report uses this set to mark a resulting "missing DOM target"
      * finding as a superseded, acceptable loss rather than a materialization bug.
      * Only selectors of menu-toggles the transformer actually removed are
      * recorded, so genuinely-broken targets stay flagged.
@@ -74,10 +74,10 @@ trait NavigationToggleSuppressionTrait
                 continue;
             }
 
-            $this->supersededRuntimeSelectors['#' . $controlledId] = true;
-
             $target = $this->elementWithId($toggle, $controlledId);
-            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
+            if ( $target instanceof DOMElement
+                && ! $target->isSameNode($toggle)
+                && $this->convertsToCoreNavigation($target) ) {
                 $this->recordSupersededSelectorsForElement($target);
             }
         }

@@ -6032,18 +6032,25 @@ final class HtmlTransformer
     private function isRuntimeDomTarget(DOMElement $element): bool
     {
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) && ! $this->isPresentationalAnimationSelector('#' . $id) ) {
+        if ( '' !== $id
+            && isset($this->runtimeDomSelectors['#' . $id])
+            && ! isset($this->supersededRuntimeSelectors['#' . $id])
+            && ! $this->isPresentationalAnimationSelector('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) && ! $this->isPresentationalAnimationSelector('.' . $class) ) {
+            if ( '' !== $class
+                && isset($this->runtimeDomSelectors['.' . $class])
+                && ! isset($this->supersededRuntimeSelectors['.' . $class])
+                && ! $this->isPresentationalAnimationSelector('.' . $class) ) {
                 return true;
             }
         }
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
-            if ( $this->isPresentationalAnimationSelector((string) $selector) ) {
+            if ( isset($this->supersededRuntimeSelectors[(string) $selector])
+                || $this->isPresentationalAnimationSelector((string) $selector) ) {
                 continue;
             }
 
