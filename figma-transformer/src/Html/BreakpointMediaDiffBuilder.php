@@ -154,12 +154,13 @@ final class BreakpointMediaDiffBuilder
             }
 
             $depth = isset($base['depth']) && is_numeric($base['depth']) ? (int) $base['depth'] : 0;
-            $desktopChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null), $baseMap);
+            $parentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
+            $desktopChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, false, $parentNode, $rootWidth), $baseMap);
             if ( ! empty($desktopChanged) ) {
                 $desktopRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($desktopChanged))) . '}';
             }
 
-            $mobileChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true), $baseMap);
+            $mobileChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true, $parentNode, $rootWidth), $baseMap);
             if ( ! empty($mobileChanged) ) {
                 $mobileRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($mobileChanged))) . '}';
             }
@@ -185,17 +186,20 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array<int, string>
      */
-    private function desktopOnlyResponsiveFallbackDeclarations(array $node, array $baseMap, int $depth, ?float $fallbackWidth = null, bool $mobile = false): array
+    private function desktopOnlyResponsiveFallbackDeclarations(array $node, array $baseMap, int $depth, ?float $fallbackWidth = null, bool $mobile = false, ?array $parentNode = null, ?float $sourceViewportWidth = null): array
     {
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $width = $this->responsiveCssWidth($baseMap) ?? $this->nodeBoxDimension($node, 'width') ?? $fallbackWidth;
         $height = $this->cssPixelValue($baseMap['height'] ?? '');
+        $minHeight = $this->cssPixelValue($baseMap['min-height'] ?? '');
         $display = (string) ($baseMap['display'] ?? '');
         $position = (string) ($baseMap['position'] ?? '');
         $declarations = array();
         $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== $position;
 
-        if ( $this->isOversizedDesktopOnlyFallbackContainer($type, $width) ) {
+        if ( $this->isResponsiveContainerType($type) && null !== $width && $width > ($mobile ? 340.0 : 767.0) ) {
             $declarations[] = 'width:100%';
             $declarations[] = 'max-width:100%';
             if ( 'absolute' === $position ) {
@@ -214,7 +218,11 @@ final class BreakpointMediaDiffBuilder
                     $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
                 }
             }
-            if ( $wrapsRow ) {
+            if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
+                $declarations[] = 'min-height:0';
+            }
+            if ( $mobile && $wrapsRow ) {
+                $declarations[] = 'height:auto';
                 if ( $this->hasContainerChild($node) ) {
                     $declarations[] = 'flex-direction:column';
                     $declarations[] = 'align-items:stretch';
@@ -225,11 +233,28 @@ final class BreakpointMediaDiffBuilder
                 }
             }
 
-            if ( in_array($display, array('grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
+            if ( $mobile && in_array($display, array('grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
                 $declarations[] = 'grid-template-columns:1fr';
             }
 
             array_push($declarations, ...$this->responsivePaddingClampDeclarations($baseMap));
+            $gap = $this->cssPixelValue($baseMap['gap'] ?? '');
+            if ( null !== $gap && $gap > ($mobile ? 24.0 : 48.0) ) {
+                $declarations[] = 'gap:' . ($mobile ? '24px' : '48px');
+            }
+        }
+
+        if ( $isFlexChild && null !== $width && $width > 320.0 ) {
+            $declarations[] = 'max-width:100%';
+            $declarations[] = 'min-width:0';
+            $declarations[] = 'flex-shrink:1';
+            if ( $this->isEqualWidthFlexRow($parentNode) ) {
+                $declarations[] = 'flex-basis:0';
+                $declarations[] = 'flex-grow:1';
+            }
+            if ( $this->isResponsiveContainerType($type) && null !== $height && $height > 240.0 ) {
+                $declarations[] = 'height:auto';
+            }
         }
 
         if ( 'TEXT' === $type && null !== $width && $width > 320.0 ) {
@@ -250,11 +275,27 @@ final class BreakpointMediaDiffBuilder
                 $declarations[] = 'left:24px';
                 $declarations[] = 'right:24px';
             }
+            if ( null !== $sourceViewportWidth && $sourceViewportWidth > 1200.0 ) {
+                foreach ( array('font-size', 'line-height') as $property ) {
+                    $sourceValue = $this->cssPixelValue($baseMap[$property] ?? '');
+                    if ( null === $sourceValue || $sourceValue <= 16.0 ) {
+                        continue;
+                    }
+                    $minimum = max(14.0, $sourceValue * 0.55);
+                    $declarations[] = $property . ':clamp(' . ($this->number)($minimum) . 'px,' . ($this->number)($sourceValue / $sourceViewportWidth * 100.0) . 'vw,' . ($this->number)($sourceValue) . 'px)';
+                }
+            }
         }
 
-        if ( $mobile && null !== $width && $width > 340.0 && isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(') ) {
-            $declarations[] = 'width:100%';
+        $fluidAbsoluteVisual = 'absolute' === $position && null !== $width && $width > 0.0;
+        if ( ($mobile || ($isFlexChild && null !== $width && $width > 340.0) || $fluidAbsoluteVisual) && null !== $width && isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(') ) {
+            $absoluteFluidGeometry = $fluidAbsoluteVisual ? $this->absoluteFluidVisualGeometry($node, $parentNode, $width) : array();
+            $declarations[] = isset($absoluteFluidGeometry['width']) ? 'width:' . $absoluteFluidGeometry['width'] : 'width:100%';
             $declarations[] = 'max-width:100%';
+            if ( isset($absoluteFluidGeometry['left']) ) {
+                $declarations[] = 'left:' . $absoluteFluidGeometry['left'];
+                $declarations[] = 'right:auto';
+            }
             if ( null !== $height && $height > 0.0 ) {
                 $declarations[] = 'height:auto';
                 $declarations[] = 'aspect-ratio:' . ($this->number)($width) . ' / ' . ($this->number)($height);
@@ -265,6 +306,66 @@ final class BreakpointMediaDiffBuilder
         }
 
         return array_values(array_unique($declarations));
+    }
+
+    /**
+     * Preserve collage composition when a fixed desktop canvas is fluidized.
+     * Absolute visual children retain their source-relative width and x offset
+     * as percentages of the containing frame.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array{width?: string, left?: string}
+     */
+    private function absoluteFluidVisualGeometry(array $node, ?array $parentNode, float $width): array
+    {
+        if ( null === $parentNode ) {
+            return array();
+        }
+        $parentWidth = $this->nodeBoxDimension($parentNode, 'width');
+        $box = is_array($node['box'] ?? null) ? $node['box'] : $node;
+        if ( null === $parentWidth || $parentWidth <= 0.0 || ! is_numeric($box['x'] ?? null) ) {
+            return array();
+        }
+
+        return array(
+            'width' => ($this->number)(min(100.0, $width / $parentWidth * 100.0)) . '%',
+            'left'  => ($this->number)(max(0.0, (float) $box['x'] / $parentWidth * 100.0)) . '%',
+        );
+    }
+
+    /**
+     * Equal-width source rows can share constrained viewport space without
+     * changing their desktop structure. Unequal rows retain their source
+     * proportions and only receive ordinary flex shrinking.
+     *
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isEqualWidthFlexRow(?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+        $layout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( ! in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true) || 'row' !== ($layout['flex_direction'] ?? null) ) {
+            return false;
+        }
+
+        $widths = array();
+        foreach ( ($this->nodeList)($parentNode) as $child ) {
+            if ( ! is_array($child) || 'absolute' === ($child['layout']['positioning'] ?? null) ) {
+                continue;
+            }
+            $box = is_array($child['box'] ?? null) ? $child['box'] : $child;
+            if ( is_numeric($box['width'] ?? null) && (float) $box['width'] > 0.0 ) {
+                $widths[] = (float) $box['width'];
+            }
+        }
+        if ( count($widths) < 2 ) {
+            return false;
+        }
+
+        return max($widths) - min($widths) <= max($widths) * 0.15;
     }
 
     /**
@@ -288,11 +389,6 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $changed;
-    }
-
-    private function isOversizedDesktopOnlyFallbackContainer(string $type, ?float $width): bool
-    {
-        return $this->isResponsiveContainerType($type) && null !== $width && $width > 767.0;
     }
 
     private function isResponsiveContainerType(string $type): bool

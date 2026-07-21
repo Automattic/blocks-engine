@@ -8273,12 +8273,8 @@ foreach ( $desktopOnlyImageFallbackResult['files'] ?? array() as $desktopOnlyIma
     }
 }
 $assert('success' === ($desktopOnlyImageFallbackResult['status'] ?? null), 'desktop-only-image-fallback-transform-success');
-$desktopOnlyWideFallbackBlock = '';
-if ( preg_match('/@media \(max-width:1439px\)\{(?<block>[\s\S]*?)\n\}/', $desktopOnlyImageFallbackCss, $desktopOnlyWideFallbackMatch) ) {
-    $desktopOnlyWideFallbackBlock = (string) ($desktopOnlyWideFallbackMatch['block'] ?? '');
-}
-$assert(! str_contains($desktopOnlyWideFallbackBlock, '.figma-node-desktop-only-image-service-image{'), 'desktop-only-image-fallback-not-clamped-at-desktop');
-$assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-only-image-service-image\{[^}]*width:100%[^}]*max-width:100%[^}]*height:auto[^}]*aspect-ratio:538 \/ 381/s', $desktopOnlyImageFallbackCss) === 1, 'desktop-only-image-fallback-clamped-at-mobile');
+$assert(str_contains($desktopOnlyImageFallbackCss, '@media (max-width:1439px)'), 'desktop-only-image-fallback-emits-fluid-containment-range');
+$assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-only-image-service-image\{(?=[^}]*(?<!-)width:100%)(?=[^}]*max-width:100%)(?=[^}]*height:auto)(?=[^}]*aspect-ratio:538 \/ 381)[^}]*\}/s', $desktopOnlyImageFallbackCss) === 1, 'desktop-only-image-fallback-clamped-at-mobile');
 
 $desktopOnlyAbsoluteFallbackResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
@@ -8309,6 +8305,7 @@ foreach ( $desktopOnlyAbsoluteFallbackResult['files'] ?? array() as $desktopOnly
 }
 $assert('success' === ($desktopOnlyAbsoluteFallbackResult['status'] ?? null), 'desktop-only-absolute-fallback-transform-success');
 $assert(preg_match('/@media \(max-width:1439px\)\{[\s\S]*\.figma-node-desktop-absolute-panel-offset-panel\{[^}]*width:100%[^}]*max-width:100%[^}]*left:0[^}]*right:auto/s', $desktopOnlyAbsoluteFallbackCss) === 1, 'desktop-only-absolute-fallback-fluid-container-resets-left');
+$assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-absolute-panel-offset-panel\{[^}]*width:100%[^}]*max-width:100%[^}]*left:0[^}]*right:auto/s', $desktopOnlyAbsoluteFallbackCss) === 1, 'desktop-only-absolute-fallback-fluid-container-resets-left-at-mobile');
 $assert(preg_match('/@media \(max-width:767px\)\{[\s\S]*\.figma-node-desktop-absolute-text-offset-text\{[^}]*width:100%[^}]*max-width:100%[^}]*left:0[^}]*right:auto/s', $desktopOnlyAbsoluteFallbackCss) === 1, 'desktop-only-absolute-fallback-fluid-text-resets-left');
 
 if ( ! empty($failures) ) {

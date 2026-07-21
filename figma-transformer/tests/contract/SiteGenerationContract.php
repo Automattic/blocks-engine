@@ -730,21 +730,50 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                             array('id' => 'responsive-rows:price-c', 'type' => 'FRAME', 'name' => 'Price card', 'width' => 380, 'height' => 280),
                         ),
                     ),
+                    array(
+                        'id'       => 'responsive-rows:services',
+                        'type'     => 'FRAME',
+                        'name'     => 'Services Section',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'layoutMode' => 'VERTICAL',
+                        'children' => array(
+                            array(
+                                'id'       => 'responsive-rows:services-content',
+                                'type'     => 'FRAME',
+                                'name'     => 'Services content',
+                                'width'    => 1216,
+                                'height'   => 420,
+                                'layoutMode' => 'VERTICAL',
+                                'children' => array(
+                                    array('id' => 'responsive-rows:services-copy', 'type' => 'TEXT', 'name' => 'Services copy', 'characters' => 'Services', 'width' => 420, 'height' => 64, 'fontSize' => 48),
+                                ),
+                            ),
+                        ),
+                    ),
                 ),
             ),
         ),
     ));
     $desktopOnlyResponsiveRowsCss = $fileContent($desktopOnlyResponsiveRowsResult, 'style.css');
-    $desktopOnlyResponsiveRowsTabletBlockPosition = strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:1439px)');
-    $assert(false !== $desktopOnlyResponsiveRowsTabletBlockPosition, 'desktop-only-responsive-rows-emits-tablet-safety-block');
-    $desktopOnlyResponsiveRowsTabletBlock = false === $desktopOnlyResponsiveRowsTabletBlockPosition ? '' : substr($desktopOnlyResponsiveRowsCss, $desktopOnlyResponsiveRowsTabletBlockPosition);
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-hero-hero-row', array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap', 'padding-right:24px', 'padding-left:24px'), 'desktop-only-responsive-hero-row-stacks-at-tablet');
-    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-hero-hero-row', array('min-height:420px', 'flex-wrap:wrap'), 'desktop-only-responsive-hero-row-has-no-fixed-min-height-floor-or-wrap-only-layout');
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-pricing-cards-stack-at-tablet');
-    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-or-wrap-only-layout');
+    $desktopOnlyResponsiveRowsFluidBlockPosition = strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:1439px)');
+    $assert(false !== $desktopOnlyResponsiveRowsFluidBlockPosition, 'desktop-only-responsive-rows-emits-fluid-containment-block');
+    $desktopOnlyResponsiveRowsFluidBlock = false === $desktopOnlyResponsiveRowsFluidBlockPosition ? '' : substr($desktopOnlyResponsiveRowsCss, $desktopOnlyResponsiveRowsFluidBlockPosition, strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:767px)') - $desktopOnlyResponsiveRowsFluidBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsFluidBlock, '.figma-node-responsive-rows-hero-hero-row', array('width:100%', 'max-width:100%', 'height:auto', 'padding-right:24px', 'padding-left:24px'), 'desktop-only-responsive-hero-row-is-fluid-below-source-canvas-width');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsFluidBlock, '.figma-node-responsive-rows-hero-hero-row', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-hero-row-keeps-desktop-structure-in-fluid-range');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsFluidBlock, '.figma-node-responsive-rows-price-a-price-card', array('max-width:100%', 'min-width:0', 'flex-shrink:1', 'flex-basis:0', 'flex-grow:1'), 'desktop-only-responsive-card-row-items-share-available-fluid-width');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsFluidBlock, '.figma-node-responsive-rows-services-services-section', array('min-height:0'), 'desktop-only-responsive-flow-section-releases-oversized-source-min-height');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsFluidBlock, '.figma-node-responsive-rows-hero-title-hero-title', array('font-size:clamp(26.4px,3.333vw,48px)'), 'desktop-only-responsive-text-scales-between-source-and-narrow-viewports');
+    $desktopOnlyResponsiveRowsMobileBlockPosition = strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:767px)');
+    $assert(false !== $desktopOnlyResponsiveRowsMobileBlockPosition, 'desktop-only-responsive-rows-emits-mobile-safety-block');
+    $desktopOnlyResponsiveRowsMobileBlock = false === $desktopOnlyResponsiveRowsMobileBlockPosition ? '' : substr($desktopOnlyResponsiveRowsCss, $desktopOnlyResponsiveRowsMobileBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-hero-hero-row', array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap', 'padding-right:24px', 'padding-left:24px'), 'desktop-only-responsive-hero-row-stacks-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-hero-hero-row', array('min-height:420px', 'flex-wrap:wrap'), 'desktop-only-responsive-hero-row-has-no-fixed-min-height-floor-or-wrap-only-layout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-pricing-cards-stack-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-or-wrap-only-layout');
 
     // Desktop-only canvas sections (no auto-layout) position every child
-    // absolutely, so the tablet `height:auto` relaxation must keep a
+    // absolutely, so the mobile `height:auto` relaxation must keep a
     // source-height floor or the whole section collapses to zero height.
     $desktopOnlyCanvasSectionsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Desktop Only Canvas Sections Fixture',
@@ -828,12 +857,16 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         ),
     ));
     $desktopOnlyCanvasSectionsCss = $fileContent($desktopOnlyCanvasSectionsResult, 'style.css');
-    $desktopOnlyCanvasSectionsTabletBlockPosition = strpos($desktopOnlyCanvasSectionsCss, '@media (max-width:1439px)');
-    $assert(false !== $desktopOnlyCanvasSectionsTabletBlockPosition, 'desktop-only-canvas-sections-emit-tablet-safety-block');
-    $desktopOnlyCanvasSectionsTabletBlock = false === $desktopOnlyCanvasSectionsTabletBlockPosition ? '' : substr($desktopOnlyCanvasSectionsCss, $desktopOnlyCanvasSectionsTabletBlockPosition);
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-hero-hero-canvas-band', array('height:auto', 'min-height:453px'), 'desktop-only-canvas-hero-band-keeps-source-height-floor-at-tablet');
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-about-about-canvas-band', array('height:auto', 'min-height:720px'), 'desktop-only-canvas-about-band-keeps-capped-height-floor-at-tablet');
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-cta-cta-canvas-band', array('height:auto', 'min-height:460px'), 'desktop-only-canvas-cta-band-keeps-source-height-floor-at-tablet');
+    $desktopOnlyCanvasSectionsFluidBlockPosition = strpos($desktopOnlyCanvasSectionsCss, '@media (max-width:1439px)');
+    $assert(false !== $desktopOnlyCanvasSectionsFluidBlockPosition, 'desktop-only-canvas-sections-emit-fluid-containment-block');
+    $desktopOnlyCanvasSectionsFluidBlock = false === $desktopOnlyCanvasSectionsFluidBlockPosition ? '' : substr($desktopOnlyCanvasSectionsCss, $desktopOnlyCanvasSectionsFluidBlockPosition, strpos($desktopOnlyCanvasSectionsCss, '@media (max-width:767px)') - $desktopOnlyCanvasSectionsFluidBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsFluidBlock, '.figma-node-canvas-sections-hero-hero-canvas-band', array('height:auto', 'min-height:453px'), 'desktop-only-canvas-hero-band-keeps-source-height-floor-in-fluid-range');
+    $desktopOnlyCanvasSectionsMobileBlockPosition = strpos($desktopOnlyCanvasSectionsCss, '@media (max-width:767px)');
+    $assert(false !== $desktopOnlyCanvasSectionsMobileBlockPosition, 'desktop-only-canvas-sections-emit-mobile-safety-block');
+    $desktopOnlyCanvasSectionsMobileBlock = false === $desktopOnlyCanvasSectionsMobileBlockPosition ? '' : substr($desktopOnlyCanvasSectionsCss, $desktopOnlyCanvasSectionsMobileBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-hero-hero-canvas-band', array('height:auto', 'min-height:453px'), 'desktop-only-canvas-hero-band-keeps-source-height-floor-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-about-about-canvas-band', array('height:auto', 'min-height:720px'), 'desktop-only-canvas-about-band-keeps-capped-height-floor-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-cta-cta-canvas-band', array('height:auto', 'min-height:460px'), 'desktop-only-canvas-cta-band-keeps-source-height-floor-at-mobile');
 
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',
@@ -2251,9 +2284,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
     $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
     $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
-    // The single-variant About page contributes source-width and mobile
-    // desktop-only fallback media blocks.
-    $assert(1 === preg_match('/@media \(max-width:1439px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-source-width-fallback-media');
+    // The single-variant About page contributes a non-structural fluid
+    // containment layer plus the narrow-screen structural safety block.
+    $assert(1 === preg_match('/@media \(max-width:1439px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-source-width-fluid-media');
     $assert(1 === preg_match('/@media \(max-width:767px\)\{[\s\S]*figma-node-frame-about-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-desktop-fallback-media');
 
     $responsiveMismatchScenegraph = array(
