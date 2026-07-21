@@ -812,11 +812,13 @@ trait StyleResolutionTrait
             'padding-left',
             'padding-right',
             'padding-top',
+            'position',
             'row-gap',
             'text-align',
             'text-decoration',
             'text-transform',
             'width',
+            'z-index',
         ));
 
         return array_intersect_key($declarations, $safe);

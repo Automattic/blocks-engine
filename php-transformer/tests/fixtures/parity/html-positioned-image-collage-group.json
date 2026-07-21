@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-positioned-image-collage-group",
+  "description": "Preserves an authored positioned image collage as a native group instead of rewriting its overlapping geometry into core gallery columns.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-positioned-image-collage-group.json",
+    "notes": "Regression coverage for generic gallery promotion safety; class-owned absolute positioning must be resolved from source CSS."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"collage\" style=\"position:relative;overflow:hidden;isolation:isolate;width:680px;height:560px\"><img class=\"collage-primary\" style=\"position:absolute;left:0;top:0;z-index:1;width:470px;height:505px;object-fit:cover\" src=\"https://example.com/primary.jpg\" alt=\"Primary\"><img class=\"collage-secondary\" style=\"position:absolute;left:390px;top:225px;z-index:2;width:296px;height:340px;object-fit:cover\" src=\"https://example.com/secondary.jpg\" alt=\"Secondary\"></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/primary.jpg", "alt": "Primary" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "https://example.com/secondary.jpg", "alt": "Secondary" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "collage-primary" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:gallery" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

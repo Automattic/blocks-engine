@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-linked-css-positioned-collage",
+  "description": "Resolves class-owned positioned media from linked CSS before deciding whether sibling images are gallery-compatible.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-linked-css-positioned-collage.json",
+    "notes": "Matches generated static artifacts where collage geometry lives in a linked author stylesheet."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"assets/site.css\"></head><body><main><div class=\"collage\"><img class=\"collage-primary\" src=\"https://example.com/primary.jpg\" alt=\"Primary\"><img class=\"collage-secondary\" src=\"https://example.com/secondary.jpg\" alt=\"Secondary\"></div></main></body></html>"
+        },
+        {
+          "path": "assets/site.css",
+          "kind": "css",
+          "content": ".collage{position:relative;overflow:hidden;isolation:isolate;width:680px;height:560px}.collage-primary{position:absolute;left:0;top:0;z-index:1;width:470px;height:505px;object-fit:cover}.collage-secondary{position:absolute;left:390px;top:225px;z-index:2;width:296px;height:340px;object-fit:cover}"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"collage\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "collage-primary" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:gallery" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
