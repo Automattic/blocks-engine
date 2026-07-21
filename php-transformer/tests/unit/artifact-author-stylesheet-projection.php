@@ -50,6 +50,32 @@ $richText = ( new ArtifactCompiler() )->compile(array(
 $richTextAssets = $richText['assets'] ?? array();
 $assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
 
+$multiPage = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><style>.rows li{gap:1rem}</style><main><ul class="rows"><li><span>About</span><span>Now</span></li></ul></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => 'p{margin:0}.rows li{display:grid}' ),
+    ),
+) )->toArray();
+$multiPageAssets = array_column($multiPage['assets'] ?? array(), null, 'path');
+$sharedCss = (string) ($multiPageAssets['site.css']['content'] ?? '');
+$aboutCss = (string) ($multiPageAssets['about.inline.css']['content'] ?? '');
+$assert(str_contains($sharedCss, 'blocks-engine-source-p-') && str_contains($sharedCss, 'blocks-engine-source-li-'), 'shared stylesheet merges projections required by entry and sibling HTML documents');
+$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && str_ends_with($aboutCss, '.rows li{gap:1rem}'), 'sibling inline projection precedes the original stylesheet so retained selectors remain authoritative');
+
+$multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><h1>Home</h1></main>' ),
+        array( 'path' => 'contact.html', 'kind' => 'html', 'content' => '<main><form action="#" method="post"><input type="email" name="email" required><button type="submit">Send</button></form></main>' ),
+        array( 'path' => 'shop.html', 'kind' => 'html', 'content' => '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down">-</button><span aria-live="polite">1</span><button data-dir="up">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><button class="add-to-cart">Add to cart</button></article></li></ul></main>' ),
+    ),
+) )->toArray();
+$runtimeFallbacks = array_column($multiPageRuntime['fallbacks'] ?? array(), null, 'diagnostic_code');
+$runtimeReportFallbacks = array_column($multiPageRuntime['source_reports']['conversion_report']['fallback_diagnostics'] ?? array(), null, 'diagnostic_code');
+$assert('contact.html' === ($runtimeFallbacks['html_form_fallback']['source'] ?? ''), 'sibling form finding reaches the artifact result with source-page identity');
+$assert('shop.html' === ($runtimeFallbacks['html_product_grid_fallback']['source'] ?? ''), 'sibling product finding reaches the artifact result with source-page identity');
+$assert(isset($runtimeReportFallbacks['html_form_fallback'], $runtimeReportFallbacks['html_product_grid_fallback']), 'site conversion report exposes sibling form and product provider targets');
+
 $types = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style type="TEXT/CSS; charset=UTF-8">.style-ok{color:red}</style><style type="text/css-not-a-mime">.style-bad{color:red}</style><link rel="stylesheet" href="ok.css" type="text/css; charset=utf-8"><link rel="stylesheet" href="bad.css" type="text/css-not-a-mime"><main><p>Types</p></main>' ),

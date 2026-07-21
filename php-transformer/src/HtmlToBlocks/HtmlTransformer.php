@@ -792,7 +792,7 @@ final class HtmlTransformer
                 $parsed = CssSelectorMatcher::parse($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'nav', 'p' ), true) ) {
+                    if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
                         $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }

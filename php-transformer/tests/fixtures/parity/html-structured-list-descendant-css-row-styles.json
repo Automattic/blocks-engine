@@ -29,8 +29,12 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"layout\":{\"type\":\"flex\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-source-li-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "padding-top:0.9rem" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"track-title\">Kindling</p>" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-source-li-" },
+    { "path": "assets.0.content", "assert": "contains", "value": "align-items:baseline" },
+    { "path": "assets.0.content", "assert": "contains", "value": "gap:1.25rem" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

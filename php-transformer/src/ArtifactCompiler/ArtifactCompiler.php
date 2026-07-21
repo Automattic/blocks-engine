@@ -69,8 +69,17 @@ final class ArtifactCompiler
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath);
+        $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
+        $allDiagnostics = $entryBlocks['diagnostics'];
+        $allFallbacks = $entryBlocks['fallbacks'];
+        foreach ( $compiledHtmlDocuments as $compiledHtmlDocument ) {
+            $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
+            $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array()));
+            $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
+        }
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $entryBlocks['author_stylesheet_projections']);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
@@ -78,7 +87,7 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
-        $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
+        $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -114,7 +123,7 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts']);
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks'], $runtimeIslandPackage);
         if ( array() !== $companionPluginPayload ) {
@@ -140,12 +149,12 @@ final class ArtifactCompiler
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
-            'fallback_count'        => count($entryBlocks['fallbacks']),
+            'fallback_count'        => count($allFallbacks),
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $entryBlocks['fallbacks'], $sourceReports, $assets, $provenance, $metrics);
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
 
         // Failed compilations have no materializable source identity and no site plan.
         if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
@@ -161,7 +170,7 @@ final class ArtifactCompiler
                     'documents' => $documents['documents'],
                     'assets' => $assets,
                     'diagnostics' => $diagnostics,
-                    'fallbacks' => $entryBlocks['fallbacks'],
+                    'fallbacks' => $allFallbacks,
                     'provenance' => $provenance,
                     'coverage' => array(),
                     'context' => array(),
@@ -182,7 +191,7 @@ final class ArtifactCompiler
             documents: $documents['documents'],
             assets: $assets,
             diagnostics: $diagnostics,
-            fallbacks: $entryBlocks['fallbacks'],
+            fallbacks: $allFallbacks,
             provenance: $provenance,
             metrics: $metrics
         );
@@ -797,34 +806,71 @@ final class ArtifactCompiler
     /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $projections
+     * @param array<int, array<string, mixed>> $primaryProjections
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array()): array
     {
         $byPath = array();
+        $primaryByPath = array();
+        foreach ( $primaryProjections as $projection ) {
+            if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
+                $primaryByPath[$projection['path']][$projection['content']] = true;
+            }
+        }
         foreach ( $projections as $projection ) {
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
-                $byPath[$projection['path']] = $projection;
+                $path = $projection['path'];
+                $byPath[$path] ??= array();
+                $byPath[$path][$projection['content']] = true;
             }
         }
         foreach ( $files as &$file ) {
-            $projection = $byPath[$file['path'] ?? ''] ?? null;
-            if ( ! is_array($projection) || 'css' !== ($file['kind'] ?? '') ) {
+            $pathProjections = $byPath[$file['path'] ?? ''] ?? null;
+            if ( ! is_array($pathProjections) || 'css' !== ($file['kind'] ?? '') ) {
                 continue;
             }
-            $file['content'] = $projection['content'];
-            if ( array_key_exists('content_base64', $file) ) {
-                $file['content_base64'] = base64_encode($projection['content']);
+            foreach ( array_keys($primaryByPath[$file['path'] ?? ''] ?? array()) as $primaryContent ) {
+                unset($pathProjections[$primaryContent]);
             }
-            $file['bytes'] = $projection['bytes'];
+            $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
+            if ( array() === $authoritativeContent ) {
+                $authoritativeContent[] = (string) ($file['content'] ?? '');
+            }
+            $content = implode("\n", array_merge(array_keys($pathProjections), $authoritativeContent));
+            $file['content'] = $content;
+            $file['bytes'] = strlen($content);
             $file['encoding'] = 'text';
             $file['binary'] = false;
             unset($file['content_base64']);
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
-            $file['provenance']['hash'] = $projection['hash'];
+            $file['provenance']['hash'] = hash('sha256', $content);
         }
         unset($file);
         return $files;
+    }
+
+    /**
+     * Compile non-entry HTML documents once so their stylesheet projections are
+     * available before theme assets are materialized.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<string, mixed>>
+     */
+    private function compileHtmlSourceDocuments(array $files, string $entryPath): array
+    {
+        $documents = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            if ( '' === $path || $entryPath === $path ) {
+                continue;
+            }
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', '', true);
+        }
+        return $documents;
     }
 
     /**
@@ -1689,7 +1735,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
     {
         $pages = array();
         foreach ( $artifact['files'] as $file ) {
@@ -1703,7 +1749,7 @@ final class ArtifactCompiler
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
-                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true);
+                : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) && ! in_array($generatedAsset, $assets, true) ) {
                     $assets[] = $generatedAsset;
