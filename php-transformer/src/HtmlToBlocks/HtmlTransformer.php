@@ -1022,7 +1022,7 @@ final class HtmlTransformer
                     $projected = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
                     $rewritten[] = $projected;
                     if ( $hasImageMatch ) {
-                        $rewritten[] = $projected . ' > :where(img)';
+                        $rewritten[] = $projected . '.wp-block-image > img';
                     }
                 }
                 foreach ( $shellTags as $tag ) {
@@ -1135,7 +1135,7 @@ final class HtmlTransformer
         $replacements = array(
             (int) $parsed['rightmost_rewrite_end'] => array(
                 'end'   => (int) $parsed['rightmost_rewrite_end'],
-                'value' => ' > :where(img)',
+                'value' => '.wp-block-image > img',
             ),
         );
         $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;

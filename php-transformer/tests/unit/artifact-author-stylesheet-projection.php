@@ -63,12 +63,13 @@ $assert(str_contains($typeContents, '.style-ok{color:red}') && str_contains($typ
 $image = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="image.css"><img class="root-photo" src="photo.jpg" alt="Root photo"><main><img class="photo" src="photo.jpg" alt="Photo"></main>' ),
-        array( 'path' => 'image.css', 'kind' => 'css', 'content' => '.photo{width:123px;height:106px;object-fit:cover}img.photo{display:block}body>.root-photo{height:80px}' ),
+        array( 'path' => 'image.css', 'kind' => 'css', 'content_base64' => base64_encode('.photo{width:123px;height:106px;object-fit:cover}img.photo{display:block}body>.root-photo{height:80px}') ),
         array( 'path' => 'photo.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
     ),
 ) )->toArray();
 $imageCss = (string) (($image['assets'][0]['content'] ?? ''));
-$assert(str_contains($imageCss, '.photo > :where(img){width:123px;height:106px;object-fit:cover}') && preg_match('/where\(figure\).*\.photo > :where\(img\)\{display:block\}/', $imageCss) && preg_match('/blocks-engine-root-child-.* > :where\(img\)\{height:80px\}/', $imageCss), 'source image selectors project onto canonical nested images, including root children');
+$assert(str_contains($imageCss, '.photo.wp-block-image > img{width:123px;height:106px;object-fit:cover}') && preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:block\}/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img\{height:80px\}/', $imageCss), 'source image selectors project onto canonical nested images with block specificity, including root children');
+$assert($imageCss === base64_decode((string) ($image['assets'][0]['content_base64'] ?? ''), true), 'stylesheet projection keeps text and base64 payload representations consistent');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
 if ( $failures > 0 ) {
