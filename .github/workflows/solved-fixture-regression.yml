@@ -25,6 +25,7 @@ jobs:
     env:
       HOMEBOY_VERSION: v0.298.1
       HOMEBOY_SHA256: 543a1eb7348a9dcde3bee671dbbeaabb9486781d350792bed8a77424fdad60d5
+      HOMEBOY_EXTENSIONS_REF: 615fe3632d0cd30e9a70d5aea82be80460d733d5
       WP_CODEBOX_VERSION: v0.12.29
       WP_CODEBOX_SHA256: d332924b3b91ef8e47b5ebca7063b2964734d3ac081dd62fa18ec9417fefdcd5
 
@@ -39,8 +40,8 @@ jobs:
           mkdir -p "$RUN_DIR/homeboy-artifacts" "$RUN_DIR/homeboy-shared-state"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
-          printf '{\n  "runId": "%s",\n  "candidateSha": "%s",\n  "staticSiteImporterRef": "%s",\n  "homeboyVersion": "%s",\n  "wpCodeboxVersion": "%s"\n}\n' \
-            "$RUN_ID" "$GITHUB_SHA" "0dcefb3fde53561e3682263f9deddfd451ddaa32" "$HOMEBOY_VERSION" "$WP_CODEBOX_VERSION" \
+          printf '{\n  "runId": "%s",\n  "candidateSha": "%s",\n  "staticSiteImporterRef": "%s",\n  "homeboyVersion": "%s",\n  "homeboyExtensionsRef": "%s",\n  "wpCodeboxVersion": "%s"\n}\n' \
+            "$RUN_ID" "$GITHUB_SHA" "0dcefb3fde53561e3682263f9deddfd451ddaa32" "$HOMEBOY_VERSION" "$HOMEBOY_EXTENSIONS_REF" "$WP_CODEBOX_VERSION" \
             > "$RUN_DIR/homeboy-artifacts/runtime-inputs.json"
 
       - name: Checkout pinned Static Site Importer
@@ -76,6 +77,8 @@ jobs:
           tar --extract --xz --file "$RUNNER_TEMP/homeboy.tar.xz" --directory "$RUNNER_TEMP/homeboy" --strip-components=1
           chmod +x "$RUNNER_TEMP/homeboy/homeboy"
           "$RUNNER_TEMP/homeboy/homeboy" --version
+          "$RUNNER_TEMP/homeboy/homeboy" extension install https://github.com/Extra-Chill/homeboy-extensions --id nodejs --ref "$HOMEBOY_EXTENSIONS_REF"
+          "$RUNNER_TEMP/homeboy/homeboy" extension install https://github.com/Extra-Chill/homeboy-extensions --id wordpress --ref "$HOMEBOY_EXTENSIONS_REF"
           echo "HOMEBOY_BIN=$RUNNER_TEMP/homeboy/homeboy" >> "$GITHUB_ENV"
 
       - name: Install pinned WP Codebox
