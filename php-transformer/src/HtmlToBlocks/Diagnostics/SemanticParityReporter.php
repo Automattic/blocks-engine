@@ -188,7 +188,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+            if ( 'core/navigation' === ($block['blockName'] ?? '') || $this->isStaticNavigationGroup($block) ) {
                 ++$counts['nav'];
             }
 
@@ -430,6 +430,17 @@ final class SemanticParityReporter
                 $menus[] = array(
                     'block_path' => $blockPath,
                     'represented_as_core_navigation' => true,
+                    'represented_as_native_navigation' => true,
+                    'item_count' => count($items),
+                    'items' => $items,
+                );
+            } elseif ( $this->isStaticNavigationGroup($block) ) {
+                $items = array();
+                $this->collectStaticNavigationItems(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $items);
+                $menus[] = array(
+                    'block_path' => $blockPath,
+                    'represented_as_core_navigation' => false,
+                    'represented_as_native_navigation' => true,
                     'item_count' => count($items),
                     'items' => $items,
                 );
@@ -462,6 +473,66 @@ final class SemanticParityReporter
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
                 $this->collectBlockNavigationItems($block['innerBlocks'], $items);
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isStaticNavigationGroup(array $block): bool
+    {
+        return 'core/group' === ($block['blockName'] ?? '')
+            && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+            && in_array('blocks-engine-inline-navigation', preg_split('/\s+/', trim((string) ($block['attrs']['className'] ?? ''))) ?: array(), true)
+            && ! $this->containsCoreNavigation(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function containsCoreNavigation(array $blocks): bool
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                return true;
+            }
+            if ( $this->containsCoreNavigation(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array()) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, string>> $items
+     */
+    private function collectStaticNavigationItems(array $blocks, array &$items): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $content = is_string($block['attrs']['content'] ?? null)
+                ? $block['attrs']['content']
+                : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
+            if ( '' !== $content && preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', $content, $matches, PREG_SET_ORDER) ) {
+                foreach ( $matches as $match ) {
+                    $href = '';
+                    if ( preg_match('/(?:^|\s)href\s*=\s*(["\'])(.*?)\1/is', (string) $match[1], $hrefMatch) ) {
+                        $href = html_entity_decode((string) $hrefMatch[2], ENT_QUOTES | ENT_HTML5);
+                    }
+                    $items[] = array(
+                        'label' => $this->normalizedNavigationLabel((string) $match[2]),
+                        'url'   => $href,
+                    );
+                }
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectStaticNavigationItems($block['innerBlocks'], $items);
             }
         }
     }
@@ -536,7 +607,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false) ) {
+            if ( true !== ($blockMenu['represented_as_native_navigation'] ?? $blockMenu['represented_as_core_navigation'] ?? false) ) {
                 $findings[] = array(
                     'code' => 'navigation_core_block_missing',
                     'severity' => 'warning',

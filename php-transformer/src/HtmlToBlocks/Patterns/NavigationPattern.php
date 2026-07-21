@@ -44,6 +44,27 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ( $this->isInlineUtilityNavigation($element) ) {
+            $content = $this->inlineUtilityNavigationContent($element);
+            if ( '' !== $content ) {
+                $paragraph = $createBlock('core/paragraph', array(
+                    'content' => $content,
+                    'style'   => array( 'spacing' => array( 'margin' => array(
+                        'top'    => '0',
+                        'right'  => '0',
+                        'bottom' => '0',
+                        'left'   => '0',
+                    ) ) ),
+                ));
+
+                $groupAttrs = $presentationAttributes($element);
+                $groupAttrs['tagName'] = 'nav';
+                $groupAttrs['className'] = trim((string) ($groupAttrs['className'] ?? '') . ' blocks-engine-inline-navigation');
+
+                return $createBlock('core/group', $groupAttrs, array( $paragraph ), $element);
+            }
+        }
+
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
 
         if ( array() === $links ) {
@@ -113,6 +134,56 @@ final class NavigationPattern implements PatternRecognizerInterface
         return '' === $blockGap ? array() : array(
             'style' => array( 'spacing' => array( 'blockGap' => $blockGap ) ),
         );
+    }
+
+    private function isInlineUtilityNavigation(DOMElement $element): bool
+    {
+        if ( 'nav' !== strtolower($element->tagName) || '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'id')) || '' === trim($this->attr($element, 'aria-label')) ) {
+            return false;
+        }
+
+        $anchorCount = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'a' !== strtolower($child->tagName) ) {
+                return false;
+            }
+            $anchorCount++;
+        }
+
+        return $anchorCount > 1;
+    }
+
+    private function inlineUtilityNavigationContent(DOMElement $element): string
+    {
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $href = $this->safeNavigationUrl($this->attr($child, 'href'));
+            if ( '' === $href ) {
+                continue;
+            }
+
+            $attributes = ' href="' . htmlspecialchars($href, ENT_QUOTES | ENT_HTML5) . '"';
+            foreach ( array( 'class', 'target', 'rel', 'aria-label' ) as $name ) {
+                $value = trim($this->attr($child, $name));
+                if ( '' !== $value ) {
+                    $attributes .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_HTML5) . '"';
+                }
+            }
+            $label = trim((string) $child->textContent);
+            if ( '' === $label ) {
+                continue;
+            }
+            $anchors[] = '<a' . $attributes . '>' . htmlspecialchars($label, ENT_QUOTES | ENT_HTML5) . '</a>';
+        }
+
+        return implode(' ', $anchors);
     }
 
     /**

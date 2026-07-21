@@ -1238,6 +1238,22 @@ $directAnchorNavigationBlock = $directAnchorNavigation['blocks'][0] ?? array();
 $assert('0' === ($directAnchorNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'direct anchor navigation preserves its implicit zero item gap');
 $assert('nowrap' === ($directAnchorNavigationBlock['attrs']['layout']['flexWrap'] ?? ''), 'direct anchor navigation preserves its implicit non-wrapping row');
 
+$inlineUtilityNavigation = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Utility"><a href="/library">Library</a><a href="/portal">Portal &amp; tools</a></nav>'
+)->toArray();
+$inlineUtilityNavigationBlock = $inlineUtilityNavigation['blocks'][0] ?? array();
+$inlineUtilityNavigationParagraph = $inlineUtilityNavigationBlock['innerBlocks'][0] ?? array();
+$inlineUtilityNavigationParity = $inlineUtilityNavigation['source_reports']['semantic_parity'] ?? array();
+$assert('core/group' === ($inlineUtilityNavigationBlock['blockName'] ?? '') && 'nav' === ($inlineUtilityNavigationBlock['attrs']['tagName'] ?? '') && str_contains((string) ($inlineUtilityNavigationBlock['attrs']['className'] ?? ''), 'blocks-engine-inline-navigation'), 'anonymous labeled direct-link navigation retains inline source flow in a native semantic group');
+$assert('core/paragraph' === ($inlineUtilityNavigationParagraph['blockName'] ?? '') && str_contains((string) ($inlineUtilityNavigationParagraph['innerHTML'] ?? ''), 'Portal &amp; tools'), 'inline utility navigation keeps escaped editable links in one source-equivalent line box');
+$assert('pass' === ($inlineUtilityNavigationParity['status'] ?? '') && 1 === ($inlineUtilityNavigationParity['landmarks']['blocks']['nav'] ?? 0), 'native static navigation groups satisfy landmark semantic parity');
+$assert(2 === ($inlineUtilityNavigationParity['navigation_menus']['blocks'][0]['item_count'] ?? 0) && false === ($inlineUtilityNavigationParity['navigation_menus']['blocks'][0]['represented_as_core_navigation'] ?? true), 'native static navigation groups preserve menu labels and URLs in semantic parity');
+
+$unsafeInlineUtilityNavigation = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Utility"><a href="/safe">Safe</a><a href="javascript:alert(1)">Unsafe</a></nav>'
+)->toArray();
+$assert(! str_contains((string) ($unsafeInlineUtilityNavigation['serialized_blocks'] ?? ''), 'javascript:'), 'inline utility navigation drops unsafe link URLs');
+
 $uniformMarginNavigation = ( new HtmlTransformer() )->transform(
     '<nav><a href="/one">One</a><a href="/two" style="margin-left:18px">Two</a><a href="/three" style="margin-left:18px">Three</a></nav>'
 )->toArray();
