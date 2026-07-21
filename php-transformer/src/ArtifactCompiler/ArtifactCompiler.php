@@ -1738,6 +1738,12 @@ final class ArtifactCompiler
     private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
     {
         $pages = array();
+        $assetPayloadsByPath = array();
+        foreach ( $assets as $asset ) {
+            $path = (string) ($asset['path'] ?? '');
+            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+            $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
+        }
         foreach ( $artifact['files'] as $file ) {
             if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
@@ -1751,8 +1757,15 @@ final class ArtifactCompiler
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
                 : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
-                if ( is_array($generatedAsset) && ! in_array($generatedAsset, $assets, true) ) {
+                if ( is_array($generatedAsset) ) {
+                    $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
+                    $payload = is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? '');
+                    $payloadHash = hash('sha256', $payload);
+                    if ( isset($assetPayloadsByPath[$generatedAssetPath][$payloadHash]) ) {
+                        continue;
+                    }
                     $assets[] = $generatedAsset;
+                    $assetPayloadsByPath[$generatedAssetPath][$payloadHash] = true;
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');

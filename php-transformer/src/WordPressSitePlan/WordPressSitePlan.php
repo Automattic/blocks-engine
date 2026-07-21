@@ -652,11 +652,21 @@ final class WordPressSitePlan
     private static function assertNoLocalBrowserReferences(string $content): void
     {
         $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $patterns = array('/\b(?:src|href|srcset|poster|action)\s*=\s*["\']([^"\']+)["\']/i', '/["\'](?:url|src|href|srcset|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', '/(?:url\(\s*["\']?|@import\s+(?:url\(\s*)?["\']?)([^\s\)"\';]+)/i');
-        foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (preg_match('~^[a-z][a-z0-9+.-]*:~i', trim((string) $value)) ? array($value) : explode(',', (string) $value) as $candidate) {
+        $assertReference = static function (string $candidate): void {
             $url = trim(preg_split('/\s+/', trim($candidate))[0] ?? '');
             if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $url)) throw new InvalidArgumentException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url));
+        };
+        $patterns = array(
+            array('/\b(?:src|href|poster|action)\s*=\s*["\']([^"\']+)["\']/i', false),
+            array('/\bsrcset\s*=\s*["\']([^"\']+)["\']/i', true),
+            array('/["\'](?:url|src|href|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', false),
+            array('/["\']srcset["\']\s*:\s*["\']([^"\']+)["\']/i', true),
+        );
+        foreach ($patterns as [$pattern, $commaSeparated]) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach ($commaSeparated ? explode(',', (string) $value) : array((string) $value) as $candidate) {
+            $assertReference($candidate);
         }
+        if (preg_match_all('/url\(\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\']+))\s*\)/i', $content, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
+        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
     }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
