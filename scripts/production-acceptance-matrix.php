@@ -3,10 +3,18 @@
 
 declare(strict_types=1);
 
-const ACCEPTANCE_SCHEMA = 'blocks-engine/figma-wordpress-acceptance/v1';
+const ACCEPTANCE_SCHEMA = 'blocks-engine/figma-wordpress-acceptance/v2';
 const SITE_PLAN_SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
 const FIXTURE_IDS = array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiostetic');
-const STAGES = array('decode', 'normalize', 'emit', 'import', 'editor_validity', 'fallback', 'desktop_parity', 'mobile_parity', 'responsive_selection');
+const PARITY_STAGES = array(
+    'figma_html_desktop_parity' => 'figma_html',
+    'figma_html_mobile_parity' => 'figma_html',
+    'html_wordpress_desktop_parity' => 'html_wordpress',
+    'html_wordpress_mobile_parity' => 'html_wordpress',
+    'figma_wordpress_desktop_parity' => 'figma_wordpress',
+    'figma_wordpress_mobile_parity' => 'figma_wordpress',
+);
+const STAGES = array('decode', 'normalize', 'emit', 'figma_html_desktop_parity', 'figma_html_mobile_parity', 'import', 'editor_validity', 'fallback', 'html_wordpress_desktop_parity', 'html_wordpress_mobile_parity', 'figma_wordpress_desktop_parity', 'figma_wordpress_mobile_parity', 'responsive_selection');
 
 $autoload = dirname(__DIR__) . '/php-transformer/vendor/autoload.php';
 if (is_readable($autoload)) {
@@ -37,16 +45,29 @@ if (!is_dir($output) && !mkdir($output, 0777, true) && !is_dir($output)) {
     exit(2);
 }
 
-$summary = array('schema' => ACCEPTANCE_SCHEMA, 'status' => 'failed', 'fixtures' => array(), 'failure_count' => 0);
+$profile = $options['profile'] ?? 'production';
+if (!in_array($profile, array('production', 'manifest'), true)) {
+    fwrite(STDERR, "--profile must be production or manifest.\n");
+    exit(2);
+}
+$summary = array('schema' => ACCEPTANCE_SCHEMA, 'profile' => $profile, 'status' => 'failed', 'fixtures' => array(), 'failure_count' => 0);
 $fixtures = is_array($manifest['fixtures'] ?? null) ? $manifest['fixtures'] : array();
 $byId = array();
 foreach ($fixtures as $fixture) {
-    if (is_array($fixture) && is_string($fixture['id'] ?? null)) {
-        $byId[$fixture['id']] = $fixture;
+    $id = is_array($fixture) && is_string($fixture['id'] ?? null) ? $fixture['id'] : '';
+    if ('' === $id || !preg_match('/^[a-z0-9][a-z0-9-]*$/', $id) || isset($byId[$id])) {
+        fwrite(STDERR, "Fixture ids must be unique lowercase slugs.\n");
+        exit(2);
     }
+    $byId[$id] = $fixture;
+}
+$fixtureIds = 'production' === $profile ? FIXTURE_IDS : array_keys($byId);
+if (empty($fixtureIds)) {
+    fwrite(STDERR, "Manifest profile requires at least one fixture.\n");
+    exit(2);
 }
 
-foreach (FIXTURE_IDS as $fixtureId) {
+foreach ($fixtureIds as $fixtureId) {
     $fixture = $byId[$fixtureId] ?? array('id' => $fixtureId);
     $fixtureOutput = $output . '/fixtures/' . $fixtureId;
     if (!is_dir($fixtureOutput)) {
@@ -144,8 +165,11 @@ function acceptance_stage(string $stage, string $path, string $output, string $f
     if (!acceptance_references_valid($evidence['references'] ?? null, $output)) {
         return array('status' => 'failed', 'reason_code' => $stage . '_unresolvable_evidence');
     }
-    if (in_array($stage, array('desktop_parity', 'mobile_parity'), true) && !acceptance_screenshot_proof($evidence, $output)) {
+    if (isset(PARITY_STAGES[$stage]) && !acceptance_screenshot_proof($evidence, $output)) {
         return array('status' => 'failed', 'reason_code' => $stage . '_missing_screenshots');
+    }
+    if (isset(PARITY_STAGES[$stage]) && PARITY_STAGES[$stage] !== ($evidence['comparison'] ?? null)) {
+        return array('status' => 'failed', 'reason_code' => $stage . '_comparison_mismatch');
     }
     $semanticReason = acceptance_stage_semantic_reason($stage, $evidence, $output);
     if (null !== $semanticReason) {
@@ -180,7 +204,7 @@ function acceptance_stage_semantic_reason(string $stage, array $evidence, string
     if ('editor_validity' === $stage && (!acceptance_positive_metric($metrics, 'parsed_block_count') || !acceptance_positive_metric($metrics, 'native_editable_block_count') || !acceptance_zero_metric($metrics, 'invalid_block_count'))) {
         return 'editor_validity_invalid_blocks';
     }
-    if (in_array($stage, array('desktop_parity', 'mobile_parity'), true)) {
+    if (isset(PARITY_STAGES[$stage])) {
         return acceptance_parity_reason($stage, $evidence, $metrics, $output);
     }
     if ('responsive_selection' === $stage && !acceptance_responsive_selection($evidence)) {
@@ -266,11 +290,12 @@ function acceptance_failure(string $stage, string $reason): array {
 
 function acceptance_help(): void {
     echo <<<'HELP'
-Usage: php scripts/production-acceptance-matrix.php --manifest=acceptance.json [--output=artifacts/figma-wordpress-acceptance]
+Usage: php scripts/production-acceptance-matrix.php --manifest=acceptance.json [--profile=production|manifest] [--output=artifacts/figma-wordpress-acceptance]
 
 The manifest supplies private .fig inputs and generic external provider commands. Provider commands may use {fig} and {fixture_output}; they must write versioned stage evidence and a wordpress-site-plan/v2 JSON file. The generated summary contains only repository-relative evidence references, never input paths or URLs.
 
-Required fixture ids: fse-pilot-build-theme, twenty-twenty-five-community, fisiostetic.
-Required stages: decode, normalize, emit, import, editor_validity, fallback, desktop_parity, mobile_parity, responsive_selection.
+The default production profile requires fixture ids: fse-pilot-build-theme, twenty-twenty-five-community, fisiostetic.
+The manifest profile evaluates every supplied fixture id and supports arbitrary .fig files.
+Required stages: decode, normalize, emit, figma_html_desktop_parity, figma_html_mobile_parity, import, editor_validity, fallback, html_wordpress_desktop_parity, html_wordpress_mobile_parity, figma_wordpress_desktop_parity, figma_wordpress_mobile_parity, responsive_selection.
 HELP;
 }
