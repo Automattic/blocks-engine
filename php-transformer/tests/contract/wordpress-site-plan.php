@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 require __DIR__ . '/support/ResolvedPlanProjection.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
@@ -66,6 +67,20 @@ $duplicateDeclarations = $declaredArtifact; $duplicateDeclarations['runtime_decl
 $throws(static fn() => (new ArtifactCompiler())->compile($duplicateDeclarations), 'Duplicate runtime declaration identities fail before plan emission.');
 $unsafeDeclarations = $declaredArtifact; $unsafeDeclarations['runtime_declarations'][0]['source_path'] = '../records.json';
 $throws(static fn() => (new ArtifactCompiler())->compile($unsafeDeclarations), 'Unsafe runtime declaration provenance paths fail before plan emission.');
+$provenanceKeys = array(); for ($index = 0; $index < RuntimeDeclarations::MAX_PROVENANCE_KEYS; ++$index) $provenanceKeys['key-' . $index] = 'value';
+$provenanceBoundary = RuntimeDeclarations::normalizeList(array(array('kind' => 'dependency', 'capability' => 'bounded', 'source_path' => 'runtime/bounded.json', 'provenance' => $provenanceKeys)));
+$assert(RuntimeDeclarations::MAX_PROVENANCE_KEYS === count($provenanceBoundary[0]['provenance']), 'Runtime declaration provenance accepts the bounded key-count boundary canonically.');
+$provenanceDepth = 'leaf'; for ($index = 0; $index < RuntimeDeclarations::MAX_PROVENANCE_DEPTH; ++$index) $provenanceDepth = array('child' => $provenanceDepth);
+$assert(array() !== RuntimeDeclarations::normalizeList(array(array('kind' => 'dependency', 'capability' => 'depth', 'source_path' => 'runtime/depth.json', 'provenance' => $provenanceDepth))), 'Runtime declaration provenance accepts the bounded nesting boundary.');
+$overKeyProvenance = $declaredArtifact; $overKeyProvenance['runtime_declarations'][0]['provenance'] = $provenanceKeys; $overKeyProvenance['runtime_declarations'][0]['provenance']['over-limit'] = 'value';
+$throws(static fn() => (new ArtifactCompiler())->compile($overKeyProvenance), 'Compiler intake rejects runtime declaration provenance over the key limit before source hashing.');
+$overDepth = 'leaf'; for ($index = 0; $index <= RuntimeDeclarations::MAX_PROVENANCE_DEPTH; ++$index) $overDepth = array('child' => $overDepth);
+$throws(static fn() => RuntimeDeclarations::normalizeList(array(array('kind' => 'dependency', 'capability' => 'deep', 'source_path' => 'runtime/deep.json', 'provenance' => $overDepth))), 'Runtime declaration provenance rejects nesting beyond the limit.');
+$overScalar = $declaredArtifact; $overScalar['runtime_declarations'][0]['provenance'] = array('source_path' => 'data/records.json', 'note' => str_repeat('x', RuntimeDeclarations::MAX_PROVENANCE_SCALAR_BYTES + 1));
+$throws(static fn() => (new ArtifactCompiler())->compile($overScalar), 'Compiler intake rejects over-limit runtime declaration provenance scalars before source hashing.');
+$overByteProvenance = array(); $provenanceChunk = str_repeat('x', intdiv(RuntimeDeclarations::MAX_PROVENANCE_BYTES, RuntimeDeclarations::MAX_PROVENANCE_KEYS) + 1); for ($index = 0; $index < RuntimeDeclarations::MAX_PROVENANCE_KEYS; ++$index) $overByteProvenance['byte-' . $index] = $provenanceChunk;
+$overBytes = $declaredArtifact; $overBytes['runtime_declarations'][0]['provenance'] = $overByteProvenance;
+$throws(static fn() => (new ArtifactCompiler())->compile($overBytes), 'Compiler intake rejects runtime declaration provenance over the canonical JSON byte limit before source hashing.');
 $home = $pagesBySource['index.html'];
 $assert('Home title' === ($home['document_metadata']['title'] ?? null) && 'head' === ($home['document_metadata']['title_declaration']['placement'] ?? null) && 'utf-8' === ($home['document_metadata']['meta'][0]['charset'] ?? null) && 'viewport' === ($home['document_metadata']['meta'][1]['name'] ?? null), 'Plan projects title, source context, charset, and viewport metadata from the compiler document report.');
 $assert(str_starts_with((string) ($home['document_metadata']['links'][0]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && 'sha256-test' === ($home['document_metadata']['links'][0]['integrity'] ?? null) && 'anonymous' === ($home['document_metadata']['links'][0]['crossorigin'] ?? null) && 'https://cdn.example.test/path?x=1&y=2' === ($home['document_metadata']['links'][1]['url'] ?? null), 'Plan preserves unquoted, mixed-case local and external link declarations with safe URL punctuation and anonymous CORS semantics.');
@@ -255,6 +270,12 @@ $invalidDeclarationAlias = $declaredPlan; $invalidDeclarationAlias['runtime_decl
 $throws(static fn() => WordPressSitePlan::assertValid($invalidDeclarationAlias), 'Public validation rejects contradictory runtime declaration aliases.');
 $invalidDeclarationProvenance = $declaredPlan; $invalidDeclarationProvenance['runtime_declarations'][0]['source_path'] = '../unsafe.json';
 $throws(static fn() => WordPressSitePlan::assertValid($invalidDeclarationProvenance), 'Public validation rejects unsafe runtime declaration provenance.');
+$publicOverLimitProvenance = $declaredPlan; $publicOverLimitProvenance['runtime_declarations'][0]['provenance'] = array('source_path' => 'data/records.json', 'note' => str_repeat('x', RuntimeDeclarations::MAX_PROVENANCE_SCALAR_BYTES + 1));
+$throws(static fn() => WordPressSitePlan::assertValid($publicOverLimitProvenance), 'Public validation rejects over-limit runtime declaration provenance before canonical hashing.');
+$publicOverByteProvenance = $declaredPlan; $publicOverByteProvenance['runtime_declarations'][0]['provenance'] = $overByteProvenance;
+$throws(static fn() => WordPressSitePlan::assertValid($publicOverByteProvenance), 'Public validation rejects runtime declaration provenance over the canonical JSON byte limit.');
+$noncanonicalProvenance = $declaredPlan; $noncanonicalProvenance['runtime_declarations'][0]['provenance'] = array('source_path' => 'data/records.json', 'z' => 'last', 'a' => 'first'); $mutableDeclaration = $noncanonicalProvenance['runtime_declarations'][0]; unset($mutableDeclaration['reconciliation_identity'], $mutableDeclaration['payload_hash'], $mutableDeclaration['content_hash']); $noncanonicalProvenance['runtime_declarations'][0]['content_hash'] = RuntimeDeclarations::hash($mutableDeclaration);
+$throws(static fn() => WordPressSitePlan::assertValid($noncanonicalProvenance), 'Public validation rejects noncanonical runtime declaration provenance ordering even with a recomputed hash.');
 $invalidDeclarationSchema = $declaredPlan; $invalidDeclarationSchema['runtime_declarations'][0]['payload']['schema'] = ' ';
 $throws(static fn() => WordPressSitePlan::assertValid($invalidDeclarationSchema), 'Public validation rejects blank runtime declaration schemas.');
 
