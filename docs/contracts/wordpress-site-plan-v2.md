@@ -46,15 +46,18 @@ and `WordPressSitePlanResolver::resolve()`.
   source-path reconciliation identity, explicit `destination.capability` and
   `destination.required`, source provenance and role, MIME, source and final
   content hashes, a sanitization proof bound to the source hash, and bounded
-  `reference_targets` naming existing plan writes whose destination URLs a
-  materializer may replace. The canonical plan retains those targets as
-  references; it never invents a destination URL.
+  `reference_targets`, each naming an existing write path and reconciliation
+  identity plus an exact canonical asset-token occurrence and context. The
+  resolver retains that canonical token provenance and supplies its current
+  resolved URL; the canonical plan never invents a destination URL.
 - An `asset_publication.transformation` can declare `svg_font_enrichment`.
   Its deterministic input hash covers declared local CSS/font source paths and
   bounded explicit font-face text; its expected content hash covers the final
   SVG. Remote inputs, unsafe SVG, undeclared inputs or writes, mismatched hashes,
   duplicate identities, and over-limit payloads are rejected. The engine fetches
-  nothing: destination adapters decide how to publish declared bytes.
+  nothing: destination adapters declare supported generic capabilities and
+  decide how to publish declared bytes. Unsupported required capabilities reject;
+  unsupported optional capabilities are reported in the resolution projection.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready

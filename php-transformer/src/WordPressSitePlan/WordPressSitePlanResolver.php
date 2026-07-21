@@ -15,6 +15,10 @@ final class WordPressSitePlanResolver
         WordPressSitePlan::assertValid($plan);
         if (isset($plan['resolution'])) throw new InvalidArgumentException('WordPress site plan is already a resolved projection.');
         if (true === ($context['require_proven_dynamic_client_assets'] ?? false) && 'not_proven' === ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null)) throw new InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.');
+        $capabilities = $context['runtime_capabilities'] ?? array();
+        if (!is_array($capabilities) || !array_is_list($capabilities) || array_filter($capabilities, static fn(mixed $capability): bool => !is_string($capability) || !preg_match('/^[a-z][a-z0-9_-]{0,127}$/', $capability)) || count($capabilities) !== count(array_unique($capabilities))) throw new InvalidArgumentException('WordPress site plan runtime capabilities must be a unique bounded list.');
+        $unsupportedOptional = array();
+        foreach ($plan['runtime_declarations'] as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null) && !in_array($declaration['destination']['capability'], $capabilities, true)) { if ($declaration['destination']['required']) throw new InvalidArgumentException('WordPress site plan requires an unsupported runtime capability.'); $unsupportedOptional[] = $declaration['reconciliation_identity']; }
         $themeUri = self::normalizeThemeUri($context['theme_uri'] ?? null);
         $references = self::references($plan['reference_tokens'], $themeUri);
         foreach ($plan['pages'] as &$page) $page['resolved_block_markup'] = self::resolvePayload($page['canonical_block_markup'], $references);
@@ -27,7 +31,7 @@ final class WordPressSitePlanResolver
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
         unset($declaration, $document);
-        $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri);
+        $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri, 'asset_publication_references' => self::publicationReferences($plan['runtime_declarations'], $references), 'unsupported_optional_capabilities' => $unsupportedOptional);
         WordPressSitePlan::assertValid($plan);
         return $plan;
     }
@@ -52,4 +56,11 @@ final class WordPressSitePlanResolver
     }
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
     public static function references(array $tokens, string $themeUri): array { $references = array(); foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $themeUri . '/' . $reference['target_path']; return $references; }
+    /** @param array<int,array<string,mixed>> $declarations @param array<string,string> $references @return array<int,array<string,mixed>> */
+    public static function publicationReferences(array $declarations, array $references): array
+    {
+        $resolved = array();
+        foreach ($declarations as $declaration) if ('asset_publication' === ($declaration['kind'] ?? null)) foreach ($declaration['reference_targets'] as $target) { $canonical = WordPressSitePlan::TOKEN_PREFIX . $target['token'] . '}}'; $url = $references[$canonical] ?? null; if (!is_string($url)) throw new InvalidArgumentException('Asset publication reference token is not declared.'); $resolved[] = array('declaration_reconciliation_identity' => $declaration['reconciliation_identity'], 'target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'canonical_token' => $canonical, 'count' => $target['count'], 'context' => $target['context'], 'expected_resolved_url' => $url); }
+        return $resolved;
+    }
 }
