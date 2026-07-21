@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Then ship it." } },
     { "path": "blocks.1", "name": "core/pullquote", "attrs": { "className": "alignwide", "value": "Pull this hard.", "citation": "Editor" } },
     { "path": "blocks.2", "name": "core/quote", "attrs": { "citation": "The distiller" } },
-    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "We <em>listen</em><br>to the garden." } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "We <em>listen</em><br>to the garden.", "style": { "spacing": { "margin": { "top": "0", "right": "0", "bottom": "0", "left": "0" } } } } },
     { "path": "blocks.3", "name": "core/quote", "attrs": { "className": "testimonial-card", "citation": "<strong>Grace</strong>, Founder" } },
     { "path": "blocks.3.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Stay curious." } },
     { "path": "blocks.4", "name": "core/pullquote", "attrs": { "className": "alignfull", "citation": "Critic", "value": "<p>Quote me.</p>" } }
@@ -35,7 +35,7 @@
     { "path": "blocks.3.innerBlocks", "assert": "count", "count": 1 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:quote {\"className\":\"ethos-quote\",\"citation\":\"Ada\"} --><blockquote class=\"wp-block-quote ethos-quote\"><!-- wp:paragraph {\"content\":\"Build with care.\"} --><p>Build with care.</p><!-- /wp:paragraph --><!-- wp:paragraph {\"content\":\"Then ship it.\"} --><p>Then ship it.</p><!-- /wp:paragraph --><cite>Ada</cite></blockquote><!-- /wp:quote -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-pullquote alignwide\"><blockquote>Pull this hard.<cite>Editor</cite></blockquote></figure>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<blockquote class=\"wp-block-quote\"><!-- wp:paragraph {\"content\":\"We <em>listen</em><br>to the garden.\"} --><p>We <em>listen</em><br>to the garden.</p><!-- /wp:paragraph --><cite>The distiller</cite></blockquote>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<blockquote class=\"wp-block-quote\"><!-- wp:paragraph {\"content\":\"We <em>listen</em><br>to the garden.\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"right\":\"0\",\"bottom\":\"0\",\"left\":\"0\"}}}} --><p style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">We <em>listen</em><br>to the garden.</p><!-- /wp:paragraph --><cite>The distiller</cite></blockquote>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<blockquote class=\"wp-block-quote testimonial-card\"><!-- wp:paragraph {\"content\":\"Stay curious.\"} --><p>Stay curious.</p><!-- /wp:paragraph --><cite><strong>Grace</strong>, Founder</cite></blockquote>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-pullquote alignfull\"><blockquote><p>Quote me.</p><cite>Critic</cite></blockquote></figure>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

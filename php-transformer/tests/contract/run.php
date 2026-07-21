@@ -869,6 +869,7 @@ $rubyQuote = $rubyResult['blocks'][0] ?? array();
 $assert(array() === ($rubyResult['fallbacks'] ?? array()), 'ruby phrasing content does not create unsupported fallbacks');
 $assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content remains inside quote block');
 $assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
+$assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), 'margin-top:0;margin-right:0;margin-bottom:0;margin-left:0'), 'quote paragraphs synthesized around direct phrasing content add no source-absent margins');
 
 $plaintextResult = ( new HtmlTransformer() )->transform(
     '<p>Before</p><PLAINTEXT>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</PLAINTEXT><p>After</p>'

@@ -53,7 +53,7 @@ final class QuotePattern
             $innerBlocks = $convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
         }
         if ( array() === $innerBlocks ) {
-            $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));
+            $innerBlocks[] = $createBlock('core/paragraph', $this->syntheticParagraphAttributes($value));
         }
 
         return $createBlock('core/quote', array_filter(array_merge($presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
@@ -118,7 +118,7 @@ final class QuotePattern
         }
         $innerBlocks = array_merge($innerBlocks, $convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' )));
         if ( array() === $innerBlocks ) {
-            $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));
+            $innerBlocks[] = $createBlock('core/paragraph', $this->syntheticParagraphAttributes($value));
         }
 
         return $createBlock('core/quote', $attrs, $innerBlocks, $figure);
@@ -150,7 +150,27 @@ final class QuotePattern
             return array();
         }
 
-        return array( $createBlock('core/paragraph', array( 'content' => $value )) );
+        return array( $createBlock('core/paragraph', $this->syntheticParagraphAttributes($value)) );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function syntheticParagraphAttributes(string $content): array
+    {
+        return array(
+            'content' => $content,
+            'style'   => array(
+                'spacing' => array(
+                    'margin' => array(
+                        'top'    => '0',
+                        'right'  => '0',
+                        'bottom' => '0',
+                        'left'   => '0',
+                    ),
+                ),
+            ),
+        );
     }
 
 }

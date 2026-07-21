@@ -1845,7 +1845,13 @@ final class HtmlTransformer
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                     $paragraphAttrs = array( 'content' => $content );
                     $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-                    if ( $parent instanceof DOMElement && (! $this->isStructuralLayoutElement($parent) || $this->hasAuthorSemanticMarker($parent) || $this->requiresIndependentSemanticWrapper($parent)) ) {
+                    $declarations = array_merge($this->structuralPresentationDeclarations($element), $this->presentationDeclarations($element));
+                    $hasSourceMargin = 0 < count(array_intersect(array_keys($declarations), array( 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' )));
+                    $isPlainStructuralChild = $parent instanceof DOMElement
+                        && $this->isStructuralLayoutElement($parent)
+                        && ! $this->hasAuthorSemanticMarker($parent)
+                        && ! $this->requiresIndependentSemanticWrapper($parent);
+                    if ( ! $isPlainStructuralChild || ! $hasSourceMargin ) {
                         $paragraphAttrs['style']['spacing']['margin'] = array(
                             'top'    => '0',
                             'right'  => '0',
