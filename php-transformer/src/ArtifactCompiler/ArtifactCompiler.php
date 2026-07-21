@@ -90,6 +90,7 @@ final class ArtifactCompiler
                 'internal_links'    => $referenceReports['internal_links'],
                 'asset_references'  => $referenceReports['asset_references'],
                 'image_references'  => $referenceReports['image_references'],
+                'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts']);
@@ -1756,6 +1757,7 @@ final class ArtifactCompiler
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $templateParts,
             'visual_repair' => $this->compiledSiteVisualRepair($assets, $artifact['files']),
+            'runtime_declarations' => $artifact['runtime_declarations'],
             'theme'       => array_filter(
                 array(
                     'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
@@ -2010,6 +2012,7 @@ final class ArtifactCompiler
                     'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
                     'body_format'  => (string) ($file['kind'] ?? ''),
                     'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
+                    'document_metadata' => $this->fullDocumentMetadata((string) ($file['content'] ?? ''), $path, $files),
                     'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),

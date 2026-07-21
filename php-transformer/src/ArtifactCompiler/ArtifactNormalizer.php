@@ -18,10 +18,11 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, entrypoints: array<int, string>, hash_payload: string}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
      */
     public function normalize(array $artifact): array
     {
+        $runtimeDeclarations = RuntimeDeclarations::normalize($artifact);
         $diagnostics = array();
         $files = array();
         $entrypoints = array();
@@ -158,7 +159,8 @@ final class ArtifactNormalizer
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
-            'hash_payload'   => $this->fileHashPayload($files),
+            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations),
+            'runtime_declarations' => $runtimeDeclarations,
         );
     }
 
