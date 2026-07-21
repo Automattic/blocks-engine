@@ -32,6 +32,11 @@ and `WordPressSitePlanResolver::resolve()`.
   `nested/index.*` is `/nested`, and nested documents retain every directory segment.
   A declared lowercase `metadata.route_path` with the same safe shape is preserved as
   the explicit canonical route.
+  This map is computed before document projection and is the sole input for exported
+  `routes`, page hierarchy operations, document link and metadata-href rewriting,
+  resolver/report projections, and page-scoped script conditions. Relative and
+  root-relative document links retain query and fragment suffixes; asset references
+  remain on the separate declared-asset token path.
   The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
   Missing directory parents are explicit synthetic pages with stable source and
   reconciliation identities; a physical directory index takes precedence over a

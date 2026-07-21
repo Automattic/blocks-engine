@@ -30,6 +30,10 @@ declared synthetic pages, so materializers create the same hierarchy without inf
 or manually reparenting pages. A physical directory index replaces the corresponding
 synthetic parent; route collisions fail closed. A safe lowercase `metadata.route_path`
 is preserved when the source contract declares an explicit canonical route.
+The canonical route map is computed before page, link, metadata, operation, resolver,
+report, and script-scope projection. It rewrites relative and root-relative document
+links while preserving query and fragment suffixes; declared asset references continue
+to use asset tokens rather than page routes.
 
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
