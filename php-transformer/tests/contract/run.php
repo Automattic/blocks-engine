@@ -2063,14 +2063,13 @@ $canonicalShellSite = $compiler->compile(
         ),
     )
 )->toArray();
-$canonicalShellCompiled = $canonicalShellSite['source_reports']['compiled_site'] ?? array();
-$canonicalShellPlan = $canonicalShellSite['source_reports']['materialization_plan'] ?? array();
-$canonicalHeaderPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? '')))[0] ?? array();
-$canonicalFooterPart = array_values(array_filter($canonicalShellCompiled['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
-$canonicalEntryPage = array_values(array_filter($canonicalShellCompiled['pages'] ?? array(), static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
-$assert(! str_contains((string) ($canonicalEntryPage['block_markup'] ?? ''), 'Get started') && str_contains((string) ($canonicalHeaderPart['block_markup'] ?? ''), 'Get started'), 'canonical entry header is projected only to its shell part, without duplicate post-content chrome');
-$assert(str_contains((string) ($canonicalFooterPart['block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
-$assert(2 === count($canonicalShellPlan['template_part_writes'] ?? array()), 'materialization plan exposes canonical entry header and footer writes');
+$canonicalShellPlan = $canonicalShellSite['source_reports']['wordpress_site_plan'] ?? array();
+$canonicalHeaderPart = array_values(array_filter($canonicalShellPlan['template_parts'] ?? array(), static fn (array $part): bool => 'header' === ($part['area'] ?? '')))[0] ?? array();
+$canonicalFooterPart = array_values(array_filter($canonicalShellPlan['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
+$canonicalEntryPage = array_values(array_filter($canonicalShellPlan['pages'] ?? array(), static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
+$assert(! str_contains((string) ($canonicalEntryPage['canonical_block_markup'] ?? ''), 'Get started') && str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), 'Get started'), 'canonical entry header is projected only to its shell part, without duplicate post-content chrome');
+$assert(str_contains((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
+$assert(2 === count(array_filter($canonicalShellPlan['writes'] ?? array(), static fn (array $write): bool => 'theme_template_part' === ($write['kind'] ?? ''))), 'WordPress site plan exposes canonical entry header and footer writes');
 
 $runtimeDependencySite = $compiler->compile(
     array(

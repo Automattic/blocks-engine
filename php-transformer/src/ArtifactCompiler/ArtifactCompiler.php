@@ -1668,8 +1668,8 @@ final class ArtifactCompiler
             $slug = $this->slugFromPath($path);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
-                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array())
-                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document');
+                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
+                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true);
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) ) {
                     $assets[] = $generatedAsset;
@@ -1678,8 +1678,12 @@ final class ArtifactCompiler
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
             if ( $path === $entryPath ) {
                 foreach ( $entryShellArtifacts as $shellArtifact ) {
-                    if ( is_array($shellArtifact) && is_string($shellArtifact['block_markup'] ?? null) ) {
-                        $blockMarkup = str_replace($shellArtifact['block_markup'], '', $blockMarkup);
+                    if ( ! is_array($shellArtifact) ) {
+                        continue;
+                    }
+                    $shellMarkup = is_string($shellArtifact['inner_block_markup'] ?? null) ? $shellArtifact['inner_block_markup'] : ($shellArtifact['block_markup'] ?? null);
+                    if ( is_string($shellMarkup) ) {
+                        $blockMarkup = str_replace($shellMarkup, '', $blockMarkup);
                     }
                 }
             }
@@ -1700,6 +1704,7 @@ final class ArtifactCompiler
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
+                    'shell_artifacts' => is_array($compiledBlocks['shell_artifacts'] ?? null) ? $compiledBlocks['shell_artifacts'] : array(),
                     'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
@@ -1737,16 +1742,23 @@ final class ArtifactCompiler
         }
 
         $templateParts = $this->compiledSiteTemplateParts($artifact['files']);
+        // Preserve the v1 report's established entry-shell shape while the v2
+        // plan uses complete shell candidates for cross-page comparison.
         $partSlugs = array_fill_keys(array_column($templateParts, 'slug'), true);
         foreach ( $entryShellArtifacts as $shellArtifact ) {
-            if ( is_array($shellArtifact) ) {
-                $slug = (string) ($shellArtifact['slug'] ?? '');
-                if ( isset($partSlugs[$slug]) ) {
-                    $shellArtifact['slug'] = 'entry-' . $slug;
-                }
-                $partSlugs[(string) $shellArtifact['slug']] = true;
-                $templateParts[] = $shellArtifact;
+            if ( ! is_array($shellArtifact) ) {
+                continue;
             }
+            $slug = (string) ($shellArtifact['slug'] ?? '');
+            if ( isset($partSlugs[$slug]) ) {
+                $shellArtifact['slug'] = 'entry-' . $slug;
+            }
+            $partSlugs[(string) $shellArtifact['slug']] = true;
+            if ( is_string($shellArtifact['inner_block_markup'] ?? null) ) {
+                $shellArtifact['block_markup'] = $shellArtifact['inner_block_markup'];
+                unset($shellArtifact['inner_block_markup']);
+            }
+            $templateParts[] = $shellArtifact;
         }
 
         return array(
