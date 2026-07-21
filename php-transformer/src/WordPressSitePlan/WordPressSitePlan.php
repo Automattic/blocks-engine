@@ -227,7 +227,10 @@ final class WordPressSitePlan
             if ( ! is_array($document) || ! self::safePath($document['source_path'] ?? null) || ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
                 throw new InvalidArgumentException('Compiled site document lacks a safe identity or block markup.');
             }
-            $markup = $references->content($document['block_markup'], $document['source_path']);
+            $sourceMarkup = is_string($document['canonical_block_markup'] ?? null)
+                ? $document['canonical_block_markup']
+                : $document['block_markup'];
+            $markup = $references->content($sourceMarkup, $document['source_path']);
             $canonical = $this->routeLinks($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
             $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));

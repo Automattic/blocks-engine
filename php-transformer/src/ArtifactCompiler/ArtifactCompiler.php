@@ -1934,6 +1934,7 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
+            $canonicalBlockMarkup = $blockMarkup;
             if ( $path === $entryPath ) {
                 foreach ( $entryShellArtifacts as $shellArtifact ) {
                     if ( ! is_array($shellArtifact) ) {
@@ -1962,6 +1963,7 @@ final class ArtifactCompiler
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
+                    'canonical_block_markup' => $canonicalBlockMarkup,
                     'shell_artifacts' => is_array($compiledBlocks['shell_artifacts'] ?? null) ? $compiledBlocks['shell_artifacts'] : array(),
                     'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
                     'bytes'          => $file['bytes'] ?? 0,
