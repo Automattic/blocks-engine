@@ -965,7 +965,7 @@ final class HtmlTransformer
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
             $imageRule = '' === $imagePrelude
                 ? ''
-                : $imagePrelude . '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}';
+                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
             if ( array() === $margins ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
@@ -1104,6 +1104,22 @@ final class HtmlTransformer
         }
 
         return implode(',', array_values(array_unique($projected)));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function imageProjectionBridgeDeclarations(array $declarations): string
+    {
+        $bridge = array( 'display:block' );
+        $position = strtolower(trim((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            $bridge[] = 'width:100%';
+            $bridge[] = 'height:100%';
+        }
+        $bridge[] = 'max-width:100%';
+        $bridge[] = 'object-fit:inherit';
+        $bridge[] = 'object-position:inherit';
+        $bridge[] = 'border-radius:inherit';
+        return implode(';', $bridge);
     }
 
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
