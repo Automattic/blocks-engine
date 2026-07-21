@@ -134,7 +134,7 @@ final class ArtifactNormalizer
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
             }
-            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index') as $field ) {
+            foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
                 }
@@ -353,6 +353,7 @@ final class ArtifactNormalizer
                     'type'        => $this->htmlAttribute($attributes, 'type'),
                     'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
                     'async'       => $this->hasBooleanAttribute($attributes, 'async'),
+                    'superseded_by' => $this->htmlAttribute($attributes, 'data-blocks-engine-superseded-by'),
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
                 );
