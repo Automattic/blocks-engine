@@ -1963,8 +1963,10 @@ final class ArtifactCompiler
         $attributes = function (string $tag, array $names): array {
             $values = array();
             foreach ($names as $name) {
+                if (!$this->hasHtmlAttribute($tag, $name)) continue;
                 $value = $this->htmlAttribute($tag, $name);
-                if ('' !== $value) $values[str_replace('-', '_', $name)] = $value;
+                // HTML's empty and invalid-value CORS states both select anonymous.
+                $values[str_replace('-', '_', $name)] = 'crossorigin' === $name && '' === $value ? 'anonymous' : $value;
             }
             return $values;
         };
