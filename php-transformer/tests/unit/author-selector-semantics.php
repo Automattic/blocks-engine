@@ -36,6 +36,10 @@ $navigationMenuBlock = $navigationShellBlock['innerBlocks'][1] ?? array();
 $navigationShellClass = (string) ($navigationShellBlock['attrs']['className'] ?? '');
 $assert(str_contains($navigationShellClass, 'blocks-engine-source-nav-') && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellClass . '):not(blocks-engine-specificity-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
 
+$currentNavigation = ( new HtmlTransformer() )->transform('<style>.primary-nav a.active{color:gold;border-bottom-color:gold}</style><nav class="primary-nav"><a href="index.html">Home</a><a href="faculty.html">Faculty</a></nav>', array( 'source' => 'index.html' ))->toArray();
+$currentNavigationMarkup = (string) ($currentNavigation['serialized_blocks'] ?? '');
+$assert(str_contains($currentNavigationMarkup, 'anchorClassName":"active') && str_contains($currentNavigationMarkup, 'textDecoration":"underline') && 1 === substr_count($currentNavigationMarkup, 'anchorClassName":"active'), 'source-matching navigation links retain their current-page state before routes are rewritten');
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
 $assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
@@ -150,6 +154,10 @@ $flowTokenCss = $css($flowTokens);
 $assert(6 === substr_count($flowTokenMarkup, 'blocks-engine-semantic-') && 3 <= substr_count($flowTokenCss, ':where(.blocks-engine-semantic-'), 'standalone styled inline leaves in ordinary flow retain independent visual-token wrappers');
 $assert(3 === substr_count($flowTokenMarkup, 'margin-top:0;margin-right:0;margin-bottom:0;margin-left:0'), 'synthetic visual-token paragraphs do not contribute source-absent spacing');
 $assert(! str_contains($flowTokenMarkup, '<mark class="blocks-engine-richtext-') && 'pass' === ($flowTokens['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone flow tokens avoid prose markers while retaining valid native blocks');
+
+$linkedBrand = $transform('<style>.brand-text{display:flex;flex-direction:column}.institution{font-size:.72rem;letter-spacing:.2em}.department{font-size:1.35rem;margin-top:2px}</style><header><a href="index.html" style="display:flex"><svg viewBox="0 0 10 10"><path d="M0 0h10v10z"/></svg><span class="brand-text"><span class="institution">Brennan University</span><span class="department">Earth Sciences</span></span></a></header>');
+$linkedBrandMarkup = (string) ($linkedBrand['serialized_blocks'] ?? '');
+$assert(str_contains($linkedBrandMarkup, 'className":"institution blocks-engine-semantic-') && str_contains($linkedBrandMarkup, 'className":"department blocks-engine-semantic-') && 2 === substr_count($linkedBrandMarkup, 'margin-top:0;margin-right:0;margin-bottom:0;margin-left:0'), 'linked brand text retains independent native flex children without synthetic paragraph margins when shell conversion changes DOM paths');
 
 $resetInlineMetadata = $transform('<style>*{margin:0;padding:0}.decision-item .who{font-size:9px;color:#777}</style><div class="decision-item"><p>Decision</p><span class="who">Byline</span></div>');
 $resetInlineMetadataMarkup = (string) ($resetInlineMetadata['serialized_blocks'] ?? '');

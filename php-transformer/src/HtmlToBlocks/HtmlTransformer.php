@@ -538,6 +538,7 @@ final class HtmlTransformer
             );
         }
 
+        $this->markCurrentNavigationLinks($body, (string) ($options['source'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
@@ -761,6 +762,73 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    private function markCurrentNavigationLinks(DOMElement $body, string $source): void
+    {
+        $sourcePath = $this->normalizedDocumentPath($source);
+        if ( '' === $sourcePath ) {
+            return;
+        }
+
+        foreach ( $body->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement || ! $this->hasNavigationAncestor($anchor) ) {
+                continue;
+            }
+
+            $href = trim($this->attr($anchor, 'href'));
+            if ( '' === $href || '#' === $href[0] || preg_match('#^[a-z][a-z0-9+.-]*:#i', $href) || str_starts_with($href, '//') ) {
+                continue;
+            }
+
+            $hrefPath = parse_url($href, PHP_URL_PATH);
+            if ( ! is_string($hrefPath) || '' === $hrefPath ) {
+                continue;
+            }
+
+            $targetPath = str_starts_with($hrefPath, '/')
+                ? $this->normalizedDocumentPath($hrefPath)
+                : $this->normalizedDocumentPath(dirname($sourcePath) . '/' . $hrefPath);
+            if ( $targetPath !== $sourcePath ) {
+                continue;
+            }
+
+            $anchor->setAttribute('aria-current', 'page');
+            $anchor->setAttribute('class', $this->mergeClassNames($this->attr($anchor, 'class'), 'active'));
+        }
+    }
+
+    private function hasNavigationAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'nav' === strtolower($parent->tagName) || 'navigation' === strtolower(trim($this->attr($parent, 'role'))) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizedDocumentPath(string $path): string
+    {
+        $urlPath = parse_url(str_replace('\\', '/', trim($path)), PHP_URL_PATH);
+        if ( ! is_string($urlPath) || '' === $urlPath ) {
+            return '';
+        }
+
+        $segments = array();
+        foreach ( explode('/', ltrim($urlPath, '/')) as $segment ) {
+            if ( '' === $segment || '.' === $segment ) {
+                continue;
+            }
+            if ( '..' === $segment ) {
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = $segment;
+        }
+
+        return implode('/', $segments);
     }
 
     private function richTextMarkerResetCss(): string
@@ -1766,12 +1834,18 @@ final class HtmlTransformer
                 return $inlineSvgTextGroup;
             }
 
-            if ( $this->hasAuthorSemanticMarker($element) ) {
-                $content = $this->innerHtml($element);
+            if ( $this->hasAuthorSemanticMarker($element) || $this->requiresIndependentSemanticWrapper($element) ) {
+                if ( $this->hasAuthorSemanticMarkedChild($element) ) {
+                    $children = $this->convertChildren($element, $fallbacks, true);
+                    if ( array() !== $children ) {
+                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    }
+                }
+                $content = $this->richTextContentWithMaterializedInlineStyles($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                     $paragraphAttrs = array( 'content' => $content );
                     $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-                    if ( $parent instanceof DOMElement && ! $this->isStructuralLayoutElement($parent) ) {
+                    if ( $parent instanceof DOMElement && (! $this->isStructuralLayoutElement($parent) || $this->hasAuthorSemanticMarker($parent) || $this->requiresIndependentSemanticWrapper($parent)) ) {
                         $paragraphAttrs['style']['spacing']['margin'] = array(
                             'top'    => '0',
                             'right'  => '0',
@@ -4020,7 +4094,7 @@ final class HtmlTransformer
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasAuthorSemanticMarker($child) ) {
+            if ( $child instanceof DOMElement && ($this->hasAuthorSemanticMarker($child) || $this->requiresIndependentSemanticWrapper($child)) ) {
                 return true;
             }
         }
