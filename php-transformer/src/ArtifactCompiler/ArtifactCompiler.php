@@ -1572,11 +1572,58 @@ final class ArtifactCompiler
 
     private function htmlAttribute(string $tag, string $name): string
     {
-        if ( preg_match('/\s' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
-            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
+        return $this->htmlAttributes($tag)[strtolower($name)] ?? '';
+    }
 
-        return '';
+    private function hasHtmlAttribute(string $tag, string $name): bool
+    {
+        return array_key_exists(strtolower($name), $this->htmlAttributes($tag));
+    }
+
+    /** @return array<string,string> */
+    private function htmlAttributes(string $tag): array
+    {
+        $length = strlen($tag);
+        $offset = strpos($tag, '<');
+        if (false === $offset) {
+            $offset = 0;
+        } else {
+            ++$offset;
+            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
+            if ($offset < $length && '/' === $tag[$offset]) ++$offset;
+            while ($offset < $length && !ctype_space($tag[$offset]) && !in_array($tag[$offset], array('>', '/'), true)) ++$offset;
+        }
+        $attributes = array();
+        while ($offset < $length) {
+            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
+            if ($offset >= $length || '>' === $tag[$offset] || '/' === $tag[$offset]) break;
+            $start = $offset;
+            while ($offset < $length && !ctype_space($tag[$offset]) && !in_array($tag[$offset], array('=', '>', '/', '"', "'", '<'), true)) ++$offset;
+            if ($start === $offset) break;
+            $name = strtolower(substr($tag, $start, $offset - $start));
+            while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
+            $value = '';
+            if ($offset < $length && '=' === $tag[$offset]) {
+                ++$offset;
+                while ($offset < $length && ctype_space($tag[$offset])) ++$offset;
+                if ($offset >= $length) break;
+                if (in_array($tag[$offset], array('"', "'"), true)) {
+                    $quote = $tag[$offset++]; $start = $offset;
+                    while ($offset < $length && $tag[$offset] !== $quote) ++$offset;
+                    if ($offset >= $length) break;
+                    $value = substr($tag, $start, $offset - $start); ++$offset;
+                } else {
+                    $start = $offset;
+                    while ($offset < $length && !ctype_space($tag[$offset]) && '>' !== $tag[$offset]) {
+                        if (in_array($tag[$offset], array('"', "'", '<'), true)) break 2;
+                        ++$offset;
+                    }
+                    $value = substr($tag, $start, $offset - $start);
+                }
+            }
+            if (!isset($attributes[$name])) $attributes[$name] = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        return $attributes;
     }
 
     /**
@@ -1935,8 +1982,8 @@ final class ArtifactCompiler
         }
         if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
-            $async = preg_match('/\sasync(?:\s|=|>|$)/i', $open) === 1; $defer = preg_match('/\sdefer(?:\s|=|>|$)/i', $open) === 1; $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
-            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => preg_match('/\snomodule(?:\s|=|>|$)/i', $open) === 1, 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', (string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag))));
+            $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
+            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', (string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag))));
         }
         $title = preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ? trim(html_entity_decode(strip_tags((string) $match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
