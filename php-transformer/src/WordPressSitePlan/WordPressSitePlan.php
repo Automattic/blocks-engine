@@ -25,6 +25,8 @@ final class WordPressSitePlan
         }
 
         $assets = $this->assets($compiled['assets'] ?? null);
+        $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
+        $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
         $references = new AssetReferenceCanonicalizer($tokens);
         $routeMap = $this->canonicalRoutes($compiled['pages'] ?? null, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
@@ -52,7 +54,7 @@ final class WordPressSitePlan
             'menus' => $materialization['menus'] ?? null,
             'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts']) ? 'functions.php' : null),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
-            'runtime_declarations' => $compiled['runtime_declarations'] ?? array(),
+            'runtime_declarations' => $runtimeDeclarations,
             'diagnostics' => array_merge($data['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks']),
             'reporting' => $this->reporting($pages, $data, $scriptLoading['diagnostics']),
@@ -164,6 +166,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('WordPress site plan asset lacks a write.');
             }
         }
+        self::assertAssetPublicationDeclarations($plan['runtime_declarations'], $plan['assets'], $writesByTarget);
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
             throw new InvalidArgumentException('WordPress site plan theme is structurally invalid.');
         }
@@ -210,6 +213,49 @@ final class WordPressSitePlan
         }
         return $rows;
     }
+
+    /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */
+    private function applyDeclaredAssetTransformations(array $assets, array $declarations): array
+    {
+        $bySource = array(); foreach ($assets as $index => $asset) $bySource[$asset['source_path']] = $index;
+        foreach ($declarations as $declaration) {
+            if (!is_array($declaration) || 'asset_publication' !== ($declaration['kind'] ?? null) || !isset($declaration['transformation'])) continue;
+            $assetIndex = $bySource[$declaration['source_path']] ?? null;
+            if (!is_int($assetIndex) || !is_string($assets[$assetIndex]['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation references an undeclared text asset.');
+            $asset = $assets[$assetIndex]; $transformation = $declaration['transformation'];
+            if ('image/svg+xml' !== ($asset['mime_type'] ?? null) || !self::safeSvg($asset['content'])) throw new InvalidArgumentException('Asset publication transformation requires a sanitized SVG source.');
+            $cssInputs = array();
+            foreach ($transformation['css_source_paths'] as $path) {
+                $index = $bySource[$path] ?? null;
+                if (!is_int($index) || 'text/css' !== ($assets[$index]['mime_type'] ?? null) || !is_string($assets[$index]['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation references an undeclared local CSS input.');
+                $fontFaces = self::fontFaces($assets[$index]['content']);
+                if (array() === $fontFaces) throw new InvalidArgumentException('Asset publication transformation CSS input has no local font-face payload.');
+                $cssInputs[] = array('source_path' => $path, 'content_hash' => self::contentHash($assets[$index]['content']), 'font_faces' => $fontFaces);
+            }
+            $fontInputs = array();
+            foreach ($transformation['font_source_paths'] as $path) {
+                $index = $bySource[$path] ?? null;
+                if (!is_int($index) || !str_starts_with((string) ($assets[$index]['mime_type'] ?? ''), 'font/')) throw new InvalidArgumentException('Asset publication transformation references an undeclared local font input.');
+                $fontInputs[] = array('source_path' => $path, 'content_hash' => $assets[$index]['content_hash']);
+            }
+            $input = array('css' => $cssInputs, 'fonts' => $fontInputs, 'font_faces' => $transformation['font_faces']);
+            if (RuntimeDeclarations::hash($input) !== $transformation['input_hash']) throw new InvalidArgumentException('Asset publication transformation inputs do not match their declared hash.');
+            $faces = $transformation['font_faces']; foreach ($cssInputs as $input) foreach ($input['font_faces'] as $face) $faces[] = $face;
+            $content = preg_replace('~</svg\s*>~i', '<style>' . implode("\n", $faces) . '</style></svg>', $asset['content'], 1);
+            if (!is_string($content) || $content === $asset['content'] || self::contentHash($content) !== $transformation['expected_content_hash']) throw new InvalidArgumentException('Asset publication transformation content hash does not match its declaration.');
+            $assets[$assetIndex]['content'] = $content; $assets[$assetIndex]['content_hash'] = self::contentHash($content);
+        }
+        return $assets;
+    }
+
+    /** @return array<int,string> */
+    private static function fontFaces(string $css): array
+    {
+        if (preg_match('~(?:https?:)?//~i', $css) || !preg_match_all('/@font-face\s*\{[^{}]*\}/i', $css, $matches)) throw new InvalidArgumentException('Asset publication transformation rejects remote or missing font-face inputs.');
+        return array_values(array_filter(array_map('trim', $matches[0]), static fn(string $face): bool => '' !== $face));
+    }
+
+    private static function safeSvg(string $svg): bool { return 1 !== preg_match('~<\s*(?:script|foreignObject)\b|\son[a-z]+\s*=|javascript:~i', $svg); }
 
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
@@ -418,6 +464,20 @@ final class WordPressSitePlan
         if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
             if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
+    }
+    /** @param array<int,mixed> $declarations @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writes */
+    private static function assertAssetPublicationDeclarations(array $declarations, array $assets, array $writes): void
+    {
+        $assetsBySource = array(); foreach ($assets as $asset) $assetsBySource[$asset['source_path']] = $asset;
+        foreach ($declarations as $declaration) {
+            if (!is_array($declaration) || 'asset_publication' !== ($declaration['kind'] ?? null)) continue;
+            $asset = $assetsBySource[$declaration['source_path']] ?? null;
+            if (!is_array($asset) || ($asset['role'] ?? null) !== $declaration['source_role'] || ($asset['mime_type'] ?? null) !== $declaration['mime_type'] || ($asset['hash'] ?? null) !== $declaration['source_hash'] || ($asset['content_hash'] ?? null) !== $declaration['expected_content_hash']) throw new InvalidArgumentException('Asset publication declaration does not match its declared source asset hashes or provenance.');
+            $write = $writes[$asset['target_path']] ?? null;
+            if (!is_array($write) || 'theme_asset' !== ($write['kind'] ?? null) || ($write['source_path'] ?? null) !== $declaration['source_path'] || ($write['payload_hash'] ?? null) !== self::contentHash($write['payload']['data'] ?? '')) throw new InvalidArgumentException('Asset publication declaration does not resolve to its declared asset write.');
+            foreach ($declaration['reference_targets'] as $target) if (!isset($writes[$target])) throw new InvalidArgumentException('Asset publication declaration references an undeclared destination replacement target.');
+            if (isset($declaration['transformation']) && $declaration['transformation']['expected_content_hash'] !== $declaration['expected_content_hash']) throw new InvalidArgumentException('Asset publication transformation final hash is contradictory.');
+        }
     }
     /** @param array<int,array<string,mixed>> $operations @param array<int,array<string,mixed>> $pages */
     private static function assertOperations(array $operations, array $pages): void

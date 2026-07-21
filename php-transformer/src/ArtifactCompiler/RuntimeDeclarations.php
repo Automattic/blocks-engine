@@ -73,6 +73,9 @@ final class RuntimeDeclarations
                 $normalized['required_for'] = array_values($declaration['required_for']);
                 sort($normalized['required_for'], SORT_STRING);
             }
+            if ('asset_publication' === $kind) {
+                $normalized = array_merge($normalized, self::assetPublication($declaration, $index));
+            }
             $totalBytes += strlen(self::canonicalJson($normalized));
             if ($totalBytes > self::MAX_TOTAL_DECLARATION_BYTES) throw new InvalidArgumentException("Runtime declarations exceed the aggregate canonical byte limit of " . self::MAX_TOTAL_DECLARATION_BYTES . " at declaration {$index}.");
             $normalized['payload_hash'] = self::hash($normalized['payload'] ?? null);
@@ -87,6 +90,39 @@ final class RuntimeDeclarations
         usort($declarations, static fn(array $left, array $right): int => strcmp($left['reconciliation_identity'], $right['reconciliation_identity']));
         return $declarations;
     }
+
+    /** @param array<string,mixed> $declaration @return array<string,mixed> */
+    private static function assetPublication(array $declaration, int $index): array
+    {
+        if ('asset' !== ($declaration['type'] ?? null) || !is_array($declaration['destination'] ?? null) || !is_string($declaration['destination']['capability'] ?? null) || !preg_match('/^[a-z][a-z0-9_-]{0,127}$/', $declaration['destination']['capability']) || !is_bool($declaration['destination']['required'] ?? null) || !is_string($declaration['source_role'] ?? null) || !preg_match('/^[a-z][a-z0-9_-]{0,127}$/', $declaration['source_role']) || !is_string($declaration['mime_type'] ?? null) || !preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $declaration['mime_type']) || !self::isHash($declaration['source_hash'] ?? null) || !self::isHash($declaration['expected_content_hash'] ?? null) || !is_array($declaration['provenance'] ?? null) || ($declaration['provenance']['source_path'] ?? null) !== ($declaration['source_path'] ?? null) || !is_array($declaration['sanitization'] ?? null) || !is_string($declaration['sanitization']['schema'] ?? null) || !self::isHash($declaration['sanitization']['input_hash'] ?? null) || $declaration['sanitization']['input_hash'] !== $declaration['source_hash']) throw new InvalidArgumentException("Runtime declaration {$index} asset publication lacks explicit source, destination, or sanitization proof.");
+        if (!is_array($declaration['reference_targets'] ?? null) || !array_is_list($declaration['reference_targets']) || count($declaration['reference_targets']) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} asset publication reference targets must be bounded.");
+        $targets = array(); $seen = array();
+        foreach ($declaration['reference_targets'] as $target) {
+            if (!is_string($target) || '' === ArtifactPath::safeRelativePath($target) || ArtifactPath::safeRelativePath($target) !== $target || isset($seen[strtolower($target)])) throw new InvalidArgumentException("Runtime declaration {$index} asset publication has an unsafe or duplicate reference target.");
+            $seen[strtolower($target)] = true; $targets[] = $target;
+        }
+        sort($targets, SORT_STRING);
+        $normalized = array('destination' => array('capability' => $declaration['destination']['capability'], 'required' => $declaration['destination']['required']), 'source_role' => $declaration['source_role'], 'mime_type' => strtolower($declaration['mime_type']), 'source_hash' => $declaration['source_hash'], 'expected_content_hash' => $declaration['expected_content_hash'], 'sanitization' => array('schema' => $declaration['sanitization']['schema'], 'input_hash' => $declaration['sanitization']['input_hash']), 'reference_targets' => $targets);
+        if (isset($declaration['transformation'])) $normalized['transformation'] = self::assetTransformation($declaration['transformation'], $index);
+        return $normalized;
+    }
+
+    /** @return array<string,mixed> */
+    private static function assetTransformation(mixed $transformation, int $index): array
+    {
+        if (!is_array($transformation) || 'svg_font_enrichment' !== ($transformation['kind'] ?? null) || !self::isHash($transformation['input_hash'] ?? null) || !self::isHash($transformation['expected_content_hash'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation is invalid.");
+        $paths = array();
+        foreach (array('css_source_paths', 'font_source_paths') as $field) {
+            if (!is_array($transformation[$field] ?? null) || !array_is_list($transformation[$field]) || count($transformation[$field]) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation inputs must be bounded lists.");
+            $seen = array(); $values = array(); foreach ($transformation[$field] as $path) { if (!is_string($path) || '' === ArtifactPath::safeRelativePath($path) || ArtifactPath::safeRelativePath($path) !== $path || isset($seen[strtolower($path)])) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation has an unsafe input path."); $seen[strtolower($path)] = true; $values[] = $path; } sort($values, SORT_STRING); $paths[$field] = $values;
+        }
+        $faces = $transformation['font_faces'] ?? array();
+        if (!is_array($faces) || !array_is_list($faces) || count($faces) > self::MAX_DECLARATIONS || array_filter($faces, static fn(mixed $face): bool => !is_string($face) || '' === trim($face) || strlen($face) > 16384 || preg_match('~(?:https?:)?//~i', $face))) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation font faces must be bounded local payloads.");
+        if (array() === $paths['css_source_paths'] && array() === $faces) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation requires declared font-face inputs.");
+        return array_merge(array('kind' => 'svg_font_enrichment', 'input_hash' => $transformation['input_hash'], 'expected_content_hash' => $transformation['expected_content_hash']), $paths, array('font_faces' => array_values($faces)));
+    }
+
+    private static function isHash(mixed $value): bool { return is_string($value) && 1 === preg_match('/^[a-f0-9]{64}$/', $value); }
 
     /** @param array<int,mixed> $declarations */
     public static function assertNormalized(array $declarations): void

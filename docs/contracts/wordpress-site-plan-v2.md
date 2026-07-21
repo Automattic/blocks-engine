@@ -41,6 +41,20 @@ and `WordPressSitePlanResolver::resolve()`.
   kinds, and non-serializable or overlarge payloads fail validation before plan
   emission. Declarations are carried unchanged after canonical normalization by
   compilation, resolution, reports, and package serialization.
+- `asset_publication` is the explicit declaration kind for materializing a declared
+  artifact asset at an arbitrary destination. It has `type: asset`, a stable
+  source-path reconciliation identity, explicit `destination.capability` and
+  `destination.required`, source provenance and role, MIME, source and final
+  content hashes, a sanitization proof bound to the source hash, and bounded
+  `reference_targets` naming existing plan writes whose destination URLs a
+  materializer may replace. The canonical plan retains those targets as
+  references; it never invents a destination URL.
+- An `asset_publication.transformation` can declare `svg_font_enrichment`.
+  Its deterministic input hash covers declared local CSS/font source paths and
+  bounded explicit font-face text; its expected content hash covers the final
+  SVG. Remote inputs, unsafe SVG, undeclared inputs or writes, mismatched hashes,
+  duplicate identities, and over-limit payloads are rejected. The engine fetches
+  nothing: destination adapters decide how to publish declared bytes.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
@@ -139,3 +153,6 @@ legacy metadata where they retain it, then persist the v2 source-and-route ident
 as the primary key. A content hash change with the same reconciliation identity is an
 update, not a new page or write. New runtime requirements must be supplied as explicit
 artifact `runtime_declarations`; the engine intentionally does not infer them.
+Existing consumers can continue using declarations other than `asset_publication`.
+Consumers adding publication intent provide explicit source and sanitization hashes
+rather than relying on file extension inference.
