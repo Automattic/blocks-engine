@@ -962,15 +962,19 @@ final class HtmlTransformer
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+            $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
+            $imageRule = '' === $imagePrelude
+                ? ''
+                : $imagePrelude . '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}';
             if ( array() === $margins ) {
-                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}';
+                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
 
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
                 : $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $this->cssDeclarationString($inner) . '}';
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}';
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
         });
     }
 
@@ -993,7 +997,6 @@ final class HtmlTransformer
                 $rewritten[] = $selector;
                 continue;
             }
-            $hasImageMatch = array() !== array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName));
             if ( $this->isRootChildSelector($parsed) ) {
                 $shellTags = array_values(array_unique(array_filter(array_map(
                     function (DOMElement $element): string {
@@ -1019,11 +1022,7 @@ final class HtmlTransformer
                     continue;
                 }
                 foreach ( $markers as $marker ) {
-                    $projected = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
-                    $rewritten[] = $projected;
-                    if ( $hasImageMatch ) {
-                        $rewritten[] = $projected . '.wp-block-image > img';
-                    }
+                    $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
                 }
                 foreach ( $shellTags as $tag ) {
                     $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed);
@@ -1052,9 +1051,6 @@ final class HtmlTransformer
             $richTextLeaves = array_values(array_unique($richTextLeaves));
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
-                if ( $hasImageMatch ) {
-                    $rewritten[] = $this->projectImageSelector($selector, $parsed);
-                }
                 continue;
             }
 
@@ -1071,11 +1067,43 @@ final class HtmlTransformer
             foreach ( $richTextLeaves as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
             }
-            if ( $hasImageMatch ) {
-                $rewritten[] = $this->projectImageSelector($selector, $parsed);
-            }
         }
         return implode(',', $rewritten);
+    }
+
+    private function projectAuthorImageSelectorPrelude(string $prelude): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return '';
+        }
+
+        $projected = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $matches = $this->matchingAuthorSourceElements($parsed);
+            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName)));
+            if ( array() === $imageMatches ) {
+                continue;
+            }
+
+            if ( $this->isRootChildSelector($parsed) ) {
+                foreach ( $imageMatches as $element ) {
+                    $marker = $this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '';
+                    if ( '' !== $marker ) {
+                        $projected[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker) . '.wp-block-image > img';
+                    }
+                }
+                continue;
+            }
+
+            $projected[] = $this->projectImageSelector($selector, $parsed);
+        }
+
+        return implode(',', array_values(array_unique($projected)));
     }
 
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
