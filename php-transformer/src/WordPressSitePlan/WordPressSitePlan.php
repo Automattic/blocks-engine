@@ -30,7 +30,8 @@ final class WordPressSitePlan
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routes);
         $parts = $this->documents($compiled['template_parts'] ?? null, true, $tokens, $references, $routes);
         $templates = $this->templates($pages, $parts);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts), $this->assetWrites($assets, $references));
+        $scriptLoading = $this->scriptLoading($pages, $parts, $tokens);
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts']), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance']),
@@ -39,17 +40,17 @@ final class WordPressSitePlan
             'template_parts' => $parts,
             'assets' => $assets,
             'reference_tokens' => $tokens,
-            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => 'not_proven', 'dynamic_client_assets' => array('status' => 'not_proven', 'materializer_may_reject' => true)),
+            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => 'not_proven', 'dynamic_client_assets' => array('status' => array() === $scriptLoading['diagnostics'] ? 'proven' : 'not_proven', 'materializer_may_reject' => array() !== $scriptLoading['diagnostics'])),
             'writes' => $writes,
             'operations' => $this->operations($pages),
             'routes' => $routes,
             'navigation_links' => $materialization['navigation_links'] ?? null,
             'menus' => $materialization['menus'] ?? null,
-            'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets) ? 'functions.php' : null),
+            'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts']) ? 'functions.php' : null),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
-            'diagnostics' => $data['diagnostics'],
+            'diagnostics' => array_merge($data['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks']),
-            'reporting' => $this->reporting($compiled, $data),
+            'reporting' => $this->reporting($compiled, $data, $scriptLoading['diagnostics']),
         );
         self::assertValid($plan);
         return $plan;
@@ -67,7 +68,7 @@ final class WordPressSitePlan
             }
         }
         self::assertSource($plan['source']);
-        if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || true !== ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null)) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
+        if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
         self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'));
@@ -193,7 +194,7 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
     private function documentMetadata(array $document, AssetReferenceCanonicalizer $references): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $references->reference($row['url'], self::value($document, 'source_path')); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } } unset($row); } return $metadata; }
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @return array<string,mixed> */
-    private function reporting(array $compiled, array $data): array { $documents = array(); foreach ($compiled['pages'] ?? array() as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => $page['kind'] ?? '', 'body_format' => $page['body_format'] ?? '', 'block_document' => 'blocks' === ($page['body_format'] ?? ''), 'provenance' => $page['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count(array_filter($documents, static fn(array $document): bool => !empty($document['block_document']))), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $data['diagnostics']))); }
+    private function reporting(array $compiled, array $data, array $scriptDiagnostics = array()): array { $documents = array(); foreach ($compiled['pages'] ?? array() as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => $page['kind'] ?? '', 'body_format' => $page['body_format'] ?? '', 'block_document' => 'blocks' === ($page['body_format'] ?? ''), 'provenance' => $page['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count(array_filter($documents, static fn(array $document): bool => !empty($document['block_document']))), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
     private function templates(array $pages, array $parts): array
@@ -236,28 +237,67 @@ final class WordPressSitePlan
         return $writes;
     }
 
+    /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,string>> $tokens @return array{scripts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    private function scriptLoading(array $pages, array $parts, array $tokens): array
+    {
+        $targets = array(); foreach ($tokens as $token) $targets[$token['token']] = $token['target_path'];
+        $scripts = array(); $diagnostics = array();
+        foreach (array_merge($pages, $parts) as $document) foreach ($document['document_metadata']['scripts'] ?? array() as $script) {
+            $source = $document['source_path'] . '#' . ($script['order'] ?? '');
+            $unsupported = static function (string $code, string $message) use (&$diagnostics, $source): void { $diagnostics[] = array('code' => $code, 'severity' => 'warning', 'message' => $message, 'source_path' => $source); };
+            if (!is_array($script) || 'inline' === ($script['source_kind'] ?? null)) { $unsupported('wordpress_site_plan_script_inline_unsupported', 'Inline document scripts cannot be materialized because the canonical metadata deliberately retains only their hash.'); continue; }
+            if (true === ($script['module'] ?? false) && true === ($script['nomodule'] ?? false)) { $unsupported('wordpress_site_plan_script_module_nomodule_conflict', 'A document script cannot combine module and nomodule semantics.'); continue; }
+            $localTarget = null; $suffix = ''; $url = null;
+            if (is_string($script['asset_reference'] ?? null) && preg_match('/^\{\{wordpress-site-plan:asset:([^}]+)\}\}(.*)$/', $script['asset_reference'], $match) && isset($targets[$match[1]])) { $localTarget = $targets[$match[1]]; $suffix = $match[2]; }
+            elseif (is_string($script['url'] ?? null) && preg_match('~^(?:https?:)?//[^\x00-\x20]+$~i', $script['url'])) $url = $script['url'];
+            else { $unsupported('wordpress_site_plan_script_url_unsupported', 'A document script must reference a declared local write or an absolute HTTP(S) URL.'); continue; }
+            $scripts[] = array('identity' => $source . "\n" . ($localTarget ?? $url) . "\n" . $suffix, 'placement' => $script['placement'], 'local_target' => $localTarget, 'suffix' => $suffix, 'url' => $url, 'async' => $script['async'], 'defer' => $script['defer'], 'module' => $script['module'], 'nomodule' => $script['nomodule'], 'type' => $script['type'] ?? ($script['module'] ? 'module' : null), 'integrity' => $script['integrity'] ?? null, 'crossorigin' => $script['crossorigin'] ?? null, 'referrerpolicy' => $script['referrerpolicy'] ?? null, 'fetchpriority' => $script['fetchpriority'] ?? null);
+        }
+        return array('scripts' => $scripts, 'diagnostics' => $diagnostics);
+    }
+
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts): array
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', "{\"version\":3,\"settings\":{},\"styles\":{}}\n"));
-        if ( self::needsBootstrap($assets) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets));
+        if ( self::needsBootstrap($assets, $scripts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function needsBootstrap(array $assets): bool { foreach ($assets as $asset) if (in_array($asset['kind'], array('css', 'js'), true)) return true; return false; }
+    private static function needsBootstrap(array $assets, array $scripts = array()): bool { foreach ($assets as $asset) if (in_array($asset['kind'], array('css', 'js'), true)) return true; return array() !== $scripts; }
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets): string
+    private static function bootstrap(array $assets, array $scripts = array()): string
     {
         $lines = array("<?php", "add_action( 'wp_enqueue_scripts', static function (): void {");
         foreach ($assets as $asset) {
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) $lines[] = "    wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null );";
-            if ('js' === $asset['kind']) $lines[] = "    wp_enqueue_script( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null, true );";
+        }
+        $attributes = array(); $dependencies = array('head' => array(), 'body' => array());
+        foreach ($scripts as $script) {
+            $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
+            $dependency = $dependencies[$script['placement']];
+            $source = null !== $script['local_target'] ? "get_theme_file_uri( " . var_export($script['local_target'], true) . " ) . " . var_export($script['suffix'], true) : var_export($script['url'], true);
+            $args = array('in_footer' => 'body' === $script['placement']);
+            if ($script['async'] && !$script['module']) $args['strategy'] = 'async';
+            if ($script['defer'] && !$script['async'] && !$script['module']) $args['strategy'] = 'defer';
+            $lines[] = "    wp_register_script( " . var_export($handle, true) . ", {$source}, " . var_export($dependency, true) . ", null, " . var_export($args, true) . " );";
+            $lines[] = "    wp_enqueue_script( " . var_export($handle, true) . " );";
+            $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
+            $dependencies[$script['placement']][] = $handle;
         }
         $lines[] = "} );";
+        if (array() !== $attributes) {
+            $lines[] = "add_filter( 'script_loader_tag', static function ( string \$tag, string \$handle ): string {";
+            $lines[] = '    $attributes = ' . var_export($attributes, true) . ';';
+            $lines[] = "    if ( ! isset( \$attributes[\$handle] ) ) return \$tag;";
+            $lines[] = "    \$rendered = ''; foreach ( \$attributes[\$handle] as \$name => \$value ) \$rendered .= true === \$value ? ' ' . \$name : ' ' . \$name . '=\"' . esc_attr( (string) \$value ) . '\"';";
+            $lines[] = "    return preg_replace( '/<script\\b/', '<script' . \$rendered, \$tag, 1 ) ?? \$tag;";
+            $lines[] = "}, 10, 2 );";
+        }
         return implode("\n", $lines) . "\n";
     }
     /** @return array<string,mixed> */
@@ -291,8 +331,9 @@ final class WordPressSitePlan
         try { $theme = json_decode((string) $themeJson['payload']['data'], true, 512, JSON_THROW_ON_ERROR); } catch (\JsonException) { throw new InvalidArgumentException('WordPress site plan theme.json is not valid JSON.'); }
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
-        if (self::needsBootstrap($plan['assets'])) {
-            if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['reference_tokens']);
+        if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
+            if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
     }
     /** @param array<int,array<string,mixed>> $operations @param array<int,array<string,mixed>> $pages */
