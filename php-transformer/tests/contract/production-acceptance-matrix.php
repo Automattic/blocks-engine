@@ -127,6 +127,9 @@ $plan = json_decode((string) file_get_contents($fixtures[0]['site_plan']), true)
 $plan['pages'] = array();
 $plan['routes'] = array();
 $plan['operations'] = array();
+$plan['reporting']['source_documents'] = array();
+$plan['reporting']['metrics']['source_document_count'] = 0;
+$plan['reporting']['metrics']['block_document_count'] = 0;
 file_put_contents($fixtures[0]['site_plan'], json_encode($plan));
 $runFailure($fixtures, 'import', 'import_empty_site_plan');
 

@@ -145,6 +145,10 @@ The artifact compiler accepts loose generated-site bundles and normalizes them i
 
 Unsupported or unsafe artifact inputs are reported through diagnostics instead of hidden best-effort behavior. Empty, absolute, or root-escaping paths are rejected; oversized files are ignored according to the source report limits; and a bundle with neither an HTML entry nor source documents fails with `missing_entry_html`.
 
+## WordPress Site Plans
+
+`WordPressSitePlan` projects a self-contained `blocks-engine/wordpress-site-plan/v2` materialization contract from a compiler result. Its normalized document metadata and generic reporting summaries let a consumer project reports from a resolved plan plus its own receipt, without reading the compiler envelope or source files. See [WordPress Site Plan v2](docs/wordpress-site-plan.md) for the metadata shape, ordering, supported attributes, and resolver boundary.
+
 ## Parity Checks
 
 Run the package contract, parity fixtures, and clean package-install proof with `composer test`. The checked-in fixtures assert current transformer behavior, and the install proof verifies that Composer can install `automattic/blocks-engine-php-transformer` from the `php-transformer/` package root without symlinking back to the working tree.
