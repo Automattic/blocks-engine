@@ -4433,19 +4433,12 @@ final class HtmlTransformer
         if ( null === $control ) {
             return array();
         }
-        $anchor = $control;
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement && $parent !== $card; $parent = $parent->parentNode ) {
-            $anchor = $parent;
-            if ( $this->hasQuantityControl($parent) ) {
-                break;
-            }
-        }
-        $block = $this->blockForSourceSelector($blocks, $this->elementSelector($anchor));
+        $block = $this->blockForSourceSelector($blocks, $this->elementSelector($control));
         if ( null === $block ) {
             return array();
         }
         $markup = $this->runtime->serializeBlocks(array($block));
-        return $this->blockBinding($markup, 'commerce_controls');
+        return $this->blockBinding($markup, 'commerce_controls', $this->runtimeDomSelectorsForElement($control));
     }
 
     /**
@@ -4471,14 +4464,17 @@ final class HtmlTransformer
     }
 
     /** @return array<string,mixed> */
-    private function blockBinding(string $markup, string $role): array
+    private function blockBinding(string $markup, string $role, array $supersededRuntimeSelectors = array()): array
     {
         if ( '' === trim($markup) ) {
             return array();
         }
         $key = hash('sha256', $role . "\n" . $markup);
         $this->blockBindingOccurrences[$key] = ($this->blockBindingOccurrences[$key] ?? 0) + 1;
-        return array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => $this->blockBindingOccurrences[$key], 'role' => $role);
+        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => $this->blockBindingOccurrences[$key], 'role' => $role);
+        $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
+        if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
+        return $binding;
     }
 
     /**
@@ -5749,6 +5745,20 @@ final class HtmlTransformer
         return false;
     }
 
+    /** @return array<int,string> */
+    private function runtimeDomSelectorsForElement(DOMElement $element): array
+    {
+        $selectors = array();
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) $selectors[] = '#' . $id;
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) $selectors[] = '.' . $class;
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
+            if ( ! $this->isPresentationalAnimationSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
+        }
+        return array_values(array_unique($selectors));
+    }
+
     private function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
         if ( array() === $this->runtimeDomSelectors && array() === $this->runtimeCanvasSelectors ) {
@@ -6637,7 +6647,7 @@ final class HtmlTransformer
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'binding'         => $this->blockBinding($bindingMarkup, 'form'),
+            'binding'         => $this->blockBinding($bindingMarkup, 'form', $this->runtimeDomSelectorsForElement($element)),
             'controls'        => $controls,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),

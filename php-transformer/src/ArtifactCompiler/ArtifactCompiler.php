@@ -71,11 +71,11 @@ final class ArtifactCompiler
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath);
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
-        $allDiagnostics = $entryBlocks['diagnostics'];
+        $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
-        foreach ( $compiledHtmlDocuments as $compiledHtmlDocument ) {
+        foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
-            $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array()));
+            $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
         }
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
@@ -2437,12 +2437,15 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<int, array<string, mixed>>
      */
-    private function entryTransformDiagnostics(array $diagnostics): array
+    private function entryTransformDiagnostics(array $diagnostics, string $sourcePath = ''): array
     {
-        return array_values(array_filter(
+        $diagnostics = array_values(array_filter(
             $diagnostics,
             static fn (array $diagnostic): bool => 'html_to_blocks_core_slice' !== ($diagnostic['code'] ?? '')
         ));
+        if ( '' !== $sourcePath ) foreach ( $diagnostics as &$diagnostic ) if ( !isset($diagnostic['source_path']) ) $diagnostic['source_path'] = $sourcePath;
+        unset($diagnostic);
+        return $diagnostics;
     }
 
     /**
