@@ -1,166 +1,25 @@
-name: Solved Fixture Regression
+name: Solved Site Promotion Gate
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/solved-fixture-regression.yml"
-      - "php-transformer/**"
-      - "fixtures/solved/**"
+      - '.github/workflows/solved-fixture-regression.yml'
+      - 'php-transformer/**'
+      - 'fixtures/solved/**'
   push:
-    branches:
-      - trunk
+    branches: [trunk]
     paths:
-      - ".github/workflows/solved-fixture-regression.yml"
-      - "php-transformer/**"
-      - "fixtures/solved/**"
+      - '.github/workflows/solved-fixture-regression.yml'
+      - 'php-transformer/**'
+      - 'fixtures/solved/**'
 
 permissions:
   contents: read
 
 jobs:
-  solved-fixture-regression:
-    name: Solved fixture matrix
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      HOMEBOY_VERSION: v0.298.1
-      HOMEBOY_SHA256: 543a1eb7348a9dcde3bee671dbbeaabb9486781d350792bed8a77424fdad60d5
-      HOMEBOY_EXTENSIONS_REF: 615fe3632d0cd30e9a70d5aea82be80460d733d5
-      WP_CODEBOX_VERSION: v0.12.29
-      WP_CODEBOX_SHA256: d332924b3b91ef8e47b5ebca7063b2964734d3ac081dd62fa18ec9417fefdcd5
-
-    steps:
-      - name: Checkout candidate
-        uses: actions/checkout@v4
-        with:
-          path: blocks-engine
-
-      - name: Initialize run evidence
-        run: |
-          RUN_ID="blocks-engine-solved-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA:0:12}"
-          RUN_DIR="$RUNNER_TEMP/$RUN_ID"
-          mkdir -p "$RUN_DIR/homeboy-artifacts" "$RUN_DIR/homeboy-shared-state"
-          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
-          echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
-          printf '{\n  "runId": "%s",\n  "candidateSha": "%s",\n  "staticSiteImporterRef": "%s",\n  "homeboyVersion": "%s",\n  "homeboyExtensionsRef": "%s",\n  "wpCodeboxVersion": "%s"\n}\n' \
-            "$RUN_ID" "$GITHUB_SHA" "0dcefb3fde53561e3682263f9deddfd451ddaa32" "$HOMEBOY_VERSION" "$HOMEBOY_EXTENSIONS_REF" "$WP_CODEBOX_VERSION" \
-            > "$RUN_DIR/homeboy-artifacts/runtime-inputs.json"
-
-      - name: Checkout pinned Static Site Importer
-        uses: actions/checkout@v4
-        with:
-          repository: Automattic/static-site-importer
-          ref: 0dcefb3fde53561e3682263f9deddfd451ddaa32
-          path: static-site-importer
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
-        with:
-          php-version: "8.1"
-          coverage: none
-          tools: composer:v2
-
-      - name: Install pinned Static Site Importer dependencies
-        working-directory: static-site-importer
-        run: |
-          npm ci
-          composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Install pinned Homeboy
-        run: |
-          mkdir -p "$RUNNER_TEMP/homeboy"
-          curl --fail --location --retry 3 --retry-all-errors --output "$RUNNER_TEMP/homeboy.tar.xz" "https://github.com/Extra-Chill/homeboy/releases/download/${HOMEBOY_VERSION}/homeboy-x86_64-unknown-linux-gnu.tar.xz"
-          echo "${HOMEBOY_SHA256}  $RUNNER_TEMP/homeboy.tar.xz" | sha256sum --check --status
-          tar --extract --xz --file "$RUNNER_TEMP/homeboy.tar.xz" --directory "$RUNNER_TEMP/homeboy" --strip-components=1
-          chmod +x "$RUNNER_TEMP/homeboy/homeboy"
-          "$RUNNER_TEMP/homeboy/homeboy" --version
-          "$RUNNER_TEMP/homeboy/homeboy" extension install https://github.com/Extra-Chill/homeboy-extensions --id nodejs --ref "$HOMEBOY_EXTENSIONS_REF"
-          "$RUNNER_TEMP/homeboy/homeboy" extension install https://github.com/Extra-Chill/homeboy-extensions --id wordpress --ref "$HOMEBOY_EXTENSIONS_REF"
-          echo "HOMEBOY_BIN=$RUNNER_TEMP/homeboy/homeboy" >> "$GITHUB_ENV"
-
-      - name: Install pinned WP Codebox
-        run: |
-          mkdir -p "$RUNNER_TEMP/wp-codebox"
-          curl --fail --location --retry 3 --retry-all-errors --output "$RUNNER_TEMP/wp-codebox/workspace.tgz" "https://github.com/Automattic/wp-codebox/releases/download/${WP_CODEBOX_VERSION}/02-wp-codebox-workspace-${WP_CODEBOX_VERSION#v}.tgz"
-          echo "${WP_CODEBOX_SHA256}  $RUNNER_TEMP/wp-codebox/workspace.tgz" | sha256sum --check --status
-          npm install --global --prefix "$RUNNER_TEMP/wp-codebox" "$RUNNER_TEMP/wp-codebox/workspace.tgz"
-          node "$RUNNER_TEMP/wp-codebox/lib/node_modules/wp-codebox-workspace/node_modules/playwright/cli.js" install --with-deps chromium
-          "$RUNNER_TEMP/wp-codebox/bin/wp-codebox" commands --json
-          echo "WP_CODEBOX_BIN=$RUNNER_TEMP/wp-codebox/bin/wp-codebox" >> "$GITHUB_ENV"
-
-      - name: Run solved fixture matrix
-        working-directory: static-site-importer
-        env:
-          HOMEBOY_WP_CODEBOX_BIN: ${{ runner.temp }}/wp-codebox/bin/wp-codebox
-        run: |
-          set -o pipefail
-          set +e
-          node tools/run-fixture-matrix.mjs \
-            --solved-only \
-            --local \
-            --static-site-importer "$GITHUB_WORKSPACE/static-site-importer" \
-            --blocks-engine "$GITHUB_WORKSPACE/blocks-engine" \
-            --homeboy-bin "$HOMEBOY_BIN" \
-            --wp-codebox-bin "$WP_CODEBOX_BIN" \
-            --run-id "$RUN_ID" \
-            --output "$RUN_DIR/homeboy-bench-result.json" \
-            --shared-state "$RUN_DIR/homeboy-shared-state" \
-            --artifact-root "$RUN_DIR/homeboy-artifacts" | tee "$RUN_DIR/operator-output.log"
-          matrix_status=${PIPESTATUS[0]}
-          set -e
-          node --input-type=module - "$RUN_DIR/operator-output.log" "$RUN_DIR/operator-summary.json" <<'NODE'
-          import fs from 'node:fs';
-
-          const [input, output] = process.argv.slice(2);
-          const raw = fs.readFileSync(input, 'utf8');
-          const marker = '{\n  "schema": "static-site-importer/fixture-matrix-operator-summary/v1"';
-          const start = raw.lastIndexOf(marker);
-          if (start < 0) {
-            throw new Error('Fixture matrix did not emit an operator summary.');
-          }
-          fs.writeFileSync(output, `${JSON.stringify(JSON.parse(raw.slice(start)), null, 2)}\n`);
-          NODE
-          exit "$matrix_status"
-
-      - name: Upload operator summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: solved-fixture-operator-summary
-          path: |
-            ${{ env.RUN_DIR }}/operator-summary.json
-            ${{ env.RUN_DIR }}/operator-output.log
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Homeboy bench result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: solved-fixture-homeboy-bench-result
-          path: ${{ env.RUN_DIR }}/homeboy-bench-result.json
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Homeboy run artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: solved-fixture-homeboy-run-artifacts
-          path: ${{ env.RUN_DIR }}/homeboy-artifacts
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload WP Codebox evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: solved-fixture-wp-codebox-evidence
-          path: ${{ env.RUN_DIR }}/homeboy-artifacts
-          if-no-files-found: warn
-          retention-days: 14
+  solved-site-promotion:
+    uses: Automattic/static-site-importer/.github/workflows/solved-site-promotion.yml@6a4a8435500ce6de0aa13d204c141c7f576c3fe6
+    with:
+      static-site-importer-sha: 6a4a8435500ce6de0aa13d204c141c7f576c3fe6
+      blocks-engine-sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      blocks-engine-repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
