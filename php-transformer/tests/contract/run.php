@@ -1997,13 +1997,17 @@ $artifactNavAnchorCss = $compiler->compile(
         'entry' => 'index.html',
         'files' => array(
             'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header class="site-header"><nav class="subnav"><a href="#one">One</a></nav></header></body></html>',
-            'styles.css' => '.site-header .subnav a{color:#31251c;text-decoration:none;border-color:#31251c}.site-header .subnav a:hover{color:#8f5031;border-color:#8f5031}',
+            'styles.css' => '.site-header .subnav a{display:block;color:#31251c;text-decoration:none;border-color:#31251c}.site-header .subnav a:hover{color:#8f5031;border-color:#8f5031}',
         ),
     )
 )->toArray();
 $artifactNavAnchorStaticCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
+$artifactNavAnchorMarkup = (string) ($artifactNavAnchorCss['serialized_blocks'] ?? '');
+$artifactNavAnchorGeneratedCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavAnchorCss['assets'] ?? array()));
+$assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { display:block;color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
 $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through core/navigation wrappers');
+$assert((bool) preg_match('/\.wp-block-navigation\.blocks-engine-list-navigation \.wp-block-navigation-item\.blocks-engine-navigation-control-[a-f0-9]+-\d+> \.wp-block-navigation-item__content\{display:block\}/', $artifactNavAnchorGeneratedCss), 'artifact author CSS projects source anchor display through converted navigation item identity');
+$assert(str_contains($artifactNavAnchorMarkup, 'blocks-engine-navigation-control-'), 'converted navigation link carries the projected author-style identity');
 
 $artifactAdjacentNavSpacing = $compiler->compile(
     array(
@@ -2019,7 +2023,7 @@ $assert('18px' === ($artifactAdjacentNavBlock['attrs']['style']['spacing']['bloc
 $assert(! isset($artifactAdjacentNavBlock['innerBlocks'][1]['attrs']['style']['spacing']['margin']['left']), 'linked CSS navigation spacing is not duplicated on promoted child margins');
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
-$assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
+$assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { display:block;color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
 
 $artifactGeometry = $compiler->compile(
     array(

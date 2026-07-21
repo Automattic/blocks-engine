@@ -355,6 +355,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source wrapper paths promoted into core/button. */
     private array $sourceButtonPresentationMarkers = array();
 
+    /** @var array<string, string> */
+    private array $sourceNavigationControlMarkers = array();
+
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
@@ -451,6 +454,7 @@ final class HtmlTransformer
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
         $this->sourceButtonPresentationMarkers = array();
+        $this->sourceNavigationControlMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
@@ -734,6 +738,10 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
+        }
+        $navigationControlDisplayCss = $this->navigationControlDisplayProjectionCss();
+        if ( '' !== $navigationControlDisplayCss ) {
+            $cssParts[] = $navigationControlDisplayCss;
         }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
@@ -1029,6 +1037,45 @@ final class HtmlTransformer
             );
         }
         return $projections;
+    }
+
+    private function navigationControlDisplayProjectionCss(): string
+    {
+        if ( array() === $this->sourceNavigationControlMarkers
+            || '' === $this->combinedAuthorCss
+            || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return '';
+        }
+
+        return trim(( new CssStylesheetTransformer() )->transformStyleRules(
+            $this->combinedAuthorCss,
+            function (string $prelude, string $body): string {
+                $declarations = $this->cssDeclarations($body);
+                if ( ! isset($declarations['display']) ) {
+                    return '';
+                }
+
+                $selectors = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $parsed = CssSelectorMatcher::parse($selector);
+                    if ( ! $parsed['supported'] ) {
+                        continue;
+                    }
+                    foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                        $marker = $this->sourceNavigationControlMarkers[$element->getNodePath() ?? ''] ?? '';
+                        if ( '' !== $marker ) {
+                            $selectors['.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.' . $marker . '> .wp-block-navigation-item__content'] = true;
+                        }
+                    }
+                }
+
+                if ( array() === $selectors ) {
+                    return '';
+                }
+
+                return implode(',', array_keys($selectors)) . '{' . $this->cssDeclarationString(array( 'display' => $declarations['display'] )) . '}';
+            }
+        ));
     }
 
     private function allocateAuthorMarker(string $kind): string
@@ -2642,6 +2689,15 @@ final class HtmlTransformer
                 if ( '' !== $presentationPath && $presentationPath !== $path ) {
                     $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
                     $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
+                }
+            }
+            if ( 'core/navigation-link' === $name && 'a' === strtolower($logicalControl->tagName) && isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) ) {
+                $path = $logicalControl->getNodePath() ?? '';
+                if ( '' !== $path && ! isset($this->sourceNavigationControlMarkers[$path]) ) {
+                    $this->sourceNavigationControlMarkers[$path] = $this->allocateAuthorMarker('navigation-control');
+                }
+                if ( isset($this->sourceNavigationControlMarkers[$path]) ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceNavigationControlMarkers[$path]);
                 }
             }
             $provenanceId = $this->nextSourceProvenanceId++;
