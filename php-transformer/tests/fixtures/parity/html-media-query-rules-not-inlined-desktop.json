@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-media-query-rules-not-inlined-desktop",
-  "description": "Keeps responsive-only CSS rules out of unconditional block inline styles so desktop source spacing is not overwritten by mobile declarations.",
+  "description": "Keeps properties with responsive variants under stylesheet ownership so conditional declarations can override their base values.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-media-query-rules-not-inlined-desktop.json",
@@ -17,7 +17,7 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "font-size:clamp(5rem, 13vw, 13rem)" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "font-size:clamp(5rem, 13vw, 13rem)" },
     { "path": "serialized_blocks", "assert": "contains", "value": "line-height:0.92" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "font-size:clamp(4rem, 18vw, 7rem)" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "letter-spacing:-0.04em" }
