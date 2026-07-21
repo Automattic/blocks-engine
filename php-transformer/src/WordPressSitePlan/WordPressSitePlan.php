@@ -357,6 +357,7 @@ final class WordPressSitePlan
     {
         if ( ! is_array($assets) ) throw new InvalidArgumentException('Compiled site assets must be an array.');
         $rows = array();
+        $rowsBySource = array();
         foreach ( $assets as $asset ) {
             if ( ! is_array($asset) || ! self::safePath($asset['path'] ?? null) ) throw new InvalidArgumentException('Compiled site asset lacks a safe source identity.');
             // The compiler retains rejected source assets for diagnostics. They have no
@@ -367,7 +368,14 @@ final class WordPressSitePlan
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
-            $rows[] = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => self::contentHash($payload));
+            $row = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => self::contentHash($payload));
+            $sourceIdentity = str_replace('\\', '/', strtolower($row['source_path']));
+            if ( isset($rowsBySource[$sourceIdentity]) ) {
+                if ( $rowsBySource[$sourceIdentity] !== $row ) throw new InvalidArgumentException('Compiled site assets have colliding source identities with different payloads.');
+                continue;
+            }
+            $rowsBySource[$sourceIdentity] = $row;
+            $rows[] = $row;
         }
         return $rows;
     }

@@ -139,6 +139,14 @@ $externalCommaUrl = (new ArtifactCompiler())->compile(array('entrypoint' => 'ind
 $assert(isset($externalCommaUrl['source_reports']['wordpress_site_plan']), 'External browser URLs containing commas are validated as one URL rather than srcset candidates.');
 $nestedDataUrl = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<style>main{background:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'/%3E%3Crect filter=\'url(%23n)\'/%3E%3C/svg%3E")}</style><main>Texture</main>')))->toArray();
 $assert(isset($nestedDataUrl['source_reports']['wordpress_site_plan']), 'Quoted CSS data URLs may contain encoded nested URL fragments without fabricating local references.');
+
+$repeatedGeneratedAsset = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<main><svg aria-label="Mark"><path d="M0 0h1v1z"/></svg></main>',
+    'about.html' => '<main><svg aria-label="Mark"><path d="M0 0h1v1z"/></svg></main>',
+)))->toArray();
+$repeatedGeneratedPlan = $repeatedGeneratedAsset['source_reports']['wordpress_site_plan'] ?? array();
+$repeatedGeneratedSvgAssets = array_values(array_filter($repeatedGeneratedPlan['assets'] ?? array(), static fn(array $asset): bool => 'image/svg+xml' === ($asset['mime_type'] ?? null)));
+$assert(1 === count($repeatedGeneratedSvgAssets) && !isset($repeatedGeneratedAsset['source_reports']['wordpress_site_plan_diagnostics']), 'Byte-identical generated assets shared by multiple pages produce one canonical site-plan identity.');
 $publicationSvg = '<svg xmlns="http://www.w3.org/2000/svg"><text>Example</text></svg>';
 $publicationCss = '@font-face{font-family:Example;src:url(font.woff2)}';
 $publicationToken = 'asset-' . substr(hash('sha256', 'assets/assets/font.woff2'), 0, 16);
