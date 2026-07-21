@@ -52,6 +52,10 @@ and `WordPressSitePlanResolver::resolve()`.
   and dynamic references before plan emission. The
   resolver retains that canonical token provenance and supplies its current
   resolved URL; the canonical plan never invents a destination URL.
+  `source_hash` is the immutable normalized-artifact source payload hash carried
+  into the plan as `assets[].hash`; transformed final bytes are independently
+  bound by `expected_content_hash` and the canonical write payload hash. Public
+  validation re-binds both facts to the asset, write, and allowlisted provenance.
 - An `asset_publication.transformation` can declare `svg_font_enrichment`.
   Its deterministic input hash covers declared local CSS/font source paths; the
   engine parses the narrowly allowed local `@font-face` declarations and its
