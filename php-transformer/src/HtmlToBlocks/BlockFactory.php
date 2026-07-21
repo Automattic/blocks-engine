@@ -64,9 +64,9 @@ final class BlockFactory
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
 
-        // Paragraph save() does not reproduce dimensions.maxWidth. Inline
+        // RichText block save() does not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
-        if ( in_array($name, array( 'core/group', 'core/columns', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/group', 'core/columns', 'core/list-item', 'core/paragraph' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);
@@ -252,7 +252,7 @@ final class BlockFactory
 
         if ( 'core/gallery' === $name ) {
             $caption = ! empty($attrs['caption']) ? '<figcaption class="blocks-gallery-caption wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
-            return array( 'opening' => '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-gallery') . '>', 'closing' => $caption . '</figure>' );
+            return array( 'opening' => '<figure' . $this->blockSupportAttrs($attrs, $this->galleryClasses($attrs)) . '>', 'closing' => $caption . '</figure>' );
         }
 
         if ( 'core/embed' === $name ) {
@@ -420,6 +420,10 @@ final class BlockFactory
     private function imageHtml(array $attrs): string
     {
         $figureAttrs = $attrs;
+        $baseClass = 'wp-block-image';
+        if ( ! empty($attrs['style']['border']) ) {
+            $baseClass .= ' has-custom-border';
+        }
         if ( ! empty($attrs['sizeSlug']) ) {
             $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
         }
@@ -452,7 +456,23 @@ final class BlockFactory
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
-        return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+        return '<figure' . $this->blockSupportAttrs($figureAttrs, $baseClass) . '>' . $img . $caption . '</figure>';
+    }
+
+    /**
+     * Match the structural classes emitted by core/gallery save().
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function galleryClasses(array $attrs): string
+    {
+        $columns = (int) ($attrs['columns'] ?? 0);
+        $classes = array('wp-block-gallery', 'has-nested-images', $columns > 0 ? 'columns-' . $columns : 'columns-default');
+        if ( ! array_key_exists('imageCrop', $attrs) || false !== $attrs['imageCrop'] ) {
+            $classes[] = 'is-cropped';
+        }
+
+        return implode(' ', $classes);
     }
 
     /**
