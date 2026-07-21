@@ -5894,7 +5894,7 @@ final class HtmlTransformer
      */
     private function searchBlockFromStandaloneControl(DOMElement $element): ?array
     {
-        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) ) {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) || $this->isRuntimeDomTarget($element) ) {
             return null;
         }
 
@@ -5904,10 +5904,9 @@ final class HtmlTransformer
                 $inputs[] = $input;
             }
         }
-        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) ) {
+        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) || $this->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
-
         $controls = $this->formControlElements($element);
         if ( 1 !== count($controls) ) {
             return null;
@@ -5925,7 +5924,21 @@ final class HtmlTransformer
         if ( '' === $label ) {
             $label = $this->attr($searchInput, 'placeholder');
         }
-        return $this->htmlPreservationBlock($element);
+
+        if ( 'input' !== $this->attr($searchInput, 'data-figma-synthetic-control') ) {
+            return $this->htmlPreservationBlock($element);
+        }
+        if ( 1 !== $this->childElementCount($element) ) {
+            return null;
+        }
+
+        $placeholder = $this->attr($searchInput, 'placeholder');
+        return $this->createBlock('core/search', array_merge($this->presentationAttributes($element), array(
+            'label'          => '' !== $label ? $label : 'Search',
+            'showLabel'      => false,
+            'placeholder'    => $placeholder,
+            'buttonPosition' => 'no-button',
+        )), array(), $element);
     }
 
     /**
