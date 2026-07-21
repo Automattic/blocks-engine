@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 const DEFAULT_VIEWPORT = { width: 1440, height: 900, device_scale_factor: 1 };
-const DEFAULT_NODE_ID_ATTR = 'data-figma-node-id';
-const DEFAULT_NODE_NAME_ATTRS = ['data-figma-node-name', 'data-figma-name'];
+const DEFAULT_NODE_ID_ATTR = 'data-node-id';
+const DEFAULT_NODE_NAME_ATTRS = ['data-node-name'];
 const STATIC_ARTIFACT_CAPTURE_IGNORE_ATTR = 'data-static-artifact-capture';
 const SOURCE_NODE_TYPE_ATTR = 'data-source-node-type';
 const SOURCE_VISUAL_WIDTH_ATTR = 'data-source-visual-width';
@@ -265,7 +265,7 @@ function targetsForPage(targets, pagePath) {
 }
 
 function printHelp() {
-  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n  HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON Optional page/source-frame viewport capture targets.\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n  --preflight                          Verify Playwright and Chromium are installed, then exit.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
+  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off configurable, format-neutral attributes.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n  HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON Optional page/source-frame viewport capture targets.\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n  --preflight                          Verify Playwright and Chromium are installed, then exit.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
 }
 
 async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {

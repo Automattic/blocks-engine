@@ -5925,7 +5925,7 @@ final class HtmlTransformer
             $label = $this->attr($searchInput, 'placeholder');
         }
 
-        if ( 'input' !== $this->attr($searchInput, 'data-figma-synthetic-control') ) {
+        if ( '' !== $this->attr($searchInput, 'id') || 's' !== $this->attr($searchInput, 'name') ) {
             return $this->htmlPreservationBlock($element);
         }
         if ( 1 !== $this->childElementCount($element) ) {

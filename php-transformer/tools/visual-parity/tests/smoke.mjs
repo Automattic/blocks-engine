@@ -66,11 +66,11 @@ await writeFile(domFixture, `<!doctype html><html><head><style>
     height: 24px;
   }
   .asset-bounds { width: 1px; height: 1px; background-image: url("https://example.test/${longAssetValue}"); }
-</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero" data-source-node-type="FRAME" data-source-visual-width="120" data-source-visual-height="24">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main><section class="asset-bounds" data-figma-node-id="56:78" data-figma-node-name="Asset bounds"><img alt="" src="/loaded-image.svg">${assetDescendants}</section></body></html>`);
+</style></head><body><main class="hero" data-node-id="12:34" data-node-name="Hero" data-source-node-type="FRAME" data-source-visual-width="120" data-source-visual-height="24">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main><section class="asset-bounds" data-node-id="56:78" data-node-name="Asset bounds"><img alt="" src="/loaded-image.svg">${assetDescendants}</section></body></html>`);
 await writeFile(domFixtureGeneric, `<!doctype html><html><head><style>
   body { margin: 0; }
   .hero { color: rgb(12, 34, 56); font-size: 20px; width: 120px; height: 24px; }
-</style></head><body><main class="hero" data-node-id="n-1" data-node-name="Generic Hero">Hello generic</main></body></html>`);
+</style></head><body><main class="hero" data-custom-id="n-1" data-custom-name="Generic Hero">Hello generic</main></body></html>`);
 const server = createServer(async (request, response) => {
   if (request.url === '/dom-box.html') {
     response.writeHead(200, { 'content-type': 'text/html' });
@@ -116,7 +116,7 @@ try {
   assert(domReport.entrypoints[0].elements[0].source.node_type === 'FRAME', 'DOM provider preserves source node type');
   assert(domReport.entrypoints[0].elements[0].source.visual_dimensions.width === 120, 'DOM provider preserves source visual width');
   assert(domReport.entrypoints[0].elements[0].source.visual_dimensions.height === 24, 'DOM provider preserves source visual height');
-  assert(domReport.entrypoints[0].elements[0].selector === 'main[data-figma-node-id="12:34"]', 'DOM provider keys selector off default figma attribute');
+  assert(domReport.entrypoints[0].elements[0].selector === 'main[data-node-id="12:34"]', 'DOM provider keys selector off the format-neutral default attribute');
   assert(domReport.entrypoints[0].elements[0].text_sample === 'Hello world', 'DOM provider captures text sample');
   assert(domReport.entrypoints[0].elements[0].page_path === '/dom-box.html', 'DOM provider adds page path to elements');
   assert(domReport.entrypoints[0].elements[0].computed_style['font-size'] === '20px', 'DOM provider captures computed font size');
@@ -152,18 +152,18 @@ try {
     ...process.env,
     HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
     HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/dom-box-generic.html']),
-    HOMEBOY_DOM_BOX_NODE_ID_ATTR: 'data-node-id',
-    HOMEBOY_DOM_BOX_NODE_NAME_ATTR: 'data-node-name',
+    HOMEBOY_DOM_BOX_NODE_ID_ATTR: 'data-custom-id',
+    HOMEBOY_DOM_BOX_NODE_NAME_ATTR: 'data-custom-name',
   });
   assert(genericEnvReport.entrypoints[0].elements.length === 1, 'DOM provider enumerates by configured generic attribute (env)');
   assert(genericEnvReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (env)');
   assert(genericEnvReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (env)');
-  assert(genericEnvReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (env)');
+  assert(genericEnvReport.entrypoints[0].elements[0].selector === 'main[data-custom-id="n-1"]', 'DOM provider keys selector off configured generic attribute (env)');
 
   const genericFlagReport = await runJson(process.execPath, [
     path.join(root, 'bin/dom-box-provider.mjs'),
-    '--node-id-attr=data-node-id',
-    '--node-name-attr=data-node-name',
+    '--node-id-attr=data-custom-id',
+    '--node-name-attr=data-custom-name',
   ], root, {
     ...process.env,
     HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
@@ -171,7 +171,7 @@ try {
   });
   assert(genericFlagReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (flag)');
   assert(genericFlagReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (flag)');
-  assert(genericFlagReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (flag)');
+  assert(genericFlagReport.entrypoints[0].elements[0].selector === 'main[data-custom-id="n-1"]', 'DOM provider keys selector off configured generic attribute (flag)');
 
   const fluidReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
     ...process.env,

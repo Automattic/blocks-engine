@@ -756,7 +756,7 @@ $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0
 $assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
-    '<div class="figma-search" data-figma-node-name="Input"><input data-figma-synthetic-control="input" type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
+    '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
 )->toArray();
 $standaloneSearchBlock = $standaloneSearch['blocks'][0] ?? array();
 $assert('core/search' === ($standaloneSearchBlock['blockName'] ?? ''), 'script-free standalone search input converts to core/search');
@@ -765,7 +765,7 @@ $assert('no-button' === ($standaloneSearchBlock['attrs']['buttonPosition'] ?? ''
 $assert(! str_contains((string) ($standaloneSearch['serialized_blocks'] ?? ''), '<!-- wp:html'), 'standalone search input avoids core/html');
 
 $runtimeDescendantSearch = ( new HtmlTransformer() )->transform(
-    '<div class="figma-search"><input data-figma-synthetic-control="input" type="search" placeholder="Search"><span id="search-status" aria-live="polite"></span></div>',
+    '<div class="site-search"><input type="search" name="s" placeholder="Search"><span id="search-status" aria-live="polite"></span></div>',
     array('runtime_dom_selectors' => array('#search-status'))
 )->toArray();
 $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), '<!-- wp:search'), 'synthetic search with an additional runtime descendant is not collapsed to core/search');

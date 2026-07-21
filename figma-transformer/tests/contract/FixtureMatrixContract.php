@@ -862,6 +862,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $matrixAliasCaptureCommand = (string) ($matrixAliasSummary['fixtures'][0]['dom_box_capture']['command'] ?? '');
     $assert(str_contains($matrixAliasCaptureCommand, escapeshellarg('/opt/homeboy-alias')), 'fixture-matrix-alias-capture-uses-homeboy-bin');
     $assert(str_contains($matrixAliasCaptureCommand, 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg('node dom-box-alias')), 'fixture-matrix-alias-capture-uses-dom-box-command');
+    $assert(str_contains($matrixAliasCaptureCommand, 'HOMEBOY_DOM_BOX_NODE_ID_ATTR=' . escapeshellarg('data-figma-node-id')), 'fixture-matrix-supplies-figma-node-id-contract');
+    $assert(str_contains($matrixAliasCaptureCommand, 'HOMEBOY_DOM_BOX_NODE_NAME_ATTR=' . escapeshellarg('data-figma-node-name,data-figma-name')), 'fixture-matrix-supplies-figma-node-name-contract');
 
     $assert(is_array($matrixCanonicalSummary), 'fixture-matrix-canonical-json-summary');
     $assert('/opt/homeboy-canonical' === ($matrixCanonicalSummary['homeboy_command'] ?? null), 'fixture-matrix-homeboy-command-canonical');

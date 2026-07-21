@@ -5,12 +5,16 @@ on:
     paths:
       - ".github/workflows/php-transformer.yml"
       - "php-transformer/**"
+      - "scripts/production-acceptance-matrix.php"
+      - "tests/contract/production-acceptance-matrix.php"
   push:
     branches:
       - trunk
     paths:
       - ".github/workflows/php-transformer.yml"
       - "php-transformer/**"
+      - "scripts/production-acceptance-matrix.php"
+      - "tests/contract/production-acceptance-matrix.php"
 
 jobs:
   validate:
@@ -40,6 +44,36 @@ jobs:
 
       - name: Run package tests
         run: composer test
+
+      - name: Run repository acceptance matrix contract
+        working-directory: .
+        run: php tests/contract/production-acceptance-matrix.php
+
+  visual-parity:
+    name: Generic visual parity tools
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: php-transformer/tools/visual-parity
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run visual parity tests
+        run: npm test
 
   wordpress-site-plan:
     name: WordPress site plan integration
