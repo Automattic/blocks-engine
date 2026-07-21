@@ -2313,6 +2313,10 @@ final class HtmlTransformer
      */
     private function mediaGalleryBlockFromElement(DOMElement $element): ?array
     {
+        if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
+            return null;
+        }
+
         return $this->galleryPattern->match(
             $element,
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
@@ -2322,6 +2326,37 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
         );
+    }
+
+    private function isGalleryCompatibleMediaLayout(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $layoutElements = array( $child );
+            foreach ( $child->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement ) {
+                    $layoutElements[] = $descendant;
+                }
+            }
+
+            foreach ( $layoutElements as $layoutElement ) {
+                $declarations = $this->structuralPresentationDeclarations($layoutElement);
+                $position = strtolower(trim((string) ($declarations['position'] ?? '')));
+                if ( in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
+                    return false;
+                }
+
+                $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? '')));
+                if ( '' !== $zIndex && 'auto' !== $zIndex ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
