@@ -2010,6 +2010,7 @@ final class ArtifactCompiler
                     'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
                     'body_format'  => (string) ($file['kind'] ?? ''),
                     'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
+                    'document_metadata' => $this->fullDocumentMetadata((string) ($file['content'] ?? ''), $path, $files),
                     'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),

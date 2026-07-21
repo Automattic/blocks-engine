@@ -19,7 +19,7 @@ and `WordPressSitePlanResolver::resolve()`.
   under `parts/`. Every materializable asset has exactly one write under `assets/`.
 - `style.css` includes a valid theme header and `theme.json` is a valid minimal
   block-theme configuration. The generated bootstrap uses WordPress runtime APIs
-  to enqueue CSS and JavaScript assets.
+  to enqueue CSS and declared document scripts.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
@@ -28,18 +28,52 @@ and `WordPressSitePlanResolver::resolve()`.
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
   template or part writes that do not match their declarations.
-- `operations` is an ordered generic desired-state list. An entry page produces one
-  `site_reading` operation that assigns the front page by its source path and
-  reconciliation identity. Consumers apply resolved operations verbatim rather than
-  inferring front-page behavior.
+- Every page has a canonical `route`: root `index.*` is `/`, `about.*` is `/about`,
+  `nested/index.*` is `/nested`, and nested documents retain every directory segment.
+  A declared lowercase `metadata.route_path` with the same safe shape is preserved as
+  the explicit canonical route.
+  This map is computed before document projection and is the sole input for exported
+  `routes`, page hierarchy operations, document link and metadata-href rewriting,
+  resolver/report projections, and page-scoped script conditions. Relative and
+  root-relative document links retain query and fragment suffixes; asset references
+  remain on the separate declared-asset token path.
+  The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
+  Missing directory parents are explicit synthetic pages with stable source and
+  reconciliation identities; a physical directory index takes precedence over a
+  synthetic parent.
+- `operations` is an ordered generic desired-state list. A topologically ordered
+  `create_page` operation declares each real or synthetic page's slug, route, parent
+  source reference, and reconciliation identity. A following `site_reading` operation
+  assigns the front page by its source path and reconciliation identity. Consumers apply
+  resolved operations verbatim rather than inferring hierarchy or front-page behavior.
 - Targets, slugs, and tokens use a case-insensitive collision policy. Producers
   retain their declared spelling, while plans reject two values that differ only by
   case so they materialize consistently on case-insensitive filesystems.
 - Static browser references in markup and CSS (`src`, stylesheet `href`, `srcset`,
   `poster`, applicable `action`, `url()`, and `@import`) must be declared asset
-  tokens or absolute/root-relative URLs. Dynamic script references are explicitly
-  `not_proven`; only literal declared tokens in JavaScript are resolved. The
-  `dynamic_client_assets.materializer_may_reject` capability flag is `true`.
+  tokens or absolute/root-relative URLs. The canonical `functions.php` registers
+  each supported document script once, uses `get_theme_file_uri()` for local writes,
+  preserves query/fragment suffixes and supported external HTTP(S) URLs, and
+  enqueues it only in its canonical scope: entry pages use `is_front_page()`, other
+  pages compare the queried WordPress page URI with their normalized source route
+  path, and bound template-part declarations are
+  global shell declarations. Equivalent declarations shared by routes share one
+  registration while each matching route enqueues it. Repeated declarations in one
+  source document remain distinct execution declarations.
+- Script source order is preserved by deterministic scope-local enqueue-hook priorities,
+  not WordPress dependency edges. This avoids WordPress downgrading `async` or `defer` strategies.
+  The scaffold uses native strategy support where available and a handle-scoped
+  `script_loader_tag` filter for exact `type`, `nomodule`, integrity, CORS,
+  referrer-policy, fetch-priority, and combined loading attributes.
+- `dynamic_script_references` and `dynamic_client_assets.status` are both `proven`
+  only when every declared script is materialized as a local artifact and local script writes contain no
+  dynamic import, script injection, or runtime URL-construction signal. They are
+  both `not_proven` with `materializer_may_reject: true` for inline scripts,
+  external URLs, unsupported URLs, contradictory module/nomodule declarations, unbound part
+  declarations, or dynamic-reference signals. The diagnostic code identifies the
+  reason. Supported external URLs are still emitted for consumers that accept this
+  risk, but cannot satisfy the proof gate. Consumers can therefore require proof without rejecting supported static
+  script plans.
 
 ## Runtime Resolution
 
