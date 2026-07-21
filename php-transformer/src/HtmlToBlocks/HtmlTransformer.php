@@ -1769,8 +1769,18 @@ final class HtmlTransformer
             if ( $this->hasAuthorSemanticMarker($element) ) {
                 $content = $this->innerHtml($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    $paragraphAttrs = array( 'content' => $content );
+                    $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+                    if ( $parent instanceof DOMElement && ! $this->isStructuralLayoutElement($parent) ) {
+                        $paragraphAttrs['style']['spacing']['margin'] = array(
+                            'top'    => '0',
+                            'right'  => '0',
+                            'bottom' => '0',
+                            'left'   => '0',
+                        );
+                    }
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(
-                        $this->createBlock('core/paragraph', array( 'content' => $content )),
+                        $this->createBlock('core/paragraph', $paragraphAttrs),
                     ), $element);
                 }
             }
@@ -2590,16 +2600,21 @@ final class HtmlTransformer
 
     private function requiresIndependentSemanticWrapper(DOMElement $element): bool
     {
-        if ( 'span' !== strtolower($element->tagName) || $this->isRichTextInlineContext($element) ) {
+        if ( 'span' !== strtolower($element->tagName) || $this->isRichTextInlineContext($element) || 0 < $element->getElementsByTagName('svg')->length ) {
             return false;
         }
 
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+        if ( ! $parent instanceof DOMElement ) {
             return false;
         }
 
         $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        $structuralParent = $this->isStructuralLayoutElement($parent);
+        $authoredDeclarations = array_merge($this->authorSemanticDeclarations($element), $this->cssDeclarations($this->attr($element, 'style')));
+        if ( ! $structuralParent && (! $this->isStandaloneInlineLeaf($element) || ! $this->requiresFlowVisualTokenWrapper($element, $authoredDeclarations)) ) {
+            return false;
+        }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
             return true;
@@ -2612,6 +2627,51 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function requiresFlowVisualTokenWrapper(DOMElement $element, array $declarations): bool
+    {
+        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        if ( in_array($display, array( 'inline-block', 'inline-flex', 'flex', 'grid', 'inline-grid' ), true) ) {
+            return true;
+        }
+
+        foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-width', 'border-color', 'border-radius', 'background', 'background-color', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ) as $property ) {
+            $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+            if ( '' !== $value
+                && ! in_array($value, array( 'none', 'auto', 'normal', 'transparent', 'initial', 'inherit', 'unset' ), true)
+                && 1 !== preg_match('/^0(?:[a-z%]*)?(?:\s+0(?:[a-z%]*)?){0,3}$/', $value)
+                && ! preg_match('/^rgba\([^)]*,\s*0(?:\.0+)?\)$/', $value)
+            ) {
+                return true;
+            }
+        }
+
+        $spanSiblings = 0;
+        foreach ( $element->parentNode?->childNodes ?? array() as $sibling ) {
+            if ( $sibling instanceof DOMElement && 'span' === strtolower($sibling->tagName) ) {
+                ++$spanSiblings;
+            }
+        }
+
+        return 1 < $spanSiblings && 'block' === $display;
+    }
+
+    private function isStandaloneInlineLeaf(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' !== trim($sibling->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isStructuralLayoutElement(DOMElement $element): bool

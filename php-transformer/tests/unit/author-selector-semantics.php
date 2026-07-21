@@ -144,6 +144,17 @@ $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
 $assert(3 === substr_count($inlineMarkup, '<div class="wp-block-group blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain independent native wrapper identities and projected selector paths without HTML fallback');
 
+$flowTokens = $transform('<style>.event-date .month{display:block;font-size:11px;letter-spacing:.14em}.event-date .day{display:block;font-size:38px;line-height:1;margin:2px 0}.event-type{display:inline-block;font-size:10px;padding:2px 7px;border:1px solid #999;background:#eee;margin-bottom:8px}</style><div class="event-date"><span class="month">Jun</span><span class="day">25</span><time>3:00 PM</time></div><div class="event-body"><span class="event-type">Defense</span><h3>Thesis title</h3></div>');
+$flowTokenMarkup = (string) ($flowTokens['serialized_blocks'] ?? '');
+$flowTokenCss = $css($flowTokens);
+$assert(6 === substr_count($flowTokenMarkup, 'blocks-engine-semantic-') && 3 <= substr_count($flowTokenCss, ':where(.blocks-engine-semantic-'), 'standalone styled inline leaves in ordinary flow retain independent visual-token wrappers');
+$assert(3 === substr_count($flowTokenMarkup, 'margin-top:0;margin-right:0;margin-bottom:0;margin-left:0'), 'synthetic visual-token paragraphs do not contribute source-absent spacing');
+$assert(! str_contains($flowTokenMarkup, '<mark class="blocks-engine-richtext-') && 'pass' === ($flowTokens['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone flow tokens avoid prose markers while retaining valid native blocks');
+
+$resetInlineMetadata = $transform('<style>*{margin:0;padding:0}.decision-item .who{font-size:9px;color:#777}</style><div class="decision-item"><p>Decision</p><span class="who">Byline</span></div>');
+$resetInlineMetadataMarkup = (string) ($resetInlineMetadata['serialized_blocks'] ?? '');
+$assert(! str_contains($resetInlineMetadataMarkup, 'blocks-engine-semantic-') && str_contains($resetInlineMetadataMarkup, '<mark class="blocks-engine-richtext-'), 'universal zero resets do not promote ordinary inline metadata into visual-token wrappers');
+
 $repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
 $repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
 $repeatedCss = $css($repeatedParents);
@@ -184,7 +195,7 @@ $assert(str_contains($richTextStatesMarkup, '<mark class="blocks-engine-richtext
 $nestedLeaf = $transform('<style>.meta{display:flex}.pill{padding:2px 8px;border:1px solid #999}.meta > .item .pill{color:red}</style><div class="meta"><div class="item"><span class="pill">Nested</span></div></div>');
 $nestedLeafMarkup = (string) ($nestedLeaf['serialized_blocks'] ?? '');
 $nestedLeafCss = $css($nestedLeaf);
-$assert(! str_contains($nestedLeafMarkup, 'blocks-engine-semantic-') && str_contains($nestedLeafMarkup, '<mark class="blocks-engine-richtext-') && str_contains($nestedLeafCss, 'mark.blocks-engine-richtext-') && 'pass' === ($nestedLeaf['source_reports']['wp_block_validity']['status'] ?? ''), 'nested selector-addressable leaves retain a valid inline marker instead of becoming a structural group');
+$assert(str_contains($nestedLeafMarkup, 'blocks-engine-semantic-') && str_contains($nestedLeafCss, ':where(.blocks-engine-semantic-') && ! str_contains($nestedLeafMarkup, '<mark class="blocks-engine-richtext-') && 'pass' === ($nestedLeaf['source_reports']['wp_block_validity']['status'] ?? ''), 'a standalone padded leaf nested in flow retains an independent visual-token wrapper');
 
 $proseBadge = $transform('<style>.card{display:flex}.badge{padding:2px 8px;border:1px solid #999}.card .badge{color:red}</style><div class="card"><div class="copy">Read <span class="badge">new</span> notes.</div></div>');
 $proseBadgeMarkup = (string) ($proseBadge['serialized_blocks'] ?? '');
