@@ -3257,6 +3257,7 @@ $responsiveClassResult = (new HtmlTransformer())->transform(
 )->toArray();
 $responsivePanel = $findBlockByClass($responsiveClassResult['blocks'], 'responsive-panel');
 $assert(is_array($responsivePanel), 'responsive class-owned container block is emitted');
+$assert(! isset($responsivePanel['attrs']['layout']), 'responsive class-owned layout is not frozen into block supports', json_encode($responsivePanel['attrs'] ?? array()));
 $assert(! isset($responsivePanel['attrs']['style']['spacing']['padding']), 'responsive class-owned padding is not frozen into block supports', json_encode($responsivePanel['attrs'] ?? array()));
 $assert(! isset($responsivePanel['attrs']['style']['color']['text']), 'responsive class-owned color is not frozen into block supports', json_encode($responsivePanel['attrs'] ?? array()));
 $assert(! str_contains((string) ($responsivePanel['innerHTML'] ?? ''), 'padding-'), 'responsive class-owned padding remains stylesheet-owned', (string) ($responsivePanel['innerHTML'] ?? ''));

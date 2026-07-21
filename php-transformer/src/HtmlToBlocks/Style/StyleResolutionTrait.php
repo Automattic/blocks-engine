@@ -179,13 +179,17 @@ trait StyleResolutionTrait
     private function responsivePropertyFamily(string $property): string
     {
         $property = strtolower(trim($property));
+        if (
+            in_array($property, array('display', 'gap', 'row-gap', 'column-gap', 'justify-content', 'align-content', 'align-items', 'align-self'), true)
+            || str_starts_with($property, 'flex-')
+            || str_starts_with($property, 'grid-')
+        ) {
+            return 'layout';
+        }
         foreach (array('padding', 'margin', 'border', 'background') as $family) {
             if ($property === $family || str_starts_with($property, $family . '-')) {
                 return $family;
             }
-        }
-        if (in_array($property, array('gap', 'row-gap', 'column-gap'), true)) {
-            return 'gap';
         }
 
         return $property;
@@ -201,6 +205,22 @@ trait StyleResolutionTrait
         }
 
         return $property !== $family && isset($inline[$family]);
+    }
+
+    private function hasConditionalStyleFamily(DOMElement $element, string $family): bool
+    {
+        foreach ($this->conditionalStyleRules as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            foreach (array_keys($rule['declarations']) as $property) {
+                if ($family === $this->responsivePropertyFamily($property)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -941,6 +961,17 @@ trait StyleResolutionTrait
             }
 
             return array( 'type' => 'grid' );
+        }
+
+        $inlineOwnsLayout = false;
+        foreach (array_keys($inlineDeclarations) as $property) {
+            if ('layout' === $this->responsivePropertyFamily($property)) {
+                $inlineOwnsLayout = true;
+                break;
+            }
+        }
+        if (! $inlineOwnsLayout && $this->hasConditionalStyleFamily($element, 'layout')) {
+            return array();
         }
 
         // An explicit grid class token (`grid`, `grid-3`, `footer-grid`,
