@@ -260,11 +260,24 @@ final class ArtifactCompiler
                     if ( '' !== trim($image) ) $row['image'] = $image;
                     $selectors = array_values(array_unique(array_filter(array($product['source_selector'] ?? '', $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
+                    if ( is_array($product['binding'] ?? null) && 'generic/block-binding/v1' === ($product['binding']['schema'] ?? null) && is_string($product['binding']['search_block_markup'] ?? null) && '' !== trim($product['binding']['search_block_markup']) ) {
+                        $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
+                    }
+                    if ( ! isset($row['bindings']) ) continue;
+                    if ( isset($products[$productSlug]) ) {
+                        $products[$productSlug]['bindings'][] = $row['bindings'][0];
+                        continue;
+                    }
                     $products[$productSlug] = $row;
                 }
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
-                $forms[$sourcePath . "\n" . $selector] = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
+                    $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
+                }
+                if ( ! isset($form['bindings']) ) continue;
+                $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING);

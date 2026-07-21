@@ -41,6 +41,7 @@ final class WordPressSitePlan
         $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);
+        $this->assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages);
         $templates = $this->templates($pages, $parts);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations);
@@ -68,6 +69,21 @@ final class WordPressSitePlan
         );
         self::assertValid($plan);
         return $plan;
+    }
+
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages */
+    private function assertEntityBindingsRemainPageOwned(array $declarations, array $pages): void
+    {
+        $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
+        foreach ( $declarations as $declaration ) {
+            foreach ( $declaration['payload']['entities'] ?? array() as $entity ) {
+                $bindings = is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array();
+                foreach ( $bindings as $binding ) {
+                    $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
+                    if ( !is_string($source) || !is_string($search) || !is_int($occurrence) || $occurrence < 1 || substr_count((string) ($markupBySource[$source] ?? ''), $search) < $occurrence ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after shell extraction.');
+                }
+            }
+        }
     }
 
     /** @param array<string,mixed> $plan */

@@ -222,6 +222,9 @@ final class HtmlTransformer
      */
     private array $sourceProvenance = array();
 
+    /** @var array<string,int> */
+    private array $blockBindingOccurrences = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -427,6 +430,7 @@ final class HtmlTransformer
         $this->frozenHiddenStateFindings = array();
         $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
+        $this->blockBindingOccurrences = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->runtimeIslands = array();
@@ -539,7 +543,7 @@ final class HtmlTransformer
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
-        $this->appendProductGridFallbacks($body, $fallbacks);
+        $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
@@ -4274,8 +4278,9 @@ final class HtmlTransformer
      * and schema.org vocabulary — never fixture names or specific class strings.
      *
      * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $blocks
      */
-    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks): void
+    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
     {
         $emitted = 0;
         $coveredPaths = array();
@@ -4301,7 +4306,7 @@ final class HtmlTransformer
                 }
             }
 
-            $products = $this->productCardsForContainer($element);
+            $products = $this->productCardsForContainer($element, $blocks);
             if ( count($products) < 2 ) {
                 continue;
             }
@@ -4394,7 +4399,7 @@ final class HtmlTransformer
      *
      * @return array<int, array<string, mixed>>
      */
-    private function productCardsForContainer(DOMElement $container): array
+    private function productCardsForContainer(DOMElement $container, array $blocks = array()): array
     {
         $products = array();
         foreach ( $container->childNodes as $child ) {
@@ -4404,11 +4409,76 @@ final class HtmlTransformer
 
             $product = $this->productCardData($child);
             if ( null !== $product ) {
+                $binding = $this->commerceBindingForCard($child, $blocks);
+                if ( array() !== $binding ) {
+                    $product['binding'] = $binding;
+                }
                 $products[] = $product;
             }
         }
 
         return $products;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function commerceBindingForCard(DOMElement $card, array $blocks): array
+    {
+        if ( array() === $blocks ) {
+            return array();
+        }
+        $control = $this->cartControlElement($card);
+        if ( null === $control ) {
+            return array();
+        }
+        $anchor = $control;
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement && $parent !== $card; $parent = $parent->parentNode ) {
+            $anchor = $parent;
+            if ( $this->hasQuantityControl($parent) ) {
+                break;
+            }
+        }
+        $block = $this->blockForSourceSelector($blocks, $this->elementSelector($anchor));
+        if ( null === $block ) {
+            return array();
+        }
+        $markup = $this->runtime->serializeBlocks(array($block));
+        return $this->blockBinding($markup, 'commerce_controls');
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>|null
+     */
+    private function blockForSourceSelector(array $blocks, string $selector): ?array
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+            $provenanceId = $block['_source_provenance_id'] ?? null;
+            if ( is_int($provenanceId) && $selector === ($this->sourceProvenance[$provenanceId]['selector'] ?? null) ) {
+                return $block;
+            }
+            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
+            if ( null !== $nested ) {
+                return $nested;
+            }
+        }
+        return null;
+    }
+
+    /** @return array<string,mixed> */
+    private function blockBinding(string $markup, string $role): array
+    {
+        if ( '' === trim($markup) ) {
+            return array();
+        }
+        $key = hash('sha256', $role . "\n" . $markup);
+        $this->blockBindingOccurrences[$key] = ($this->blockBindingOccurrences[$key] ?? 0) + 1;
+        return array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => $this->blockBindingOccurrences[$key], 'role' => $role);
     }
 
     /**
@@ -4641,6 +4711,11 @@ final class HtmlTransformer
      */
     private function hasCartControl(DOMElement $card): bool
     {
+        return null !== $this->cartControlElement($card);
+    }
+
+    private function cartControlElement(DOMElement $card): ?DOMElement
+    {
         $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement ) {
@@ -4666,18 +4741,18 @@ final class HtmlTransformer
 
             foreach ( $tokens as $token ) {
                 if ( str_contains($haystack, $token) ) {
-                    return true;
+                    return $descendant;
                 }
             }
 
             // "add" alone is ambiguous, so require it to co-occur with a commerce
             // context word ("cart"/"bag"/"basket") to count as a cart control.
             if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
-                return true;
+                return $descendant;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -6540,10 +6615,12 @@ final class HtmlTransformer
      * @param array<string, mixed>|null $readableFormBlock
      * @return array<string, mixed>
      */
-    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock): array
+    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
     {
         $controls = $this->formControls($element);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $bindingBlock ??= $readableFormBlock;
+        $bindingMarkup = null !== $bindingBlock ? $this->runtime->serializeBlocks(array($bindingBlock)) : '';
 
         return FallbackDiagnostic::build(array(
             'type'            => 'html',
@@ -6560,6 +6637,7 @@ final class HtmlTransformer
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            'binding'         => $this->blockBinding($bindingMarkup, 'form'),
             'controls'        => $controls,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),
