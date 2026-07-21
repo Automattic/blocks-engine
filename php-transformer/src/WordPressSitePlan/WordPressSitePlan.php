@@ -25,11 +25,12 @@ final class WordPressSitePlan
 
         $assets = $this->assets($compiled['assets'] ?? null);
         $tokens = $this->tokens($assets);
+        $references = new AssetReferenceCanonicalizer($tokens);
         $routes = is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array();
-        $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $routes);
-        $parts = $this->documents($compiled['template_parts'] ?? null, true, $tokens, $routes);
+        $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routes);
+        $parts = $this->documents($compiled['template_parts'] ?? null, true, $tokens, $references, $routes);
         $templates = $this->templates($pages, $parts);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts), $this->assetWrites($assets, $tokens));
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance']),
@@ -152,7 +153,7 @@ final class WordPressSitePlan
     }
 
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
-    private function documents(mixed $documents, bool $part, array $tokens, array $routes): array
+    private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
     {
         if ( ! is_array($documents) ) {
             throw new InvalidArgumentException('Compiled site documents must be an array.');
@@ -162,8 +163,8 @@ final class WordPressSitePlan
             if ( ! is_array($document) || ! self::safePath($document['source_path'] ?? null) || ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
                 throw new InvalidArgumentException('Compiled site document lacks a safe identity or block markup.');
             }
-            $markup = $this->tokenize($document['block_markup'], $tokens, $document['source_path']);
-            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $this->routeLinks($markup, $document['source_path'], $routes), 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $tokens), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => hash('sha256', $document['source_path'] . "\n" . $document['block_markup']));
+            $markup = $references->content($document['block_markup'], $document['source_path']);
+            $rows[] = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $this->routeLinks($markup, $document['source_path'], $routes), 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => hash('sha256', $document['source_path'] . "\n" . $document['block_markup']));
         }
         return $rows;
     }
@@ -190,7 +191,7 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
     /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
-    private function documentMetadata(array $document, array $tokens): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); $bySource = array(); foreach ($tokens as $token) $bySource[$token['source_path']] = self::TOKEN_PREFIX . $token['token'] . '}}'; foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['asset_source_path'] ?? null)) { if (!isset($bySource[$row['asset_source_path']])) throw new InvalidArgumentException('Document metadata references an undeclared asset.'); $row['asset_reference'] = $bySource[$row['asset_source_path']]; unset($row['asset_source_path']); } unset($row); } return $metadata; }
+    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $references->reference($row['url'], self::value($document, 'source_path')); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } } unset($row); } return $metadata; }
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @return array<string,mixed> */
     private function reporting(array $compiled, array $data): array { $documents = array(); foreach ($compiled['pages'] ?? array() as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => $page['kind'] ?? '', 'body_format' => $page['body_format'] ?? '', 'block_document' => 'blocks' === ($page['body_format'] ?? ''), 'provenance' => $page['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count(array_filter($documents, static fn(array $document): bool => !empty($document['block_document']))), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $data['diagnostics']))); }
 
@@ -223,11 +224,11 @@ final class WordPressSitePlan
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
-    private function assetWrites(array $assets, array $tokens): array
+    private function assetWrites(array $assets, AssetReferenceCanonicalizer $references): array
     {
         $writes = array();
         foreach ( $assets as $asset ) {
-            $content = is_string($asset['content'] ?? null) ? $this->tokenize($asset['content'], $tokens, $asset['source_path']) : null;
+            $content = is_string($asset['content'] ?? null) ? $references->content($asset['content'], $asset['source_path']) : null;
             $data = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (is_string($content) ? (! empty($asset['binary']) || 1 !== preg_match('//u', $content) ? base64_encode($content) : $content) : null);
             if ( ! is_string($data) ) throw new InvalidArgumentException(sprintf('Compiled site asset %s lacks a materializable payload.', $asset['source_path']));
             $writes[] = array('kind' => 'theme_asset', 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path'], 'payload' => array('encoding' => is_string($asset['content_base64'] ?? null) || ! empty($asset['binary']) || 1 !== preg_match('//u', $data) ? 'base64' : 'utf8', 'data' => $data));
@@ -261,20 +262,6 @@ final class WordPressSitePlan
     }
     /** @return array<string,mixed> */
     private function write(string $kind, string $target, string $content): array { return array('kind' => $kind, 'source_path' => 'wordpress-site-plan/' . $target, 'target_path' => $target, 'payload' => array('encoding' => 'utf8', 'data' => $content)); }
-    /** @param array<int,array<string,string>> $tokens */
-    private function tokenize(string $content, array $tokens, string $origin = ''): string
-    {
-        foreach ($tokens as $reference) {
-            $source = $reference['source_path'];
-            $shortTarget = preg_replace('/^assets\//', '', $reference['target_path']);
-            $relative = self::relativePath($origin, $source);
-            foreach (array_unique(array($reference['target_path'], $source, $relative, './' . $relative, '../' . $shortTarget, './' . $shortTarget, $shortTarget)) as $candidate) {
-                // Do not rewrite an asset-looking substring inside another URL or path.
-                $content = preg_replace('~(?<![A-Za-z0-9_.\/-])' . preg_quote($candidate, '~') . '(?![A-Za-z0-9_.\/-])~', self::TOKEN_PREFIX . $reference['token'] . '}}', $content) ?? $content;
-            }
-        }
-        return $content;
-    }
     private static function relativePath(string $origin, string $target): string
     {
         $from = '' === $origin ? array() : explode('/', dirname($origin));
