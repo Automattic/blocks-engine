@@ -78,6 +78,7 @@ final class ArtifactCompiler
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array()));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
         }
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $referenceReports = $this->referenceReports($normalized['files']);
@@ -195,6 +196,97 @@ final class ArtifactCompiler
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Promote provider-materializable findings into the canonical runtime contract.
+     *
+     * Explicit caller declarations remain authoritative. Detected entities fill
+     * only missing product/form collections and their matching dependencies.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array<int,array<string,mixed>>
+     */
+    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath): array
+    {
+        if ( '' === $entryPath ) return $declarations;
+
+        $keys = array();
+        foreach ( $declarations as $declaration ) {
+            if ( ! is_array($declaration) ) continue;
+            $name = $declaration['type'] ?? $declaration['capability'] ?? null;
+            if ( is_string($declaration['kind'] ?? null) && is_string($name) ) $keys[$declaration['kind'] . ':' . $name] = true;
+        }
+
+        $slug = static function (string $value): string {
+            $value = strtolower(trim($value));
+            $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+            return trim($value, '-');
+        };
+        $price = static function (mixed $value): string {
+            if ( ! is_scalar($value) ) return '';
+            $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
+            if ( '' === $clean ) return '';
+            $commaCount = substr_count($clean, ',');
+            $dotCount = substr_count($clean, '.');
+            $decimal = '';
+            if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
+            elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
+            elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
+            if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
+            $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
+            return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
+        };
+
+        $products = array();
+        $forms = array();
+        foreach ( $fallbacks as $fallback ) {
+            if ( ! is_array($fallback) ) continue;
+            $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
+            $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : $entryPath;
+            if ( 'html_product_grid_fallback' === $code ) {
+                $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '');
+                foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
+                    if ( ! is_array($product) ) continue;
+                    $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
+                    $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
+                    $regularPrice = $price($product['price'] ?? null);
+                    if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
+                    $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
+                    $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
+                    if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
+                    $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
+                    if ( '' !== trim($image) ) $row['image'] = $image;
+                    $selectors = array_values(array_unique(array_filter(array($product['source_selector'] ?? '', $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
+                    if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
+                    $products[$productSlug] = $row;
+                }
+            } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
+                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $forms[$sourcePath . "\n" . $selector] = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+            }
+        }
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
+
+        $collections = array(
+            'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
+            'form' => array('type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
+        );
+        foreach ( $collections as $capability => $collection ) {
+            $entityKey = 'entity_collection:' . $collection['type'];
+            foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
+            if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                $keys[$entityKey] = true;
+            }
+            $dependencyKey = 'dependency:' . $capability;
+            if ( isset($keys[$entityKey]) && ! isset($keys[$dependencyKey]) ) {
+                $declarations[] = array('kind' => 'dependency', 'capability' => $capability, 'source_path' => $entryPath, 'required_for' => array($entityKey));
+                $keys[$dependencyKey] = true;
+            }
+        }
+        return RuntimeDeclarations::normalizeList($declarations);
     }
 
     /**

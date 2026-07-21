@@ -237,7 +237,7 @@ final class CorpusDiagnosticsRunner
         }
 
         return array(
-            'class' => is_string($decoded['class'] ?? null) ? $decoded['class'] : '',
+            'class' => is_string($decoded['fixture_class'] ?? null) ? $decoded['fixture_class'] : (is_string($decoded['class'] ?? null) ? $decoded['class'] : ''),
             'tags'  => $tags,
         );
     }
