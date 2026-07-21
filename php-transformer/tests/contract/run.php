@@ -755,6 +755,23 @@ $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_is
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 $assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
 
+$standaloneSearch = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
+)->toArray();
+$standaloneSearchBlock = $standaloneSearch['blocks'][0] ?? array();
+$assert('core/search' === ($standaloneSearchBlock['blockName'] ?? ''), 'script-free standalone search input converts to core/search');
+$assert('Search articles' === ($standaloneSearchBlock['attrs']['placeholder'] ?? ''), 'standalone core/search preserves the source placeholder');
+$assert('no-button' === ($standaloneSearchBlock['attrs']['buttonPosition'] ?? ''), 'standalone input-only search keeps the no-button presentation');
+$assert(! str_contains((string) ($standaloneSearch['serialized_blocks'] ?? ''), '<!-- wp:html'), 'standalone search input avoids core/html');
+
+$runtimeDescendantSearch = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" name="s" placeholder="Search"><span id="search-status" aria-live="polite"></span></div>',
+    array('runtime_dom_selectors' => array('#search-status'))
+)->toArray();
+$assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), '<!-- wp:search'), 'synthetic search with an additional runtime descendant is not collapsed to core/search');
+$assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
+$assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
+
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
