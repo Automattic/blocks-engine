@@ -49,6 +49,20 @@ $assert(!isset($plan['pages'][0]['resolved_block_markup']), 'Canonical markup is
 $assert(count($plan['reference_tokens']) === count($plan['assets']), 'Every asset has one deterministic resolver token.');
 $assert(true === ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null), 'Plan exposes dynamic client asset capability limits.');
 $assert($plan === ($second['source_reports']['wordpress_site_plan'] ?? null), 'Canonical WordPress site plans are deterministic.');
+$assert(true === ($plan['quality']['pass'] ?? null) && ($plan['quality']['pass'] ?? null) === ('failed' !== ($plan['quality']['status'] ?? null)), 'Quality exposes one canonical pass predicate consistent with status.');
+$changedContent = $artifact; $changedContent['files']['index.html'] = str_replace('<h1>Home</h1>', '<h1>Updated Home</h1>', $changedContent['files']['index.html']); $changedPlan = (new ArtifactCompiler())->compile($changedContent)->toArray()['source_reports']['wordpress_site_plan'];
+$changedPages = array(); foreach ($changedPlan['pages'] as $page) $changedPages[$page['source_path']] = $page;
+$assert(($pagesBySource['index.html']['reconciliation_identity'] ?? null) === ($changedPages['index.html']['reconciliation_identity'] ?? null) && ($pagesBySource['index.html']['content_hash'] ?? null) !== ($changedPages['index.html']['content_hash'] ?? null), 'Page reconciliation identity is stable across changed content while content_hash detects the change.');
+$assert(count(array_unique(array_column($plan['writes'], 'reconciliation_identity'))) === count($plan['writes']) && count(array_unique(array_column($plan['assets'], 'reconciliation_identity'))) === count($plan['assets']) && isset($plan['templates'][0]['content_hash'], $plan['template_parts'][0]['content_hash']), 'Writes, assets, templates, and parts expose distinct stable identities and change hashes.');
+$declaredArtifact = array('entrypoint' => 'index.html', 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'record', 'source_path' => 'data/records.json', 'payload' => array('schema' => 'generic/entity-collection/v1', 'entities' => array(array('id' => 'a')))), array('kind' => 'dependency', 'capability' => 'catalog', 'source_path' => 'runtime/catalog.json', 'required_for' => array('entity_collection:record'))), 'files' => array('index.html' => '<main>Declared</main>'));
+$declaredResult = (new ArtifactCompiler())->compile($declaredArtifact)->toArray(); $declaredPlan = $declaredResult['source_reports']['wordpress_site_plan'];
+$assert($declaredPlan['runtime_declarations'] === $declaredResult['source_reports']['compiled_site']['runtime_declarations'] && $declaredPlan['runtime_declarations'] === (new WordPressSitePlanResolver())->resolve($declaredPlan, array('theme_uri' => 'https://example.test/theme'))['runtime_declarations'], 'Explicit generic runtime declarations round-trip through compiler, plan, and resolver unchanged after canonical normalization.');
+$invalidDeclarations = $declaredArtifact; $invalidDeclarations['runtime_declarations'][1]['required_for'] = array('entity_collection:missing');
+$throws(static fn() => (new ArtifactCompiler())->compile($invalidDeclarations), 'Unresolved runtime declaration requirements fail before plan emission.');
+$duplicateDeclarations = $declaredArtifact; $duplicateDeclarations['runtime_declarations'][] = $duplicateDeclarations['runtime_declarations'][0];
+$throws(static fn() => (new ArtifactCompiler())->compile($duplicateDeclarations), 'Duplicate runtime declaration identities fail before plan emission.');
+$unsafeDeclarations = $declaredArtifact; $unsafeDeclarations['runtime_declarations'][0]['source_path'] = '../records.json';
+$throws(static fn() => (new ArtifactCompiler())->compile($unsafeDeclarations), 'Unsafe runtime declaration provenance paths fail before plan emission.');
 $home = $pagesBySource['index.html'];
 $assert('Home title' === ($home['document_metadata']['title'] ?? null) && 'head' === ($home['document_metadata']['title_declaration']['placement'] ?? null) && 'utf-8' === ($home['document_metadata']['meta'][0]['charset'] ?? null) && 'viewport' === ($home['document_metadata']['meta'][1]['name'] ?? null), 'Plan projects title, source context, charset, and viewport metadata from the compiler document report.');
 $assert(str_starts_with((string) ($home['document_metadata']['links'][0]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && 'sha256-test' === ($home['document_metadata']['links'][0]['integrity'] ?? null) && 'anonymous' === ($home['document_metadata']['links'][0]['crossorigin'] ?? null) && 'https://cdn.example.test/path?x=1&y=2' === ($home['document_metadata']['links'][1]['url'] ?? null), 'Plan preserves unquoted, mixed-case local and external link declarations with safe URL punctuation and anonymous CORS semantics.');
@@ -194,6 +208,10 @@ $localMetadataUrl = $plan; $localMetadataUrl['pages'][0]['document_metadata']['l
 $throws(static fn() => WordPressSitePlan::assertValid($localMetadataUrl), 'Validation rejects local metadata URLs without canonical references.');
 $invalidCompiledAsset = $first; $invalidCompiledAsset['source_reports']['compiled_site']['assets'][0]['target_path'] = 'C:\\theme\\site.css';
 $throws(static fn() => (new WordPressSitePlan())->fromResult($invalidCompiledAsset), 'Projection rejects unsafe compiled asset targets.');
+$invalidQuality = $plan; $invalidQuality['quality']['pass'] = false;
+$throws(static fn() => WordPressSitePlan::assertValid($invalidQuality), 'Validation rejects contradictory quality predicates.');
+$invalidWriteIdentity = $plan; $invalidWriteIdentity['writes'][0]['reconciliation_identity'] = str_repeat('0', 64);
+$throws(static fn() => WordPressSitePlan::assertValid($invalidWriteIdentity), 'Validation rejects write identities that do not derive from source and destination.');
 
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($destination, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $item) $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
 rmdir($destination);

@@ -18,8 +18,27 @@ and `WordPressSitePlanResolver::resolve()`.
   `templates/front-page.html` when an entry page exists, and each template part
   under `parts/`. Every materializable asset has exactly one write under `assets/`.
 - `style.css` includes a valid theme header and `theme.json` is a valid minimal
-  block-theme configuration. The generated bootstrap uses WordPress runtime APIs
-  to enqueue CSS and declared document scripts.
+   block-theme configuration. The generated bootstrap uses WordPress runtime APIs
+   to enqueue CSS and declared document scripts.
+- Reconciliation identities are stable SHA-256 values derived only from the
+  canonical source identity and destination identity. Pages use source path plus
+  canonical route; writes use source path plus target path. Assets, templates, and
+  template parts follow the same source-plus-target rule. Mutable markup and file
+  payloads never affect reconciliation identity; their deterministic
+  `content_hash` or `payload_hash` provides change detection instead.
+- `quality.pass` is the canonical boolean quality predicate. It is true exactly
+  when `quality.status` is `success` or `success_with_warnings`; metrics and
+  fallbacks remain available for detailed policy.
+- `runtime_declarations` is an optional, explicit, generic declaration collection.
+  It is empty when absent from the artifact and is never inferred from markup or
+  product semantics. Each declaration has a generic `kind`, exactly one `type` or
+  `capability`, a safe `source_path`, source-derived `reconciliation_identity`, and
+  optional schema-typed bounded `payload`. Entity collections use a payload with
+  `schema` and `entities`; `required_for` links resolve to declared `kind:name`
+  keys. Duplicate identities, unsafe paths, unresolved requirements, contradictory
+  kinds, and non-serializable or overlarge payloads fail validation before plan
+  emission. Declarations are carried unchanged after canonical normalization by
+  compilation, resolution, reports, and package serialization.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
@@ -103,3 +122,12 @@ with v2 and consumers must switch to `canonical_block_markup`, resolve with expl
 destination context, and materialize the resolved writes. This is a breaking public
 contract correction from the pre-1.0 `0.3.0` release and warrants the next minor
 package version, `0.4.0`.
+
+## Lifecycle Migration
+
+Earlier v2 previews derived page reconciliation identity from block markup. Consumers
+migrating from that mutable identity must reconcile existing records through explicit
+legacy metadata where they retain it, then persist the v2 source-and-route identity
+as the primary key. A content hash change with the same reconciliation identity is an
+update, not a new page or write. New runtime requirements must be supplied as explicit
+artifact `runtime_declarations`; the engine intentionally does not infer them.
