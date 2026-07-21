@@ -62,10 +62,11 @@ $assert(2 === count($malformedPage['document_metadata']['links'] ?? array()) && 
 
 $rootRelative = (new ArtifactCompiler())->compile(array('entrypoint' => 'nested/index.html', 'files' => array(
     'nested/index.html' => '<!doctype html><head><link rel="stylesheet" href="/assets/site.css?theme=1#main"><script src="/assets/app.js?build=2#run"></script></head><body><img src="/assets/logo.svg?width=40#hero" srcset="/assets/logo.svg?one=1#one 1x, /assets/logo.svg?two=2#two 2x" poster="/assets/poster.jpg"><a href="/application-route#anchor">Route</a><a href="#local">Local</a><a href="https://example.test/external">External</a><a href="//cdn.example.test/library.js">Protocol</a><a href="mailto:test@example.test">Mail</a><a href="tel:+15551212">Tel</a><img src="data:image/svg+xml,svg"><img src="blob:https://example.test/blob"><img src="/assets%2flogo.svg"><img src="/../assets/logo.svg"></body>',
-    'assets/site.css' => '@import "/assets/import.css?version=3#import"; @font-face{src:url("/assets/font.woff2?font=1#face")} main{background:url(/assets/logo.svg?background=1#image)}',
+    'assets/site.css' => '@import "/assets/import.css?version=3#import"; @font-face{src:url("/assets/font.woff2?font=1#face")} main{background:url(/assets/logo.svg?background=1#image)} .quoted{background:url("/assets/logo(1).svg?quoted=1#image")} .unquoted{background:url(/assets/logo.svg?unquoted=1#image)} .escaped{background:url("/assets/logo\\(1\\).svg?escaped=1#image")} .malformed{background:url("/assets/logo(1).svg?broken=1#image"}',
     'assets/import.css' => 'main{background:url(/assets/logo.svg)}',
     'assets/app.js' => 'window.app=true;',
     'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    'assets/logo(1).svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
     'assets/poster.jpg' => 'poster',
     'assets/font.woff2' => 'font',
 )))->toArray();
@@ -73,10 +74,12 @@ $rootPlan = $rootRelative['source_reports']['wordpress_site_plan'] ?? array();
 $assert(array() !== $rootPlan && !isset($rootRelative['source_reports']['wordpress_site_plan_diagnostics']), 'SSI WebsiteArtifact document-metadata smoke fixture emits a self-contained WordPress site plan.');
 $rootPage = $rootPlan['pages'][0] ?? array();
 $rootCss = $writeMap($rootPlan['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
-$assert(str_contains((string) $rootCss, WordPressSitePlan::TOKEN_PREFIX) && str_contains((string) $rootCss, '?version=3#import') && str_contains((string) $rootCss, '?font=1#face') && str_contains((string) $rootCss, '?background=1#image'), 'Root-relative CSS import, font, and url references use declared tokens with suffixes.');
+$assert(str_contains((string) $rootCss, WordPressSitePlan::TOKEN_PREFIX) && str_contains((string) $rootCss, '?version=3#import') && str_contains((string) $rootCss, '?font=1#face') && str_contains((string) $rootCss, '?background=1#image') && str_contains((string) $rootCss, '}}?quoted=1#image') && str_contains((string) $rootCss, '}}?unquoted=1#image') && str_contains((string) $rootCss, '}}?escaped=1#image') && str_contains((string) $rootCss, '/assets/logo(1).svg?broken=1#image'), 'Bounded CSS URL parsing canonicalizes quoted, unquoted, and escaped assets while preserving malformed calls and suffixes.');
 $rootResolved = (new WordPressSitePlanResolver())->resolve($rootPlan, array('theme_uri' => 'https://example.test/wp-content/themes/root'));
 $rootResolvedPage = $rootResolved['pages'][0] ?? array();
 $assert('https://example.test/wp-content/themes/root/assets/assets/site.css?theme=1#main' === ($rootResolvedPage['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/root/assets/assets/app.js?build=2#run' === ($rootResolvedPage['document_metadata']['scripts'][0]['resolved_url'] ?? null), 'Resolved metadata URLs use the declared write URL and preserve query and fragment suffixes.');
+$rootResolvedCss = $writeMap($rootResolved['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
+$assert(str_contains((string) $rootResolvedCss, 'https://example.test/wp-content/themes/root/assets/assets/logo(1).svg?quoted=1#image') && str_contains((string) $rootResolvedCss, 'https://example.test/wp-content/themes/root/assets/assets/logo(1).svg?escaped=1#image'), 'Quoted and escaped parenthesized CSS URLs resolve through declared asset writes.');
 $canonicalizer = new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer($rootPlan['reference_tokens']);
 $rootLogo = $canonicalizer->reference('/assets/logo.svg?width=40#hero', 'nested/index.html');
 $markupReferences = $canonicalizer->content('<img src="/assets/logo.svg?width=40#hero" srcset="/assets/logo.svg?one=1#one 1x, /assets/logo.svg?two=2#two 2x" poster="/assets/poster.jpg"><a href="/application-route#anchor">Route</a>', 'nested/index.html');
