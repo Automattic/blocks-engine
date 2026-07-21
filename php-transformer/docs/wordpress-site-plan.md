@@ -23,7 +23,21 @@ Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. L
 
 URL-bearing link and external-script declarations contain either an explicit absolute or protocol-relative `url`, or an `asset_reference` token. Local artifact URLs must use `asset_reference`; undeclared local URLs are invalid. Resolver output adds `resolved_url` for each `asset_reference`. That URL is exactly the URL of a declared resolved theme-asset write. Explicit external URLs remain unchanged.
 
-Document metadata is reporting-only. It preserves source declaration facts for consumers that need reports or manifests; it does not alter generated theme bootstrap behavior or claim runtime execution parity.
+Document metadata is canonical runtime input as well as reporting data. The generated
+theme scaffold registers supported local-write and external HTTP(S) script declarations
+once, preserves their normalized loading and tag attributes, and enqueues them only for
+their source scope. Entry-page declarations run on `is_front_page()`, other page
+declarations run for their declared page slug, and bound template-part declarations run
+as global shell scripts. The scaffold preserves declaration order through scope-local
+enqueue-hook priorities, without dependencies that would change WordPress loading strategy.
+
+`reference_semantics.dynamic_script_references` and
+`dynamic_client_assets.status` are both `proven` for fully materialized static script
+declarations. They are both `not_proven` with `materializer_may_reject: true` when
+inline source, an unsupported URL or contradictory declaration, an unbound template
+part, dynamic import, script injection, or runtime URL construction prevents complete
+proof. The accompanying diagnostics are the deterministic explanation. Consumers that
+set `require_proven_dynamic_client_assets` are rejected only for that unproven state.
 
 ## Reporting
 

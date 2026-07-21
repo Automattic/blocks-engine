@@ -37,6 +37,8 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'assets/async.js' => 'window.asyncAsset=true;',
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
+    'nested/about.html' => '<!doctype html><html><head><script src="assets/about-head.js" defer></script></head><body><main><h1>About</h1></main><script src="https://cdn.example.test/about.js" async></script></body></html>',
+    'assets/about-head.js' => 'window.aboutHeadAsset=true;',
 )))->toArray();
 $plan = $result['source_reports']['wordpress_site_plan'] ?? array();
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
@@ -50,27 +52,27 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
-$handle = static fn(string $identity): string => 'blocks-engine-script-' . substr(hash('sha256', $identity), 0, 12);
-$head = $handle("index.html#0\nassets/assets/head.js\n?head=1#top");
-$defer = $handle("index.html#1\nassets/assets/defer.js\n");
-$async = $handle("index.html#2\nassets/assets/async.js\n");
-$module = $handle("index.html#3\nassets/assets/module.js\n");
-$legacy = $handle("index.html#4\nassets/assets/legacy.js\n");
-$external = $handle("index.html#5\nhttps://cdn.example.test/external.js?build=1#run\n");
-do_action('wp_enqueue_scripts');
-$scripts = wp_scripts();
-$assert(isset($scripts->registered[$head], $scripts->registered[$defer], $scripts->registered[$async], $scripts->registered[$module], $scripts->registered[$legacy], $scripts->registered[$external]), 'Generated theme registers every declared local and external document script.');
-$assert($scripts->registered[$head]->src === get_theme_file_uri('assets/assets/head.js') . '?head=1#top' && $scripts->registered[$external]->src === 'https://cdn.example.test/external.js?build=1#run' && $scripts->registered[$defer]->deps === array($head) && $scripts->registered[$module]->deps === array($async), 'Generated theme preserves local root-relative suffixes, external URLs, and deterministic placement-local dependencies.');
-ob_start(); wp_print_head_scripts(); $headTags = (string) ob_get_clean();
-ob_start(); wp_print_footer_scripts(); $footerTags = (string) ob_get_clean();
-$assert(str_contains($headTags, 'head.js?head=1#top') && str_contains($headTags, 'defer.js') && str_contains($headTags, ' defer') && !str_contains($headTags, 'async.js'), 'WordPress renders classic and deferred head scripts in the generated head placement.');
-$assert(str_contains($footerTags, 'async.js') && str_contains($footerTags, ' async') && str_contains($footerTags, ' defer') && str_contains($footerTags, 'type="module"') && str_contains($footerTags, ' nomodule') && str_contains($footerTags, 'integrity="sha384-test"') && str_contains($footerTags, 'crossorigin="anonymous"') && str_contains($footerTags, 'referrerpolicy="no-referrer"') && str_contains($footerTags, 'https://cdn.example.test/external.js?build=1#run'), 'WordPress renders footer async/module/nomodule and integrity, CORS, referrer-policy, and external URL semantics exactly.');
 foreach ($resolved['pages'] as $page) { $id = wp_insert_post(array('post_type' => 'page', 'post_status' => 'publish', 'post_title' => $page['title'], 'post_name' => $page['slug'], 'post_content' => $page['resolved_block_markup']), true); if (is_wp_error($id)) throw new RuntimeException($id->get_error_message()); $pageIds[$page['reconciliation_identity']] = $id; }
 foreach ($resolved['operations'] as $operation) if ('site_reading' === $operation['kind']) { update_option('show_on_front', $operation['show_on_front']); update_option('page_on_front', $pageIds[$operation['front_page_reconciliation_identity']]); }
 $assert('page' === get_option('show_on_front') && $pageIds[$resolved['operations'][0]['front_page_reconciliation_identity']] === (int) get_option('page_on_front'), 'WordPress applied the front-page operation.');
+$frontPage = get_post((int) get_option('page_on_front')); if (!$frontPage) throw new RuntimeException('Could not load front page.');
+global $wp_query; $wp_query->is_front_page = true; $wp_query->is_page = true; $wp_query->post = $frontPage; $wp_query->posts = array($frontPage); setup_postdata($frontPage);
+do_action('wp_enqueue_scripts'); $scripts = wp_scripts();
+$handleFor = static function (string $needle) use ($scripts): string { foreach ($scripts->registered as $handle => $script) if (str_contains((string) $script->src, $needle)) return $handle; throw new RuntimeException("Missing registered script {$needle}."); };
+$head = $handleFor('head.js?head=1#top'); $defer = $handleFor('defer.js'); $async = $handleFor('async.js'); $module = $handleFor('module.js'); $legacy = $handleFor('legacy.js'); $external = $handleFor('external.js?build=1#run'); $aboutHead = $handleFor('about-head.js'); $aboutExternal = $handleFor('about.js');
+$assert($scripts->registered[$head]->src === get_theme_file_uri('assets/assets/head.js') . '?head=1#top' && $scripts->registered[$external]->src === 'https://cdn.example.test/external.js?build=1#run' && $scripts->registered[$defer]->deps === array() && $scripts->registered[$module]->deps === array(), 'Generated theme preserves local root-relative suffixes, external URLs, and strategy-safe empty dependencies.');
+$assert(in_array($head, $scripts->queue, true) && in_array($external, $scripts->queue, true) && !in_array($aboutHead, $scripts->queue, true) && !in_array($aboutExternal, $scripts->queue, true), 'Front-page enqueue scope excludes nested-page declarations.');
+ob_start(); wp_print_head_scripts(); $headTags = (string) ob_get_clean(); ob_start(); wp_print_footer_scripts(); $footerTags = (string) ob_get_clean();
+$tag = static function (string $tags, string $needle): string { if (!preg_match('~<script\b[^>]*\bsrc=["\'][^"\']*' . preg_quote($needle, '~') . '[^"\']*["\'][^>]*></script>~', $tags, $match)) throw new RuntimeException("Missing rendered script {$needle}."); return $match[0]; };
+$headTag = $tag($headTags, 'head.js?head=1#top'); $deferTag = $tag($headTags, 'defer.js'); $asyncTag = $tag($footerTags, 'async.js'); $moduleTag = $tag($footerTags, 'module.js'); $legacyTag = $tag($footerTags, 'legacy.js'); $externalTag = $tag($footerTags, 'external.js?build=1#run');
+$assert(!str_contains($headTag, ' async') && !str_contains($headTag, ' defer') && str_contains($deferTag, ' defer') && str_contains($asyncTag, ' async') && str_contains($asyncTag, ' defer') && str_contains($moduleTag, 'type="module"') && str_contains($legacyTag, ' nomodule') && str_contains($legacyTag, 'integrity="sha384-test"') && str_contains($legacyTag, 'crossorigin="anonymous"') && str_contains($legacyTag, 'referrerpolicy="no-referrer"') && str_contains($externalTag, ' async'), 'Each rendered handle preserves its exact loading and tag attributes.');
+$frontOrder = array(strpos($headTags, 'head.js?head=1#top'), strpos($headTags, 'defer.js'), strpos($footerTags, 'async.js'), strpos($footerTags, 'module.js'), strpos($footerTags, 'legacy.js'), strpos($footerTags, 'external.js?build=1#run'));
+$assert($frontOrder === array_values(array_filter($frontOrder, static fn(int $offset): bool => $offset >= 0)), 'Rendered front-page scripts retain their declared order without dependency edges.');
+$about = get_post(array_values(array_filter($pageIds, static fn(int $id): bool => 'about' === get_post_field('post_name', $id)))[0] ?? 0); if (!$about) throw new RuntimeException('Could not load about page.');
+$wp_query->is_front_page = false; $wp_query->is_page = true; $wp_query->post = $about; $wp_query->posts = array($about); setup_postdata($about); $scripts->queue = array(); $scripts->to_do = array(); $scripts->done = array(); do_action('wp_enqueue_scripts');
+$assert(in_array($aboutHead, $scripts->queue, true) && in_array($aboutExternal, $scripts->queue, true) && !in_array($head, $scripts->queue, true) && !in_array($external, $scripts->queue, true), 'Nested-page enqueue scope excludes front-page declarations.');
 $front = file_get_contents($themeDir . '/templates/front-page.html'); if (false === $front) throw new RuntimeException('Could not read front-page template.');
-$post = get_post((int) get_option('page_on_front')); if (!$post) throw new RuntimeException('Could not load front page.');
-global $wp_query; $wp_query->is_front_page = true; $wp_query->is_page = true; $wp_query->post = $post; $wp_query->posts = array($post); setup_postdata($post);
+$post = $frontPage; $wp_query->is_front_page = true; $wp_query->is_page = true; $wp_query->post = $post; $wp_query->posts = array($post); setup_postdata($post);
 $rendered = do_blocks($front); wp_reset_postdata();
 $assert(1 === substr_count($rendered, 'Integration Header') && 1 === substr_count($rendered, 'Integration Footer'), 'WordPress renders each bound template part exactly once.');
 $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp-content/themes/' . $theme . '/assets/assets/logo.svg')), 'WordPress renders front-page content with a browser-valid resolved image URL.');

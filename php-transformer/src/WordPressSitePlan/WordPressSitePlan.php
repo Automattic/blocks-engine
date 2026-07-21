@@ -30,7 +30,8 @@ final class WordPressSitePlan
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routes);
         $parts = $this->documents($compiled['template_parts'] ?? null, true, $tokens, $references, $routes);
         $templates = $this->templates($pages, $parts);
-        $scriptLoading = $this->scriptLoading($pages, $parts, $tokens);
+        $operations = $this->operations($pages);
+        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts']), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
@@ -40,9 +41,9 @@ final class WordPressSitePlan
             'template_parts' => $parts,
             'assets' => $assets,
             'reference_tokens' => $tokens,
-            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => 'not_proven', 'dynamic_client_assets' => array('status' => array() === $scriptLoading['diagnostics'] ? 'proven' : 'not_proven', 'materializer_may_reject' => array() !== $scriptLoading['diagnostics'])),
+            'reference_semantics' => array('static_browser_references' => 'declared_tokens_only', 'dynamic_script_references' => array() === $scriptLoading['diagnostics'] ? 'proven' : 'not_proven', 'dynamic_client_assets' => array('status' => array() === $scriptLoading['diagnostics'] ? 'proven' : 'not_proven', 'materializer_may_reject' => array() !== $scriptLoading['diagnostics'])),
             'writes' => $writes,
-            'operations' => $this->operations($pages),
+            'operations' => $operations,
             'routes' => $routes,
             'navigation_links' => $materialization['navigation_links'] ?? null,
             'menus' => $materialization['menus'] ?? null,
@@ -68,7 +69,7 @@ final class WordPressSitePlan
             }
         }
         self::assertSource($plan['source']);
-        if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || 'not_proven' !== ($plan['reference_semantics']['dynamic_script_references'] ?? null) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
+        if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
         self::assertRows($plan['menus'], 'menu', array('kind', 'source_path', 'target_slug', 'source_relation', 'order', 'items'));
@@ -237,24 +238,36 @@ final class WordPressSitePlan
         return $writes;
     }
 
-    /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,string>> $tokens @return array{scripts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    private function scriptLoading(array $pages, array $parts, array $tokens): array
+    /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @param array<int,array<string,mixed>> $operations @return array{scripts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    private function scriptLoading(array $pages, array $parts, array $assets, array $tokens, array $operations): array
     {
         $targets = array(); foreach ($tokens as $token) $targets[$token['token']] = $token['target_path'];
-        $scripts = array(); $diagnostics = array();
+        $contents = array(); foreach ($assets as $asset) if (is_string($asset['content'] ?? null)) $contents[$asset['target_path']] = $asset['content'];
+        $frontPages = array(); foreach ($operations as $operation) if ('site_reading' === ($operation['kind'] ?? null)) $frontPages[$operation['front_page_reconciliation_identity']] = true;
+        $scripts = array(); $diagnostics = array(); $instances = array();
         foreach (array_merge($pages, $parts) as $document) foreach ($document['document_metadata']['scripts'] ?? array() as $script) {
             $source = $document['source_path'] . '#' . ($script['order'] ?? '');
             $unsupported = static function (string $code, string $message) use (&$diagnostics, $source): void { $diagnostics[] = array('code' => $code, 'severity' => 'warning', 'message' => $message, 'source_path' => $source); };
             if (!is_array($script) || 'inline' === ($script['source_kind'] ?? null)) { $unsupported('wordpress_site_plan_script_inline_unsupported', 'Inline document scripts cannot be materialized because the canonical metadata deliberately retains only their hash.'); continue; }
             if (true === ($script['module'] ?? false) && true === ($script['nomodule'] ?? false)) { $unsupported('wordpress_site_plan_script_module_nomodule_conflict', 'A document script cannot combine module and nomodule semantics.'); continue; }
+            if (isset($document['placement']) && 'entry_shell' !== ($document['placement']['kind'] ?? null)) { $unsupported('wordpress_site_plan_script_unbound_template_part', 'A template-part script cannot be materialized because its template placement is unbound.'); continue; }
             $localTarget = null; $suffix = ''; $url = null;
             if (is_string($script['asset_reference'] ?? null) && preg_match('/^\{\{wordpress-site-plan:asset:([^}]+)\}\}(.*)$/', $script['asset_reference'], $match) && isset($targets[$match[1]])) { $localTarget = $targets[$match[1]]; $suffix = $match[2]; }
             elseif (is_string($script['url'] ?? null) && preg_match('~^(?:https?:)?//[^\x00-\x20]+$~i', $script['url'])) $url = $script['url'];
             else { $unsupported('wordpress_site_plan_script_url_unsupported', 'A document script must reference a declared local write or an absolute HTTP(S) URL.'); continue; }
-            $scripts[] = array('identity' => $source . "\n" . ($localTarget ?? $url) . "\n" . $suffix, 'placement' => $script['placement'], 'local_target' => $localTarget, 'suffix' => $suffix, 'url' => $url, 'async' => $script['async'], 'defer' => $script['defer'], 'module' => $script['module'], 'nomodule' => $script['nomodule'], 'type' => $script['type'] ?? ($script['module'] ? 'module' : null), 'integrity' => $script['integrity'] ?? null, 'crossorigin' => $script['crossorigin'] ?? null, 'referrerpolicy' => $script['referrerpolicy'] ?? null, 'fetchpriority' => $script['fetchpriority'] ?? null);
+            if (null !== $localTarget && $this->hasDynamicScriptReferences($contents[$localTarget] ?? '')) { $unsupported('wordpress_site_plan_script_dynamic_references', 'A local script contains dynamic imports, script injection, or runtime URL construction that cannot be proven from the canonical write.'); continue; }
+            $attributes = array('placement' => $script['placement'], 'local_target' => $localTarget, 'suffix' => $suffix, 'url' => $url, 'async' => $script['async'], 'defer' => $script['defer'], 'module' => $script['module'], 'nomodule' => $script['nomodule'], 'type' => $script['type'] ?? ($script['module'] ? 'module' : null), 'integrity' => $script['integrity'] ?? null, 'crossorigin' => $script['crossorigin'] ?? null, 'referrerpolicy' => $script['referrerpolicy'] ?? null, 'fetchpriority' => $script['fetchpriority'] ?? null);
+            $scope = isset($document['placement']) ? array('kind' => 'global', 'order' => $script['order']) : array('kind' => 'page', 'source_path' => $document['source_path'], 'slug' => $document['slug'], 'front_page' => isset($frontPages[$document['reconciliation_identity']]), 'reconciliation_identity' => $document['reconciliation_identity'], 'order' => $script['order']);
+            $scopeKey = ($scope['kind'] ?? '') . ':' . ($scope['source_path'] ?? 'global');
+            $signature = hash('sha256', serialize($attributes)); $instance = $instances[$scopeKey][$signature] ?? 0; $instances[$scopeKey][$signature] = $instance + 1;
+            $identity = $signature . ':' . $instance;
+            if (!isset($scripts[$identity])) $scripts[$identity] = array_merge(array('identity' => $identity, 'scopes' => array()), $attributes);
+            $scripts[$identity]['scopes'][] = $scope;
         }
-        return array('scripts' => $scripts, 'diagnostics' => $diagnostics);
+        return array('scripts' => array_values($scripts), 'diagnostics' => $diagnostics);
     }
+
+    private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\b(?:document\s*\.\s*createElement\s*\(\s*["\']script|appendChild\s*\(|insertBefore\s*\(|\.\s*src\s*=|new\s+URL\s*\()/i', $content) === 1; }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @return array<int,array<string,mixed>> */
     private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts): array
@@ -276,20 +289,24 @@ final class WordPressSitePlan
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) $lines[] = "    wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null );";
         }
-        $attributes = array(); $dependencies = array('head' => array(), 'body' => array());
+        $attributes = array();
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
-            $dependency = $dependencies[$script['placement']];
             $source = null !== $script['local_target'] ? "get_theme_file_uri( " . var_export($script['local_target'], true) . " ) . " . var_export($script['suffix'], true) : var_export($script['url'], true);
             $args = array('in_footer' => 'body' === $script['placement']);
             if ($script['async'] && !$script['module']) $args['strategy'] = 'async';
             if ($script['defer'] && !$script['async'] && !$script['module']) $args['strategy'] = 'defer';
-            $lines[] = "    wp_register_script( " . var_export($handle, true) . ", {$source}, " . var_export($dependency, true) . ", null, " . var_export($args, true) . " );";
-            $lines[] = "    wp_enqueue_script( " . var_export($handle, true) . " );";
+            $lines[] = "    wp_register_script( " . var_export($handle, true) . ", {$source}, array(), null, " . var_export($args, true) . " );";
             $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
-            $dependencies[$script['placement']][] = $handle;
         }
-        $lines[] = "} );";
+        $lines[] = "}, 1 );";
+        foreach ($scripts as $script) {
+            $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
+            foreach ($script['scopes'] as $scope) {
+                $condition = 'global' === $scope['kind'] ? 'true' : ($scope['front_page'] ? 'is_front_page()' : 'is_page( ' . var_export($scope['slug'], true) . ' )');
+                $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { if ( {$condition} ) wp_enqueue_script( " . var_export($handle, true) . " ); }, " . (10 + $scope['order']) . " );";
+            }
+        }
         if (array() !== $attributes) {
             $lines[] = "add_filter( 'script_loader_tag', static function ( string \$tag, string \$handle ): string {";
             $lines[] = '    $attributes = ' . var_export($attributes, true) . ';';
@@ -331,7 +348,7 @@ final class WordPressSitePlan
         try { $theme = json_decode((string) $themeJson['payload']['data'], true, 512, JSON_THROW_ON_ERROR); } catch (\JsonException) { throw new InvalidArgumentException('WordPress site plan theme.json is not valid JSON.'); }
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
-        $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['reference_tokens']);
+        $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations']);
         if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
             if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
