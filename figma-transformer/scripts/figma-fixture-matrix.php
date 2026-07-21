@@ -950,7 +950,9 @@ function matrix_dom_box_capture_command(string $homeboyCommand, string $domBoxPr
         return $command;
     }
 
-    $environment = 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg($domBoxProviderCommand);
+    $environment = 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg($domBoxProviderCommand)
+        . ' HOMEBOY_DOM_BOX_NODE_ID_ATTR=' . escapeshellarg('data-figma-node-id')
+        . ' HOMEBOY_DOM_BOX_NODE_NAME_ATTR=' . escapeshellarg('data-figma-node-name,data-figma-name');
     if ( ! empty($captureTargets) ) {
         $environment .= ' HOMEBOY_DOM_BOX_CAPTURE_TARGETS_JSON=' . escapeshellarg((string) json_encode($captureTargets, JSON_UNESCAPED_SLASHES));
     }

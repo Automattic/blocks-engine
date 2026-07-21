@@ -80,7 +80,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         . pack('V', 106)
         . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'adapter-frame')
     );
-    $failingAdapterResult = ( new ZstdCapability(static fn (): false => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
+    $failingAdapterResult = ( new ZstdCapability(static fn (): bool => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
     $commandAdapter = new ZstdCapability(new ZstdCommandDecoder(array(PHP_BINARY, '-r', '$payload = stream_get_contents(STDIN); fwrite(STDOUT, $payload);')));
     $commandAdapterResult = $commandAdapter->uncompress('command adapter bytes', 'ContractTest', 4);
     $limitedCommandAdapterResult = $commandAdapter->uncompress('command adapter bytes', 'ContractTest', 5, array('max_decoded_bytes' => 1));

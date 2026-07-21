@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+$root = dirname(__DIR__, 2);
+require $root . '/php-transformer/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
-$root = dirname(__DIR__, 3);
 $temporary = sys_get_temp_dir() . '/blocks-engine-acceptance-' . bin2hex(random_bytes(4));
 mkdir($temporary . '/evidence', 0777, true);
 

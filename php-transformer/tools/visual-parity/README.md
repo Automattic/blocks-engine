@@ -68,29 +68,7 @@ homeboy tunnel artifact-origin dom-boxes \
   --report=<report.json>
 ```
 
-Use the generated `.fig -> HTML` artifact directory as `<artifact-root>`. The directory must contain `index.html` and any referenced CSS/assets. Keep committed docs and PR descriptions on placeholders such as `<fisiostetic-html-artifact-root>`, `<fse-html-artifact-root>`, and `<tt5-html-artifact-root>`; put machine-local paths only in local operator notes.
-
-Example artifact captures:
-
-```sh
-HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
-homeboy tunnel artifact-origin dom-boxes \
-  --root=<fisiostetic-html-artifact-root> \
-  --entrypoint=index.html \
-  --report=<fisiostetic-dom-box-report.json>
-
-HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
-homeboy tunnel artifact-origin dom-boxes \
-  --root=<fse-html-artifact-root> \
-  --entrypoint=index.html \
-  --report=<fse-dom-box-report.json>
-
-HOMEBOY_DOM_BOX_CAPTURE_COMMAND='node php-transformer/tools/visual-parity/bin/dom-box-provider.mjs' \
-homeboy tunnel artifact-origin dom-boxes \
-  --root=<tt5-html-artifact-root> \
-  --entrypoint=index.html \
-  --report=<tt5-dom-box-report.json>
-```
+The artifact directory must contain `index.html` and any referenced CSS/assets. Keep committed docs and PR descriptions on placeholders such as `<artifact-root>`; put machine-local paths only in local operator notes.
 
 The report is repeatable when the artifact root, entrypoint, browser version, viewport defaults, and node identity attributes stay fixed. Attach the JSON report to the Homeboy run, issue, or PR evidence surface so the next operator can compare generated HTML structure and positions without re-running the full transform.
 
@@ -104,10 +82,10 @@ node bin/dom-box-provider.mjs --node-id-attr=data-node-id --node-name-attr=data-
 
 | Setting | Env var | Flag | Default |
 | --- | --- | --- | --- |
-| Node id attribute | `HOMEBOY_DOM_BOX_NODE_ID_ATTR` | `--node-id-attr` | `data-figma-node-id` |
-| Node name attributes | `HOMEBOY_DOM_BOX_NODE_NAME_ATTR` | `--node-name-attr` | `data-figma-node-name,data-figma-name` |
+| Node id attribute | `HOMEBOY_DOM_BOX_NODE_ID_ATTR` | `--node-id-attr` | `data-node-id` |
+| Node name attributes | `HOMEBOY_DOM_BOX_NODE_NAME_ATTR` | `--node-name-attr` | `data-node-name` |
 
-The node id attribute drives element enumeration, selector generation, and id reads. Node name attributes are tried in order; `aria-label` is always appended as a final generic fallback. The defaults stay backward-compatible with the figma-transformer's `data-figma-*` output, so existing figma callers work with no changes; non-figma consumers override the attributes to match their own emitter.
+The node id attribute drives element enumeration, selector generation, and id reads. Node name attributes are tried in order; `aria-label` is always appended as a final generic fallback. Callers with different emitter contracts supply their own attributes explicitly.
 
 ## Screenshot provider
 

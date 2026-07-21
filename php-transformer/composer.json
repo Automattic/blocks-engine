@@ -52,7 +52,6 @@
       "php tests/contract/run.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
-      "php tests/contract/production-acceptance-matrix.php",
       "@test:unit"
     ],
     "test:unit": [
