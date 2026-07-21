@@ -18,7 +18,7 @@ $artifact = array(
         'index.html' => '<!doctype html><html><head><title>Home title</title><meta CHARSET=utf-8><meta NAME=viewport CONTENT="width=device-width, initial-scale=1"><link REL=stylesheet HREF=assets/site.css integrity=sha256-test crossorigin="" referrerpolicy=no-referrer fetchpriority=high><link rel=preconnect href=https://cdn.example.test/path?x=1&y=2></head><body><header><p>Entry Header</p></header><main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main><footer><p>Entry Footer</p></footer><script  SRC=assets/async.js ASYNC crossorigin referrerpolicy="" fetchpriority=""></script><script src=assets/defer.js defer></script><script src=assets/both.js async defer></script><script src=assets/module.js TYPE=module></script><script src=assets/legacy.js nomodule></script><script>window.inline = true;</script></body></html>',
         'nested/about.html' => '<!doctype html><html><head><title>About title</title><link rel="stylesheet" href="../assets/site.css" as="style"></head><body><header><p>About Chrome</p></header><main><img src="../assets/logo.svg"><h1>About</h1></main><script src="https://cdn.example.test/external.js" type="module"></script></body></html>',
         'parts/sidebar.html' => '<aside><p>Unbound Sidebar</p></aside>',
-        'assets/site.css' => '@font-face{font-family:test;src:url(assets/font.woff2)}main{background:url("assets/logo.svg")}',
+        'assets/site.css' => '@font-face{font-family:test;src:url(font.woff2)}main{background:url("logo.svg")}',
         'assets/async.js' => 'window.asyncAsset=true;',
         'assets/defer.js' => 'window.deferAsset=true;',
         'assets/both.js' => 'window.bothAsset=true;',
@@ -59,6 +59,29 @@ $malformed = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html
 $malformedPlan = $malformed['source_reports']['wordpress_site_plan'] ?? array();
 $malformedPage = $malformedPlan['pages'][0] ?? array();
 $assert(2 === count($malformedPage['document_metadata']['links'] ?? array()) && str_starts_with((string) ($malformedPage['document_metadata']['links'][1]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && true === ($malformedPage['document_metadata']['scripts'][0]['module'] ?? null) && true === ($malformedPage['document_metadata']['scripts'][0]['defer'] ?? null), 'Malformed attributes retain bounded declarations while later unquoted declarations and module defer semantics remain intact.');
+
+$rootRelative = (new ArtifactCompiler())->compile(array('entrypoint' => 'nested/index.html', 'files' => array(
+    'nested/index.html' => '<!doctype html><head><link rel="stylesheet" href="/assets/site.css?theme=1#main"><script src="/assets/app.js?build=2#run"></script></head><body><img src="/assets/logo.svg?width=40#hero" srcset="/assets/logo.svg?one=1#one 1x, /assets/logo.svg?two=2#two 2x" poster="/assets/poster.jpg"><a href="/application-route#anchor">Route</a><a href="#local">Local</a><a href="https://example.test/external">External</a><a href="//cdn.example.test/library.js">Protocol</a><a href="mailto:test@example.test">Mail</a><a href="tel:+15551212">Tel</a><img src="data:image/svg+xml,svg"><img src="blob:https://example.test/blob"><img src="/assets%2flogo.svg"><img src="/../assets/logo.svg"></body>',
+    'assets/site.css' => '@import "/assets/import.css?version=3#import"; @font-face{src:url("/assets/font.woff2?font=1#face")} main{background:url(/assets/logo.svg?background=1#image)}',
+    'assets/import.css' => 'main{background:url(/assets/logo.svg)}',
+    'assets/app.js' => 'window.app=true;',
+    'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    'assets/poster.jpg' => 'poster',
+    'assets/font.woff2' => 'font',
+)))->toArray();
+$rootPlan = $rootRelative['source_reports']['wordpress_site_plan'] ?? array();
+$assert(array() !== $rootPlan && !isset($rootRelative['source_reports']['wordpress_site_plan_diagnostics']), 'SSI WebsiteArtifact document-metadata smoke fixture emits a self-contained WordPress site plan.');
+$rootPage = $rootPlan['pages'][0] ?? array();
+$rootCss = $writeMap($rootPlan['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
+$assert(str_contains((string) $rootCss, WordPressSitePlan::TOKEN_PREFIX) && str_contains((string) $rootCss, '?version=3#import') && str_contains((string) $rootCss, '?font=1#face') && str_contains((string) $rootCss, '?background=1#image'), 'Root-relative CSS import, font, and url references use declared tokens with suffixes.');
+$rootResolved = (new WordPressSitePlanResolver())->resolve($rootPlan, array('theme_uri' => 'https://example.test/wp-content/themes/root'));
+$rootResolvedPage = $rootResolved['pages'][0] ?? array();
+$assert('https://example.test/wp-content/themes/root/assets/assets/site.css?theme=1#main' === ($rootResolvedPage['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/root/assets/assets/app.js?build=2#run' === ($rootResolvedPage['document_metadata']['scripts'][0]['resolved_url'] ?? null), 'Resolved metadata URLs use the declared write URL and preserve query and fragment suffixes.');
+$canonicalizer = new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer($rootPlan['reference_tokens']);
+$rootLogo = $canonicalizer->reference('/assets/logo.svg?width=40#hero', 'nested/index.html');
+$markupReferences = $canonicalizer->content('<img src="/assets/logo.svg?width=40#hero" srcset="/assets/logo.svg?one=1#one 1x, /assets/logo.svg?two=2#two 2x" poster="/assets/poster.jpg"><a href="/application-route#anchor">Route</a>', 'nested/index.html');
+$assert(is_string($rootLogo) && str_ends_with($rootLogo, '?width=40#hero') && str_contains($markupReferences, WordPressSitePlan::TOKEN_PREFIX) && str_contains($markupReferences, '?two=2#two') && str_contains($markupReferences, '/application-route#anchor') && null !== $canonicalizer->reference('../assets/logo.svg', 'nested/index.html') && null === $canonicalizer->reference('/application-route#anchor', 'nested/index.html') && null === $canonicalizer->reference('#local', 'nested/index.html') && null === $canonicalizer->reference('https://example.test/external', 'nested/index.html') && null === $canonicalizer->reference('//cdn.example.test/library.js', 'nested/index.html') && null === $canonicalizer->reference('data:image/svg+xml,svg', 'nested/index.html') && null === $canonicalizer->reference('blob:https://example.test/blob', 'nested/index.html') && null === $canonicalizer->reference('mailto:test@example.test', 'nested/index.html') && null === $canonicalizer->reference('tel:+15551212', 'nested/index.html') && null === $canonicalizer->reference('/assets%2flogo.svg', 'nested/index.html') && null === $canonicalizer->reference('/../assets/logo.svg', 'nested/index.html'), 'Canonical matching resolves root-relative and nested markup asset identities only, preserving browser routes, anchors, external schemes, encoded separators, and traversal references.');
+$throws(static fn() => new \Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer(array(array('source_path' => 'assets/logo.svg', 'token' => 'asset-0000000000000000'), array('source_path' => 'assets\\logo.svg', 'token' => 'asset-1111111111111111'))), 'Canonical asset source identities reject normalized-separator collisions.');
 
 $resolver = new WordPressSitePlanResolver();
 $resolved = $resolver->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/site'));

@@ -1956,10 +1956,7 @@ final class ArtifactCompiler
     private function fullDocumentMetadata(string $html, string $sourcePath, array $files): array
     {
         $headEnd = preg_match('/<head\b[^>]*>.*?<\/head\s*>/is', $html, $head) ? (int) strpos($html, $head[0]) + strlen($head[0]) : 0;
-        $reference = function (string $value) use ($sourcePath, $files): array {
-            $asset = $this->findAssetByHtmlReference($value, $sourcePath, $files);
-            return is_array($asset) ? array('asset_source_path' => (string) $asset['path']) : array('url' => $value);
-        };
+        $reference = static fn(string $value): array => array('url' => $value);
         $attributes = function (string $tag, array $names): array {
             $values = array();
             foreach ($names as $name) {
