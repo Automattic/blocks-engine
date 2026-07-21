@@ -353,6 +353,25 @@ trait StyleResolutionTrait
         return implode("\n", $rules);
     }
 
+    private function syntheticFlexItemClassName(DOMElement $element): string
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || ! in_array(strtolower((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+            return '';
+        }
+
+        $flexShrink = trim((string) ($this->structuralPresentationDeclarations($element)['flex-shrink'] ?? ''));
+        if ( '' === $flexShrink || preg_match('/[{}<>;]/', $flexShrink) ) {
+            return '';
+        }
+
+        $rule = 'flex-shrink:' . $flexShrink;
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\nsynthetic-flex-item\n" . $rule);
+        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+
+        return $className;
+    }
+
     /**
      * @return array<string, string>
      */
@@ -811,6 +830,7 @@ trait StyleResolutionTrait
             'column-gap',
             'display',
             'flex-direction',
+            'flex-shrink',
             'flex-wrap',
             'font-family',
             'font-size',

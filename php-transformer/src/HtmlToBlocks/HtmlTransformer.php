@@ -1720,6 +1720,17 @@ final class HtmlTransformer
         );
     }
 
+    /** @return array<string, mixed> */
+    private function svgPhrasingHostAttributes(DOMElement $element, string $imageMarkup): array
+    {
+        $className = $this->syntheticFlexItemClassName($element);
+
+        return array_filter(array(
+            'content'   => $imageMarkup,
+            'className' => $className,
+        ), static fn (string $value): bool => '' !== $value);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -1741,7 +1752,7 @@ final class HtmlTransformer
         if ( 'svg' === $tagName && $this->svgNeedsPhrasingHost($element) ) {
             $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
-                return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                return $this->createBlock('core/paragraph', $this->svgPhrasingHostAttributes($element, $imageMarkup), array(), $element);
             }
         }
 
@@ -2204,7 +2215,7 @@ final class HtmlTransformer
                     if ( $this->svgNeedsPhrasingHost($element) ) {
                         $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
                         if ( null !== $imageMarkup ) {
-                            return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                            return $this->createBlock('core/paragraph', $this->svgPhrasingHostAttributes($element, $imageMarkup), array(), $element);
                         }
                     }
                     $svgBlock = $this->inlineSvgBlockFromElement($element);
@@ -2221,7 +2232,7 @@ final class HtmlTransformer
             if ( $this->svgNeedsPhrasingHost($element) ) {
                 $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
                 if ( null !== $imageMarkup ) {
-                    return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                    return $this->createBlock('core/paragraph', $this->svgPhrasingHostAttributes($element, $imageMarkup), array(), $element);
                 }
             }
 
