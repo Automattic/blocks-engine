@@ -220,11 +220,14 @@ final class WordPressSitePlan
     {
         $bySource = array(); foreach ($assets as $index => $asset) $bySource[$asset['source_path']] = $index;
         foreach ($declarations as $declaration) {
-            if (!is_array($declaration) || 'asset_publication' !== ($declaration['kind'] ?? null) || !isset($declaration['transformation'])) continue;
+            if (!is_array($declaration) || 'asset_publication' !== ($declaration['kind'] ?? null)) continue;
             $assetIndex = $bySource[$declaration['source_path']] ?? null;
-            if (!is_int($assetIndex) || !is_string($assets[$assetIndex]['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation references an undeclared text asset.');
-            $asset = $assets[$assetIndex]; $transformation = $declaration['transformation'];
-            if ('image/svg+xml' !== ($asset['mime_type'] ?? null) || !self::safeSvg($asset['content'])) throw new InvalidArgumentException('Asset publication transformation requires a sanitized SVG source.');
+            if (!is_int($assetIndex)) throw new InvalidArgumentException('Asset publication references an undeclared asset.');
+            $asset = $assets[$assetIndex];
+            if ('image/svg+xml' === ($asset['mime_type'] ?? null) && (!is_string($asset['content'] ?? null) || !self::safeSvg($asset['content']))) throw new InvalidArgumentException('Asset publication requires a sanitized SVG source.');
+            if (!isset($declaration['transformation'])) continue;
+            $transformation = $declaration['transformation'];
+            if (!is_string($asset['content'] ?? null) || 'image/svg+xml' !== ($asset['mime_type'] ?? null)) throw new InvalidArgumentException('Asset publication transformation requires a sanitized SVG source.');
             $cssInputs = array();
             foreach ($transformation['css_source_paths'] as $path) {
                 $index = $bySource[$path] ?? null;
@@ -239,7 +242,7 @@ final class WordPressSitePlan
                 if (!is_int($index) || !str_starts_with((string) ($assets[$index]['mime_type'] ?? ''), 'font/')) throw new InvalidArgumentException('Asset publication transformation references an undeclared local font input.');
                 $fontInputs[] = array('source_path' => $path, 'content_hash' => $assets[$index]['content_hash']);
             }
-            $input = array('css' => $cssInputs, 'fonts' => $fontInputs, 'font_faces' => $transformation['font_faces']);
+            $input = array('css' => $cssInputs, 'fonts' => $fontInputs);
             if (RuntimeDeclarations::hash($input) !== $transformation['input_hash']) throw new InvalidArgumentException('Asset publication transformation inputs do not match their declared hash.');
             $faces = array(); foreach ($cssInputs as $input) foreach ($input['font_faces'] as $face) $faces[] = $face;
             $content = preg_replace('~</svg\s*>~i', '<style>' . implode("\n", $faces) . '</style></svg>', $asset['content'], 1);
@@ -537,10 +540,11 @@ final class WordPressSitePlan
     {
         if (!isset($plan['resolution'])) return;
         $resolution = $plan['resolution'];
-        if (!is_array($resolution) || array_keys($resolution) !== array('schema', 'theme_uri', 'asset_publication_references', 'unsupported_optional_capabilities') || WordPressSitePlanResolver::RESOLUTION_SCHEMA !== ($resolution['schema'] ?? null) || !is_string($resolution['theme_uri'] ?? null) || !is_array($resolution['asset_publication_references'] ?? null) || !is_array($resolution['unsupported_optional_capabilities'] ?? null) || WordPressSitePlanResolver::normalizeThemeUri($resolution['theme_uri']) !== $resolution['theme_uri']) throw new InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.');
+        if (!is_array($resolution) || array_keys($resolution) !== array('schema', 'theme_uri', 'runtime_capabilities', 'asset_publication_references', 'unsupported_optional_capabilities') || WordPressSitePlanResolver::RESOLUTION_SCHEMA !== ($resolution['schema'] ?? null) || !is_string($resolution['theme_uri'] ?? null) || !is_array($resolution['runtime_capabilities'] ?? null) || !is_array($resolution['asset_publication_references'] ?? null) || !is_array($resolution['unsupported_optional_capabilities'] ?? null) || WordPressSitePlanResolver::normalizeThemeUri($resolution['theme_uri']) !== $resolution['theme_uri']) throw new InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.');
         $references = WordPressSitePlanResolver::references($plan['reference_tokens'], $resolution['theme_uri']);
         $expectedPublicationReferences = WordPressSitePlanResolver::publicationReferences($plan['runtime_declarations'], $references);
-        if ($resolution['asset_publication_references'] !== $expectedPublicationReferences || array_filter($resolution['unsupported_optional_capabilities'], static fn(mixed $identity): bool => !self::hash($identity))) throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.');
+        try { $capabilities = WordPressSitePlanResolver::normalizeRuntimeCapabilities($resolution['runtime_capabilities']); $unsupported = WordPressSitePlanResolver::unsupportedOptionalCapabilities($plan['runtime_declarations'], $capabilities); } catch (InvalidArgumentException) { throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.'); }
+        if ($resolution['runtime_capabilities'] !== $capabilities || $resolution['asset_publication_references'] !== $expectedPublicationReferences || $resolution['unsupported_optional_capabilities'] !== $unsupported) throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.');
         foreach (array('pages', 'template_parts', 'templates') as $kind) foreach ($plan[$kind] as $document) {
             if (!is_array($document) || !is_string($document['canonical_block_markup'] ?? null) || !is_string($document['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolvePayload($document['canonical_block_markup'], $references) !== $document['resolved_block_markup']) throw new InvalidArgumentException("WordPress site plan resolved {$kind} payload is not canonical.");
         }

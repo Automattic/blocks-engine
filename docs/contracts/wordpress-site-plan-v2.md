@@ -47,13 +47,16 @@ and `WordPressSitePlanResolver::resolve()`.
   `destination.required`, source provenance and role, MIME, source and final
   content hashes, a sanitization proof bound to the source hash, and bounded
   `reference_targets`, each naming an existing write path and reconciliation
-  identity plus an exact canonical asset-token occurrence and context. The
+  identity plus an exact canonical asset-token occurrence in the supported
+  `css_url` context. Every published SVG, transformed or plain, rejects external
+  and dynamic references before plan emission. The
   resolver retains that canonical token provenance and supplies its current
   resolved URL; the canonical plan never invents a destination URL.
 - An `asset_publication.transformation` can declare `svg_font_enrichment`.
-  Its deterministic input hash covers declared local CSS/font source paths and
-  bounded explicit font-face text; its expected content hash covers the final
-  SVG. Remote inputs, unsafe SVG, undeclared inputs or writes, mismatched hashes,
+  Its deterministic input hash covers declared local CSS/font source paths; the
+  engine parses the narrowly allowed local `@font-face` declarations and its
+  expected content hash covers the final SVG. Raw font-face payloads, remote
+  inputs, unsafe SVG, undeclared inputs or writes, mismatched hashes,
   duplicate identities, and over-limit payloads are rejected. The engine fetches
   nothing: destination adapters declare supported generic capabilities and
   decide how to publish declared bytes. Unsupported required capabilities reject;
