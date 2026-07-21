@@ -374,6 +374,8 @@ final class HtmlTransformer
 
     private int $nextSourceProvenanceId = 1;
 
+    private bool $preserveShellLandmarks = false;
+
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
         $this->blockFactory      = new BlockFactory();
@@ -423,6 +425,7 @@ final class HtmlTransformer
         $this->generatedBlocks = array();
         $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
+        $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
@@ -623,6 +626,21 @@ final class HtmlTransformer
 
             $shellFallbacks = array();
             $blocks = $this->deduplicateNavigationBlocks($this->convertChildren($child, $shellFallbacks, true));
+            $wrapperAttrs = $this->hoistedStylingAttributes($child);
+            $wrapperAttrs['tagName'] = $area;
+            $inlineStyle = trim($this->attr($child, 'style'));
+            if ( '' !== $inlineStyle ) {
+                // Group support maps only its canonical subset; retain the source
+                // declaration so the landmark wrapper still owns its visual hook.
+                $wrapperAttrs['inlineGeometryStyle'] = $inlineStyle;
+            }
+            $anchor = trim($this->attr($child, 'id'));
+            if ( '' !== $anchor ) {
+                $wrapperAttrs['anchor'] = $anchor;
+            }
+            // Use one core/group landmark wrapper rather than nesting the source
+            // landmark around an independently converted landmark block.
+            $blocks = array($this->createBlock('core/group', $wrapperAttrs, $blocks, $child));
             $markup = $this->runtime->serializeBlocks($blocks);
             if ( '' === trim($markup) ) {
                 continue;
@@ -1523,6 +1541,13 @@ final class HtmlTransformer
             }
 
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( $this->preserveShellLandmarks && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
         }
 
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
@@ -2826,8 +2851,12 @@ final class HtmlTransformer
     private function semanticGroupTagName(DOMElement $element): ?string
     {
         $tag = strtolower($element->tagName);
+        if ( ShellLandmarkPolicy::isSemanticGroupTag($tag) ) {
+            return $tag;
+        }
 
-        return ShellLandmarkPolicy::isSemanticGroupTag($tag) ? $tag : null;
+        $landmark = ShellLandmarkPolicy::landmarkKind($tag, $this->attr($element, 'role'));
+        return in_array($landmark, array('header', 'footer'), true) ? $landmark : null;
     }
 
     /**
