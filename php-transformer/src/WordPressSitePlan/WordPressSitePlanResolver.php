@@ -29,7 +29,6 @@ final class WordPressSitePlanResolver
         unset($declaration, $document);
         $plan['resolution'] = array('schema' => self::RESOLUTION_SCHEMA, 'theme_uri' => $themeUri);
         WordPressSitePlan::assertValid($plan);
-        self::assertResolvedMetadata($plan, $references);
         return $plan;
     }
 
@@ -53,6 +52,4 @@ final class WordPressSitePlanResolver
     }
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
     public static function references(array $tokens, string $themeUri): array { $references = array(); foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = $themeUri . '/' . $reference['target_path']; return $references; }
-    /** @param array<string,mixed> $plan @param array<string,string> $references */
-    private static function assertResolvedMetadata(array $plan, array $references): void { foreach(array('pages','template_parts') as $documents)foreach($plan[$documents] as $document)foreach(array('links','scripts') as $kind)foreach($document['document_metadata'][$kind]??array() as $declaration)if(is_string($declaration['asset_reference']??null)){if(self::resolvePayload($declaration['asset_reference'], $references)!==($declaration['resolved_url']??null))throw new InvalidArgumentException('WordPress site plan metadata URL does not correspond to a declared resolved write.');} }
 }

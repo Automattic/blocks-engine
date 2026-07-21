@@ -134,6 +134,7 @@ $rootPage = $rootPlan['pages'][0] ?? array();
 $rootCss = $writeMap($rootPlan['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
 $assert(str_contains((string) $rootCss, WordPressSitePlan::TOKEN_PREFIX) && str_contains((string) $rootCss, '?version=3#import') && str_contains((string) $rootCss, '?font=1#face') && str_contains((string) $rootCss, '?background=1#image') && str_contains((string) $rootCss, '}}?quoted=1#image') && str_contains((string) $rootCss, '}}?unquoted=1#image') && str_contains((string) $rootCss, '}}?escaped=1#image') && str_contains((string) $rootCss, '/assets/logo(1).svg?broken=1#image'), 'Bounded CSS URL parsing canonicalizes quoted, unquoted, and escaped assets while preserving malformed calls and suffixes.');
 $rootResolved = (new WordPressSitePlanResolver())->resolve($rootPlan, array('theme_uri' => 'https://example.test/wp-content/themes/root'));
+$assert(true === (static function () use ($rootResolved): bool { WordPressSitePlan::assertValid($rootResolved); return true; })(), 'Public validation accepts root-relative metadata resolutions with query and fragment suffixes.');
 $rootResolvedPage = $rootResolved['pages'][0] ?? array();
 $assert('https://example.test/wp-content/themes/root/assets/assets/site.css?theme=1#main' === ($rootResolvedPage['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/root/assets/assets/app.js?build=2#run' === ($rootResolvedPage['document_metadata']['scripts'][0]['resolved_url'] ?? null), 'Resolved metadata URLs use the declared write URL and preserve query and fragment suffixes.');
 $rootResolvedCss = $writeMap($rootResolved['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
@@ -161,6 +162,7 @@ $resolvedWrites = $writeMap($resolved['writes']);
 $assert(str_contains((string) $resolvedWrites['assets/assets/site.css']['payload']['data'], 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Stylesheet references resolve through the same declared token.');
 $resolvedPages = array(); foreach ($resolved['pages'] as $page) $resolvedPages[$page['source_path']] = $page;
 $assert('https://example.test/wp-content/themes/site/assets/assets/site.css' === ($resolvedPages['index.html']['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/site/assets/assets/async.js' === ($resolvedPages['index.html']['document_metadata']['scripts'][0]['resolved_url'] ?? null) && 'https://cdn.example.test/external.js' === ($resolvedPages['nested/about.html']['document_metadata']['scripts'][0]['url'] ?? null), 'Resolver resolves local document metadata references only through declared writes and preserves external URLs.');
+$assert(!array_key_exists('resolved_url', $resolvedPages['nested/about.html']['document_metadata']['scripts'][0]), 'External metadata URLs remain canonical and do not gain a resolved alias.');
 
 // A downstream consumer needs only this public plan and its own receipt to project a stable report.
 $receipt = array('writes' => array_map(static fn(array $write): array => array('target_path' => $write['target_path'], 'status' => 'written'), $resolved['writes']), 'pages' => array_map(static fn(array $page): array => array('reconciliation_identity' => $page['reconciliation_identity'], 'status' => 'written'), $resolved['pages']));
@@ -240,6 +242,12 @@ $changedResolvedTemplate = $resolved; $changedResolvedTemplate['writes'][array_s
 $throws(static fn() => WordPressSitePlan::assertValid($changedResolvedTemplate), 'Validation rejects changed resolved template payloads even when their mutable hash is recomputed.');
 $staleResolvedToken = $resolved; $staleWriteIndex = array_search('assets/assets/site.css', array_column($staleResolvedToken['writes'], 'target_path'), true); $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload'] .= '{{wordpress-site-plan:asset:asset-0000000000000000}}'; $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload_hash'] = hash('sha256', $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload']);
 $throws(static fn() => WordPressSitePlan::assertValid($staleResolvedToken), 'Validation rejects stale or undeclared tokens in a resolved write projection.');
+$missingResolvedMetadata = $resolved; unset($missingResolvedMetadata['pages'][0]['document_metadata']['links'][0]['resolved_url']);
+$throws(static fn() => WordPressSitePlan::assertValid($missingResolvedMetadata), 'Validation rejects missing resolved URLs for local metadata references.');
+$tamperedResolvedMetadata = $resolved; $tamperedResolvedMetadata['pages'][0]['document_metadata']['scripts'][0]['resolved_url'] = 'https://example.test/tampered.js';
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedResolvedMetadata), 'Validation rejects arbitrary or stale resolved metadata URLs.');
+$externalResolvedAlias = $resolved; $externalResolvedAlias['pages'][1]['document_metadata']['scripts'][0]['resolved_url'] = 'https://example.test/rewritten.js';
+$throws(static fn() => WordPressSitePlan::assertValid($externalResolvedAlias), 'Validation rejects resolved aliases on external metadata URLs.');
 $throws(static fn() => $resolver->resolve($resolved, array('theme_uri' => 'https://example.test/theme')), 'Resolver rejects attempts to resolve an already-resolved projection.');
 $tamperedDeclaration = $declaredPlan; $tamperedDeclaration['runtime_declarations'][0]['payload']['entities'][] = array('id' => 'tampered');
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedDeclaration), 'Public validation rejects tampered runtime declaration payload hashes.');
