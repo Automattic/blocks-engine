@@ -41,6 +41,30 @@ and `WordPressSitePlanResolver::resolve()`.
   kinds, and non-serializable or overlarge payloads fail validation before plan
   emission. Declarations are carried unchanged after canonical normalization by
   compilation, resolution, reports, and package serialization.
+- `asset_publication` is the explicit declaration kind for materializing a declared
+  artifact asset at an arbitrary destination. It has `type: asset`, a stable
+  source-path reconciliation identity, explicit `destination.capability` and
+  `destination.required`, source provenance and role, MIME, source and final
+  content hashes, a sanitization proof bound to the source hash, and bounded
+  `reference_targets`, each naming an existing write path and reconciliation
+  identity plus an exact canonical asset-token occurrence in the supported
+  `css_url` context. Every published SVG, transformed or plain, rejects external
+  and dynamic references before plan emission. The
+  resolver retains that canonical token provenance and supplies its current
+  resolved URL; the canonical plan never invents a destination URL.
+  `source_hash` is the immutable normalized-artifact source payload hash carried
+  into the plan as `assets[].hash`; transformed final bytes are independently
+  bound by `expected_content_hash` and the canonical write payload hash. Public
+  validation re-binds both facts to the asset, write, and allowlisted provenance.
+- An `asset_publication.transformation` can declare `svg_font_enrichment`.
+  Its deterministic input hash covers declared local CSS/font source paths; the
+  engine parses the narrowly allowed local `@font-face` declarations and its
+  expected content hash covers the final SVG. Raw font-face payloads, remote
+  inputs, unsafe SVG, undeclared inputs or writes, mismatched hashes,
+  duplicate identities, and over-limit payloads are rejected. The engine fetches
+  nothing: destination adapters declare supported generic capabilities and
+  decide how to publish declared bytes. Unsupported required capabilities reject;
+  unsupported optional capabilities are reported in the resolution projection.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
@@ -139,3 +163,6 @@ legacy metadata where they retain it, then persist the v2 source-and-route ident
 as the primary key. A content hash change with the same reconciliation identity is an
 update, not a new page or write. New runtime requirements must be supplied as explicit
 artifact `runtime_declarations`; the engine intentionally does not infer them.
+Existing consumers can continue using declarations other than `asset_publication`.
+Consumers adding publication intent provide explicit source and sanitization hashes
+rather than relying on file extension inference.
