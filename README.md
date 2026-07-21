@@ -10,4 +10,4 @@ Blocks Engine is a collection of tools for generating, transforming, and materia
 
 Artifact compilation also emits the self-contained [`wordpress-site-plan/v2`](docs/contracts/wordpress-site-plan-v2.md) block-theme materialization contract.
 
-The [Figma-to-WordPress acceptance matrix](docs/contracts/figma-wordpress-acceptance-matrix-v1.md) consumes that handoff through generic, configurable materialization providers.
+The [Figma-to-WordPress acceptance matrix](docs/contracts/figma-wordpress-acceptance-matrix-v2.md) consumes that handoff through generic, configurable materialization providers and attributes parity independently across Figma-to-HTML, HTML-to-WordPress, and end-to-end boundaries.

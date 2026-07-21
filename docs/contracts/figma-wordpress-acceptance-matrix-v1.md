@@ -1,5 +1,7 @@
 # Figma WordPress Acceptance Matrix v1
 
+This contract is superseded by [Figma WordPress Acceptance Matrix v2](figma-wordpress-acceptance-matrix-v2.md), which separates Figma-to-HTML, HTML-to-WordPress, and end-to-end parity and supports arbitrary manifest fixtures.
+
 Run the repository-owned acceptance gate from a fresh checkout:
 
 ```sh

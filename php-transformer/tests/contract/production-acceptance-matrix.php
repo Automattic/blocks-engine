@@ -16,10 +16,18 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$stageNames = array('decode', 'normalize', 'emit', 'import', 'editor_validity', 'fallback', 'desktop_parity', 'mobile_parity', 'responsive_selection');
+$parityStages = array(
+    'figma_html_desktop_parity' => 'figma_html',
+    'figma_html_mobile_parity' => 'figma_html',
+    'html_wordpress_desktop_parity' => 'html_wordpress',
+    'html_wordpress_mobile_parity' => 'html_wordpress',
+    'figma_wordpress_desktop_parity' => 'figma_wordpress',
+    'figma_wordpress_mobile_parity' => 'figma_wordpress',
+);
+$stageNames = array('decode', 'normalize', 'emit', 'figma_html_desktop_parity', 'figma_html_mobile_parity', 'import', 'editor_validity', 'fallback', 'html_wordpress_desktop_parity', 'html_wordpress_mobile_parity', 'figma_wordpress_desktop_parity', 'figma_wordpress_mobile_parity', 'responsive_selection');
 $fixtures = array();
 $output = $temporary . '/output';
-foreach (array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiostetic') as $fixtureId) {
+foreach (array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiostetic', 'arbitrary-community-design') as $fixtureId) {
     $fig = $temporary . '/' . $fixtureId . '.fig';
     file_put_contents($fig, 'fixture');
     $sourceHash = hash_file('sha256', $fig);
@@ -55,7 +63,8 @@ foreach (array('fse-pilot-build-theme', 'twenty-twenty-five-community', 'fisiost
             $evidence['provider_identity'] = 'generic-provider@1.0.0';
             $evidence['runtime_identity'] = 'wordpress@6.8.0';
         }
-        if (in_array($stage, array('desktop_parity', 'mobile_parity'), true)) {
+        if (isset($parityStages[$stage])) {
+            $evidence['comparison'] = $parityStages[$stage];
             $evidence['source_screenshot'] = 'artifacts/' . $fixtureId . '/' . $stage . '-source.png';
             $evidence['rendered_screenshot'] = 'artifacts/' . $fixtureId . '/' . $stage . '-rendered.png';
             $evidence['diff_report'] = 'artifacts/' . $fixtureId . '/' . $stage . '-diff.json';
@@ -86,7 +95,15 @@ exec($command, $ignored, $exitCode);
 $assert(0 === $exitCode, 'all complete fixture evidence passes the acceptance matrix');
 $summary = json_decode((string) file_get_contents($output . '/summary.json'), true);
 $assert('passed' === ($summary['status'] ?? null), 'summary reports a passing matrix');
+$assert('blocks-engine/figma-wordpress-acceptance/v2' === ($summary['schema'] ?? null), 'summary reports the layered v2 contract');
+$assert(3 === count($summary['fixtures'] ?? array()), 'production profile enforces the canonical three fixtures');
 $assert(!str_contains(json_encode($summary), $temporary), 'summary excludes private absolute input and evidence paths');
+
+$manifestCommand = $command . ' --profile=manifest';
+exec($manifestCommand, $ignored, $manifestExitCode);
+$assert(0 === $manifestExitCode, 'manifest profile accepts arbitrary fixture ids');
+$manifestSummary = json_decode((string) file_get_contents($output . '/summary.json'), true);
+$assert(4 === count($manifestSummary['fixtures'] ?? array()), 'manifest profile evaluates every supplied fixture');
 
 $runFailure = static function (array $candidate, string $stage, string $reason) use ($manifest, $command, $output, $assert): void {
     file_put_contents($manifest, json_encode(array('fixtures' => $candidate)));
@@ -112,9 +129,16 @@ $runFailure($fixtures, 'normalize', 'normalize_source_hash_mismatch');
 $normalize['source_sha256'] = hash_file('sha256', $fixtures[0]['fig']);
 file_put_contents($fixtures[0]['evidence']['normalize'], json_encode($normalize));
 
-file_put_contents($output . '/artifacts/fse-pilot-build-theme/desktop_parity-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 1, 'geometry_difference_count' => 0))));
-$runFailure($fixtures, 'desktop_parity', 'desktop_parity_nonzero_difference');
-file_put_contents($output . '/artifacts/fse-pilot-build-theme/desktop_parity-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 0, 'geometry_difference_count' => 0))));
+file_put_contents($output . '/artifacts/fse-pilot-build-theme/html_wordpress_desktop_parity-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 1, 'geometry_difference_count' => 0))));
+$runFailure($fixtures, 'html_wordpress_desktop_parity', 'html_wordpress_desktop_parity_nonzero_difference');
+file_put_contents($output . '/artifacts/fse-pilot-build-theme/html_wordpress_desktop_parity-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 0, 'geometry_difference_count' => 0))));
+
+$parity = json_decode((string) file_get_contents($fixtures[0]['evidence']['figma_html_desktop_parity']), true);
+$parity['comparison'] = 'html_wordpress';
+file_put_contents($fixtures[0]['evidence']['figma_html_desktop_parity'], json_encode($parity));
+$runFailure($fixtures, 'figma_html_desktop_parity', 'figma_html_desktop_parity_comparison_mismatch');
+$parity['comparison'] = 'figma_html';
+file_put_contents($fixtures[0]['evidence']['figma_html_desktop_parity'], json_encode($parity));
 
 $editor = json_decode((string) file_get_contents($fixtures[0]['evidence']['editor_validity']), true);
 $editor['metrics']['invalid_block_count'] = 1;
