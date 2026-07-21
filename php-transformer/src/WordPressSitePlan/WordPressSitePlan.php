@@ -422,9 +422,12 @@ final class WordPressSitePlan
             return (($priority[$left['area']] ?? 1) <=> ($priority[$right['area']] ?? 1)) ?: strcmp($left['slug'], $right['slug']);
         });
         $markup = static function (string $templateSlug) use ($bound): string {
-            $content = '';
-            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true)) $content .= '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '"} /-->' . "\n";
-            return $content . '<!-- wp:post-content /-->' . "\n";
+            $before = ''; $after = '';
+            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true)) {
+                $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '"} /-->' . "\n";
+                if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
+            }
+            return $before . '<!-- wp:post-content /-->' . "\n" . $after;
         };
         $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
         $templates = array($make('index', 'templates/index.html', $markup('index')));
