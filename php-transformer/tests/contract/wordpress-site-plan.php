@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require __DIR__ . '/support/ResolvedPlanProjection.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
@@ -14,11 +15,15 @@ $writeMap = static function (array $writes): array { $map = array(); foreach ($w
 $artifact = array(
     'entrypoint' => 'index.html',
     'files' => array(
-        'index.html' => '<header><p>Entry Header</p></header><main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main><footer><p>Entry Footer</p></footer>',
-        'about.html' => '<header><p>About Chrome</p></header><main><img src="assets/logo.svg"><h1>About</h1></main>',
+        'index.html' => '<!doctype html><html><head><title>Home title</title><meta CHARSET=utf-8><meta NAME=viewport CONTENT="width=device-width, initial-scale=1"><link REL=stylesheet HREF=assets/site.css integrity=sha256-test crossorigin="" referrerpolicy=no-referrer fetchpriority=high><link rel=preconnect href=https://cdn.example.test/path?x=1&y=2></head><body><header><p>Entry Header</p></header><main><img src="assets/logo.svg" srcset="assets/logo.svg 1x, assets/logo.svg 2x"><h1>Home</h1></main><footer><p>Entry Footer</p></footer><script  SRC=assets/async.js ASYNC crossorigin referrerpolicy="" fetchpriority=""></script><script src=assets/defer.js defer></script><script src=assets/both.js async defer></script><script src=assets/module.js TYPE=module></script><script src=assets/legacy.js nomodule></script><script>window.inline = true;</script></body></html>',
+        'nested/about.html' => '<!doctype html><html><head><title>About title</title><link rel="stylesheet" href="../assets/site.css" as="style"></head><body><header><p>About Chrome</p></header><main><img src="../assets/logo.svg"><h1>About</h1></main><script src="https://cdn.example.test/external.js" type="module"></script></body></html>',
         'parts/sidebar.html' => '<aside><p>Unbound Sidebar</p></aside>',
         'assets/site.css' => '@font-face{font-family:test;src:url(assets/font.woff2)}main{background:url("assets/logo.svg")}',
-        'assets/site.js' => 'window.siteAsset="assets/logo.svg";',
+        'assets/async.js' => 'window.asyncAsset=true;',
+        'assets/defer.js' => 'window.deferAsset=true;',
+        'assets/both.js' => 'window.bothAsset=true;',
+        'assets/module.js' => 'window.moduleAsset=true;',
+        'assets/legacy.js' => 'window.legacyAsset=true;',
         'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
         'assets/font.woff2' => 'font-data',
     ),
@@ -36,13 +41,24 @@ $assert(3 === (json_decode((string) $writes['theme.json']['payload']['data'], tr
 $assert(str_contains((string) $writes['templates/front-page.html']['payload']['data'], '"slug":"header"') && str_contains((string) $writes['templates/front-page.html']['payload']['data'], '"slug":"footer"'), 'Front-page template references extracted header and footer parts.');
 $assert(!str_contains((string) $writes['templates/page.html']['payload']['data'], '"slug":"header"') && !str_contains((string) $writes['templates/front-page.html']['payload']['data'], '"slug":"sidebar"'), 'Templates do not bind unproven or unbound parts.');
 $pagesBySource = array(); foreach ($plan['pages'] as $page) $pagesBySource[$page['source_path']] = $page;
-$assert(!str_contains((string) ($pagesBySource['index.html']['canonical_block_markup'] ?? ''), 'Entry Header') && str_contains((string) ($pagesBySource['about.html']['canonical_block_markup'] ?? ''), 'About Chrome'), 'Only extracted entry shell content is removed from page markup: ' . json_encode($pagesBySource));
+$assert(!str_contains((string) ($pagesBySource['index.html']['canonical_block_markup'] ?? ''), 'Entry Header') && str_contains((string) ($pagesBySource['nested/about.html']['canonical_block_markup'] ?? ''), 'About Chrome'), 'Only extracted entry shell content is removed from page markup: ' . json_encode($pagesBySource));
 $assert('site_reading' === ($plan['operations'][0]['kind'] ?? null) && 'index.html' === ($plan['operations'][0]['front_page_source_path'] ?? null), 'Plan declares deterministic front-page desired state.');
 $assert(str_contains((string) ($plan['pages'][0]['canonical_block_markup'] ?? ''), '{{wordpress-site-plan:asset:'), 'Canonical page markup uses declared destination-independent references.');
 $assert(!isset($plan['pages'][0]['resolved_block_markup']), 'Canonical markup is explicitly distinct from resolved markup.');
 $assert(count($plan['reference_tokens']) === count($plan['assets']), 'Every asset has one deterministic resolver token.');
 $assert(true === ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null), 'Plan exposes dynamic client asset capability limits.');
 $assert($plan === ($second['source_reports']['wordpress_site_plan'] ?? null), 'Canonical WordPress site plans are deterministic.');
+$home = $pagesBySource['index.html'];
+$assert('Home title' === ($home['document_metadata']['title'] ?? null) && 'head' === ($home['document_metadata']['title_declaration']['placement'] ?? null) && 'utf-8' === ($home['document_metadata']['meta'][0]['charset'] ?? null) && 'viewport' === ($home['document_metadata']['meta'][1]['name'] ?? null), 'Plan projects title, source context, charset, and viewport metadata from the compiler document report.');
+$assert(str_starts_with((string) ($home['document_metadata']['links'][0]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && 'sha256-test' === ($home['document_metadata']['links'][0]['integrity'] ?? null) && 'anonymous' === ($home['document_metadata']['links'][0]['crossorigin'] ?? null) && 'https://cdn.example.test/path?x=1&y=2' === ($home['document_metadata']['links'][1]['url'] ?? null), 'Plan preserves unquoted, mixed-case local and external link declarations with safe URL punctuation and anonymous CORS semantics.');
+$scripts = $home['document_metadata']['scripts'];
+$assert(true === ($scripts[0]['async'] ?? null) && false === ($scripts[0]['defer'] ?? null) && 'async' === ($scripts[0]['effective_loading'] ?? null) && 'anonymous' === ($scripts[0]['crossorigin'] ?? null) && '' === ($scripts[0]['referrerpolicy'] ?? null) && '' === ($scripts[0]['fetchpriority'] ?? null) && false === ($scripts[1]['async'] ?? null) && true === ($scripts[1]['defer'] ?? null) && 'defer' === ($scripts[1]['effective_loading'] ?? null) && true === ($scripts[2]['async'] ?? null) && true === ($scripts[2]['defer'] ?? null) && 'async' === ($scripts[2]['effective_loading'] ?? null) && true === ($scripts[3]['module'] ?? null) && 'defer' === ($scripts[3]['effective_loading'] ?? null) && true === ($scripts[4]['nomodule'] ?? null) && 'inline' === ($scripts[5]['source_kind'] ?? null), 'Plan preserves async, defer, async plus defer, module, nomodule, inline, and empty-valued standard attribute semantics independently.');
+$assert(2 === ($plan['reporting']['metrics']['source_document_count'] ?? null) && 2 === ($plan['reporting']['metrics']['block_document_count'] ?? null) && is_array($plan['reporting']['diagnostic_codes'] ?? null), 'Plan carries generic compiler reporting summaries and diagnostic linkage.');
+
+$malformed = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<head><link rel=stylesheet href=assets/site.css broken="unterminated><link rel=stylesheet href=assets/site.css media=""></head><body><main><h1>Malformed</h1></main><script src=assets/app.js type=module defer></script></body>', 'assets/site.css' => 'body{}', 'assets/app.js' => 'window.app=true;')))->toArray();
+$malformedPlan = $malformed['source_reports']['wordpress_site_plan'] ?? array();
+$malformedPage = $malformedPlan['pages'][0] ?? array();
+$assert(2 === count($malformedPage['document_metadata']['links'] ?? array()) && str_starts_with((string) ($malformedPage['document_metadata']['links'][1]['asset_reference'] ?? ''), WordPressSitePlan::TOKEN_PREFIX) && true === ($malformedPage['document_metadata']['scripts'][0]['module'] ?? null) && true === ($malformedPage['document_metadata']['scripts'][0]['defer'] ?? null), 'Malformed attributes retain bounded declarations while later unquoted declarations and module defer semantics remain intact.');
 
 $resolver = new WordPressSitePlanResolver();
 $resolved = $resolver->resolve($plan, array('theme_uri' => 'https://example.test/wp-content/themes/site'));
@@ -52,7 +68,17 @@ $about = (string) $resolved['pages'][0]['resolved_block_markup'];
 $assert(str_contains($about, 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Nested page markup resolves declared assets to the explicit theme URI.');
 $resolvedWrites = $writeMap($resolved['writes']);
 $assert(str_contains((string) $resolvedWrites['assets/assets/site.css']['payload']['data'], 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Stylesheet references resolve through the same declared token.');
-$assert(str_contains((string) $resolvedWrites['assets/assets/site.js']['payload']['data'], 'https://example.test/wp-content/themes/site/assets/assets/logo.svg'), 'Script metadata references resolve through the same declared token.');
+$resolvedPages = array(); foreach ($resolved['pages'] as $page) $resolvedPages[$page['source_path']] = $page;
+$assert('https://example.test/wp-content/themes/site/assets/assets/site.css' === ($resolvedPages['index.html']['document_metadata']['links'][0]['resolved_url'] ?? null) && 'https://example.test/wp-content/themes/site/assets/assets/async.js' === ($resolvedPages['index.html']['document_metadata']['scripts'][0]['resolved_url'] ?? null) && 'https://cdn.example.test/external.js' === ($resolvedPages['nested/about.html']['document_metadata']['scripts'][0]['url'] ?? null), 'Resolver resolves local document metadata references only through declared writes and preserves external URLs.');
+
+// A downstream consumer needs only this public plan and its own receipt to project a stable report.
+$receipt = array('writes' => array_map(static fn(array $write): array => array('target_path' => $write['target_path'], 'status' => 'written'), $resolved['writes']), 'pages' => array_map(static fn(array $page): array => array('reconciliation_identity' => $page['reconciliation_identity'], 'status' => 'written'), $resolved['pages']));
+$projection = ResolvedPlanProjection::fromPlanAndReceipt($resolved, $receipt);
+$assert('Home title' === ($projection['documents'][0]['title'] ?? null) && 2 === ($projection['reporting']['metrics']['source_document_count'] ?? null) && count($resolved['writes']) === $projection['write_count'], 'An independent consumer derives document/report content from only the resolved plan and synthetic receipt.');
+$missingReceiptPage = $receipt; array_pop($missingReceiptPage['pages']);
+$throws(static fn() => ResolvedPlanProjection::fromPlanAndReceipt($resolved, $missingReceiptPage), 'Independent projection rejects receipts that omit resolved pages.');
+$extraReceiptWrite = $receipt; $extraReceiptWrite['writes'][] = array('target_path' => 'outside-plan.json', 'status' => 'written');
+$throws(static fn() => ResolvedPlanProjection::fromPlanAndReceipt($resolved, $extraReceiptWrite), 'Independent projection rejects receipts that add undeclared writes.');
 
 $destination = sys_get_temp_dir() . '/blocks-engine-site-plan-' . bin2hex(random_bytes(6));
 foreach ($resolved['writes'] as $write) {
@@ -60,7 +86,7 @@ foreach ($resolved['writes'] as $write) {
     if (!is_dir(dirname($path))) mkdir(dirname($path), 0777, true);
     file_put_contents($path, 'base64' === $write['payload']['encoding'] ? base64_decode($write['payload']['data'], true) : $write['payload']['data']);
 }
-foreach (array('style.css', 'theme.json', 'functions.php', 'templates/index.html', 'templates/page.html', 'templates/front-page.html', 'parts/header.html', 'parts/footer.html', 'parts/sidebar.html', 'assets/assets/site.css', 'assets/assets/site.js', 'assets/assets/logo.svg', 'assets/assets/font.woff2') as $required) $assert(is_file($destination . '/' . $required), "Materialization writes {$required}.");
+foreach (array('style.css', 'theme.json', 'functions.php', 'templates/index.html', 'templates/page.html', 'templates/front-page.html', 'parts/header.html', 'parts/footer.html', 'parts/sidebar.html', 'assets/assets/site.css', 'assets/assets/async.js', 'assets/assets/module.js', 'assets/assets/logo.svg', 'assets/assets/font.woff2') as $required) $assert(is_file($destination . '/' . $required), "Materialization writes {$required}.");
 $assert(false === str_contains((string) file_get_contents($destination . '/assets/assets/site.css'), WordPressSitePlan::TOKEN_PREFIX), 'Materialized assets contain no unresolved resolver tokens.');
 $runtime = array('pages' => array(), 'front_page' => null);
 foreach ($resolved['pages'] as $page) $runtime['pages'][$page['reconciliation_identity']] = $page;
@@ -83,6 +109,14 @@ $invalidScaffold = $plan; $invalidScaffold['writes'][0]['kind'] = 'theme_asset';
 $throws(static fn() => WordPressSitePlan::assertValid($invalidScaffold), 'Validation rejects malformed scaffold writes.');
 $unresolvedLocal = $plan; $unresolvedLocal['pages'][0]['canonical_block_markup'] .= '<img src="images/missing.svg">';
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedLocal), 'Validation rejects unresolved local browser references.');
+$invalidMetadata = $plan; $invalidMetadata['pages'][0]['document_metadata']['scripts'][0]['asset_reference'] = '{{wordpress-site-plan:asset:asset-0000000000000000}}';
+$throws(static fn() => WordPressSitePlan::assertValid($invalidMetadata), 'Validation rejects undeclared document metadata references.');
+$invalidLoad = $plan; $invalidLoad['pages'][0]['document_metadata']['scripts'][0]['load'] = 'later';
+$throws(static fn() => WordPressSitePlan::assertValid($invalidLoad), 'Validation rejects invalid document script load semantics.');
+$invalidOrder = $plan; $invalidOrder['pages'][0]['document_metadata']['links'][0]['order'] = 1;
+$throws(static fn() => WordPressSitePlan::assertValid($invalidOrder), 'Validation rejects non-deterministic document metadata ordering.');
+$localMetadataUrl = $plan; $localMetadataUrl['pages'][0]['document_metadata']['links'][0]['asset_reference'] = null; $localMetadataUrl['pages'][0]['document_metadata']['links'][0]['url'] = 'assets/site.css';
+$throws(static fn() => WordPressSitePlan::assertValid($localMetadataUrl), 'Validation rejects local metadata URLs without canonical references.');
 $invalidCompiledAsset = $first; $invalidCompiledAsset['source_reports']['compiled_site']['assets'][0]['target_path'] = 'C:\\theme\\site.css';
 $throws(static fn() => (new WordPressSitePlan())->fromResult($invalidCompiledAsset), 'Projection rejects unsafe compiled asset targets.');
 
