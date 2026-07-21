@@ -256,7 +256,7 @@ final class WordPressSitePlan
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
             $templateSlugs = $singlePage ? array('front-page') : array('index', 'page', 'front-page');
-            $partMarkup = $singlePage ? $first['inner_markup'] : $first['markup'];
+            $partMarkup = $first['markup'];
             $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => array('shell_identity' => $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted one semantically equivalent {$area} shell for all pages.", 'area' => $area, 'page_count' => count($applicable));
         }
