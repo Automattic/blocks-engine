@@ -1671,7 +1671,7 @@ final class ArtifactCompiler
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
                 : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true);
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
-                if ( is_array($generatedAsset) ) {
+                if ( is_array($generatedAsset) && ! in_array($generatedAsset, $assets, true) ) {
                     $assets[] = $generatedAsset;
                 }
             }
