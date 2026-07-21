@@ -27,17 +27,19 @@ Document metadata is canonical runtime input as well as reporting data. The gene
 theme scaffold registers supported local-write and external HTTP(S) script declarations
 once, preserves their normalized loading and tag attributes, and enqueues them only for
 their source scope. Entry-page declarations run on `is_front_page()`, other page
-declarations run for their declared page slug, and bound template-part declarations run
+declarations compare the queried page URI with their normalized source route path, and bound template-part declarations run
 as global shell scripts. The scaffold preserves declaration order through scope-local
 enqueue-hook priorities, without dependencies that would change WordPress loading strategy.
 
 `reference_semantics.dynamic_script_references` and
 `dynamic_client_assets.status` are both `proven` for fully materialized static script
 declarations. They are both `not_proven` with `materializer_may_reject: true` when
-inline source, an unsupported URL or contradictory declaration, an unbound template
+inline source, an external or unsupported URL or contradictory declaration, an unbound template
 part, dynamic import, script injection, or runtime URL construction prevents complete
 proof. The accompanying diagnostics are the deterministic explanation. Consumers that
 set `require_proven_dynamic_client_assets` are rejected only for that unproven state.
+Supported external URLs remain in the generated scaffold for callers that accept the
+runtime-reference risk, but cannot pass that proof gate.
 
 ## Reporting
 

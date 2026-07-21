@@ -41,7 +41,8 @@ and `WordPressSitePlanResolver::resolve()`.
   each supported document script once, uses `get_theme_file_uri()` for local writes,
   preserves query/fragment suffixes and supported external HTTP(S) URLs, and
   enqueues it only in its canonical scope: entry pages use `is_front_page()`, other
-  pages use their declared page slug, and bound template-part declarations are
+  pages compare the queried WordPress page URI with their normalized source route
+  path, and bound template-part declarations are
   global shell declarations. Equivalent declarations shared by routes share one
   registration while each matching route enqueues it. Repeated declarations in one
   source document remain distinct execution declarations.
@@ -51,12 +52,13 @@ and `WordPressSitePlanResolver::resolve()`.
   `script_loader_tag` filter for exact `type`, `nomodule`, integrity, CORS,
   referrer-policy, fetch-priority, and combined loading attributes.
 - `dynamic_script_references` and `dynamic_client_assets.status` are both `proven`
-  only when every declared script is materialized and local script writes contain no
+  only when every declared script is materialized as a local artifact and local script writes contain no
   dynamic import, script injection, or runtime URL-construction signal. They are
   both `not_proven` with `materializer_may_reject: true` for inline scripts,
-  unsupported URLs, contradictory module/nomodule declarations, unbound part
+  external URLs, unsupported URLs, contradictory module/nomodule declarations, unbound part
   declarations, or dynamic-reference signals. The diagnostic code identifies the
-  reason. Consumers can therefore require proof without rejecting supported static
+  reason. Supported external URLs are still emitted for consumers that accept this
+  risk, but cannot satisfy the proof gate. Consumers can therefore require proof without rejecting supported static
   script plans.
 
 ## Runtime Resolution
