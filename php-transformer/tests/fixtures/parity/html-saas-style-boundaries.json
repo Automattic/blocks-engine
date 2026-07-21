@@ -20,8 +20,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "/" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
     { "path": "blocks.1", "name": "core/group", "attrs": { "tagName": "main" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero", "tagName": "section" } },

@@ -17,13 +17,14 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-phone", "text": "Call now", "url": "tel:+16165550182" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-phone", "url": "tel:+16165550182" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"tel:+16165550182\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": ">Call now</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<img src=\"assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span>Call now</span></a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "fallbacks", "assert": "count", "count": 0 }

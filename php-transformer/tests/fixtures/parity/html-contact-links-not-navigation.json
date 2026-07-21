@@ -17,8 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons", "attrs": { "className": "visit-links" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "(503) 841-7220", "url": "tel:+15038417220" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "hello@example.com", "url": "mailto:hello@example.com" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "tel:+15038417220" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "url": "mailto:hello@example.com" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -26,6 +26,7 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation-link" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<img src=\"assets/materialized-svg/" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"tel:+15038417220\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"mailto:hello@example.com\"" }
   ]

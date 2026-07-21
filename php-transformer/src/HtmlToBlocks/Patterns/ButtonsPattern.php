@@ -60,7 +60,7 @@ final class ButtonsPattern
         $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
 
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes), array(
-            $createBlock('core/button', array_merge(
+            $createBlock('core/button', array_filter(array_merge(
                 $attrs,
                 $this->buttonRuntimeAttributes($button),
                 array(
@@ -68,7 +68,7 @@ final class ButtonsPattern
                     'text'    => $text,
                     'title'   => $this->buttonAccessibleTitle($button, $text),
                 )
-            ), array(), $button),
+            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);
     }
 
