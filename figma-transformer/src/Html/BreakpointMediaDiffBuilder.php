@@ -204,7 +204,13 @@ final class BreakpointMediaDiffBuilder
             }
             if ( null !== $height && $height > 240.0 && 'absolute' !== $position ) {
                 $declarations[] = 'height:auto';
-                if ( ! $wrapsRow && ! $this->hasContainerChild($node) ) {
+                // Canvas-positioned containers (no flex/grid layout) size every
+                // child absolutely, so `height:auto` collapses them to zero. Keep
+                // a source-height floor so relaxing the fixed height never erases
+                // the section. Flex/grid containers keep the floor only when no
+                // container child can re-establish flow height.
+                $isCanvasContainer = ! in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
+                if ( $isCanvasContainer || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
                     $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
                 }
             }
