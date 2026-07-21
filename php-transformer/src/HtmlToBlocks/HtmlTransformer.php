@@ -993,6 +993,7 @@ final class HtmlTransformer
                 $rewritten[] = $selector;
                 continue;
             }
+            $hasImageMatch = array() !== array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName));
             if ( $this->isRootChildSelector($parsed) ) {
                 $shellTags = array_values(array_unique(array_filter(array_map(
                     function (DOMElement $element): string {
@@ -1018,7 +1019,11 @@ final class HtmlTransformer
                     continue;
                 }
                 foreach ( $markers as $marker ) {
-                    $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
+                    $projected = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
+                    $rewritten[] = $projected;
+                    if ( $hasImageMatch ) {
+                        $rewritten[] = $projected . ' > :where(img)';
+                    }
                 }
                 foreach ( $shellTags as $tag ) {
                     $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed);
@@ -1047,6 +1052,9 @@ final class HtmlTransformer
             $richTextLeaves = array_values(array_unique($richTextLeaves));
             if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
+                if ( $hasImageMatch ) {
+                    $rewritten[] = $this->projectImageSelector($selector, $parsed);
+                }
                 continue;
             }
 
@@ -1062,6 +1070,9 @@ final class HtmlTransformer
             }
             foreach ( $richTextLeaves as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
+            }
+            if ( $hasImageMatch ) {
+                $rewritten[] = $this->projectImageSelector($selector, $parsed);
             }
         }
         return implode(',', $rewritten);
@@ -1116,6 +1127,29 @@ final class HtmlTransformer
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectImageSelector(string $selector, array $parsed): string
+    {
+        $replacements = array(
+            (int) $parsed['rightmost_rewrite_end'] => array(
+                'end'   => (int) $parsed['rightmost_rewrite_end'],
+                'value' => ' > :where(img)',
+            ),
+        );
+        $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
+        if ( is_string($rightmostType) && 'img' === strtolower($rightmostType) ) {
+            $typeSpan = end($parsed['type_spans']);
+            if ( is_array($typeSpan) ) {
+                $replacements[(int) $typeSpan['start']] = array(
+                    'end'   => (int) $typeSpan['end'],
+                    'value' => ':where(figure)' . $this->typeSpecificityShim(),
+                );
+            }
+        }
+
+        return $this->replaceSelectorSpans($selector, $replacements);
     }
 
     /** @param array<string, mixed> $parsed */

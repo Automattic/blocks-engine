@@ -60,6 +60,17 @@ $typeAssets = $types['assets'] ?? array();
 $typeContents = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $typeAssets));
 $assert(str_contains($typeContents, '.style-ok{color:red}') && str_contains($typeContents, '.link-ok{color:green}') && ! str_contains($typeContents, '.style-bad{color:red}') && ! str_contains($typeContents, '.link-bad{color:blue}'), 'CSS MIME parsing accepts case-insensitive text/css parameters and rejects non-MIME prefixes for style and link occurrences');
 
+$image = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="image.css"><img class="root-photo" src="photo.jpg" alt="Root photo"><main><img class="photo" src="photo.jpg" alt="Photo"></main>' ),
+        array( 'path' => 'image.css', 'kind' => 'css', 'content' => '.photo{width:123px;height:106px;object-fit:cover}img.photo{display:block}body>.root-photo{height:80px}' ),
+        array( 'path' => 'photo.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
+    ),
+) )->toArray();
+$imageCss = (string) (($image['assets'][0]['content'] ?? ''));
+$assert(str_contains($imageCss, '.photo > :where(img){width:123px;height:106px;object-fit:cover}') && preg_match('/where\(figure\).*\.photo > :where\(img\)\{display:block\}/', $imageCss) && preg_match('/blocks-engine-root-child-.* > :where\(img\)\{height:80px\}/', $imageCss), 'source image selectors project onto canonical nested images, including root children');
+$assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
+
 if ( $failures > 0 ) {
     exit(1);
 }
