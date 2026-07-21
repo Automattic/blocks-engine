@@ -743,6 +743,98 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-pricing-cards-stack-at-tablet');
     blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsTabletBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-or-wrap-only-layout');
 
+    // Desktop-only canvas sections (no auto-layout) position every child
+    // absolutely, so the tablet `height:auto` relaxation must keep a
+    // source-height floor or the whole section collapses to zero height.
+    $desktopOnlyCanvasSectionsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Desktop Only Canvas Sections Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'canvas-sections:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 1917,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'canvas-sections:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero canvas band',
+                        'width'    => 1440,
+                        'height'   => 453,
+                        'children' => array(
+                            array(
+                                'id'     => 'canvas-sections:hero-copy',
+                                'type'   => 'FRAME',
+                                'name'   => 'Hero copy frame',
+                                'width'  => 644,
+                                'height' => 218,
+                                'x'      => 398,
+                                'y'      => 117,
+                                'layoutPositioning' => 'ABSOLUTE',
+                                'children' => array(
+                                    array('id' => 'canvas-sections:hero-title', 'type' => 'TEXT', 'name' => 'Hero title', 'characters' => 'Tell your story', 'width' => 644, 'height' => 64, 'fontSize' => 56),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'canvas-sections:about',
+                        'type'     => 'FRAME',
+                        'name'     => 'About canvas band',
+                        'width'    => 1440,
+                        'height'   => 732,
+                        'children' => array(
+                            array(
+                                'id'     => 'canvas-sections:about-copy',
+                                'type'   => 'FRAME',
+                                'name'   => 'About copy frame',
+                                'width'  => 441,
+                                'height' => 279,
+                                'x'      => 811,
+                                'y'      => 227,
+                                'layoutPositioning' => 'ABSOLUTE',
+                                'children' => array(
+                                    array('id' => 'canvas-sections:about-text', 'type' => 'TEXT', 'name' => 'About text', 'characters' => 'Fleurs is a flower delivery business.', 'width' => 441, 'height' => 223, 'fontSize' => 28),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'canvas-sections:cta',
+                        'type'     => 'FRAME',
+                        'name'     => 'CTA canvas band',
+                        'width'    => 1440,
+                        'height'   => 460,
+                        'children' => array(
+                            array(
+                                'id'     => 'canvas-sections:cta-copy',
+                                'type'   => 'FRAME',
+                                'name'   => 'CTA copy frame',
+                                'width'  => 521,
+                                'height' => 54,
+                                'x'      => 459,
+                                'y'      => 292,
+                                'layoutPositioning' => 'ABSOLUTE',
+                                'children' => array(
+                                    array('id' => 'canvas-sections:cta-text', 'type' => 'TEXT', 'name' => 'CTA text', 'characters' => 'Sign up to get daily stories', 'width' => 487, 'height' => 54, 'fontSize' => 38),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $desktopOnlyCanvasSectionsCss = $fileContent($desktopOnlyCanvasSectionsResult, 'style.css');
+    $desktopOnlyCanvasSectionsTabletBlockPosition = strpos($desktopOnlyCanvasSectionsCss, '@media (max-width:1439px)');
+    $assert(false !== $desktopOnlyCanvasSectionsTabletBlockPosition, 'desktop-only-canvas-sections-emit-tablet-safety-block');
+    $desktopOnlyCanvasSectionsTabletBlock = false === $desktopOnlyCanvasSectionsTabletBlockPosition ? '' : substr($desktopOnlyCanvasSectionsCss, $desktopOnlyCanvasSectionsTabletBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-hero-hero-canvas-band', array('height:auto', 'min-height:453px'), 'desktop-only-canvas-hero-band-keeps-source-height-floor-at-tablet');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-about-about-canvas-band', array('height:auto', 'min-height:720px'), 'desktop-only-canvas-about-band-keeps-capped-height-floor-at-tablet');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsTabletBlock, '.figma-node-canvas-sections-cta-cta-canvas-band', array('height:auto', 'min-height:460px'), 'desktop-only-canvas-cta-band-keeps-source-height-floor-at-tablet');
+
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',
         'nodes' => array(

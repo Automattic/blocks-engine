@@ -73,6 +73,9 @@ final class RuntimeDeclarations
                 $normalized['required_for'] = array_values($declaration['required_for']);
                 sort($normalized['required_for'], SORT_STRING);
             }
+            if ('asset_publication' === $kind) {
+                $normalized = array_merge($normalized, self::assetPublication($declaration, $index));
+            }
             $totalBytes += strlen(self::canonicalJson($normalized));
             if ($totalBytes > self::MAX_TOTAL_DECLARATION_BYTES) throw new InvalidArgumentException("Runtime declarations exceed the aggregate canonical byte limit of " . self::MAX_TOTAL_DECLARATION_BYTES . " at declaration {$index}.");
             $normalized['payload_hash'] = self::hash($normalized['payload'] ?? null);
@@ -86,6 +89,54 @@ final class RuntimeDeclarations
         foreach ($declarations as $index => $declaration) foreach ($declaration['required_for'] ?? array() as $required) if (!isset($keys[$required])) throw new InvalidArgumentException("Runtime declaration {$index} required_for references unresolved declaration {$required}.");
         usort($declarations, static fn(array $left, array $right): int => strcmp($left['reconciliation_identity'], $right['reconciliation_identity']));
         return $declarations;
+    }
+
+    /** @param array<string,mixed> $declaration @return array<string,mixed> */
+    private static function assetPublication(array $declaration, int $index): array
+    {
+        if ('asset' !== ($declaration['type'] ?? null) || !is_array($declaration['destination'] ?? null) || !is_string($declaration['destination']['capability'] ?? null) || !preg_match('/^[a-z][a-z0-9_-]{0,127}$/', $declaration['destination']['capability']) || !is_bool($declaration['destination']['required'] ?? null) || !is_string($declaration['source_role'] ?? null) || !preg_match('/^[a-z][a-z0-9_-]{0,127}$/', $declaration['source_role']) || !is_string($declaration['mime_type'] ?? null) || !preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $declaration['mime_type']) || !self::isHash($declaration['source_hash'] ?? null) || !self::isHash($declaration['expected_content_hash'] ?? null) || !is_array($declaration['provenance'] ?? null) || ($declaration['provenance']['source_path'] ?? null) !== ($declaration['source_path'] ?? null) || !is_array($declaration['sanitization'] ?? null) || !is_string($declaration['sanitization']['schema'] ?? null) || !self::isHash($declaration['sanitization']['input_hash'] ?? null) || $declaration['sanitization']['input_hash'] !== $declaration['source_hash']) throw new InvalidArgumentException("Runtime declaration {$index} asset publication lacks explicit source, destination, or sanitization proof.");
+        if (!is_array($declaration['reference_targets'] ?? null) || !array_is_list($declaration['reference_targets']) || count($declaration['reference_targets']) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} asset publication reference targets must be bounded.");
+        $targets = array(); $seen = array();
+        foreach ($declaration['reference_targets'] as $target) {
+            if (!is_array($target) || !is_string($target['target_path'] ?? null) || '' === ArtifactPath::safeRelativePath($target['target_path']) || ArtifactPath::safeRelativePath($target['target_path']) !== $target['target_path'] || !self::isHash($target['write_reconciliation_identity'] ?? null) || !preg_match('/^asset-[a-f0-9]{16}$/', $target['token'] ?? '') || !is_int($target['count'] ?? null) || $target['count'] < 1 || $target['count'] > self::MAX_DECLARATIONS || 'css_url' !== ($target['context'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} asset publication has an invalid reference target.");
+            $key = strtolower($target['target_path']) . ':' . $target['token'] . ':' . $target['context']; if (isset($seen[$key])) throw new InvalidArgumentException("Runtime declaration {$index} asset publication has a duplicate reference target.");
+            $seen[$key] = true; $targets[] = array('target_path' => $target['target_path'], 'write_reconciliation_identity' => $target['write_reconciliation_identity'], 'token' => $target['token'], 'count' => $target['count'], 'context' => $target['context']);
+        }
+        sort($targets, SORT_STRING);
+        $normalized = array('destination' => array('capability' => $declaration['destination']['capability'], 'required' => $declaration['destination']['required']), 'source_role' => $declaration['source_role'], 'mime_type' => strtolower($declaration['mime_type']), 'source_hash' => $declaration['source_hash'], 'expected_content_hash' => $declaration['expected_content_hash'], 'sanitization' => array('schema' => $declaration['sanitization']['schema'], 'input_hash' => $declaration['sanitization']['input_hash']), 'reference_targets' => $targets);
+        if (isset($declaration['transformation'])) $normalized['transformation'] = self::assetTransformation($declaration['transformation'], $index);
+        return $normalized;
+    }
+
+    /** @return array<string,mixed> */
+    private static function assetTransformation(mixed $transformation, int $index): array
+    {
+        if (!is_array($transformation) || 'svg_font_enrichment' !== ($transformation['kind'] ?? null) || !self::isHash($transformation['input_hash'] ?? null) || !self::isHash($transformation['expected_content_hash'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation is invalid.");
+        $paths = array();
+        foreach (array('css_source_paths', 'font_source_paths') as $field) {
+            if (!is_array($transformation[$field] ?? null) || !array_is_list($transformation[$field]) || count($transformation[$field]) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation inputs must be bounded lists.");
+            $seen = array(); $values = array(); foreach ($transformation[$field] as $path) { if (!is_string($path) || '' === ArtifactPath::safeRelativePath($path) || ArtifactPath::safeRelativePath($path) !== $path || isset($seen[strtolower($path)])) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation has an unsafe input path."); $seen[strtolower($path)] = true; $values[] = $path; } sort($values, SORT_STRING); $paths[$field] = $values;
+        }
+        if (array_key_exists('font_faces', $transformation) || array() === $paths['css_source_paths'] || array() === $paths['font_source_paths']) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation requires declared local CSS and font inputs.");
+        return array_merge(array('kind' => 'svg_font_enrichment', 'input_hash' => $transformation['input_hash'], 'expected_content_hash' => $transformation['expected_content_hash']), $paths);
+    }
+
+    private static function isHash(mixed $value): bool { return is_string($value) && 1 === preg_match('/^[a-f0-9]{64}$/', $value); }
+
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */
+    public static function bindAssetPublications(array $declarations, array $files): array
+    {
+        $byPath = array(); foreach ($files as $file) if (is_array($file) && is_string($file['path'] ?? null)) $byPath[$file['path']] = $file;
+        $bound = array();
+        foreach ($declarations as $declaration) {
+            if ('asset_publication' !== ($declaration['kind'] ?? null)) { $bound[] = $declaration; continue; }
+            $file = $byPath[$declaration['source_path']] ?? null;
+            if (!is_array($file)) throw new InvalidArgumentException('Asset publication provenance references an undeclared normalized artifact file.');
+            $provenance = array('source_path' => $file['path'], 'source' => $file['source'], 'hash' => $file['provenance']['hash'] ?? '', 'mime_type' => $file['mime_type'], 'role' => $file['role'], 'bytes' => $file['bytes']);
+            if (!is_array($declaration['provenance'] ?? null) || self::canonicalJson($declaration['provenance']) !== self::canonicalJson($provenance)) throw new InvalidArgumentException('Asset publication provenance must exactly match normalized artifact file metadata.');
+            unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); $bound[] = $declaration;
+        }
+        return self::normalizeList($bound);
     }
 
     /** @param array<int,mixed> $declarations */

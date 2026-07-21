@@ -153,6 +153,7 @@ final class ArtifactNormalizer
             $files[] = $normalized;
         }
 
+        $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
         return array(
             'files'          => $files,
             'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
