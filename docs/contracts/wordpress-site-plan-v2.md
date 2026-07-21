@@ -113,6 +113,12 @@ normalizes only scheme, host, optional port, and trailing path slash. It replace
 only declared tokens in markup and UTF-8 write payloads. Materializers write
 `resolved['writes']` and apply `resolved['operations']` verbatim; they never rewrite
 HTML, CSS, scripts, or URLs.
+Resolution returns a schema-tagged `resolution` projection with the normalized
+`theme_uri`. Every UTF-8 resolved write retains its canonical payload and hash; the
+resolved payload and hash must equal the canonical token replacement for that context.
+Resolved page, template, and part markup follows the same rule. A plan without this
+projection retains canonical tokenized writes, and an arbitrary `resolution` field
+cannot alter those invariants.
 Consumers requiring proven dynamic client assets pass
 `require_proven_dynamic_client_assets => true` and receive a deterministic rejection.
 

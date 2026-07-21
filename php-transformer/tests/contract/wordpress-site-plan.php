@@ -152,6 +152,7 @@ $resolvedAgain = $resolver->resolve($plan, array('theme_uri' => 'https://example
 $assert($resolved === $resolvedAgain, 'Resolution is deterministic after theme URI normalization.');
 WordPressSitePlan::assertValid($resolved);
 $assert(true, 'A resolved plan with query and fragment token replacements remains publicly valid with refreshed write hashes.');
+$assert('blocks-engine/wordpress-site-plan-resolution/v1' === ($resolved['resolution']['schema'] ?? null) && is_string($resolved['writes'][0]['canonical_payload'] ?? null), 'Resolver emits a schema-tagged projection with canonical write provenance.');
 $binaryWrite = array_values(array_filter($resolved['writes'], static fn(array $write): bool => 'base64' === $write['payload']['encoding']))[0] ?? null;
 $assert(is_array($binaryWrite) && ($binaryWrite['payload_hash'] ?? null) === hash('sha256', $binaryWrite['payload']['data']), 'Resolution leaves binary writes untouched with their original valid payload hashes.');
 $about = (string) $resolved['pages'][0]['resolved_block_markup'];
@@ -229,6 +230,17 @@ $tamperedAsset = $plan; $tamperedAsset['assets'][0]['content_hash'] = str_repeat
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedAsset), 'Validation rejects stale asset content hashes.');
 $tamperedPayload = $plan; $tamperedPayload['writes'][0]['payload_hash'] = str_repeat('0', 64);
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedPayload), 'Validation rejects stale write payload hashes.');
+$fabricatedResolution = $plan; $fabricatedResolution['resolution'] = array('schema' => 'blocks-engine/wordpress-site-plan-resolution/v1', 'theme_uri' => 'https://example.test/theme');
+$throws(static fn() => WordPressSitePlan::assertValid($fabricatedResolution), 'Validation rejects a resolution field without a complete canonical projection.');
+$extraResolution = $resolved; $extraResolution['resolution']['extra'] = true;
+$throws(static fn() => WordPressSitePlan::assertValid($extraResolution), 'Validation rejects resolution contexts with extra fields.');
+$wrongResolutionBase = $resolved; $wrongResolutionBase['resolution']['theme_uri'] = 'https://example.test/other-theme';
+$throws(static fn() => WordPressSitePlan::assertValid($wrongResolutionBase), 'Validation rejects resolved payloads that do not match their declared theme URI.');
+$changedResolvedTemplate = $resolved; $changedResolvedTemplate['writes'][array_search('templates/index.html', array_column($changedResolvedTemplate['writes'], 'target_path'), true)]['payload']['data'] .= 'changed'; $changedResolvedTemplate['writes'][array_search('templates/index.html', array_column($changedResolvedTemplate['writes'], 'target_path'), true)]['payload_hash'] = hash('sha256', $changedResolvedTemplate['writes'][array_search('templates/index.html', array_column($changedResolvedTemplate['writes'], 'target_path'), true)]['payload']['data']);
+$throws(static fn() => WordPressSitePlan::assertValid($changedResolvedTemplate), 'Validation rejects changed resolved template payloads even when their mutable hash is recomputed.');
+$staleResolvedToken = $resolved; $staleWriteIndex = array_search('assets/assets/site.css', array_column($staleResolvedToken['writes'], 'target_path'), true); $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload'] .= '{{wordpress-site-plan:asset:asset-0000000000000000}}'; $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload_hash'] = hash('sha256', $staleResolvedToken['writes'][$staleWriteIndex]['canonical_payload']);
+$throws(static fn() => WordPressSitePlan::assertValid($staleResolvedToken), 'Validation rejects stale or undeclared tokens in a resolved write projection.');
+$throws(static fn() => $resolver->resolve($resolved, array('theme_uri' => 'https://example.test/theme')), 'Resolver rejects attempts to resolve an already-resolved projection.');
 $tamperedDeclaration = $declaredPlan; $tamperedDeclaration['runtime_declarations'][0]['payload']['entities'][] = array('id' => 'tampered');
 $throws(static fn() => WordPressSitePlan::assertValid($tamperedDeclaration), 'Public validation rejects tampered runtime declaration payload hashes.');
 $invalidDeclarationAlias = $declaredPlan; $invalidDeclarationAlias['runtime_declarations'][0]['capability'] = 'extra';

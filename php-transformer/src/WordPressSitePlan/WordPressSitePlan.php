@@ -135,17 +135,20 @@ final class WordPressSitePlan
             self::unique($writeTargets, $write['target_path'], 'write target');
             $writesByTarget[$write['target_path']] = $write;
         }
+        self::assertResolution($plan, $tokens, $writesByTarget);
         self::assertScaffold($plan, $writesByTarget);
         foreach ( $plan['templates'] as $template ) {
             $write = $writesByTarget[$template['target_path']] ?? null;
-            if ( ! is_array($write) || 'theme_template' !== ($write['kind'] ?? null) || (!isset($plan['resolution']) && $write['payload']['data'] !== $template['canonical_block_markup']) ) {
+            $expected = isset($plan['resolution']) ? $template['resolved_block_markup'] : $template['canonical_block_markup'];
+            if ( ! is_array($write) || 'theme_template' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $expected ) {
                 throw new InvalidArgumentException('WordPress site plan template lacks its canonical write.');
             }
         }
         foreach ( $plan['template_parts'] as $part ) {
             $target = 'parts/' . $part['slug'] . '.html';
             $write = $writesByTarget[$target] ?? null;
-            if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || (!isset($plan['resolution']) && $write['payload']['data'] !== $part['canonical_block_markup']) ) {
+            $expected = isset($plan['resolution']) ? $part['resolved_block_markup'] : $part['canonical_block_markup'];
+            if ( ! is_array($write) || 'theme_template_part' !== ($write['kind'] ?? null) || $write['payload']['data'] !== $expected ) {
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
             $boundTemplates = 'entry_shell' === ($part['placement']['kind'] ?? null) ? $part['placement']['template_slugs'] : array();
@@ -435,6 +438,21 @@ final class WordPressSitePlan
         foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (explode(',', (string) $value) as $candidate) {
             $url = trim(preg_split('/\s+/', trim($candidate))[0] ?? '');
             if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $url)) throw new InvalidArgumentException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url));
+        }
+    }
+    /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
+    private static function assertResolution(array $plan, array $tokens, array $writes): void
+    {
+        if (!isset($plan['resolution'])) return;
+        $resolution = $plan['resolution'];
+        if (!is_array($resolution) || array_keys($resolution) !== array('schema', 'theme_uri') || WordPressSitePlanResolver::RESOLUTION_SCHEMA !== ($resolution['schema'] ?? null) || !is_string($resolution['theme_uri'] ?? null) || WordPressSitePlanResolver::normalizeThemeUri($resolution['theme_uri']) !== $resolution['theme_uri']) throw new InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.');
+        $references = WordPressSitePlanResolver::references($plan['reference_tokens'], $resolution['theme_uri']);
+        foreach (array('pages', 'template_parts', 'templates') as $kind) foreach ($plan[$kind] as $document) {
+            if (!is_array($document) || !is_string($document['canonical_block_markup'] ?? null) || !is_string($document['resolved_block_markup'] ?? null) || WordPressSitePlanResolver::resolvePayload($document['canonical_block_markup'], $references) !== $document['resolved_block_markup']) throw new InvalidArgumentException("WordPress site plan resolved {$kind} payload is not canonical.");
+        }
+        foreach ($writes as $write) {
+            if ('utf8' !== ($write['payload']['encoding'] ?? null)) { if (isset($write['canonical_payload'], $write['canonical_payload_hash'])) throw new InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.'); continue; }
+            if (!is_string($write['canonical_payload'] ?? null) || !self::hash($write['canonical_payload_hash'] ?? null) || $write['canonical_payload_hash'] !== self::contentHash($write['canonical_payload']) || WordPressSitePlanResolver::resolvePayload($write['canonical_payload'], $references) !== $write['payload']['data']) throw new InvalidArgumentException('WordPress site plan resolved write payload is not canonical.');
         }
     }
     private static function assertRoute(array $page): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path']); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && $route['path'] !== $expected) || (isset($page['synthetic']) && true !== $page['synthetic'])) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
