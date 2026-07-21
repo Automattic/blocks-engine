@@ -3251,6 +3251,24 @@ $cachedStyleSecondHero = $findBlockByClass($cachedStyleSecond['blocks'], 'hero')
 assertSame('#111', $cachedStyleFirstHero['attrs']['style']['color']['text'] ?? null, 'presentation cache resolves first transform static CSS');
 assertSame('#222', $cachedStyleSecondHero['attrs']['style']['color']['text'] ?? null, 'presentation cache resets between transforms');
 
+$responsiveClassResult = (new HtmlTransformer())->transform(
+    '<main><section class="responsive-panel"><p>Responsive panel</p></section></main>',
+    array('static_css' => '.responsive-panel{display:flex;flex-direction:row;padding:40px 80px;color:#111}@media (max-width:800px){.responsive-panel{flex-direction:column;padding-left:16px;color:#222}}')
+)->toArray();
+$responsivePanel = $findBlockByClass($responsiveClassResult['blocks'], 'responsive-panel');
+$assert(is_array($responsivePanel), 'responsive class-owned container block is emitted');
+$assert(! isset($responsivePanel['attrs']['style']['spacing']['padding']), 'responsive class-owned padding is not frozen into block supports', json_encode($responsivePanel['attrs'] ?? array()));
+$assert(! isset($responsivePanel['attrs']['style']['color']['text']), 'responsive class-owned color is not frozen into block supports', json_encode($responsivePanel['attrs'] ?? array()));
+$assert(! str_contains((string) ($responsivePanel['innerHTML'] ?? ''), 'padding-'), 'responsive class-owned padding remains stylesheet-owned', (string) ($responsivePanel['innerHTML'] ?? ''));
+
+$responsiveInlineResult = (new HtmlTransformer())->transform(
+    '<main><section class="responsive-panel" style="padding-left:12px"><p>Inline override</p></section></main>',
+    array('static_css' => '.responsive-panel{padding:40px 80px}@media (max-width:800px){.responsive-panel{padding-left:16px}}')
+)->toArray();
+$responsiveInlinePanel = $findBlockByClass($responsiveInlineResult['blocks'], 'responsive-panel');
+assertSame('12px', $responsiveInlinePanel['attrs']['style']['spacing']['padding']['left'] ?? null, 'explicit inline padding retains canonical block support priority');
+$assert(! isset($responsiveInlinePanel['attrs']['style']['spacing']['padding']['right']), 'class-owned padding shorthand is not promoted beside an inline responsive override', json_encode($responsiveInlinePanel['attrs'] ?? array()));
+
 $classOwnedFlex = $findBlockByClass($canonicalStyleResult['blocks'], 'class-owned-flex');
 $assert(is_array($classOwnedFlex), 'class-owned flex container block is emitted');
 $assert(! isset($classOwnedFlex['attrs']['layout']), 'class-owned flex CSS does not synthesize a WordPress layout attribute');

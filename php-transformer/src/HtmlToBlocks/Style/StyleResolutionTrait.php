@@ -113,7 +113,10 @@ trait StyleResolutionTrait
             return $this->presentationAttributesCache[$cacheKey];
         }
 
-        $declarations = $this->presentationDeclarations($element);
+        $declarations = $this->classOwnedResponsiveDeclarations(
+            $element,
+            $this->presentationDeclarations($element)
+        );
         $mapped       = $this->styleAttributeMapper()->map($declarations);
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
@@ -130,6 +133,74 @@ trait StyleResolutionTrait
         $this->presentationAttributesCache[$cacheKey] = $attrs;
 
         return $attrs;
+    }
+
+    /**
+     * Keep declarations with conditional variants under author stylesheet
+     * ownership. Promoting their base values to block supports would serialize
+     * them inline and prevent media/container queries from winning the cascade.
+     * Explicit source inline declarations retain their normal priority.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
+    {
+        if (array() === $declarations || array() === $this->conditionalStyleRules) {
+            return $declarations;
+        }
+
+        $conditionalFamilies = array();
+        foreach ($this->conditionalStyleRules as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            foreach (array_keys($rule['declarations']) as $property) {
+                $conditionalFamilies[$this->responsivePropertyFamily($property)] = true;
+            }
+        }
+
+        if (array() === $conditionalFamilies) {
+            return $declarations;
+        }
+
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        foreach (array_keys($declarations) as $property) {
+            $family = $this->responsivePropertyFamily($property);
+            if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
+                continue;
+            }
+            unset($declarations[$property]);
+        }
+
+        return $declarations;
+    }
+
+    private function responsivePropertyFamily(string $property): string
+    {
+        $property = strtolower(trim($property));
+        foreach (array('padding', 'margin', 'border', 'background') as $family) {
+            if ($property === $family || str_starts_with($property, $family . '-')) {
+                return $family;
+            }
+        }
+        if (in_array($property, array('gap', 'row-gap', 'column-gap'), true)) {
+            return 'gap';
+        }
+
+        return $property;
+    }
+
+    /**
+     * @param array<string, string> $inline
+     */
+    private function inlineOwnsResponsiveProperty(string $property, string $family, array $inline): bool
+    {
+        if (isset($inline[$property])) {
+            return true;
+        }
+
+        return $property !== $family && isset($inline[$family]);
     }
 
     /**
@@ -418,6 +489,91 @@ trait StyleResolutionTrait
             foreach ( explode(',', (string) $match[1]) as $selector ) {
                 $selector = trim($selector);
                 if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
+                    $rules[] = array(
+                        'selector' => $selector,
+                        'declarations' => $declarations,
+                    );
+                }
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Collect author rules nested in conditional at-rules. Their declarations
+     * must remain class-owned even though only the base cascade is available to
+     * the server-side transformer.
+     *
+     * @return array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private function conditionalStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if (preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches)) {
+            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
+        }
+        if ('' === trim($css)) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $conditionalCss = '';
+        $length = strlen($css);
+        for ($offset = 0; $offset < $length; ++$offset) {
+            if ('@' !== $css[$offset]) {
+                continue;
+            }
+            $blockStart = $this->findCssToken($css, '{', $offset);
+            $statementEnd = $this->findCssToken($css, ';', $offset);
+            if (null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart)) {
+                if (null !== $statementEnd) {
+                    $offset = $statementEnd;
+                }
+                continue;
+            }
+
+            $prelude = strtolower(trim(substr($css, $offset, $blockStart - $offset)));
+            $depth = 1;
+            for ($end = $blockStart + 1; $end < $length; ++$end) {
+                if ('"' === $css[$end] || "'" === $css[$end]) {
+                    $quote = $css[$end];
+                    for (++$end; $end < $length; ++$end) {
+                        if ('\\' === $css[$end]) {
+                            ++$end;
+                            continue;
+                        }
+                        if ($quote === $css[$end]) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ('{' === $css[$end]) {
+                    ++$depth;
+                } elseif ('}' === $css[$end] && 0 === --$depth) {
+                    if (preg_match('/^@(media|container|supports)\b/', $prelude)) {
+                        $conditionalCss .= "\n" . substr($css, $blockStart + 1, $end - $blockStart - 1);
+                    }
+                    $offset = $end;
+                    continue 2;
+                }
+            }
+            break;
+        }
+
+        $rules = array();
+        if (! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $conditionalCss, $matches, PREG_SET_ORDER)) {
+            return $rules;
+        }
+        foreach ($matches as $match) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if (array() === $declarations) {
+                continue;
+            }
+            foreach (explode(',', (string) $match[1]) as $selector) {
+                $selector = trim($selector);
+                if ('' !== $selector && ! str_starts_with($selector, '@') && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
                     $rules[] = array(
                         'selector' => $selector,
                         'declarations' => $declarations,

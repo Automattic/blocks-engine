@@ -305,6 +305,11 @@ final class HtmlTransformer
     private array $staticStyleRules = array();
 
     /**
+     * @var array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private array $conditionalStyleRules = array();
+
+    /**
      * @var array<int, array{selector: string, pseudo: string, declarations: array<string, string>}>
      */
     private array $staticPseudoElementStyleRules = array();
@@ -445,6 +450,7 @@ final class HtmlTransformer
         $this->authorIdSpecificityShim = '';
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->conditionalStyleRules = $this->conditionalStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->cssCustomProperties = $this->cssCustomProperties($html, (string) ($options['static_css'] ?? ''));
         $this->resetPresentationResolutionCache();
