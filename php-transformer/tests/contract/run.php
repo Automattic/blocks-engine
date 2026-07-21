@@ -3121,6 +3121,34 @@ $assert(! str_contains($listSerialized, 'blockGap'), 'core/list serialized attrs
 $assert(! str_contains($listSerialized, 'gap:'), 'core/list serialized markup does not contain unsupported gap style');
 $assert(str_contains($listSerialized, '<ul class="wp-block-list"><!-- wp:list-item'), 'core/list serialized markup preserves child placeholders inside the generated wrapper');
 
+$sizedListItem = $factory->create('core/list-item', array(
+    'content' => 'Sized item',
+    'style' => array('dimensions' => array('maxWidth' => '538.299px'), 'spacing' => array('padding' => array('bottom' => '43.646px'))),
+));
+$assert(! isset($sizedListItem['attrs']['style']['dimensions']['maxWidth']), 'core/list-item drops maxWidth that core save cannot reproduce');
+$assert(! str_contains($sizedListItem['innerHTML'], 'max-width:'), 'core/list-item saved markup omits unsupported max-width');
+$assert(str_contains($sizedListItem['innerHTML'], 'padding-bottom:43.646px'), 'core/list-item retains supported spacing styles');
+
+$galleryImages = array(
+    $factory->create('core/image', array('url' => '/one.jpg', 'alt' => 'One')),
+    $factory->create('core/image', array('url' => '/two.jpg', 'alt' => 'Two')),
+);
+$defaultGallery = $factory->create('core/gallery', array('className' => 'source-gallery'), $galleryImages);
+$assert(str_contains($defaultGallery['innerHTML'], 'class="wp-block-gallery has-nested-images columns-default is-cropped source-gallery"'), 'core/gallery emits core default structural classes');
+
+$uncroppedGallery = $factory->create('core/gallery', array('columns' => 3, 'imageCrop' => false), $galleryImages);
+$assert(str_contains($uncroppedGallery['innerHTML'], 'columns-3'), 'core/gallery emits its explicit column class');
+$assert(! str_contains($uncroppedGallery['innerHTML'], 'is-cropped'), 'core/gallery respects disabled image cropping');
+
+$borderedImage = $factory->create('core/image', array(
+    'url' => '/bordered.jpg',
+    'alt' => 'Bordered',
+    'className' => 'source-image',
+    'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
+));
+$assert(str_contains($borderedImage['innerHTML'], 'class="wp-block-image has-custom-border has-border-color source-image"'), 'core/image emits the custom-border class required by core save');
+$assert(str_contains($borderedImage['innerHTML'], 'style="border-color:#ffffff;border-style:solid"'), 'core/image retains canonical border support styles');
+
 $defaultTable = $factory->create(
     'core/table',
     array('body' => array(array('cells' => array(array('content' => 'A')))))
