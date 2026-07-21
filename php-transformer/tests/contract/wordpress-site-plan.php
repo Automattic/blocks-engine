@@ -72,6 +72,8 @@ $projection = ResolvedPlanProjection::fromPlanAndReceipt($resolved, $receipt);
 $assert('Home title' === ($projection['documents'][0]['title'] ?? null) && 2 === ($projection['reporting']['metrics']['source_document_count'] ?? null) && count($resolved['writes']) === $projection['write_count'], 'An independent consumer derives document/report content from only the resolved plan and synthetic receipt.');
 $missingReceiptPage = $receipt; array_pop($missingReceiptPage['pages']);
 $throws(static fn() => ResolvedPlanProjection::fromPlanAndReceipt($resolved, $missingReceiptPage), 'Independent projection rejects receipts that omit resolved pages.');
+$extraReceiptWrite = $receipt; $extraReceiptWrite['writes'][] = array('target_path' => 'outside-plan.json', 'status' => 'written');
+$throws(static fn() => ResolvedPlanProjection::fromPlanAndReceipt($resolved, $extraReceiptWrite), 'Independent projection rejects receipts that add undeclared writes.');
 
 $destination = sys_get_temp_dir() . '/blocks-engine-site-plan-' . bin2hex(random_bytes(6));
 foreach ($resolved['writes'] as $write) {
