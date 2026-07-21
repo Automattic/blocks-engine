@@ -16,6 +16,8 @@ final class RuntimeDeclarations
     public const MAX_PROVENANCE_KEYS = ArtifactNormalizer::DEFAULT_MAX_FILES;
     public const MAX_PROVENANCE_SCALAR_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
     public const MAX_PROVENANCE_DEPTH = 32;
+    // Declarations are metadata, so keep their aggregate below one artifact file.
+    public const MAX_TOTAL_DECLARATION_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
     private const MAX_CANONICAL_DEPTH = self::MAX_PROVENANCE_DEPTH + 1;
 
     /** @param array<string,mixed> $artifact @return array<int,array<string,mixed>> */
@@ -37,6 +39,7 @@ final class RuntimeDeclarations
         $declarations = array();
         $keys = array();
         $identities = array();
+        $totalBytes = 0;
         foreach ($raw as $index => $declaration) {
             if (!is_array($declaration)) throw new InvalidArgumentException("Runtime declaration {$index} must be an object.");
             $kind = $declaration['kind'] ?? null;
@@ -70,6 +73,8 @@ final class RuntimeDeclarations
                 $normalized['required_for'] = array_values($declaration['required_for']);
                 sort($normalized['required_for'], SORT_STRING);
             }
+            $totalBytes += strlen(self::canonicalJson($normalized));
+            if ($totalBytes > self::MAX_TOTAL_DECLARATION_BYTES) throw new InvalidArgumentException("Runtime declarations exceed the aggregate canonical byte limit of " . self::MAX_TOTAL_DECLARATION_BYTES . " at declaration {$index}.");
             $normalized['payload_hash'] = self::hash($normalized['payload'] ?? null);
             $mutable = $normalized;
             unset($mutable['reconciliation_identity'], $mutable['payload_hash']);
