@@ -73,6 +73,9 @@ trait StyleResolutionTrait
             'flex-basis',
             'object-fit',
             'object-position',
+            'gap',
+            'row-gap',
+            'column-gap',
         );
     }
 
@@ -233,9 +236,14 @@ trait StyleResolutionTrait
     private function inlineGeometryClassName(DOMElement $element, array $excludedProperties = array()): string
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $isInlineFlex = preg_match('/^inline-flex$|^flex$/i', trim((string) ($declarations['display'] ?? ''))) === 1;
+        $carriesFlexGap = $isInlineFlex && 'a' === strtolower($element->tagName) && 0 < $element->getElementsByTagName('svg')->length;
         $geometry = array();
         foreach ($this->inlineGeometryProperties() as $property) {
             if (in_array($property, $excludedProperties, true)) {
+                continue;
+            }
+            if (in_array($property, array('gap', 'row-gap', 'column-gap'), true) && ! $carriesFlexGap) {
                 continue;
             }
             $rawValue = trim((string) ($declarations[$property] ?? ''));
@@ -255,6 +263,10 @@ trait StyleResolutionTrait
         ksort($geometry);
         $declarations = array();
         foreach ($geometry as $property => $value) {
+            if (in_array($property, array('gap', 'row-gap', 'column-gap'), true)) {
+                $declarations[] = $property . ':' . $value;
+                continue;
+            }
             // A converted inline declaration must continue to outrank authored
             // normal selectors, including ID selectors. Authored !important
             // rules retain their normal cascade priority through specificity.
@@ -286,10 +298,15 @@ trait StyleResolutionTrait
     private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array()): string
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $isInlineFlex = preg_match('/^inline-flex$|^flex$/i', trim((string) ($declarations['display'] ?? ''))) === 1;
+        $carriesFlexGap = $isInlineFlex && 'a' === strtolower($element->tagName) && 0 < $element->getElementsByTagName('svg')->length;
         $style = array();
         $geometryValues = array();
         foreach ($this->inlineGeometryProperties() as $property) {
             if (in_array($property, $excludedProperties, true)) {
+                continue;
+            }
+            if (in_array($property, array('gap', 'row-gap', 'column-gap'), true) && ! $carriesFlexGap) {
                 continue;
             }
             $value = trim((string) ($declarations[$property] ?? ''));
@@ -951,6 +968,10 @@ trait StyleResolutionTrait
             $flexWrap = $this->layoutFlexWrap((string) ($inlineDeclarations['flex-wrap'] ?? $mergedDeclarations['flex-wrap'] ?? ''));
             if ( '' !== $flexWrap ) {
                 $layout['flexWrap'] = $flexWrap;
+            } elseif ( 'a' === strtolower($element->tagName) && 0 < $element->getElementsByTagName('svg')->length ) {
+                // CSS flex rows default to nowrap, while core/group's Row layout
+                // defaults to wrapping after linked SVG content is decomposed.
+                $layout['flexWrap'] = 'nowrap';
             }
 
             return $layout;
