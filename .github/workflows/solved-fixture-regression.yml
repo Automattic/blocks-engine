@@ -97,6 +97,7 @@ jobs:
           HOMEBOY_WP_CODEBOX_BIN: ${{ runner.temp }}/wp-codebox/bin/wp-codebox
         run: |
           set -o pipefail
+          set +e
           node tools/run-fixture-matrix.mjs \
             --solved-only \
             --local \
@@ -107,14 +108,31 @@ jobs:
             --run-id "$RUN_ID" \
             --output "$RUN_DIR/homeboy-bench-result.json" \
             --shared-state "$RUN_DIR/homeboy-shared-state" \
-            --artifact-root "$RUN_DIR/homeboy-artifacts" | tee "$RUN_DIR/operator-summary.json"
+            --artifact-root "$RUN_DIR/homeboy-artifacts" | tee "$RUN_DIR/operator-output.log"
+          matrix_status=${PIPESTATUS[0]}
+          set -e
+          node --input-type=module - "$RUN_DIR/operator-output.log" "$RUN_DIR/operator-summary.json" <<'NODE'
+          import fs from 'node:fs';
+
+          const [input, output] = process.argv.slice(2);
+          const raw = fs.readFileSync(input, 'utf8');
+          const marker = '{\n  "schema": "static-site-importer/fixture-matrix-operator-summary/v1"';
+          const start = raw.lastIndexOf(marker);
+          if (start < 0) {
+            throw new Error('Fixture matrix did not emit an operator summary.');
+          }
+          fs.writeFileSync(output, `${JSON.stringify(JSON.parse(raw.slice(start)), null, 2)}\n`);
+          NODE
+          exit "$matrix_status"
 
       - name: Upload operator summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: solved-fixture-operator-summary
-          path: ${{ env.RUN_DIR }}/operator-summary.json
+          path: |
+            ${{ env.RUN_DIR }}/operator-summary.json
+            ${{ env.RUN_DIR }}/operator-output.log
           if-no-files-found: warn
           retention-days: 14
 
