@@ -19,6 +19,18 @@ array(
 
 `meta`, `links`, and `scripts` are ordered source rows. Their zero-based `order` equals their array index. `placement` is `head` or `body`; `title_declaration` always has `order: 0` and `placement: head`. `source_context` identifies the compiler document that supplied the declarations.
 
+## Page Routes
+
+Each page has `route.path`, `route.parent_path`, and `route.slug`. The route is derived
+from the normalized source path: root `index.*` is `/`, `nested/index.*` is `/nested`,
+and `nested/about.*` is `/nested/about`. `operations` first provides topologically
+ordered `create_page` rows, including parent source references and reconciliation
+identities, then the `site_reading` front-page operation. Missing directory parents are
+declared synthetic pages, so materializers create the same hierarchy without inferring
+or manually reparenting pages. A physical directory index replaces the corresponding
+synthetic parent; route collisions fail closed. A safe lowercase `metadata.route_path`
+is preserved when the source contract declares an explicit canonical route.
+
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
 URL-bearing link and external-script declarations contain either an explicit absolute or protocol-relative `url`, or an `asset_reference` token. Local artifact URLs must use `asset_reference`; undeclared local URLs are invalid. Resolver output adds `resolved_url` for each `asset_reference`. That URL is exactly the URL of a declared resolved theme-asset write. Explicit external URLs remain unchanged.

@@ -28,10 +28,19 @@ and `WordPressSitePlanResolver::resolve()`.
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
   template or part writes that do not match their declarations.
-- `operations` is an ordered generic desired-state list. An entry page produces one
-  `site_reading` operation that assigns the front page by its source path and
-  reconciliation identity. Consumers apply resolved operations verbatim rather than
-  inferring front-page behavior.
+- Every page has a canonical `route`: root `index.*` is `/`, `about.*` is `/about`,
+  `nested/index.*` is `/nested`, and nested documents retain every directory segment.
+  A declared lowercase `metadata.route_path` with the same safe shape is preserved as
+  the explicit canonical route.
+  The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
+  Missing directory parents are explicit synthetic pages with stable source and
+  reconciliation identities; a physical directory index takes precedence over a
+  synthetic parent.
+- `operations` is an ordered generic desired-state list. A topologically ordered
+  `create_page` operation declares each real or synthetic page's slug, route, parent
+  source reference, and reconciliation identity. A following `site_reading` operation
+  assigns the front page by its source path and reconciliation identity. Consumers apply
+  resolved operations verbatim rather than inferring hierarchy or front-page behavior.
 - Targets, slugs, and tokens use a case-insensitive collision policy. Producers
   retain their declared spelling, while plans reject two values that differ only by
   case so they materialize consistently on case-insensitive filesystems.
