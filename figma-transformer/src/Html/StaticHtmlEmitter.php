@@ -1284,6 +1284,9 @@ final class StaticHtmlEmitter
                 $attributes .= ' data-figma-query-item="true"';
             }
         }
+        if ( 'nav' === $tag && str_contains($name, 'pagination') ) {
+            $attributes .= ' aria-label="Pagination"';
+        }
 
         return $attributes;
     }

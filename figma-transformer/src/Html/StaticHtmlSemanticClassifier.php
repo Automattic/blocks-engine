@@ -152,6 +152,10 @@ final class StaticHtmlSemanticClassifier
             return 'form';
         }
 
+        if ( str_contains($lowerName, 'pagination') && ! str_contains($lowerName, 'number') ) {
+            return 'nav';
+        }
+
         if ( str_contains($lowerName, 'blockquote') || str_contains($lowerName, 'block quote') ) {
             return 'blockquote';
         }

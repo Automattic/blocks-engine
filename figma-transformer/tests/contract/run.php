@@ -8128,6 +8128,7 @@ $paginationSemanticsCss = $fileContent($paginationSemanticsResult, 'style.css');
 $assert('success' === ($paginationSemanticsResult['status'] ?? null), 'pagination-semantics-transform-success');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<button[^>]*data-figma-node-id="pag:previous-base"/', $paginationSemanticsHtml), 'pagination-previous-avoids-nested-button');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
+$assert(str_contains($paginationSemanticsHtml, '<nav class="figma-node-pag-controls-pagination"') && str_contains($paginationSemanticsHtml, 'aria-label="Pagination"'), 'pagination-emits-labeled-navigation-landmark');
 $assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
 $paginationNumbersRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-numbers-pagination-numbers');
 $paginationNumberBaseRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base');
