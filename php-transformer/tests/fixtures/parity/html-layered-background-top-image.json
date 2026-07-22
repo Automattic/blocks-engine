@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-layered-background-top-image",
+  "description": "Converts a layered image background to editable media using the first URL, matching CSS top-layer paint order.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-layered-background-top-image.json",
+    "notes": "Generic regression extracted from layered Figma image fills."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"hero layered-image\" aria-label=\"Featured story\" style=\"width:691px;height:345.5px;overflow:hidden;background-image:url('assets/top.png'),url('assets/bottom.png');background-size:cover;background-position:center\"><h1>Featured story</h1></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/top.png", "alt": "Featured story", "className": "blocks-engine-background-image" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Featured story", "level": 1 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero layered-image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/top.png\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "src=\"assets/bottom.png\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

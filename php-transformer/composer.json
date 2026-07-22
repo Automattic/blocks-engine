@@ -59,6 +59,7 @@
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/css-value-splitter.php",
+      "php tests/unit/background-image-extractor.php",
       "php tests/unit/css-stylesheet-transformer.php",
       "php tests/unit/css-selector-matcher.php",
       "php tests/unit/author-selector-semantics.php",
