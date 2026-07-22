@@ -7604,7 +7604,7 @@ $rowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDec
 );
 $assert('responsive_oversized_desktop_geometry_safety' === ($rowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-row-stack-decision');
 $assert(in_array('height:auto', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-keeps-auto-height');
-$assert(in_array('flex-wrap:wrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-wraps');
+$assert(in_array('flex-wrap:nowrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-does-not-wrap-into-horizontal-columns');
 $assert(! in_array('min-height:360px', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-drops-min-height');
 $separatorSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
     array('id' => 'policy:separator', 'type' => 'FRAME', 'name' => 'Separator', 'box' => array('width' => 943, 'height' => 4), 'children' => array(array('id' => 'policy:line', 'type' => 'VECTOR'))),

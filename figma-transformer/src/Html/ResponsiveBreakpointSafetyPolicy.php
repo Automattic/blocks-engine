@@ -60,6 +60,11 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( $viewportWidth <= 480.0 ) {
+            $inferredGridChildDeclarations = $this->inferredGridChildFlowDeclarations($node, $parentNode, $type, $positioning);
+            if ( ! empty($inferredGridChildDeclarations) ) {
+                return array('reason_code' => 'responsive_inferred_grid_child_flow', 'declarations' => $inferredGridChildDeclarations);
+            }
+
             $mobileTextDeclarations = $this->mobileCenteredTextFallbackDecision($node, $parentNode, $baseMap, $viewportWidth, $type, $width, $positioning, $variantNode);
             if ( ! empty($mobileTextDeclarations) ) {
                 return array('reason_code' => 'responsive_centered_text_mobile_safety', 'declarations' => $mobileTextDeclarations);
@@ -136,11 +141,13 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( $wrapsRow ) {
-            $declarations[] = 'flex-wrap:wrap';
-            $declarations[] = 'align-content:flex-start';
             if ( $viewportWidth <= 480.0 && $this->hasContainerChild($node) ) {
                 $declarations[] = 'flex-direction:column';
                 $declarations[] = 'align-items:stretch';
+                $declarations[] = 'flex-wrap:nowrap';
+            } else {
+                $declarations[] = 'flex-wrap:wrap';
+                $declarations[] = 'align-content:flex-start';
             }
         }
 
@@ -152,6 +159,28 @@ final class ResponsiveBreakpointSafetyPolicy
         array_push($declarations, ...$this->mobileMarginResetDeclarations($baseMap));
 
         return array_values(array_unique($declarations));
+    }
+
+    /**
+     * Release inferred semantic-grid children from desktop canvas coordinates so
+     * the one-column mobile grid can size itself from real flow content.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array<int, string>
+     */
+    private function inferredGridChildFlowDeclarations(array $node, ?array $parentNode, string $type, string $positioning): array
+    {
+        if ( null === $parentNode || 'absolute' !== $positioning || ! in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'TEXT'), true) ) {
+            return array();
+        }
+
+        $parentIntent = $this->layoutIntentClassifier->layoutIntent($parentNode);
+        if ( 'grid' !== ($parentIntent['display'] ?? null) || null === ($parentIntent['collection'] ?? null) ) {
+            return array();
+        }
+
+        return array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'width:100%', 'max-width:100%', 'height:auto', 'min-width:0');
     }
 
     /**

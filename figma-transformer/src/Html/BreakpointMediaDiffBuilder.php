@@ -183,6 +183,9 @@ final class BreakpointMediaDiffBuilder
 
         $desktopRules = array_values(array_unique($desktopRules));
         $mobileRules = array_values(array_unique($mobileRules));
+        // Nested component clones can be opaque to breakpoint traversal, so
+        // enforce the mobile content boundary at the emitted DOM layer too.
+        $mobileRules[] = '.figma-root [data-source-node-type="TEXT"]{max-width:calc(100vw - 48px)}';
         $blocks = array();
         if ( $rootWidth > 1200.0 && ! empty($desktopRules) ) {
             $blocks[] = $this->mediaBlock('max-width', (int) floor($rootWidth - 1.0), $desktopRules);
@@ -210,6 +213,8 @@ final class BreakpointMediaDiffBuilder
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== $position;
         $isHorizontalFlexChild = $isFlexChild && 'row' === ($parentLayout['flex_direction'] ?? null);
+        $layoutIntent = $this->layoutIntentClassifier->layoutIntent($node, $parentNode);
+        $isInferredGrid = 'grid' === ($layoutIntent['display'] ?? null) && $this->hasPositionedDirectChild($node);
         $parentStacksOnMobile = $mobile
             && $isHorizontalFlexChild
             && ($this->nodeBoxDimension($parentNode ?? array(), 'width') ?? 0.0) > 340.0
@@ -230,18 +235,18 @@ final class BreakpointMediaDiffBuilder
                 // the section. Flex/grid containers keep the floor only when no
                 // container child can re-establish flow height.
                 $isCanvasContainer = ! in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
-                if ( $isCanvasContainer || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
+                if ( $isCanvasContainer || $isInferredGrid || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
                     $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
                 }
             }
             if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
-                $declarations[] = $parentStacksOnMobile
+                $declarations[] = $parentStacksOnMobile || $isInferredGrid
                     ? 'min-height:' . ($this->number)($minHeight) . 'px'
                     : 'min-height:0';
             }
             if ( $mobile && $wrapsRow ) {
-                $declarations[] = 'height:auto';
                 if ( $this->hasContainerChild($node) ) {
+                    $declarations[] = 'height:auto';
                     $declarations[] = 'flex-direction:column';
                     $declarations[] = 'align-items:stretch';
                     $declarations[] = 'flex-wrap:nowrap';
@@ -323,6 +328,17 @@ final class BreakpointMediaDiffBuilder
             if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
                 $declarations[] = 'background-size:cover';
             }
+        }
+
+        $parentIntent = null === $parentNode ? null : $this->layoutIntentClassifier->layoutIntent($parentNode);
+        if (
+            $mobile
+            && 'absolute' === $position
+            && 'grid' === ($parentIntent['display'] ?? null)
+            && null !== ($parentIntent['collection'] ?? null)
+            && in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'TEXT'), true)
+        ) {
+            array_push($declarations, 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'width:100%', 'max-width:100%', 'height:auto', 'min-width:0');
         }
 
         return array_values(array_unique($declarations));
@@ -427,6 +443,22 @@ final class BreakpointMediaDiffBuilder
             }
 
             if ( $this->isResponsiveContainerType(strtoupper((string) ($child['type'] ?? 'FRAME'))) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function hasPositionedDirectChild(array $node): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($layout['positioning'] ?? null) || 'ABSOLUTE' === ($child['layoutPositioning'] ?? null) ) {
                 return true;
             }
         }
