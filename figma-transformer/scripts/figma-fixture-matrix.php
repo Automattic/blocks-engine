@@ -7,6 +7,7 @@ $root = dirname(__DIR__, 2);
 $figmaRoot = $root . '/figma-transformer';
 require_once __DIR__ . '/figma-fixture-selection.php';
 require_once __DIR__ . '/figma-fixture-matrix-quality.php';
+require_once __DIR__ . '/figma-fixture-matrix-acceptance.php';
 
 $options = matrix_options($argv);
 if ( true === ($options['help'] ?? false) ) {
@@ -269,6 +270,8 @@ foreach ( $fixtures as $fixture ) {
             $record['result_status'] = $result['status'] ?? null;
             $record['parity'] = matrix_parity_summary(is_array($result['parity'] ?? null) ? $result['parity'] : array());
             $record['metrics'] = $result['metrics'] ?? array();
+            $record['acceptance_readiness'] = matrix_acceptance_readiness($record['id'], $fixturePath, $result, $outputDir, $resultPath);
+            $record['acceptance_readiness']['stage_paths'] = matrix_write_acceptance_readiness($record['acceptance_readiness'], $fixtureOutputDir);
             $diagnostics = $result['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
             if ( is_array($diagnostics) ) {
                 $record['diagnostic_codes'] = $diagnostics['diagnostic_codes'] ?? array();
@@ -1224,6 +1227,10 @@ function matrix_merge_parity_report(array $parity, array $report): array
         if ( isset($report[$key]) && is_array($report[$key]) ) {
             $parity[$key] = array_merge(is_array($parity[$key] ?? null) ? $parity[$key] : array(), $report[$key]);
         }
+    }
+
+    if ( isset($report['breakpoints']) && is_array($report['breakpoints']) ) {
+        $parity['breakpoints'] = array_values($report['breakpoints']);
     }
 
     foreach ( array('pixel_mismatch_count', 'pixel_mismatch_ratio') as $key ) {

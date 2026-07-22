@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
 require $root . '/php-transformer/vendor/autoload.php';
+require_once $root . '/figma-transformer/scripts/figma-fixture-matrix-acceptance.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
@@ -98,6 +99,40 @@ $assert('passed' === ($summary['status'] ?? null), 'summary reports a passing ma
 $assert('blocks-engine/figma-wordpress-acceptance/v2' === ($summary['schema'] ?? null), 'summary reports the layered v2 contract');
 $assert(3 === count($summary['fixtures'] ?? array()), 'production profile enforces the canonical three fixtures');
 $assert(!str_contains(json_encode($summary), $temporary), 'summary excludes private absolute input and evidence paths');
+
+// The fixture matrix emits the Figma-owned stages from actual transform facts;
+// SSI-owned stages below remain the truthful downstream provider fixtures.
+foreach ($fixtures as $index => $fixture) {
+    $fixtureId = $fixture['id'];
+    $matrixRoot = $output . '/figma-matrix/' . $fixtureId;
+    mkdir($matrixRoot . '/artifacts', 0777, true);
+    file_put_contents($matrixRoot . '/result.json', '{}');
+    foreach (array('desktop-source.png', 'desktop-rendered.png', 'mobile-source.png', 'mobile-rendered.png') as $artifact) {
+        file_put_contents($matrixRoot . '/artifacts/' . $artifact, 'image');
+    }
+    foreach (array('desktop', 'mobile') as $viewport) {
+        file_put_contents($matrixRoot . '/artifacts/' . $viewport . '-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 0, 'geometry_difference_count' => 0))));
+    }
+    $result = array(
+        'metrics' => array('node_count' => 2, 'page_count' => 1),
+        'source_reports' => array('figma' => array(
+            'pages' => array('selection_source' => 'dev_status', 'pages' => array(array('path' => 'index.html', 'variants' => array(array('frame_id' => 'desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440), array('frame_id' => 'mobile', 'device_hint' => 'mobile', 'viewport_width' => 375))))),
+            'html' => array('transform_diagnostics' => array('artifact_quality' => array('summary' => array('empty_decoded_text_nodes' => 0, 'missing_asset_nodes' => 0, 'vector_placeholders' => 0, 'missing_emitted_text_nodes' => 0, 'source_loss_coverage' => array('domains' => array('images' => array('node_coverage' => array('uncovered_source_nodes' => 0)))))))),
+        )),
+        'parity' => array('breakpoints' => array(
+            array('viewport' => array('device_hint' => 'desktop', 'width' => 1440), 'source' => array('screenshot_path' => $matrixRoot . '/artifacts/desktop-source.png'), 'generated' => array('screenshot_path' => $matrixRoot . '/artifacts/desktop-rendered.png'), 'artifacts' => array('report_path' => $matrixRoot . '/artifacts/desktop-diff.json')),
+            array('viewport' => array('device_hint' => 'mobile', 'width' => 375), 'source' => array('screenshot_path' => $matrixRoot . '/artifacts/mobile-source.png'), 'generated' => array('screenshot_path' => $matrixRoot . '/artifacts/mobile-rendered.png'), 'artifacts' => array('report_path' => $matrixRoot . '/artifacts/mobile-diff.json')),
+        )),
+    );
+    $readiness = matrix_acceptance_readiness($fixtureId, $fixture['fig'], $result, $output, $matrixRoot . '/result.json');
+    $stagePaths = matrix_write_acceptance_readiness($readiness, $matrixRoot);
+    foreach (array('decode', 'normalize', 'emit', 'figma_html_desktop_parity', 'figma_html_mobile_parity', 'responsive_selection') as $stage) {
+        $fixtures[$index]['evidence'][$stage] = $stagePaths[$stage];
+    }
+}
+file_put_contents($manifest, json_encode(array('fixtures' => $fixtures)));
+exec($command, $ignored, $matrixProducerExitCode);
+$assert(0 === $matrixProducerExitCode, 'fixture-matrix Figma stage evidence is accepted alongside downstream stages');
 
 $manifestCommand = $command . ' --profile=manifest';
 exec($manifestCommand, $ignored, $manifestExitCode);
