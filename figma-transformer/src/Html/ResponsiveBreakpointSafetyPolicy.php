@@ -149,6 +149,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         array_push($declarations, ...$this->mobilePaddingClampDeclarations($baseMap));
+        array_push($declarations, ...$this->mobileMarginResetDeclarations($baseMap));
 
         return array_values(array_unique($declarations));
     }
@@ -242,7 +243,20 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( 'pagination' === $name && $isContainer ) {
-            return array('reason_code' => 'responsive_pagination_overflow_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'), array('overflow-x:auto')));
+            return array(
+                'reason_code' => 'responsive_pagination_overflow_safety',
+                'declarations' => array_merge(
+                    $this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'),
+                    array('height:auto', 'display:grid', 'grid-template-columns:auto minmax(0,1fr) auto', 'gap:8px', 'overflow:visible')
+                ),
+            );
+        }
+
+        if ( 'pagination numbers' === $name && $isContainer ) {
+            return array(
+                'reason_code' => 'responsive_pagination_numbers_overflow_safety',
+                'declarations' => array('width:100%', 'max-width:100%', 'min-width:0', 'overflow-x:auto'),
+            );
         }
 
         if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
@@ -392,6 +406,24 @@ final class ResponsiveBreakpointSafetyPolicy
             $padding = $this->cssPixelValue($baseMap[$property] ?? '');
             if ( null !== $padding && $padding > 24.0 ) {
                 $declarations[] = $property . ':24px';
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function mobileMarginResetDeclarations(array $baseMap): array
+    {
+        $declarations = array();
+        foreach ( array('left', 'right') as $edge ) {
+            $property = 'margin-' . $edge;
+            $margin = $this->cssPixelValue($baseMap[$property] ?? '');
+            if ( null !== $margin && 0.0 !== $margin ) {
+                $declarations[] = $property . ':0';
             }
         }
 

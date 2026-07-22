@@ -7606,6 +7606,13 @@ $assert('responsive_oversized_desktop_geometry_safety' === ($rowStackSafetyDecis
 $assert(in_array('height:auto', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-keeps-auto-height');
 $assert(in_array('flex-wrap:wrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-wraps');
 $assert(! in_array('min-height:360px', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-drops-min-height');
+$separatorSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array('id' => 'policy:separator', 'type' => 'FRAME', 'name' => 'Separator', 'box' => array('width' => 943, 'height' => 4), 'children' => array(array('id' => 'policy:line', 'type' => 'VECTOR'))),
+    array('id' => 'policy:heading', 'type' => 'FRAME', 'name' => 'Heading with Separator'),
+    array('width' => '943px', 'height' => '4px', 'display' => 'flex', 'flex-direction' => 'row', 'margin-left' => '80px'),
+    390.0
+);
+$assert(in_array('margin-left:0', $separatorSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-overwide-margin-reset');
 $fluidRowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
     array(
         'id' => 'policy:fluid-row',
@@ -7643,6 +7650,33 @@ $assert('responsive_preview_card_width_safety' === ($previewRowStackSafetyDecisi
 $assert(
     array('width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($previewRowStackSafetyDecision['declarations'] ?? array()),
     'responsive-breakpoint-safety-policy-preview-row-stacks'
+);
+$paginationSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:pagination',
+        'type' => 'INSTANCE',
+        'name' => 'Pagination',
+        'children' => array(
+            array('id' => 'policy:previous', 'type' => 'INSTANCE'),
+            array('id' => 'policy:numbers', 'type' => 'FRAME'),
+            array('id' => 'policy:next', 'type' => 'INSTANCE'),
+        ),
+    ),
+    array('id' => 'policy:page', 'type' => 'FRAME', 'name' => 'Page'),
+    array('width' => '1216px', 'height' => '40px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_pagination_overflow_safety' === ($paginationSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-pagination-decision');
+$assert(in_array('grid-template-columns:auto minmax(0,1fr) auto', $paginationSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-pagination-keeps-controls-visible');
+$paginationNumbersSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array('id' => 'policy:numbers', 'type' => 'FRAME', 'name' => 'Pagination numbers', 'children' => array(array('id' => 'policy:number', 'type' => 'INSTANCE'))),
+    array('id' => 'policy:pagination', 'type' => 'INSTANCE', 'name' => 'Pagination'),
+    array('width' => '292px', 'height' => '40px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert(
+    array('width:100%', 'max-width:100%', 'min-width:0', 'overflow-x:auto') === ($paginationNumbersSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-pagination-scrolls-numbers-only'
 );
 $assert(
     array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
