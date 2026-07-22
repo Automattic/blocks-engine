@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../scripts/figma-fixture-matrix-quality.php';
+require_once __DIR__ . '/../../scripts/figma-fixture-matrix-acceptance.php';
 
 /**
  * @param callable(bool, string): void $assert
@@ -891,6 +892,51 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(str_contains($matrixScreenshotCommand, '--parity-source-screenshot-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-source.png')), 'fixture-matrix-source-screenshot-transform-argument');
     $assert(str_contains($matrixScreenshotCommand, '--parity-generated-screenshot-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-generated.png')), 'fixture-matrix-generated-screenshot-transform-argument');
     $assert(str_contains($matrixScreenshotCommand, '--parity-diff-image-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-diff.png')), 'fixture-matrix-diff-image-transform-argument');
+
+    $acceptanceRoot = $matrixFixtureDir . '/acceptance';
+    mkdir($acceptanceRoot . '/artifacts', 0777, true);
+    $acceptanceResultPath = $acceptanceRoot . '/transform-result.json';
+    file_put_contents($acceptanceResultPath, '{}');
+    foreach (array('desktop-source.png', 'desktop-rendered.png', 'mobile-source.png', 'mobile-rendered.png') as $artifact) {
+        file_put_contents($acceptanceRoot . '/artifacts/' . $artifact, 'image');
+    }
+    foreach (array('desktop', 'mobile') as $viewport) {
+        file_put_contents($acceptanceRoot . '/artifacts/' . $viewport . '-diff.json', json_encode(array('metrics' => array('pixel_difference_count' => 0, 'geometry_difference_count' => 0))));
+    }
+    $acceptanceResult = array(
+        'metrics' => array('node_count' => 9, 'page_count' => 1),
+        'source_reports' => array('figma' => array(
+            'pages' => array('selection_source' => 'dev_status', 'pages' => array(array('path' => 'index.html', 'variants' => array(array('frame_id' => 'desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440), array('frame_id' => 'mobile', 'device_hint' => 'mobile', 'viewport_width' => 375))))),
+            'html' => array('transform_diagnostics' => array('artifact_quality' => array('summary' => array('empty_decoded_text_nodes' => 0, 'missing_asset_nodes' => 0, 'vector_placeholders' => 0, 'missing_emitted_text_nodes' => 0, 'source_loss_coverage' => array('domains' => array('images' => array('node_coverage' => array('uncovered_source_nodes' => 0)))))))),
+        )),
+        'parity' => array('breakpoints' => array(
+            array('viewport' => array('device_hint' => 'desktop', 'width' => 1440), 'source' => array('screenshot_path' => $acceptanceRoot . '/artifacts/desktop-source.png'), 'generated' => array('screenshot_path' => $acceptanceRoot . '/artifacts/desktop-rendered.png'), 'artifacts' => array('report_path' => $acceptanceRoot . '/artifacts/desktop-diff.json')),
+            array('viewport' => array('device_hint' => 'mobile', 'width' => 375), 'source' => array('screenshot_path' => $acceptanceRoot . '/artifacts/mobile-source.png'), 'generated' => array('screenshot_path' => $acceptanceRoot . '/artifacts/mobile-rendered.png'), 'artifacts' => array('report_path' => $acceptanceRoot . '/artifacts/mobile-diff.json')),
+        )),
+    );
+    $acceptanceReadiness = matrix_acceptance_readiness('acceptance-fixture', $matrixFixtureDir . '/alias.fig', $acceptanceResult, $acceptanceRoot, $acceptanceResultPath);
+    $assert(MATRIX_ACCEPTANCE_READINESS_SCHEMA === ($acceptanceReadiness['schema'] ?? null), 'fixture-matrix-acceptance-readiness-schema');
+    $assert('passed' === ($acceptanceReadiness['status'] ?? null), 'fixture-matrix-acceptance-readiness-passes-complete-real-facts');
+    $assert(0 === ($acceptanceReadiness['stages']['decode']['metrics']['missing_text_count'] ?? null), 'fixture-matrix-acceptance-decode-metric-is-explicit');
+    $assert(9 === ($acceptanceReadiness['stages']['normalize']['metrics']['normalized_node_count'] ?? null), 'fixture-matrix-acceptance-normalize-metric-is-explicit');
+    $assert('mobile' === ($acceptanceReadiness['stages']['responsive_selection']['responsive_routes'][0]['mobile_source_frame'] ?? null), 'fixture-matrix-acceptance-responsive-keeps-real-mobile-frame');
+    $assert('artifacts/desktop-source.png' === ($acceptanceReadiness['stages']['figma_html_desktop_parity']['source_screenshot'] ?? null), 'fixture-matrix-acceptance-desktop-uses-desktop-proof');
+    $assert('artifacts/mobile-source.png' === ($acceptanceReadiness['stages']['figma_html_mobile_parity']['source_screenshot'] ?? null), 'fixture-matrix-acceptance-mobile-uses-mobile-proof');
+    $assert(hash_file('sha256', $acceptanceRoot . '/artifacts/mobile-source.png') === ($acceptanceReadiness['stages']['figma_html_mobile_parity']['artifact_sha256']['source_screenshot'] ?? null), 'fixture-matrix-acceptance-source-proof-is-hashable');
+    $missingSource = $acceptanceResult;
+    unset($missingSource['parity']['breakpoints'][0]['source']['screenshot_path']);
+    $missingSourceReadiness = matrix_acceptance_readiness('acceptance-fixture', $matrixFixtureDir . '/alias.fig', $missingSource, $acceptanceRoot, $acceptanceResultPath);
+    $assert('failed' === ($missingSourceReadiness['stages']['figma_html_desktop_parity']['status'] ?? null), 'fixture-matrix-acceptance-missing-source-cannot-pass');
+    $assert('figma_html_desktop_parity_missing_screenshots' === ($missingSourceReadiness['stages']['figma_html_desktop_parity']['reason_code'] ?? null), 'fixture-matrix-acceptance-missing-source-reason');
+    $unscopedParity = $acceptanceResult;
+    $unscopedParity['parity'] = array('source' => array('screenshot_path' => $acceptanceRoot . '/artifacts/desktop-source.png'), 'generated' => array('screenshot_path' => $acceptanceRoot . '/artifacts/desktop-rendered.png'), 'artifacts' => array('report_path' => $acceptanceRoot . '/artifacts/desktop-diff.json'));
+    $unscopedParityReadiness = matrix_acceptance_readiness('acceptance-fixture', $matrixFixtureDir . '/alias.fig', $unscopedParity, $acceptanceRoot, $acceptanceResultPath);
+    $assert('failed' === ($unscopedParityReadiness['stages']['figma_html_desktop_parity']['status'] ?? null), 'fixture-matrix-acceptance-unscoped-parity-cannot-pass');
+    $incompleteResponsive = $acceptanceResult;
+    $incompleteResponsive['source_reports']['figma']['pages']['selection_source'] = 'heuristic';
+    $incompleteResponsive['source_reports']['figma']['pages']['pages'][0]['variants'] = array(array('frame_id' => 'desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440));
+    $incompleteResponsiveReadiness = matrix_acceptance_readiness('acceptance-fixture', $matrixFixtureDir . '/alias.fig', $incompleteResponsive, $acceptanceRoot, $acceptanceResultPath);
+    $assert('responsive_selection_mobile_source_unavailable' === ($incompleteResponsiveReadiness['stages']['responsive_selection']['reason_code'] ?? null), 'fixture-matrix-acceptance-heuristic-never-invents-mobile-frame');
     $assert(0 !== $missingHomeboyExitCode, 'fixture-matrix-capture-preflight-missing-homeboy-fails');
     $missingHomeboyMessage = implode("\n", $missingHomeboyOutput);
     $assert(str_contains($missingHomeboyMessage, 'DOM box capture requires a runnable Homeboy command'), 'fixture-matrix-capture-preflight-missing-homeboy-message');
