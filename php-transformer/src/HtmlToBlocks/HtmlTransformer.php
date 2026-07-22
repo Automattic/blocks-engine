@@ -1215,7 +1215,10 @@ final class HtmlTransformer
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
-        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+        $width = strtolower(trim((string) ($declarations['width'] ?? '')));
+        $height = strtolower(trim((string) ($declarations['height'] ?? '')));
+        $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
+        if ( $ownsBox || in_array($position, array( 'absolute', 'fixed' ), true) ) {
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
         }

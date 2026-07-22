@@ -47,8 +47,8 @@ trait StyleResolutionTrait
     private array $mergedPresentationStyleCache = array();
 
     /**
-     * Inline sizing declarations which core block supports cannot serialize are
-     * carried by deterministic classes in a generated stylesheet.
+     * Inline presentation declarations which core block supports cannot serialize
+     * are carried by deterministic classes in a generated stylesheet.
      *
      * @var array<string, string>
      */
@@ -71,6 +71,8 @@ trait StyleResolutionTrait
             'aspect-ratio',
             'box-sizing',
             'flex-basis',
+            'object-fit',
+            'object-position',
         );
     }
 

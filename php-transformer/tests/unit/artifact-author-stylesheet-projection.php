@@ -105,6 +105,18 @@ $assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:blo
 $assert('text' === ($image['assets'][0]['content_encoding'] ?? '') && ! isset($image['assets'][0]['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
+$positionedImage = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="map.css"><main><img class="map" src="map.png" alt="Map" style="object-fit:fill;object-position:-197.702px -102.702px"></main>' ),
+        array( 'path' => 'map.css', 'kind' => 'css', 'content' => '.map{width:872.97px;height:731.531px}' ),
+        array( 'path' => 'map.png', 'kind' => 'image', 'content' => 'map-bytes' ),
+    ),
+) )->toArray();
+$positionedImageCss = implode("\n", array_column($positionedImage['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'map be-inline-geometry-'), 'unsupported inline image presentation uses a deterministic carrier class');
+$assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
+$assert(str_contains($positionedImageCss, '.map.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height');
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
