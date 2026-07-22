@@ -642,6 +642,7 @@ final class WordPressSitePlan
     }
     private static function assertNoLocalBrowserReferences(string $content): void
     {
+        $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $patterns = array('/\b(?:src|href|srcset|poster|action)\s*=\s*["\']([^"\']+)["\']/i', '/["\'](?:url|src|href|srcset|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', '/(?:url\(\s*["\']?|@import\s+(?:url\(\s*)?["\']?)([^\s\)"\';]+)/i');
         foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (preg_match('~^[a-z][a-z0-9+.-]*:~i', trim((string) $value)) ? array($value) : explode(',', (string) $value) as $candidate) {
             $url = trim(preg_split('/\s+/', trim($candidate))[0] ?? '');
