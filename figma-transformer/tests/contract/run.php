@@ -7606,6 +7606,25 @@ $assert('responsive_oversized_desktop_geometry_safety' === ($rowStackSafetyDecis
 $assert(in_array('height:auto', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-keeps-auto-height');
 $assert(in_array('flex-wrap:wrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-wraps');
 $assert(! in_array('min-height:360px', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-drops-min-height');
+$fluidRowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:fluid-row',
+        'type' => 'FRAME',
+        'name' => 'Hero Row',
+        'children' => array(
+            array('id' => 'policy:heading', 'type' => 'TEXT', 'box' => array('width' => 703)),
+            array('id' => 'policy:panel', 'type' => 'FRAME', 'box' => array('width' => 481)),
+        ),
+    ),
+    array('id' => 'policy:page', 'type' => 'FRAME', 'name' => 'Page'),
+    array('width' => '100%', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_generic_mobile_safety' === ($fluidRowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-fluid-row-stack-decision');
+$assert(
+    array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($fluidRowStackSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-fluid-row-stacks-overwide-child'
+);
 $assert(
     array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
         array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),

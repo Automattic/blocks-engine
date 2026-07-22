@@ -285,12 +285,24 @@ final class ResponsiveBreakpointSafetyPolicy
     private function genericMobileSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, bool $isContainer, ?float $width, string $positioning, string $display): array
     {
         $mobileContentWidth = max(1.0, $viewportWidth - 48.0);
-        if ( ! $isContainer || null === $parentNode || null === $width || $width <= min(340.0, $mobileContentWidth) || empty(($this->nodeList)($node)) ) {
+        $hasUnsafeFluidRow = null === $width
+            && '100%' === ($baseMap['width'] ?? null)
+            && in_array($display, array('flex', 'inline-flex'), true)
+            && 'row' === ($baseMap['flex-direction'] ?? null)
+            && $this->hasOverwideContainerChild($node, $mobileContentWidth);
+        if ( ! $isContainer || null === $parentNode || empty(($this->nodeList)($node)) ) {
+            return array();
+        }
+        if ( ! $hasUnsafeFluidRow && (null === $width || $width <= min(340.0, $mobileContentWidth)) ) {
             return array();
         }
 
         $declarations = array();
         $hasContainerChild = $this->hasContainerChild($node);
+
+        if ( $hasUnsafeFluidRow ) {
+            return array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap');
+        }
 
         if ( 'absolute' === $positioning ) {
             if ( $width > $mobileContentWidth ) {
@@ -391,6 +403,30 @@ final class ResponsiveBreakpointSafetyPolicy
 
             $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
             if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasOverwideContainerChild(array $node, float $contentWidth): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true)
+                && isset($box['width'])
+                && is_numeric($box['width'])
+                && (float) $box['width'] > $contentWidth
+            ) {
                 return true;
             }
         }
