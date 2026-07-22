@@ -7625,6 +7625,25 @@ $assert(
     array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($fluidRowStackSafetyDecision['declarations'] ?? array()),
     'responsive-breakpoint-safety-policy-fluid-row-stacks-overwide-child'
 );
+$previewRowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:preview',
+        'type' => 'INSTANCE',
+        'name' => 'Featured Preview',
+        'children' => array(
+            array('id' => 'policy:preview:image', 'type' => 'INSTANCE', 'box' => array('width' => 176)),
+            array('id' => 'policy:preview:content', 'type' => 'FRAME', 'box' => array('width' => 281)),
+        ),
+    ),
+    array('id' => 'policy:preview-list', 'type' => 'FRAME', 'name' => 'Column'),
+    array('width' => '481px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_preview_card_width_safety' === ($previewRowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-preview-row-decision');
+$assert(
+    array('width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($previewRowStackSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-preview-row-stacks'
+);
 $assert(
     array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
         array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),

@@ -47,7 +47,7 @@ final class ResponsiveBreakpointSafetyPolicy
             return $chromeDecision;
         }
 
-        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole, $viewportWidth);
+        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $baseMap, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole, $viewportWidth);
         if ( '' !== $namedShellDecision['reason_code'] ) {
             return $namedShellDecision;
         }
@@ -206,9 +206,10 @@ final class ResponsiveBreakpointSafetyPolicy
     /**
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
      * @return array{reason_code: string, declarations: array<int, string>}
      */
-    private function namedResponsiveShellDecision(array $node, ?array $parentNode, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
+    private function namedResponsiveShellDecision(array $node, ?array $parentNode, array $baseMap, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
     {
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
             return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
@@ -231,7 +232,13 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( ('featured preview' === $name || 'preview' === $name) && $isContainer && null !== $width && $width > 340.0 ) {
-            return array('reason_code' => 'responsive_preview_card_width_safety', 'declarations' => array('width:100%', 'height:auto'));
+            return array(
+                'reason_code' => 'responsive_preview_card_width_safety',
+                'declarations' => array_merge(
+                    array('width:100%', 'height:auto'),
+                    $this->stackedMobileFlowDeclarations($baseMap, $display, $this->hasContainerChild($node))
+                ),
+            );
         }
 
         if ( 'pagination' === $name && $isContainer ) {
