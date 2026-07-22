@@ -573,7 +573,18 @@ $classSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.map-art{width:100%}</style><main><div><svg class="map-art" viewBox="0 0 440 280" role="img" aria-label="Map"><rect width="440" height="280" fill="#111"/></svg></div></main>'
 )->toArray();
 $classSizedInlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $classSizedInlineSvgArtwork['assets'] ?? array()));
+$classSizedInlineSvgAssets = array_values(array_filter($classSizedInlineSvgArtwork['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
 $assert(str_contains($classSizedInlineSvgCss, '>img{display:inline;vertical-align:baseline;width:100%}'), 'inline SVG core/image applies class-owned responsive width to the image element');
+$assert(1 === count($classSizedInlineSvgAssets) && ! str_contains((string) ($classSizedInlineSvgAssets[0]['content'] ?? ''), 'style="width:100%"'), 'external SVG asset omits stylesheet-projected media-box declarations already carried by the native image');
+
+$inlineStyledSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<main><svg style="display:block;width:120px;height:80px;aspect-ratio:3/2;color:#123456" viewBox="0 0 120 80" role="img" aria-label="Diagram"><rect width="120" height="80" fill="currentColor"/></svg></main>'
+)->toArray();
+$inlineStyledSvgAssets = array_values(array_filter($inlineStyledSvgArtwork['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
+$inlineStyledSvgContent = (string) ($inlineStyledSvgAssets[0]['content'] ?? '');
+$assert(1 === count($inlineStyledSvgAssets), 'authored inline SVG geometry materializes one generated SVG asset');
+$assert(str_contains($inlineStyledSvgContent, 'display:block') && str_contains($inlineStyledSvgContent, 'width:120px') && str_contains($inlineStyledSvgContent, 'height:80px') && str_contains($inlineStyledSvgContent, 'aspect-ratio:3/2'), 'external SVG assets preserve authored inline media-box declarations');
+$assert(str_contains($inlineStyledSvgContent, 'color:#123456'), 'external SVG assets preserve authored non-geometry declarations');
 
 $emptyVisualCluster = ( new HtmlTransformer() )->transform(
     '<style>.titlebar-dots{display:flex;gap:5px}.titlebar-dots span{width:10px;height:10px;border-radius:50%}.titlebar-dots span:nth-child(1){background:#ff5f57}.titlebar-dots span:nth-child(2){background:#ffbd2e}.titlebar-dots span:nth-child(3){background:#28ca41}</style><div class="titlebar-dots"><span></span><span></span><span></span></div>'

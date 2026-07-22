@@ -77,7 +77,7 @@ trait SvgMaterializationTrait
             return null;
         }
 
-        $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
+        $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($this->stripProjectedSvgImageBoxStyle($html, $element)));
         $path = $this->materializedInlineSvgPath($element, $html);
         $this->generatedAssets[$path] = array(
             'source'      => 'inline-svg',
@@ -337,6 +337,25 @@ trait SvgMaterializationTrait
         $html = preg_replace('/<!--.*?-->/s', '', $html) ?? $html;
         $html = preg_replace('/>\s+</', '><', $html) ?? $html;
         return trim($html);
+    }
+
+    private function stripProjectedSvgImageBoxStyle(string $html, DOMElement $element): string
+    {
+        if ( ! preg_match('/<svg\b[^>]*\sstyle\s*=\s*(["\'])(.*?)\1/i', $html, $match) ) {
+            return $html;
+        }
+
+        $declarations = $this->cssDeclarations($match[2]);
+        $authoredDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        foreach ( array( 'aspect-ratio', 'display', 'height', 'max-height', 'max-width', 'min-height', 'min-width', 'width' ) as $property ) {
+            if ( ! array_key_exists($property, $authoredDeclarations) ) {
+                unset($declarations[$property]);
+            }
+        }
+        $style = $this->cssDeclarationString($declarations);
+        $replacement = '' === $style ? '' : ' style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+
+        return preg_replace('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $replacement, $html, 1) ?? $html;
     }
 
     private function ensureSvgImageNamespace(string $html): string
