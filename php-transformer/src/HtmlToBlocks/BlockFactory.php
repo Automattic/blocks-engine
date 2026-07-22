@@ -422,8 +422,14 @@ final class BlockFactory
     {
         $figureAttrs = $attrs;
         $baseClass = 'wp-block-image';
-        if ( ! empty($attrs['style']['border']) ) {
-            $baseClass .= ' has-custom-border';
+        $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
+        $borderSupport = $this->styleSupport(array( 'border' => $border ));
+        if ( array() !== $border ) {
+            $baseClass = $this->mergeClassNames('wp-block-image has-custom-border', $borderSupport['classes']);
+            unset($figureAttrs['style']['border']);
+            if ( empty($figureAttrs['style']) ) {
+                unset($figureAttrs['style']);
+            }
         }
         if ( ! empty($attrs['sizeSlug']) ) {
             $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
@@ -438,8 +444,8 @@ final class BlockFactory
             'title'  => $attrs['title'] ?? '',
             'srcset' => $attrs['srcset'] ?? '',
             'sizes'  => $attrs['sizes'] ?? '',
-            'class'  => ! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '',
-            'style'  => $this->imageDimensionStyle($attrs),
+            'class'  => $this->mergeClassNames(! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '', $borderSupport['classes']),
+            'style'  => trim($this->imageDimensionStyle($attrs) . ';' . $borderSupport['style'], ';'),
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
