@@ -6604,6 +6604,136 @@ $freeformFlowCss = $fileContent($freeformFlowResult, 'style.css');
 $assert(! preg_match('/\.figma-node-freeform-flow-heading-heading-with-separator\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-heading-flows');
 $assert(! preg_match('/\.figma-node-freeform-flow-content-post-cards\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-content-flows');
 
+$intrinsicCardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Intrinsic Card Flow Fixture',
+    'assets' => array(
+        'intrinsic-card-image' => array('mime_type' => 'image/png', 'content' => 'intrinsic card image'),
+        'featured-shell-image' => array('mime_type' => 'image/png', 'content' => 'featured shell image'),
+    ),
+    'nodes' => array(
+        array(
+            'id'         => 'intrinsic-card:section',
+            'type'       => 'FRAME',
+            'name'       => 'All updates',
+            'width'      => 1216,
+            'height'     => 663,
+            'layoutMode' => 'VERTICAL',
+            'children' => array(
+                array(
+                    'id'                   => 'intrinsic-card:query',
+                    'type'                 => 'FRAME',
+                    'name'                 => 'Query loop',
+                    'width'                => 1216,
+                    'height'               => 567,
+                    'layoutMode'           => 'HORIZONTAL',
+                    'layoutWrap'           => 'WRAP',
+                    'primaryAxisSizingMode' => 'FIXED',
+                    'children'             => array(
+                        array(
+                            'id'       => 'intrinsic-card:preview',
+                            'type'     => 'INSTANCE',
+                            'name'     => 'Preview',
+                            'width'    => 376,
+                            'height'   => 567,
+                            'layout'   => array('freeform' => true),
+                            'children' => array(
+                                array(
+                                    'id'         => 'intrinsic-card:image',
+                                    'type'       => 'RECTANGLE',
+                                    'name'       => 'Image',
+                                    'x'          => 0,
+                                    'y'          => 0,
+                                    'width'      => 376,
+                                    'height'     => 282,
+                                    'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'intrinsic-card-image')),
+                                ),
+                                array(
+                                    'id'                   => 'intrinsic-card:content',
+                                    'type'                 => 'FRAME',
+                                    'name'                 => 'Content',
+                                    'x'                    => 0,
+                                    'y'                    => 314,
+                                    'width'                => 376,
+                                    'height'               => 253,
+                                    'layoutMode'           => 'VERTICAL',
+                                    'primaryAxisSizingMode' => 'FIXED',
+                                    'itemSpacing'          => 12,
+                                    'children'             => array(
+                                        array('id' => 'intrinsic-card:author', 'type' => 'TEXT', 'name' => 'Author', 'characters' => 'JANE', 'width' => 376, 'height' => 18, 'fontSize' => 14, 'lineHeightPx' => 18),
+                                        array('id' => 'intrinsic-card:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'A long card heading that wraps when the browser substitutes a wider font family', 'width' => 376, 'height' => 108, 'fontSize' => 36, 'lineHeightPx' => 36),
+                                        array('id' => 'intrinsic-card:excerpt', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'Supporting copy must move below the complete heading instead of overlapping it.', 'width' => 376, 'height' => 78, 'fontSize' => 18, 'lineHeightPx' => 26),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'featured-shell:root',
+            'type'     => 'INSTANCE',
+            'name'     => 'Featured Posts',
+            'width'    => 1216,
+            'height'   => 558.5,
+            'layout'   => array('freeform' => true),
+            'children' => array(
+                array(
+                    'id'         => 'featured-shell:heading-band',
+                    'type'       => 'FRAME',
+                    'name'       => 'Heading with Separator',
+                    'x'          => 0,
+                    'y'          => 0,
+                    'width'      => 1216,
+                    'height'     => 48,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'featured-shell:label', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Trending', 'width' => 169, 'height' => 48, 'fontSize' => 48, 'lineHeightPx' => 57.6),
+                    ),
+                ),
+                array(
+                    'id'         => 'featured-shell:post-row',
+                    'type'       => 'FRAME',
+                    'name'       => 'Frame 16',
+                    'x'          => 0,
+                    'y'          => 80,
+                    'width'      => 1216,
+                    'height'     => 558.5,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array(
+                            'id'         => 'featured-shell:post',
+                            'type'       => 'FRAME',
+                            'name'       => 'Featured Preview',
+                            'width'      => 691,
+                            'height'     => 558.5,
+                            'layoutMode' => 'VERTICAL',
+                            'children'   => array(
+                                array('id' => 'featured-shell:image', 'type' => 'RECTANGLE', 'name' => 'Image', 'width' => 691, 'height' => 345.5, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'featured-shell-image'))),
+                                array('id' => 'featured-shell:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'A Days of thunder lego set is coming', 'width' => 691, 'height' => 48, 'fontSize' => 48, 'lineHeightPx' => 57.6),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$intrinsicCardCss = $fileContent($intrinsicCardResult, 'style.css');
+$assert(preg_match('/\.figma-node-intrinsic-card-preview-preview\{[^}]*min-height:567px[^}]*display:flex[^}]*flex-direction:column[^}]*gap:32px/', $intrinsicCardCss) === 1, 'intrinsic-card-freeform-bands-become-column-flow');
+$assert(! preg_match('/\.figma-node-intrinsic-card-(?:image-image|content-content)\{[^}]*position:absolute/', $intrinsicCardCss), 'intrinsic-card-bands-avoid-absolute-positioning');
+$assert(preg_match('/\.figma-node-intrinsic-card-content-content\{[^}]*min-height:253px/', $intrinsicCardCss) === 1, 'intrinsic-card-content-keeps-source-height-floor');
+$assert(! preg_match('/\.figma-node-intrinsic-card-content-content\{[^}]*(?<!-)height:253px/', $intrinsicCardCss), 'intrinsic-card-content-drops-fixed-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-heading-heading\{[^}]*min-height:108px/', $intrinsicCardCss) === 1, 'intrinsic-card-heading-keeps-source-height-floor');
+$assert(! preg_match('/\.figma-node-intrinsic-card-heading-heading\{[^}]*(?<!-)height:108px/', $intrinsicCardCss), 'intrinsic-card-heading-drops-fixed-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-excerpt-excerpt\{[^}]*min-height:78px/', $intrinsicCardCss) === 1, 'intrinsic-card-excerpt-keeps-source-height-floor');
+$assert(preg_match('/\.figma-node-intrinsic-card-query-query-loop\{[^}]*min-height:567px/', $intrinsicCardCss) === 1, 'intrinsic-card-wrapping-query-keeps-intrinsic-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-section-all-updates\{[^}]*min-height:663px/', $intrinsicCardCss) === 1, 'intrinsic-card-section-propagates-intrinsic-height');
+$assert(preg_match('/\.figma-node-featured-shell-root-featured-posts\{[^}]*min-height:558\.5px[^}]*display:flex[^}]*flex-direction:column[^}]*gap:32px/', $intrinsicCardCss) === 1, 'featured-shell-nested-media-bands-become-column-flow');
+$assert(! preg_match('/\.figma-node-featured-shell-(?:heading-band-heading-with-separator|post-row-frame-16)\{[^}]*position:absolute/', $intrinsicCardCss), 'featured-shell-bands-avoid-absolute-positioning');
+$assert(preg_match('/\.figma-node-featured-shell-post-row-frame-16\{[^}]*min-height:558\.5px/', $intrinsicCardCss) === 1, 'featured-shell-row-propagates-intrinsic-height');
+$assert(preg_match('/\.figma-node-featured-shell-title-heading\{[^}]*min-height:48px[^}]*overflow-wrap:break-word[^}]*text-wrap:balance/', $intrinsicCardCss) === 1 && ! preg_match('/\.figma-node-featured-shell-title-heading\{[^}]*white-space:nowrap/', $intrinsicCardCss), 'featured-shell-long-heading-allows-fallback-wrap');
+
 $fluidClonedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Fluid Cloned Band Fixture',
     'nodes' => array(
@@ -7474,8 +7604,80 @@ $rowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDec
 );
 $assert('responsive_oversized_desktop_geometry_safety' === ($rowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-row-stack-decision');
 $assert(in_array('height:auto', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-keeps-auto-height');
-$assert(in_array('flex-wrap:wrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-wraps');
+$assert(in_array('flex-wrap:nowrap', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-does-not-wrap-into-horizontal-columns');
 $assert(! in_array('min-height:360px', $rowStackSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-row-stack-drops-min-height');
+$separatorSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array('id' => 'policy:separator', 'type' => 'FRAME', 'name' => 'Separator', 'box' => array('width' => 943, 'height' => 4), 'children' => array(array('id' => 'policy:line', 'type' => 'VECTOR'))),
+    array('id' => 'policy:heading', 'type' => 'FRAME', 'name' => 'Heading with Separator'),
+    array('width' => '943px', 'height' => '4px', 'display' => 'flex', 'flex-direction' => 'row', 'margin-left' => '80px'),
+    390.0
+);
+$assert(in_array('margin-left:0', $separatorSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-overwide-margin-reset');
+$fluidRowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:fluid-row',
+        'type' => 'FRAME',
+        'name' => 'Hero Row',
+        'children' => array(
+            array('id' => 'policy:heading', 'type' => 'TEXT', 'box' => array('width' => 703)),
+            array('id' => 'policy:panel', 'type' => 'FRAME', 'box' => array('width' => 481)),
+        ),
+    ),
+    array('id' => 'policy:page', 'type' => 'FRAME', 'name' => 'Page'),
+    array('width' => '100%', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_generic_mobile_safety' === ($fluidRowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-fluid-row-stack-decision');
+$assert(
+    array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($fluidRowStackSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-fluid-row-stacks-overwide-child'
+);
+$previewRowStackSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:preview',
+        'type' => 'INSTANCE',
+        'name' => 'Featured Preview',
+        'children' => array(
+            array('id' => 'policy:preview:image', 'type' => 'INSTANCE', 'box' => array('width' => 176)),
+            array('id' => 'policy:preview:content', 'type' => 'FRAME', 'box' => array('width' => 281)),
+        ),
+    ),
+    array('id' => 'policy:preview-list', 'type' => 'FRAME', 'name' => 'Column'),
+    array('width' => '481px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_preview_card_width_safety' === ($previewRowStackSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-preview-row-decision');
+$assert(
+    array('width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap') === ($previewRowStackSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-preview-row-stacks'
+);
+$paginationSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array(
+        'id' => 'policy:pagination',
+        'type' => 'INSTANCE',
+        'name' => 'Pagination',
+        'children' => array(
+            array('id' => 'policy:previous', 'type' => 'INSTANCE'),
+            array('id' => 'policy:numbers', 'type' => 'FRAME'),
+            array('id' => 'policy:next', 'type' => 'INSTANCE'),
+        ),
+    ),
+    array('id' => 'policy:page', 'type' => 'FRAME', 'name' => 'Page'),
+    array('width' => '1216px', 'height' => '40px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert('responsive_pagination_overflow_safety' === ($paginationSafetyDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-pagination-decision');
+$assert(in_array('grid-template-columns:auto minmax(0,1fr) auto', $paginationSafetyDecision['declarations'] ?? array(), true), 'responsive-breakpoint-safety-policy-pagination-keeps-controls-visible');
+$paginationNumbersSafetyDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    array('id' => 'policy:numbers', 'type' => 'FRAME', 'name' => 'Pagination numbers', 'children' => array(array('id' => 'policy:number', 'type' => 'INSTANCE'))),
+    array('id' => 'policy:pagination', 'type' => 'INSTANCE', 'name' => 'Pagination'),
+    array('width' => '292px', 'height' => '40px', 'display' => 'flex', 'flex-direction' => 'row'),
+    390.0
+);
+$assert(
+    array('width:100%', 'max-width:100%', 'min-width:0', 'overflow-x:auto') === ($paginationNumbersSafetyDecision['declarations'] ?? array()),
+    'responsive-breakpoint-safety-policy-pagination-scrolls-numbers-only'
+);
 $assert(
     array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
         array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),
@@ -7926,6 +8128,7 @@ $paginationSemanticsCss = $fileContent($paginationSemanticsResult, 'style.css');
 $assert('success' === ($paginationSemanticsResult['status'] ?? null), 'pagination-semantics-transform-success');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<button[^>]*data-figma-node-id="pag:previous-base"/', $paginationSemanticsHtml), 'pagination-previous-avoids-nested-button');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
+$assert(str_contains($paginationSemanticsHtml, '<nav class="figma-node-pag-controls-pagination"') && str_contains($paginationSemanticsHtml, 'aria-label="Pagination"'), 'pagination-emits-labeled-navigation-landmark');
 $assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
 $paginationNumbersRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-numbers-pagination-numbers');
 $paginationNumberBaseRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base');

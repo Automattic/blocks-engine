@@ -160,7 +160,18 @@ final class BreakpointMediaDiffBuilder
                 $desktopRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($desktopChanged))) . '}';
             }
 
-            $mobileChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true, $parentNode, $rootWidth), $baseMap);
+            $mobileFallback = $this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true, $parentNode, $rootWidth);
+            $mobileChanged = $this->changedDeclarations($mobileFallback, $baseMap);
+            if ( in_array('flex-shrink:1', $desktopChanged, true) && in_array('flex-shrink:0', $mobileFallback, true) ) {
+                $mobileChanged[] = 'flex-shrink:0';
+            }
+            if ( in_array('min-height:0', $desktopChanged, true) ) {
+                foreach ( $mobileFallback as $declaration ) {
+                    if ( str_starts_with($declaration, 'min-height:') && 'min-height:0' !== $declaration ) {
+                        $mobileChanged[] = $declaration;
+                    }
+                }
+            }
             if ( ! empty($mobileChanged) ) {
                 $mobileRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($mobileChanged))) . '}';
             }
@@ -172,6 +183,9 @@ final class BreakpointMediaDiffBuilder
 
         $desktopRules = array_values(array_unique($desktopRules));
         $mobileRules = array_values(array_unique($mobileRules));
+        // Nested component clones can be opaque to breakpoint traversal, so
+        // enforce the mobile content boundary at the emitted DOM layer too.
+        $mobileRules[] = '.figma-root [data-source-node-type="TEXT"]{max-width:calc(100vw - 48px)}';
         $blocks = array();
         if ( $rootWidth > 1200.0 && ! empty($desktopRules) ) {
             $blocks[] = $this->mediaBlock('max-width', (int) floor($rootWidth - 1.0), $desktopRules);
@@ -198,6 +212,13 @@ final class BreakpointMediaDiffBuilder
         $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== $position;
+        $isHorizontalFlexChild = $isFlexChild && 'row' === ($parentLayout['flex_direction'] ?? null);
+        $layoutIntent = $this->layoutIntentClassifier->layoutIntent($node, $parentNode);
+        $isInferredGrid = 'grid' === ($layoutIntent['display'] ?? null) && $this->hasPositionedDirectChild($node);
+        $parentStacksOnMobile = $mobile
+            && $isHorizontalFlexChild
+            && ($this->nodeBoxDimension($parentNode ?? array(), 'width') ?? 0.0) > 340.0
+            && $this->hasContainerChild($parentNode ?? array());
 
         if ( $this->isResponsiveContainerType($type) && null !== $width && $width > ($mobile ? 340.0 : 767.0) ) {
             $declarations[] = 'width:100%';
@@ -214,16 +235,18 @@ final class BreakpointMediaDiffBuilder
                 // the section. Flex/grid containers keep the floor only when no
                 // container child can re-establish flow height.
                 $isCanvasContainer = ! in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
-                if ( $isCanvasContainer || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
+                if ( $isCanvasContainer || $isInferredGrid || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
                     $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
                 }
             }
             if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
-                $declarations[] = 'min-height:0';
+                $declarations[] = $parentStacksOnMobile || $isInferredGrid
+                    ? 'min-height:' . ($this->number)($minHeight) . 'px'
+                    : 'min-height:0';
             }
             if ( $mobile && $wrapsRow ) {
-                $declarations[] = 'height:auto';
                 if ( $this->hasContainerChild($node) ) {
+                    $declarations[] = 'height:auto';
                     $declarations[] = 'flex-direction:column';
                     $declarations[] = 'align-items:stretch';
                     $declarations[] = 'flex-wrap:nowrap';
@@ -247,7 +270,9 @@ final class BreakpointMediaDiffBuilder
         if ( $isFlexChild && null !== $width && $width > 320.0 ) {
             $declarations[] = 'max-width:100%';
             $declarations[] = 'min-width:0';
-            $declarations[] = 'flex-shrink:1';
+            if ( $isHorizontalFlexChild ) {
+                $declarations[] = $parentStacksOnMobile ? 'flex-shrink:0' : 'flex-shrink:1';
+            }
             if ( $this->isEqualWidthFlexRow($parentNode) ) {
                 $declarations[] = 'flex-basis:0';
                 $declarations[] = 'flex-grow:1';
@@ -303,6 +328,17 @@ final class BreakpointMediaDiffBuilder
             if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
                 $declarations[] = 'background-size:cover';
             }
+        }
+
+        $parentIntent = null === $parentNode ? null : $this->layoutIntentClassifier->layoutIntent($parentNode);
+        if (
+            $mobile
+            && 'absolute' === $position
+            && 'grid' === ($parentIntent['display'] ?? null)
+            && null !== ($parentIntent['collection'] ?? null)
+            && in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'TEXT'), true)
+        ) {
+            array_push($declarations, 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'width:100%', 'max-width:100%', 'height:auto', 'min-width:0');
         }
 
         return array_values(array_unique($declarations));
@@ -407,6 +443,22 @@ final class BreakpointMediaDiffBuilder
             }
 
             if ( $this->isResponsiveContainerType(strtoupper((string) ($child['type'] ?? 'FRAME'))) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function hasPositionedDirectChild(array $node): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($layout['positioning'] ?? null) || 'ABSOLUTE' === ($child['layoutPositioning'] ?? null) ) {
                 return true;
             }
         }

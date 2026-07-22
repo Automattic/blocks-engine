@@ -751,6 +751,30 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                             ),
                         ),
                     ),
+                    array(
+                        'id'       => 'responsive-rows:form-row',
+                        'type'     => 'FRAME',
+                        'name'     => 'Contact fields',
+                        'width'    => 640,
+                        'height'   => 75,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children' => array(
+                            array('id' => 'responsive-rows:name', 'type' => 'INSTANCE', 'name' => 'Name input', 'width' => 308, 'height' => 75),
+                            array('id' => 'responsive-rows:email', 'type' => 'INSTANCE', 'name' => 'Email input', 'width' => 308, 'height' => 75),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'responsive-rows:text-row',
+                        'type'     => 'FRAME',
+                        'name'     => 'Centered text row',
+                        'width'    => 820,
+                        'height'   => 44,
+                        'layoutMode' => 'HORIZONTAL',
+                        'children' => array(
+                            array('id' => 'responsive-rows:text', 'type' => 'TEXT', 'name' => 'Centered text', 'characters' => 'Responsive copy', 'width' => 820, 'height' => 44, 'layoutPositioning' => 'ABSOLUTE'),
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -767,10 +791,15 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $desktopOnlyResponsiveRowsMobileBlockPosition = strpos($desktopOnlyResponsiveRowsCss, '@media (max-width:767px)');
     $assert(false !== $desktopOnlyResponsiveRowsMobileBlockPosition, 'desktop-only-responsive-rows-emits-mobile-safety-block');
     $desktopOnlyResponsiveRowsMobileBlock = false === $desktopOnlyResponsiveRowsMobileBlockPosition ? '' : substr($desktopOnlyResponsiveRowsCss, $desktopOnlyResponsiveRowsMobileBlockPosition);
+    $assert(str_contains($desktopOnlyResponsiveRowsMobileBlock, '.figma-root [data-source-node-type="TEXT"]{max-width:calc(100vw - 48px)}'), 'desktop-only-responsive-mobile-contains-opaque-component-clone-text');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-hero-hero-row', array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap', 'padding-right:24px', 'padding-left:24px'), 'desktop-only-responsive-hero-row-stacks-at-mobile');
-    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-hero-hero-row', array('min-height:420px', 'flex-wrap:wrap'), 'desktop-only-responsive-hero-row-has-no-fixed-min-height-floor-or-wrap-only-layout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-hero-hero-row', array('min-height:420px', 'flex-wrap:wrap', 'flex-shrink:1'), 'desktop-only-responsive-hero-row-has-no-fixed-min-height-floor-wrap-only-layout-or-column-axis-shrink');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-pricing-cards-stack-at-mobile');
-    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-or-wrap-only-layout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-pricing-pricing-cards', array('min-height:360px', 'flex-wrap:wrap', 'flex-shrink:1'), 'desktop-only-responsive-pricing-cards-have-no-fixed-min-height-floor-wrap-only-layout-or-column-axis-shrink');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-price-a-price-card', array('flex-shrink:0'), 'desktop-only-responsive-stacked-card-restores-non-shrinking-column-flow');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-form-row-contact-fields', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-form-row-stacks-without-wrapping-into-horizontal-columns');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-form-row-contact-fields', array('flex-wrap:wrap'), 'desktop-only-responsive-form-row-removes-mobile-wrap-conflict');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-text-row-centered-text-row', array('height:auto'), 'desktop-only-responsive-absolute-text-row-keeps-its-height-floor');
 
     // Desktop-only canvas sections (no auto-layout) position every child
     // absolutely, so the mobile `height:auto` relaxation must keep a
@@ -867,6 +896,59 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-hero-hero-canvas-band', array('height:auto', 'min-height:453px'), 'desktop-only-canvas-hero-band-keeps-source-height-floor-at-mobile');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-about-about-canvas-band', array('height:auto', 'min-height:720px'), 'desktop-only-canvas-about-band-keeps-capped-height-floor-at-mobile');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyCanvasSectionsMobileBlock, '.figma-node-canvas-sections-cta-cta-canvas-band', array('height:auto', 'min-height:460px'), 'desktop-only-canvas-cta-band-keeps-source-height-floor-at-mobile');
+
+    // Semantic grids inferred from freeform component instances still emit their
+    // children in desktop canvas coordinates. Keep the section floor below the
+    // source width, then release direct content children into the mobile grid.
+    $desktopOnlyInferredGridResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Desktop Only Inferred Grid Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'inferred-grid:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 764,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'inferred-grid:pricing',
+                        'type'     => 'INSTANCE',
+                        'name'     => 'Pricing: 2-column boxed pricing table',
+                        'width'    => 1440,
+                        'height'   => 764,
+                        'children' => array(
+                            array('id' => 'inferred-grid:title', 'type' => 'TEXT', 'name' => 'Pricing', 'characters' => 'Pricing', 'x' => 656, 'y' => 69, 'width' => 128, 'height' => 46, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'inferred-grid:card-a', 'type' => 'FRAME', 'name' => 'Free plan', 'x' => 282, 'y' => 252, 'width' => 413, 'height' => 433, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                                array('id' => 'inferred-grid:card-a-text', 'type' => 'TEXT', 'name' => 'Free', 'characters' => 'Free membership plan', 'width' => 313, 'height' => 148),
+                                array('id' => 'inferred-grid:card-a-price', 'type' => 'TEXT', 'name' => 'Price', 'characters' => '0 per month', 'width' => 313, 'height' => 32),
+                            )),
+                            array('id' => 'inferred-grid:card-b', 'type' => 'FRAME', 'name' => 'Single plan', 'x' => 745, 'y' => 252, 'width' => 413, 'height' => 433, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                                array('id' => 'inferred-grid:card-b-text', 'type' => 'TEXT', 'name' => 'Single', 'characters' => 'Single membership plan', 'width' => 313, 'height' => 148),
+                                array('id' => 'inferred-grid:card-b-price', 'type' => 'TEXT', 'name' => 'Price', 'characters' => '20 per month', 'width' => 313, 'height' => 32),
+                            )),
+                            array('id' => 'inferred-grid:card-c', 'type' => 'FRAME', 'name' => 'Family plan', 'x' => 1208, 'y' => 252, 'width' => 413, 'height' => 433, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                                array('id' => 'inferred-grid:card-c-text', 'type' => 'TEXT', 'name' => 'Family', 'characters' => 'Family membership plan', 'width' => 313, 'height' => 148),
+                                array('id' => 'inferred-grid:card-c-price', 'type' => 'TEXT', 'name' => 'Price', 'characters' => '40 per month', 'width' => 313, 'height' => 32),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $desktopOnlyInferredGridCss = $fileContent($desktopOnlyInferredGridResult, 'style.css');
+    $desktopOnlyInferredGridFluidBlockPosition = strpos($desktopOnlyInferredGridCss, '@media (max-width:1439px)');
+    $assert(false !== $desktopOnlyInferredGridFluidBlockPosition, 'desktop-only-inferred-grid-emits-fluid-containment-block');
+    $desktopOnlyInferredGridFluidBlock = false === $desktopOnlyInferredGridFluidBlockPosition ? '' : substr($desktopOnlyInferredGridCss, $desktopOnlyInferredGridFluidBlockPosition, strpos($desktopOnlyInferredGridCss, '@media (max-width:767px)') - $desktopOnlyInferredGridFluidBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyInferredGridCss, '.figma-node-inferred-grid-pricing-pricing-2-column-boxed-pricing-table', array('min-height:764px'), 'desktop-only-inferred-grid-has-source-height-floor');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyInferredGridFluidBlock, '.figma-node-inferred-grid-pricing-pricing-2-column-boxed-pricing-table', array('min-height:0'), 'desktop-only-inferred-grid-does-not-collapse-in-fluid-range');
+    $desktopOnlyInferredGridMobileBlockPosition = strpos($desktopOnlyInferredGridCss, '@media (max-width:767px)');
+    $assert(false !== $desktopOnlyInferredGridMobileBlockPosition, 'desktop-only-inferred-grid-emits-mobile-safety-block');
+    $desktopOnlyInferredGridMobileBlock = false === $desktopOnlyInferredGridMobileBlockPosition ? '' : substr($desktopOnlyInferredGridCss, $desktopOnlyInferredGridMobileBlockPosition);
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyInferredGridMobileBlock, '.figma-node-inferred-grid-pricing-pricing-2-column-boxed-pricing-table', array('grid-template-columns:1fr'), 'desktop-only-inferred-grid-stacks-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyInferredGridMobileBlock, '.figma-node-inferred-grid-pricing-pricing-2-column-boxed-pricing-table', array('min-height:0'), 'desktop-only-inferred-grid-keeps-base-height-floor-at-mobile');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyInferredGridMobileBlock, '.figma-node-inferred-grid-card-a-free-plan', array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'width:100%', 'height:auto'), 'desktop-only-inferred-grid-card-enters-mobile-flow');
 
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',

@@ -47,7 +47,7 @@ final class ResponsiveBreakpointSafetyPolicy
             return $chromeDecision;
         }
 
-        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole, $viewportWidth);
+        $namedShellDecision = $this->namedResponsiveShellDecision($node, $parentNode, $baseMap, $name, $parentName, $isContainer, $width, $positioning, $display, $chromeRole, $viewportWidth);
         if ( '' !== $namedShellDecision['reason_code'] ) {
             return $namedShellDecision;
         }
@@ -60,6 +60,11 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( $viewportWidth <= 480.0 ) {
+            $inferredGridChildDeclarations = $this->inferredGridChildFlowDeclarations($node, $parentNode, $type, $positioning);
+            if ( ! empty($inferredGridChildDeclarations) ) {
+                return array('reason_code' => 'responsive_inferred_grid_child_flow', 'declarations' => $inferredGridChildDeclarations);
+            }
+
             $mobileTextDeclarations = $this->mobileCenteredTextFallbackDecision($node, $parentNode, $baseMap, $viewportWidth, $type, $width, $positioning, $variantNode);
             if ( ! empty($mobileTextDeclarations) ) {
                 return array('reason_code' => 'responsive_centered_text_mobile_safety', 'declarations' => $mobileTextDeclarations);
@@ -136,11 +141,13 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( $wrapsRow ) {
-            $declarations[] = 'flex-wrap:wrap';
-            $declarations[] = 'align-content:flex-start';
             if ( $viewportWidth <= 480.0 && $this->hasContainerChild($node) ) {
                 $declarations[] = 'flex-direction:column';
                 $declarations[] = 'align-items:stretch';
+                $declarations[] = 'flex-wrap:nowrap';
+            } else {
+                $declarations[] = 'flex-wrap:wrap';
+                $declarations[] = 'align-content:flex-start';
             }
         }
 
@@ -149,8 +156,31 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         array_push($declarations, ...$this->mobilePaddingClampDeclarations($baseMap));
+        array_push($declarations, ...$this->mobileMarginResetDeclarations($baseMap));
 
         return array_values(array_unique($declarations));
+    }
+
+    /**
+     * Release inferred semantic-grid children from desktop canvas coordinates so
+     * the one-column mobile grid can size itself from real flow content.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array<int, string>
+     */
+    private function inferredGridChildFlowDeclarations(array $node, ?array $parentNode, string $type, string $positioning): array
+    {
+        if ( null === $parentNode || 'absolute' !== $positioning || ! in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'TEXT'), true) ) {
+            return array();
+        }
+
+        $parentIntent = $this->layoutIntentClassifier->layoutIntent($parentNode);
+        if ( 'grid' !== ($parentIntent['display'] ?? null) || null === ($parentIntent['collection'] ?? null) ) {
+            return array();
+        }
+
+        return array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'width:100%', 'max-width:100%', 'height:auto', 'min-width:0');
     }
 
     /**
@@ -206,9 +236,10 @@ final class ResponsiveBreakpointSafetyPolicy
     /**
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
      * @return array{reason_code: string, declarations: array<int, string>}
      */
-    private function namedResponsiveShellDecision(array $node, ?array $parentNode, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
+    private function namedResponsiveShellDecision(array $node, ?array $parentNode, array $baseMap, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
     {
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
             return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
@@ -231,11 +262,30 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( ('featured preview' === $name || 'preview' === $name) && $isContainer && null !== $width && $width > 340.0 ) {
-            return array('reason_code' => 'responsive_preview_card_width_safety', 'declarations' => array('width:100%', 'height:auto'));
+            return array(
+                'reason_code' => 'responsive_preview_card_width_safety',
+                'declarations' => array_merge(
+                    array('width:100%', 'height:auto'),
+                    $this->stackedMobileFlowDeclarations($baseMap, $display, $this->hasContainerChild($node))
+                ),
+            );
         }
 
         if ( 'pagination' === $name && $isContainer ) {
-            return array('reason_code' => 'responsive_pagination_overflow_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'), array('overflow-x:auto')));
+            return array(
+                'reason_code' => 'responsive_pagination_overflow_safety',
+                'declarations' => array_merge(
+                    $this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'),
+                    array('height:auto', 'display:grid', 'grid-template-columns:auto minmax(0,1fr) auto', 'gap:8px', 'overflow:visible')
+                ),
+            );
+        }
+
+        if ( 'pagination numbers' === $name && $isContainer ) {
+            return array(
+                'reason_code' => 'responsive_pagination_numbers_overflow_safety',
+                'declarations' => array('width:100%', 'max-width:100%', 'min-width:0', 'overflow-x:auto'),
+            );
         }
 
         if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
@@ -285,12 +335,24 @@ final class ResponsiveBreakpointSafetyPolicy
     private function genericMobileSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, bool $isContainer, ?float $width, string $positioning, string $display): array
     {
         $mobileContentWidth = max(1.0, $viewportWidth - 48.0);
-        if ( ! $isContainer || null === $parentNode || null === $width || $width <= min(340.0, $mobileContentWidth) || empty(($this->nodeList)($node)) ) {
+        $hasUnsafeFluidRow = null === $width
+            && '100%' === ($baseMap['width'] ?? null)
+            && in_array($display, array('flex', 'inline-flex'), true)
+            && 'row' === ($baseMap['flex-direction'] ?? null)
+            && $this->hasOverwideContainerChild($node, $mobileContentWidth);
+        if ( ! $isContainer || null === $parentNode || empty(($this->nodeList)($node)) ) {
+            return array();
+        }
+        if ( ! $hasUnsafeFluidRow && (null === $width || $width <= min(340.0, $mobileContentWidth)) ) {
             return array();
         }
 
         $declarations = array();
         $hasContainerChild = $this->hasContainerChild($node);
+
+        if ( $hasUnsafeFluidRow ) {
+            return array('width:100%', 'max-width:100%', 'height:auto', 'flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap');
+        }
 
         if ( 'absolute' === $positioning ) {
             if ( $width > $mobileContentWidth ) {
@@ -380,6 +442,24 @@ final class ResponsiveBreakpointSafetyPolicy
     }
 
     /**
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function mobileMarginResetDeclarations(array $baseMap): array
+    {
+        $declarations = array();
+        foreach ( array('left', 'right') as $edge ) {
+            $property = 'margin-' . $edge;
+            $margin = $this->cssPixelValue($baseMap[$property] ?? '');
+            if ( null !== $margin && 0.0 !== $margin ) {
+                $declarations[] = $property . ':0';
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function hasContainerChild(array $node): bool
@@ -391,6 +471,30 @@ final class ResponsiveBreakpointSafetyPolicy
 
             $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
             if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasOverwideContainerChild(array $node, float $contentWidth): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true)
+                && isset($box['width'])
+                && is_numeric($box['width'])
+                && (float) $box['width'] > $contentWidth
+            ) {
                 return true;
             }
         }

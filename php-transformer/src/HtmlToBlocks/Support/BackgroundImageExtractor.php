@@ -3,15 +3,33 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+
 final class BackgroundImageExtractor
 {
     public function urlFromStyle(string $style): string
     {
-        if ( ! preg_match('/(?:^|;)\s*background(?:-image)?\s*:\s*[^;]*url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $style, $matches) ) {
-            return '';
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            if ( ! in_array(strtolower($name), array( 'background', 'background-image' ), true) ) {
+                continue;
+            }
+
+            if ( preg_match('/\burl\(\s*(?:(["\'])(.*?)\1|([^)]*))\s*\)/is', $value, $matches) ) {
+                return $this->safeUrl((string) ('' !== ($matches[2] ?? '') ? $matches[2] : ($matches[3] ?? '')));
+            }
         }
 
-        $url = trim(html_entity_decode((string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        return '';
+    }
+
+    private function safeUrl(string $value): string
+    {
+        $url = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
             return '';
         }

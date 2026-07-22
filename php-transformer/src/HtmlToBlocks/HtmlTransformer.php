@@ -962,15 +962,19 @@ final class HtmlTransformer
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+            $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
+            $imageRule = '' === $imagePrelude
+                ? ''
+                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
             if ( array() === $margins ) {
-                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}';
+                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
 
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
                 : $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $this->cssDeclarationString($inner) . '}';
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}';
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
         });
     }
 
@@ -1067,6 +1071,57 @@ final class HtmlTransformer
         return implode(',', $rewritten);
     }
 
+    private function projectAuthorImageSelectorPrelude(string $prelude): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return '';
+        }
+
+        $projected = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $matches = $this->matchingAuthorSourceElements($parsed);
+            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName)));
+            if ( array() === $imageMatches ) {
+                continue;
+            }
+
+            if ( $this->isRootChildSelector($parsed) ) {
+                foreach ( $imageMatches as $element ) {
+                    $marker = $this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '';
+                    if ( '' !== $marker ) {
+                        $projected[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker) . '.wp-block-image > img';
+                    }
+                }
+                continue;
+            }
+
+            $projected[] = $this->projectImageSelector($selector, $parsed);
+        }
+
+        return implode(',', array_values(array_unique($projected)));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function imageProjectionBridgeDeclarations(array $declarations): string
+    {
+        $bridge = array( 'display:block' );
+        $position = strtolower(trim((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            $bridge[] = 'width:100%';
+            $bridge[] = 'height:100%';
+        }
+        $bridge[] = 'max-width:100%';
+        $bridge[] = 'object-fit:inherit';
+        $bridge[] = 'object-position:inherit';
+        $bridge[] = 'border-radius:inherit';
+        return implode(';', $bridge);
+    }
+
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     private function matchingAuthorSourceElements(array $parsed): array
     {
@@ -1116,6 +1171,29 @@ final class HtmlTransformer
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectImageSelector(string $selector, array $parsed): string
+    {
+        $replacements = array(
+            (int) $parsed['rightmost_rewrite_end'] => array(
+                'end'   => (int) $parsed['rightmost_rewrite_end'],
+                'value' => '.wp-block-image > img',
+            ),
+        );
+        $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
+        if ( is_string($rightmostType) && 'img' === strtolower($rightmostType) ) {
+            $typeSpan = end($parsed['type_spans']);
+            if ( is_array($typeSpan) ) {
+                $replacements[(int) $typeSpan['start']] = array(
+                    'end'   => (int) $typeSpan['end'],
+                    'value' => ':where(figure)' . $this->typeSpecificityShim(),
+                );
+            }
+        }
+
+        return $this->replaceSelectorSpans($selector, $replacements);
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2235,6 +2313,10 @@ final class HtmlTransformer
      */
     private function mediaGalleryBlockFromElement(DOMElement $element): ?array
     {
+        if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
+            return null;
+        }
+
         return $this->galleryPattern->match(
             $element,
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
@@ -2244,6 +2326,37 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
         );
+    }
+
+    private function isGalleryCompatibleMediaLayout(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $layoutElements = array( $child );
+            foreach ( $child->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement ) {
+                    $layoutElements[] = $descendant;
+                }
+            }
+
+            foreach ( $layoutElements as $layoutElement ) {
+                $declarations = $this->structuralPresentationDeclarations($layoutElement);
+                $position = strtolower(trim((string) ($declarations['position'] ?? '')));
+                if ( in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
+                    return false;
+                }
+
+                $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? '')));
+                if ( '' !== $zIndex && 'auto' !== $zIndex ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
