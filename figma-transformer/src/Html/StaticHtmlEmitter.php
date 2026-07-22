@@ -2249,6 +2249,9 @@ final class StaticHtmlEmitter
     {
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( empty($layout['display'] ?? null) && $this->freeformContainerHasNonOverlappingFlow($node, $layoutIntent) ) {
+            return true;
+        }
         if ( empty($layout['display'] ?? null) && $this->layoutIntentCanUseFlow($layoutIntent) && $this->isContentOnlyFlowScaffold($node) ) {
             return true;
         }
@@ -2293,6 +2296,71 @@ final class StaticHtmlEmitter
         }
 
         return count($contentChildren) >= 2;
+    }
+
+    /**
+     * Convert simple media/content bands to intrinsic flow while preserving
+     * layered freeform compositions as positioned geometry.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $layoutIntent
+     */
+    private function freeformContainerHasNonOverlappingFlow(array $node, ?array $layoutIntent): bool
+    {
+        if ( ! $this->isFreeformContainer($node) || ! $this->layoutIntentCanUseFlow($layoutIntent) || 'flex' !== ($layoutIntent['display'] ?? null) ) {
+            return false;
+        }
+
+        $direction = (string) ($layoutIntent['direction'] ?? '');
+        if ( ! in_array($direction, array('row', 'column'), true) ) {
+            return false;
+        }
+
+        $parentBox = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $bands = array();
+        $hasText = false;
+        $hasMedia = false;
+        foreach ( array_values(array_filter($this->nodeList($node), 'is_array')) as $child ) {
+            if ( $this->subtreeIsDecorativeSeparator($child) || $this->isFullyClippedDecorativeChild($child, $node) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($childLayout['positioning'] ?? null) ) {
+                return false;
+            }
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $mainStart = $this->positionOffset($childBox, $parentBox, 'column' === $direction ? 'y' : 'x');
+            $crossStart = $this->positionOffset($childBox, $parentBox, 'column' === $direction ? 'x' : 'y');
+            $mainSize = $childBox['column' === $direction ? 'height' : 'width'] ?? null;
+            if ( null === $mainStart || null === $crossStart || ! is_numeric($mainSize) || (float) $mainSize <= 0.0 || $mainStart < -0.5 ) {
+                return false;
+            }
+
+            $childHasText = $this->subtreeHasText($child) || $this->subtreeHasLink($child);
+            $childHasMedia = null !== $this->nodeAssetPath($child) || $this->hasImagePaintEvidence($child);
+            if ( ! $childHasText && ! $childHasMedia ) {
+                return false;
+            }
+            $hasText = $hasText || $childHasText;
+            $hasMedia = $hasMedia || $childHasMedia;
+            $bands[] = array('start' => $mainStart, 'end' => $mainStart + (float) $mainSize, 'cross' => $crossStart);
+        }
+
+        if ( count($bands) < 2 || ! $hasText || ! $hasMedia ) {
+            return false;
+        }
+
+        usort($bands, static fn (array $left, array $right): int => $left['start'] <=> $right['start']);
+        $crossOrigin = $bands[0]['cross'];
+        $previousEnd = null;
+        foreach ( $bands as $band ) {
+            if ( abs($band['cross'] - $crossOrigin) > 0.5 || (null !== $previousEnd && $band['start'] < $previousEnd - 0.5) ) {
+                return false;
+            }
+            $previousEnd = $band['end'];
+        }
+
+        return true;
     }
 
     /**
@@ -6295,6 +6363,14 @@ final class StaticHtmlEmitter
                 }
                 continue;
             }
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && 'TEXT' === $type && $this->textShouldUseIntrinsicFlowHeight($node, $parentNode) ) {
+                $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
+                continue;
+            }
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->flexContainerShouldUseIntrinsicFlowHeight($node) ) {
+                $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
+                continue;
+            }
             if ( 'width' === $dimension ) {
                 $canvasWidthDecision = $this->breakpointDimensionPolicy()->canvasWidthDecision(
                     $canvasShell,
@@ -7667,6 +7743,82 @@ final class StaticHtmlEmitter
         }
 
         return $hasResponsiveWidth;
+    }
+
+    /**
+     * Let ordinary wrapping text expand beyond its measured Figma box when a
+     * browser substitutes fonts with different metrics.
+     *
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textShouldUseIntrinsicFlowHeight(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) || '' === trim($this->nodePlainText($node)) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( 'absolute' === ($layout['positioning'] ?? null) || 'flex' !== ($parentLayout['display'] ?? null) || 'column' !== ($parentLayout['flex_direction'] ?? null) || true === ($parentLayout['clips_content'] ?? false) ) {
+            return false;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        return ! $this->textIsAtomicSingleLineLabel($node, $text) && $this->textSourceBoxAllowsMultipleLines($node, $text);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $text
+     */
+    private function textSourceBoxAllowsMultipleLines(array $node, array $text): bool
+    {
+        if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            return true;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $lineHeight = null;
+        foreach ( array('line_height_px', 'line_height') as $key ) {
+            if ( isset($style[$key]) && is_numeric($style[$key]) && (float) $style[$key] > 0.0 ) {
+                $lineHeight = (float) $style[$key];
+                break;
+            }
+        }
+        if ( null === $lineHeight ) {
+            $fontSize = $this->textFontSize($node);
+            $lineHeight = null === $fontSize ? null : $fontSize * 1.2;
+        }
+
+        return null !== $height && null !== $lineHeight && $height > $lineHeight * 1.25;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function flexContainerShouldUseIntrinsicFlowHeight(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $usesFlow = 'flex' === ($layout['display'] ?? null) || $this->freeformContainerShouldUseFlow($node);
+        if ( ! $usesFlow || true === ($layout['clips_content'] ?? false) ) {
+            return false;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($childLayout['positioning'] ?? null) ) {
+                continue;
+            }
+            if ( $this->textShouldUseIntrinsicFlowHeight($child, $node) || $this->flexContainerShouldUseIntrinsicFlowHeight($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $node */

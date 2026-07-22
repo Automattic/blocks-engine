@@ -494,10 +494,10 @@ final class LayoutIntentClassifier
             if ( ! is_array($child) || false === ($child['visible'] ?? null) ) {
                 continue;
             }
-            if ( $this->isPrimitiveVisualOnly($child) && ! $this->subtreeHasLink($child) ) {
+            if ( $this->isPrimitiveVisualOnly($child) && ! $this->subtreeHasLink($child) && ! $this->nodeHasImageReference($child) ) {
                 continue;
             }
-            if ( ! $this->subtreeHasText($child) && ! $this->subtreeHasLink($child) ) {
+            if ( ! $this->subtreeHasText($child) && ! $this->subtreeHasLink($child) && ! $this->nodeHasImageReference($child) ) {
                 continue;
             }
             $children[] = $child;

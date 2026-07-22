@@ -6604,6 +6604,84 @@ $freeformFlowCss = $fileContent($freeformFlowResult, 'style.css');
 $assert(! preg_match('/\.figma-node-freeform-flow-heading-heading-with-separator\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-heading-flows');
 $assert(! preg_match('/\.figma-node-freeform-flow-content-post-cards\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-content-flows');
 
+$intrinsicCardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Intrinsic Card Flow Fixture',
+    'assets' => array(
+        'intrinsic-card-image' => array('mime_type' => 'image/png', 'content' => 'intrinsic card image'),
+    ),
+    'nodes' => array(
+        array(
+            'id'         => 'intrinsic-card:section',
+            'type'       => 'FRAME',
+            'name'       => 'All updates',
+            'width'      => 1216,
+            'height'     => 663,
+            'layoutMode' => 'VERTICAL',
+            'children' => array(
+                array(
+                    'id'                   => 'intrinsic-card:query',
+                    'type'                 => 'FRAME',
+                    'name'                 => 'Query loop',
+                    'width'                => 1216,
+                    'height'               => 567,
+                    'layoutMode'           => 'HORIZONTAL',
+                    'layoutWrap'           => 'WRAP',
+                    'primaryAxisSizingMode' => 'FIXED',
+                    'children'             => array(
+                        array(
+                            'id'       => 'intrinsic-card:preview',
+                            'type'     => 'INSTANCE',
+                            'name'     => 'Preview',
+                            'width'    => 376,
+                            'height'   => 567,
+                            'layout'   => array('freeform' => true),
+                            'children' => array(
+                                array(
+                                    'id'         => 'intrinsic-card:image',
+                                    'type'       => 'RECTANGLE',
+                                    'name'       => 'Image',
+                                    'x'          => 0,
+                                    'y'          => 0,
+                                    'width'      => 376,
+                                    'height'     => 282,
+                                    'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'intrinsic-card-image')),
+                                ),
+                                array(
+                                    'id'                   => 'intrinsic-card:content',
+                                    'type'                 => 'FRAME',
+                                    'name'                 => 'Content',
+                                    'x'                    => 0,
+                                    'y'                    => 314,
+                                    'width'                => 376,
+                                    'height'               => 253,
+                                    'layoutMode'           => 'VERTICAL',
+                                    'primaryAxisSizingMode' => 'FIXED',
+                                    'itemSpacing'          => 12,
+                                    'children'             => array(
+                                        array('id' => 'intrinsic-card:author', 'type' => 'TEXT', 'name' => 'Author', 'characters' => 'JANE', 'width' => 376, 'height' => 18, 'fontSize' => 14, 'lineHeightPx' => 18),
+                                        array('id' => 'intrinsic-card:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'A long card heading that wraps when the browser substitutes a wider font family', 'width' => 376, 'height' => 108, 'fontSize' => 36, 'lineHeightPx' => 36),
+                                        array('id' => 'intrinsic-card:excerpt', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'Supporting copy must move below the complete heading instead of overlapping it.', 'width' => 376, 'height' => 78, 'fontSize' => 18, 'lineHeightPx' => 26),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$intrinsicCardCss = $fileContent($intrinsicCardResult, 'style.css');
+$assert(preg_match('/\.figma-node-intrinsic-card-preview-preview\{[^}]*min-height:567px[^}]*display:flex[^}]*flex-direction:column[^}]*gap:32px/', $intrinsicCardCss) === 1, 'intrinsic-card-freeform-bands-become-column-flow');
+$assert(! preg_match('/\.figma-node-intrinsic-card-(?:image-image|content-content)\{[^}]*position:absolute/', $intrinsicCardCss), 'intrinsic-card-bands-avoid-absolute-positioning');
+$assert(preg_match('/\.figma-node-intrinsic-card-content-content\{[^}]*min-height:253px/', $intrinsicCardCss) === 1, 'intrinsic-card-content-keeps-source-height-floor');
+$assert(! preg_match('/\.figma-node-intrinsic-card-content-content\{[^}]*(?<!-)height:253px/', $intrinsicCardCss), 'intrinsic-card-content-drops-fixed-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-heading-heading\{[^}]*min-height:108px/', $intrinsicCardCss) === 1, 'intrinsic-card-heading-keeps-source-height-floor');
+$assert(! preg_match('/\.figma-node-intrinsic-card-heading-heading\{[^}]*(?<!-)height:108px/', $intrinsicCardCss), 'intrinsic-card-heading-drops-fixed-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-excerpt-excerpt\{[^}]*min-height:78px/', $intrinsicCardCss) === 1, 'intrinsic-card-excerpt-keeps-source-height-floor');
+$assert(preg_match('/\.figma-node-intrinsic-card-query-query-loop\{[^}]*min-height:567px/', $intrinsicCardCss) === 1, 'intrinsic-card-wrapping-query-keeps-intrinsic-height');
+$assert(preg_match('/\.figma-node-intrinsic-card-section-all-updates\{[^}]*min-height:663px/', $intrinsicCardCss) === 1, 'intrinsic-card-section-propagates-intrinsic-height');
+
 $fluidClonedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Fluid Cloned Band Fixture',
     'nodes' => array(
