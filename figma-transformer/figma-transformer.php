@@ -3,7 +3,7 @@
  * Plugin Name: Blocks Engine Figma Transformer
  * Plugin URI: https://github.com/Automattic/blocks-engine/tree/trunk/figma-transformer
  * Description: PHP primitives for transforming Figma designs into static HTML website artifacts.
- * Version: 0.1.2
+ * Version: 0.1.3
  * Requires PHP: 8.1
  * Author: Automattic
  * License: GPL-3.0-or-later
@@ -15,7 +15,7 @@
 declare(strict_types=1);
 
 if ( ! defined('BLOCKS_ENGINE_FIGMA_TRANSFORMER_VERSION') ) {
-    define('BLOCKS_ENGINE_FIGMA_TRANSFORMER_VERSION', '0.1.2');
+    define('BLOCKS_ENGINE_FIGMA_TRANSFORMER_VERSION', '0.1.3');
 }
 
 if ( ! defined('BLOCKS_ENGINE_FIGMA_TRANSFORMER_FILE') ) {

@@ -327,7 +327,7 @@ final class ArtifactNormalizer
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
-            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
             if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
                 continue;
             }

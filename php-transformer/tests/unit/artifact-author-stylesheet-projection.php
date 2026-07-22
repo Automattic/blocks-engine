@@ -75,6 +75,18 @@ $assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:blo
 $assert($imageCss === base64_decode((string) ($image['assets'][0]['content_base64'] ?? ''), true), 'stylesheet projection keeps text and base64 payload representations consistent');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
+$multiPage = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><p><span class="quote-mark">&quot;</span>Home</p></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><p><span class="quote-mark">&quot;</span>About</p></main>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.quote-mark{color:#e8a020}' ),
+    ),
+) )->toArray();
+$multiPageAuthorAssets = array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')));
+$assert(1 === count($multiPageAuthorAssets), 'identical generated author stylesheets are emitted once across HTML routes');
+$assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
+
 if ( $failures > 0 ) {
     exit(1);
 }
