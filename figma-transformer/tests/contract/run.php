@@ -6608,6 +6608,7 @@ $intrinsicCardResult = blocks_engine_figma_transformer_transform_scenegraph(arra
     'name'  => 'Intrinsic Card Flow Fixture',
     'assets' => array(
         'intrinsic-card-image' => array('mime_type' => 'image/png', 'content' => 'intrinsic card image'),
+        'featured-shell-image' => array('mime_type' => 'image/png', 'content' => 'featured shell image'),
     ),
     'nodes' => array(
         array(
@@ -6669,6 +6670,53 @@ $intrinsicCardResult = blocks_engine_figma_transformer_transform_scenegraph(arra
                 ),
             ),
         ),
+        array(
+            'id'       => 'featured-shell:root',
+            'type'     => 'INSTANCE',
+            'name'     => 'Featured Posts',
+            'width'    => 1216,
+            'height'   => 558.5,
+            'layout'   => array('freeform' => true),
+            'children' => array(
+                array(
+                    'id'         => 'featured-shell:heading-band',
+                    'type'       => 'FRAME',
+                    'name'       => 'Heading with Separator',
+                    'x'          => 0,
+                    'y'          => 0,
+                    'width'      => 1216,
+                    'height'     => 48,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'featured-shell:label', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Trending', 'width' => 169, 'height' => 48, 'fontSize' => 48, 'lineHeightPx' => 57.6),
+                    ),
+                ),
+                array(
+                    'id'         => 'featured-shell:post-row',
+                    'type'       => 'FRAME',
+                    'name'       => 'Frame 16',
+                    'x'          => 0,
+                    'y'          => 80,
+                    'width'      => 1216,
+                    'height'     => 558.5,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array(
+                            'id'         => 'featured-shell:post',
+                            'type'       => 'FRAME',
+                            'name'       => 'Featured Preview',
+                            'width'      => 691,
+                            'height'     => 558.5,
+                            'layoutMode' => 'VERTICAL',
+                            'children'   => array(
+                                array('id' => 'featured-shell:image', 'type' => 'RECTANGLE', 'name' => 'Image', 'width' => 691, 'height' => 345.5, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'featured-shell-image'))),
+                                array('id' => 'featured-shell:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'A Days of thunder lego set is coming', 'width' => 691, 'height' => 48, 'fontSize' => 48, 'lineHeightPx' => 57.6),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
     ),
 ));
 $intrinsicCardCss = $fileContent($intrinsicCardResult, 'style.css');
@@ -6681,6 +6729,10 @@ $assert(! preg_match('/\.figma-node-intrinsic-card-heading-heading\{[^}]*(?<!-)h
 $assert(preg_match('/\.figma-node-intrinsic-card-excerpt-excerpt\{[^}]*min-height:78px/', $intrinsicCardCss) === 1, 'intrinsic-card-excerpt-keeps-source-height-floor');
 $assert(preg_match('/\.figma-node-intrinsic-card-query-query-loop\{[^}]*min-height:567px/', $intrinsicCardCss) === 1, 'intrinsic-card-wrapping-query-keeps-intrinsic-height');
 $assert(preg_match('/\.figma-node-intrinsic-card-section-all-updates\{[^}]*min-height:663px/', $intrinsicCardCss) === 1, 'intrinsic-card-section-propagates-intrinsic-height');
+$assert(preg_match('/\.figma-node-featured-shell-root-featured-posts\{[^}]*min-height:558\.5px[^}]*display:flex[^}]*flex-direction:column[^}]*gap:32px/', $intrinsicCardCss) === 1, 'featured-shell-nested-media-bands-become-column-flow');
+$assert(! preg_match('/\.figma-node-featured-shell-(?:heading-band-heading-with-separator|post-row-frame-16)\{[^}]*position:absolute/', $intrinsicCardCss), 'featured-shell-bands-avoid-absolute-positioning');
+$assert(preg_match('/\.figma-node-featured-shell-post-row-frame-16\{[^}]*min-height:558\.5px/', $intrinsicCardCss) === 1, 'featured-shell-row-propagates-intrinsic-height');
+$assert(preg_match('/\.figma-node-featured-shell-title-heading\{[^}]*min-height:48px[^}]*overflow-wrap:break-word[^}]*text-wrap:balance/', $intrinsicCardCss) === 1 && ! preg_match('/\.figma-node-featured-shell-title-heading\{[^}]*white-space:nowrap/', $intrinsicCardCss), 'featured-shell-long-heading-allows-fallback-wrap');
 
 $fluidClonedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Fluid Cloned Band Fixture',

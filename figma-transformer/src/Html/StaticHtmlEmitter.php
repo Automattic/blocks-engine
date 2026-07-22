@@ -2249,7 +2249,7 @@ final class StaticHtmlEmitter
     {
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( empty($layout['display'] ?? null) && $this->freeformContainerHasNonOverlappingFlow($node, $layoutIntent) ) {
+        if ( empty($layout['display'] ?? null) && null !== $this->freeformContainerFlowIntent($node) ) {
             return true;
         }
         if ( empty($layout['display'] ?? null) && $this->layoutIntentCanUseFlow($layoutIntent) && $this->isContentOnlyFlowScaffold($node) ) {
@@ -2302,18 +2302,13 @@ final class StaticHtmlEmitter
      * Convert simple media/content bands to intrinsic flow while preserving
      * layered freeform compositions as positioned geometry.
      *
-     * @param array<string, mixed>      $node
-     * @param array<string, mixed>|null $layoutIntent
+     * @param array<string, mixed> $node
+     * @return array{intent: string, display: string, direction: string, collection: null, item_count: int, column_count: int, gap: float|null, confidence: string}|null
      */
-    private function freeformContainerHasNonOverlappingFlow(array $node, ?array $layoutIntent): bool
+    private function freeformContainerFlowIntent(array $node): ?array
     {
-        if ( ! $this->isFreeformContainer($node) || ! $this->layoutIntentCanUseFlow($layoutIntent) || 'flex' !== ($layoutIntent['display'] ?? null) ) {
-            return false;
-        }
-
-        $direction = (string) ($layoutIntent['direction'] ?? '');
-        if ( ! in_array($direction, array('row', 'column'), true) ) {
-            return false;
+        if ( ! $this->isFreeformContainer($node) ) {
+            return null;
         }
 
         $parentBox = is_array($node['box'] ?? null) ? $node['box'] : array();
@@ -2326,20 +2321,20 @@ final class StaticHtmlEmitter
             }
             $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             if ( 'absolute' === ($childLayout['positioning'] ?? null) ) {
-                return false;
+                return null;
             }
             $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            $mainStart = $this->positionOffset($childBox, $parentBox, 'column' === $direction ? 'y' : 'x');
-            $crossStart = $this->positionOffset($childBox, $parentBox, 'column' === $direction ? 'x' : 'y');
-            $mainSize = $childBox['column' === $direction ? 'height' : 'width'] ?? null;
+            $mainStart = $this->positionOffset($childBox, $parentBox, 'y');
+            $crossStart = $this->positionOffset($childBox, $parentBox, 'x');
+            $mainSize = $childBox['height'] ?? null;
             if ( null === $mainStart || null === $crossStart || ! is_numeric($mainSize) || (float) $mainSize <= 0.0 || $mainStart < -0.5 ) {
-                return false;
+                return null;
             }
 
             $childHasText = $this->subtreeHasText($child) || $this->subtreeHasLink($child);
-            $childHasMedia = null !== $this->nodeAssetPath($child) || $this->hasImagePaintEvidence($child);
+            $childHasMedia = $this->subtreeHasImageEvidence($child);
             if ( ! $childHasText && ! $childHasMedia ) {
-                return false;
+                return null;
             }
             $hasText = $hasText || $childHasText;
             $hasMedia = $hasMedia || $childHasMedia;
@@ -2347,20 +2342,49 @@ final class StaticHtmlEmitter
         }
 
         if ( count($bands) < 2 || ! $hasText || ! $hasMedia ) {
-            return false;
+            return null;
         }
 
         usort($bands, static fn (array $left, array $right): int => $left['start'] <=> $right['start']);
         $crossOrigin = $bands[0]['cross'];
         $previousEnd = null;
+        $gaps = array();
         foreach ( $bands as $band ) {
             if ( abs($band['cross'] - $crossOrigin) > 0.5 || (null !== $previousEnd && $band['start'] < $previousEnd - 0.5) ) {
-                return false;
+                return null;
+            }
+            if ( null !== $previousEnd ) {
+                $gaps[] = max(0.0, $band['start'] - $previousEnd);
             }
             $previousEnd = $band['end'];
         }
 
-        return true;
+        return array(
+            'intent'       => LayoutIntentClassifier::LAYOUT_INTENT_STACK,
+            'display'      => 'flex',
+            'direction'    => 'column',
+            'collection'   => null,
+            'item_count'   => count($bands),
+            'column_count' => 1,
+            'gap'          => empty($gaps) ? null : array_sum($gaps) / count($gaps),
+            'confidence'   => 'high',
+        );
+    }
+
+    /** @param array<string, mixed> $node */
+    private function subtreeHasImageEvidence(array $node): bool
+    {
+        if ( null !== $this->nodeAssetPath($node) || $this->hasImagePaintEvidence($node) ) {
+            return true;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasImageEvidence($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -6504,12 +6528,12 @@ final class StaticHtmlEmitter
 
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node, $parentNode, $grandParentNode) as $style ) {
-                if ( $this->textShouldUseFluidFlowBox($node, $parentNode) && str_starts_with($style, 'white-space:') ) {
+                if ( ($this->textShouldUseFluidFlowBox($node, $parentNode) || $this->textShouldUseIntrinsicFlowHeight($node, $parentNode)) && str_starts_with($style, 'white-space:') ) {
                     continue;
                 }
                 $styles[] = $style;
             }
-            if ( $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
+            if ( $this->textShouldUseFluidFlowBox($node, $parentNode) || $this->textShouldUseIntrinsicFlowHeight($node, $parentNode) ) {
                 foreach ( $this->textWrappingStyles($node, $parentNode, $grandParentNode) as $style ) {
                     $styles[] = $style;
                 }
@@ -6524,6 +6548,10 @@ final class StaticHtmlEmitter
         }
 
         $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
+        $freeformFlowIntent = empty($layout['display'] ?? null) ? $this->freeformContainerFlowIntent($node) : null;
+        if ( null !== $freeformFlowIntent ) {
+            $layoutIntent = $freeformFlowIntent;
+        }
         if ( empty($layout['display'] ?? null) && is_array($layoutIntent) && ($this->layoutIntentShouldEmitClass($layoutIntent) || ($this->freeformContainerShouldUseFlow($node) && ! $positioningStyleDecision->willPositionAbsolute)) ) {
             foreach ( $this->layoutIntentStyles($layoutIntent) as $style ) {
                 $styles[] = $style;
@@ -7765,7 +7793,15 @@ final class StaticHtmlEmitter
         }
 
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        return ! $this->textIsAtomicSingleLineLabel($node, $text) && $this->textSourceBoxAllowsMultipleLines($node, $text);
+        return ($this->textIsLongFallbackWrappingHeading($node) || ! $this->textIsAtomicSingleLineLabel($node, $text))
+            && $this->textSourceBoxAllowsMultipleLines($node, $text);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function textIsLongFallbackWrappingHeading(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        return strlen(trim($this->nodePlainText($node))) > 32 && (bool) preg_match('/\b(?:heading|headline|title)\b/', $name);
     }
 
     /**
@@ -7775,6 +7811,10 @@ final class StaticHtmlEmitter
     private function textSourceBoxAllowsMultipleLines(array $node, array $text): bool
     {
         if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            return true;
+        }
+
+        if ( $this->textIsLongFallbackWrappingHeading($node) ) {
             return true;
         }
 
@@ -7851,7 +7891,7 @@ final class StaticHtmlEmitter
     private function textWrappingStyles(array $node, ?array $parentNode, ?array $grandParentNode): array
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        if ( $this->textIsAtomicSingleLineLabel($node, $text) || $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
+        if ( ($this->textIsAtomicSingleLineLabel($node, $text) && ! $this->textIsLongFallbackWrappingHeading($node)) || $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
             return array();
         }
 
