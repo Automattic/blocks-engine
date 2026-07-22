@@ -394,6 +394,7 @@ final class WordPressSitePlan
             $route = array_values(array_filter($routes, static fn(array $route): bool => $route['source_path'] === $page['source_path']))[0] ?? null; if (!is_array($route)) throw new InvalidArgumentException('WordPress site plan page lacks a canonical route.'); $path = $route['target_path'];
             if (isset($byRoute[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.');
             $page['route'] = array('path' => $path, 'parent_path' => self::parentRoutePath($path), 'slug' => self::routeSlug($path));
+            if ('/' !== $path) $page['slug'] = $page['route']['slug'];
             $page['reconciliation_identity'] = self::identity('page', $page['source_path'], $path);
             $byRoute[$path] = $index;
         }
