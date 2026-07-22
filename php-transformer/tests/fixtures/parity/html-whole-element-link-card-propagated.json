@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-card" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "/img/feature.jpg", "alt": "Feature", "href": "https://example.com/feature/", "linkDestination": "custom" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "<a href=\"https://example.com/feature/\">Feature Title</a>", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/feature/\">Feature Title</a></mark>", "level": 3 } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
@@ -31,9 +31,9 @@
     { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
     { "path": "blocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "https://example.com/feature/" },
     { "path": "blocks.0.innerBlocks.0.attrs.linkDestination", "assert": "equals", "value": "custom" },
-    { "path": "blocks.0.innerBlocks.1.attrs.content", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature Title</a>" },
+    { "path": "blocks.0.innerBlocks.1.attrs.content", "assert": "contains", "value": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/feature/\">Feature Title</a></mark>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\"><img" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature Title</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/feature/\">Feature Title</a></mark>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature description text.</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"className\":\"feature-card\",\"href\"" },
     { "path": "source_reports.html.dropped_link_wrappers", "assert": "count", "count": 0 },

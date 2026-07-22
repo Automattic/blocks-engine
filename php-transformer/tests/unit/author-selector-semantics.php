@@ -39,6 +39,10 @@ $assert(str_contains($navigationShellClass, 'blocks-engine-source-nav-') && ! st
 $currentNavigation = ( new HtmlTransformer() )->transform('<style>.primary-nav a.active{color:gold;border-bottom-color:gold}</style><nav class="primary-nav"><a href="index.html">Home</a><a href="faculty.html">Faculty</a></nav>', array( 'source' => 'index.html' ))->toArray();
 $currentNavigationMarkup = (string) ($currentNavigation['serialized_blocks'] ?? '');
 $assert(str_contains($currentNavigationMarkup, 'anchorClassName":"active') && str_contains($currentNavigationMarkup, 'textDecoration":"underline') && 1 === substr_count($currentNavigationMarkup, 'anchorClassName":"active'), 'source-matching navigation links retain their current-page state before routes are rewritten');
+$assert((bool) preg_match('/\.wp-block-navigation-item\.blocks-engine-navigation-control-[^,{]+[^{}]*> \.wp-block-navigation-item__content\{color:gold;border-bottom-color:gold\}/', $css($currentNavigation)), 'current navigation anchor paint projects through the exact native navigation item identity');
+
+$richTextAnchor = $transform('<style>p a{color:#8c3a2a;border-bottom:1px solid rgba(140,58,42,.25)}</style><p>Read <a href="/story">the full story</a>.</p>');
+$assert(str_contains((string) ($richTextAnchor['serialized_blocks'] ?? ''), '<mark class="blocks-engine-richtext-anchor-') && str_contains($css($richTextAnchor), 'mark.blocks-engine-richtext-anchor-') && str_contains($css($richTextAnchor), '>a{color:#8c3a2a;border-bottom:1px solid rgba(140,58,42,.25)}') && 'pass' === ($richTextAnchor['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText links retain source border and paint through a valid marker wrapper');
 
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);

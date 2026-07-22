@@ -20,14 +20,14 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-nav", "tagName": "nav" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "className": "active", "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "active" } }
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "className": "active blocks-engine-navigation-control-226ffd79f684-3", "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "active" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"nav-logo\"><a href=\"index.html\">Mara <em><mark style=\"font-style:normal;color:#b8552a;background-color:transparent\">Vale</mark></em></a></p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"nav-links blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0\"}},\"layout\":{\"type\":\"flex\",\"flexWrap\":\"nowrap\"},\"overlayMenu\":\"mobile\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"style\":{\"typography\":{\"textDecoration\":\"underline\"}},\"anchorClassName\":\"active\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active blocks-engine-navigation-control-226ffd79f684-3\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"style\":{\"typography\":{\"textDecoration\":\"underline\"}},\"anchorClassName\":\"active\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"label\":\"Mara \\u003cem" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

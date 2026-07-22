@@ -1274,8 +1274,18 @@ $quickLinkCards = ( new HtmlTransformer() )->transform(
     '<div class="quick-links"><a class="quick-link" href="/apply"><h3>Apply</h3><p>Choose a program.</p></a><a class="quick-link" href="/visit"><h3>Visit</h3><p>Plan your trip.</p></a></div>'
 )->toArray();
 $quickLinkCardsBlock = $quickLinkCards['blocks'][0] ?? array();
+$quickLinkCardsCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $quickLinkCards['assets'] ?? array()));
 $assert('core/group' === ($quickLinkCardsBlock['blockName'] ?? '') && 'quick-links' === ($quickLinkCardsBlock['attrs']['className'] ?? ''), 'card-like quick-links container remains a layout group rather than a navigation menu');
 $assert('core/group' === ($quickLinkCardsBlock['innerBlocks'][0]['blockName'] ?? '') && 'quick-link' === ($quickLinkCardsBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'block-content quick link remains a card group');
+$assert(str_contains((string) ($quickLinkCards['serialized_blocks'] ?? ''), '<mark class="blocks-engine-propagated-link"><a href="/apply">') && str_contains($quickLinkCardsCss, '.blocks-engine-propagated-link{background-color:transparent;color:inherit}.blocks-engine-propagated-link>a{color:inherit;border:0;text-decoration:inherit}'), 'synthetic card link wrappers inherit source card paint instead of acquiring browser mark, standalone link color, or borders');
+
+$captionedPlaceholder = ( new HtmlTransformer() )->transform(
+    '<style>.visual{position:relative;aspect-ratio:16/9}.visual::after{content:attr(data-caption);position:absolute;left:12px;bottom:10px;color:#fff;background:rgba(0,0,0,.7);padding:4px 8px}</style><div class="visual" role="img" aria-label="Research vessel at sea" data-caption="Spring research cruise"></div>'
+)->toArray();
+$captionedPlaceholderMarkup = (string) ($captionedPlaceholder['serialized_blocks'] ?? '');
+$captionedPlaceholderCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $captionedPlaceholder['assets'] ?? array()));
+$assert(str_contains($captionedPlaceholderMarkup, 'blocks-engine-placeholder-media') && str_contains($captionedPlaceholderMarkup, 'Spring research cruise') && str_contains($captionedPlaceholderMarkup, 'blocks-engine-placeholder-caption-'), 'CSS visual placeholder materializes its generated caption as editable native text');
+$assert(str_contains($captionedPlaceholderCss, 'position:absolute') && str_contains($captionedPlaceholderCss, 'left:12px') && str_contains($captionedPlaceholderCss, 'bottom:10px') && str_contains($captionedPlaceholderCss, 'margin:0'), 'materialized placeholder caption preserves pseudo-element overlay geometry without affecting layout flow');
 
 $inlineMetadataFlow = ( new HtmlTransformer() )->transform(
     '<style>.event-meta{font-size:.82rem}.event-meta .pipe{margin:0 8px}.event-meta .room-code{font-family:monospace}</style><div class="event-meta">Committee chair: Prof. Mahalingam <span class="pipe">·</span> <span class="room-code">M-302</span> Mendel Hall</div>'
@@ -2006,7 +2016,7 @@ $artifactNavAnchorMarkup = (string) ($artifactNavAnchorCss['serialized_blocks'] 
 $artifactNavAnchorGeneratedCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavAnchorCss['assets'] ?? array()));
 $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { display:block;color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact static CSS replays nested nav anchor color through direct and descendant core/navigation wrappers');
 $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content:hover, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content:hover { color:#8f5031;border-color:#8f5031 }'), 'artifact static CSS replays nested nav anchor hover color through core/navigation wrappers');
-$assert((bool) preg_match('/\.wp-block-navigation\.blocks-engine-list-navigation \.wp-block-navigation-item\.blocks-engine-navigation-control-[a-f0-9]+-\d+> \.wp-block-navigation-item__content\{display:block\}/', $artifactNavAnchorGeneratedCss), 'artifact author CSS projects source anchor display through converted navigation item identity');
+$assert((bool) preg_match('/\.wp-block-navigation-item\.blocks-engine-navigation-control-[a-f0-9]+-\d+[^{}]*> \.wp-block-navigation-item__content\{display:block;/', $artifactNavAnchorGeneratedCss), 'artifact author CSS projects source anchor display through converted navigation item identity');
 $assert(str_contains($artifactNavAnchorMarkup, 'blocks-engine-navigation-control-'), 'converted navigation link carries the projected author-style identity');
 
 $artifactAdjacentNavSpacing = $compiler->compile(

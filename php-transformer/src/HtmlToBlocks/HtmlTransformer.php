@@ -358,6 +358,9 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $sourceNavigationControlMarkers = array();
 
+    /** @var array<string, string> */
+    private array $sourceRichTextAnchorMarkers = array();
+
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
@@ -382,6 +385,9 @@ final class HtmlTransformer
 
     /** @var list<array{path: string, content: string, source_hash: string}> */
     private array $authorStylesheetAssets = array();
+
+    /** @var array<string, string> */
+    private array $placeholderCaptionRules = array();
 
     /** A collision-checked custom element used solely to retain type specificity. */
     private string $authorSpecificityShim = '';
@@ -455,6 +461,7 @@ final class HtmlTransformer
         $this->sourceControlMarkers = array();
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceNavigationControlMarkers = array();
+        $this->sourceRichTextAnchorMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
@@ -465,6 +472,7 @@ final class HtmlTransformer
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
         $this->authorStylesheetAssets = array();
+        $this->placeholderCaptionRules = array();
         $this->authorSpecificityShim = '';
         $this->authorClassSpecificityShim = '';
         $this->authorIdSpecificityShim = '';
@@ -739,12 +747,15 @@ final class HtmlTransformer
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
-        $navigationControlDisplayCss = $this->navigationControlDisplayProjectionCss();
-        if ( '' !== $navigationControlDisplayCss ) {
-            $cssParts[] = $navigationControlDisplayCss;
-        }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
+        }
+        if ( array() !== $this->placeholderCaptionRules ) {
+            $cssParts[] = implode("\n", $this->placeholderCaptionRules);
+        }
+        if ( str_contains($serializedBlocks, 'blocks-engine-propagated-link') || str_contains($serializedBlocks, 'blocks-engine-propagated-image-link') ) {
+            $cssParts[] = '.blocks-engine-propagated-link{background-color:transparent;color:inherit}.blocks-engine-propagated-link>a{color:inherit;border:0;text-decoration:inherit}'
+                . "\n" . '.blocks-engine-propagated-image-link>a{color:inherit;border:0;text-decoration:inherit}';
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -925,10 +936,15 @@ final class HtmlTransformer
                     continue;
                 }
                 foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
-                    if ( 'span' !== strtolower($element->tagName) ) {
+                    $tagName = strtolower($element->tagName);
+                    $path = $this->sourceElementIdentity($element);
+                    if ( 'a' === $tagName && $this->isRichTextInlineContext($element) ) {
+                        $this->sourceRichTextAnchorMarkers[$path] ??= $this->allocateAuthorMarker('richtext-anchor');
                         continue;
                     }
-                    $path = $this->sourceElementIdentity($element);
+                    if ( 'span' !== $tagName ) {
+                        continue;
+                    }
                     if ( '' === $path ) {
                         continue;
                     }
@@ -1037,45 +1053,6 @@ final class HtmlTransformer
             );
         }
         return $projections;
-    }
-
-    private function navigationControlDisplayProjectionCss(): string
-    {
-        if ( array() === $this->sourceNavigationControlMarkers
-            || '' === $this->combinedAuthorCss
-            || ! $this->authorStyleSourceBody instanceof DOMElement ) {
-            return '';
-        }
-
-        return trim(( new CssStylesheetTransformer() )->transformStyleRules(
-            $this->combinedAuthorCss,
-            function (string $prelude, string $body): string {
-                $declarations = $this->cssDeclarations($body);
-                if ( ! isset($declarations['display']) ) {
-                    return '';
-                }
-
-                $selectors = array();
-                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    $parsed = CssSelectorMatcher::parse($selector);
-                    if ( ! $parsed['supported'] ) {
-                        continue;
-                    }
-                    foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
-                        $marker = $this->sourceNavigationControlMarkers[$element->getNodePath() ?? ''] ?? '';
-                        if ( '' !== $marker ) {
-                            $selectors['.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.' . $marker . '> .wp-block-navigation-item__content'] = true;
-                        }
-                    }
-                }
-
-                if ( array() === $selectors ) {
-                    return '';
-                }
-
-                return implode(',', array_keys($selectors)) . '{' . $this->cssDeclarationString(array( 'display' => $declarations['display'] )) . '}';
-            }
-        ));
     }
 
     private function allocateAuthorMarker(string $kind): string
@@ -1255,12 +1232,18 @@ final class HtmlTransformer
             }
 
             $controls = array();
+            $navigationControls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
+            $richTextAnchors = array();
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( isset($this->sourceControlMarkers[$path]) ) {
+                if ( isset($this->sourceNavigationControlMarkers[$path]) ) {
+                    $navigationControls[] = $this->sourceNavigationControlMarkers[$path];
+                } elseif ( isset($this->sourceRichTextAnchorMarkers[$path]) ) {
+                    $richTextAnchors[] = $this->sourceRichTextAnchorMarkers[$path];
+                } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
                 } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
                     $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
@@ -1271,25 +1254,36 @@ final class HtmlTransformer
                 }
             }
             $controls = array_values(array_unique($controls));
+            $navigationControls = array_values(array_unique($navigationControls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
-            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
+            $richTextAnchors = array_values(array_unique($richTextAnchors));
+            if ( array() === $controls && array() === $navigationControls && array() === $semanticLeaves && array() === $richTextLeaves && array() === $richTextAnchors ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
 
-            $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
-            if ( $hasNonProjected ) {
+            $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves, $richTextAnchors);
+            if ( $hasNonProjected && array() !== $projectedMarkers ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
+            }
+            if ( array() !== $navigationControls ) {
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
             }
             foreach ( $controls as $marker ) {
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $controlWrapper);
+            }
+            foreach ( $navigationControls as $marker ) {
+                $rewritten[] = $this->projectNavigationControlSelector($selector, $parsed, $marker);
             }
             foreach ( $semanticLeaves as $marker ) {
                 $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
             }
             foreach ( $richTextLeaves as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
+            }
+            foreach ( $richTextAnchors as $marker ) {
+                $rewritten[] = $this->projectRichTextAnchorSelector($selector, $parsed, $marker);
             }
         }
         return implode(',', $rewritten);
@@ -1384,6 +1378,20 @@ final class HtmlTransformer
         // this control. Project through it rather than assuming source attributes
         // or ancestors survive canonical core/button serialization.
         return ':where(.' . $marker . ')' . ($wrapper ? ':where(.wp-block-buttons)' : $this->selectorSpecificityShims($parsed) . '> :where(.wp-block-button__link)') . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectNavigationControlSelector(string $selector, array $parsed, string $marker): string
+    {
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return '.wp-block-navigation-item.' . $marker . $this->selectorSpecificityShims($parsed) . '> .wp-block-navigation-item__content' . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectRichTextAnchorSelector(string $selector, array $parsed, string $marker): string
+    {
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return 'mark.' . $marker . $this->selectorSpecificityShims($parsed) . '>a' . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2547,6 +2555,7 @@ final class HtmlTransformer
             $element,
             fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
             fn (string $value): string => $this->runtime->escapeHtml($value),
+            fn (DOMElement $sourceElement): array => $this->placeholderCaptionAttributes($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
         );
         if ( null !== $placeholderMedia ) {
@@ -2577,6 +2586,25 @@ final class HtmlTransformer
         }
 
         return array( 'handled' => false, 'block' => null );
+    }
+
+    /** @return array<string, mixed> */
+    private function placeholderCaptionAttributes(DOMElement $element): array
+    {
+        $declarations = array();
+        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+            if ( 'after' === ($rule['pseudo'] ?? '') && $this->matchesCssSelector($element, (string) ($rule['selector'] ?? '')) ) {
+                $declarations = array_merge($declarations, $rule['declarations'] ?? array());
+            }
+        }
+        unset($declarations['content']);
+        $declarations['margin'] = '0';
+
+        $hash = substr(hash('sha256', json_encode($declarations, JSON_UNESCAPED_SLASHES) ?: ''), 0, 16);
+        $className = 'blocks-engine-placeholder-caption-' . $hash;
+        $this->placeholderCaptionRules[$className] = '.' . $className . '{' . $this->cssDeclarationString($declarations) . '}';
+
+        return array( 'className' => $className );
     }
 
     /**
@@ -2691,7 +2719,7 @@ final class HtmlTransformer
                     $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
                 }
             }
-            if ( 'core/navigation-link' === $name && 'a' === strtolower($logicalControl->tagName) && isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) ) {
+            if ( 'core/navigation-link' === $name && 'a' === strtolower($logicalControl->tagName) && '' !== $this->combinedAuthorCss ) {
                 $path = $logicalControl->getNodePath() ?? '';
                 if ( '' !== $path && ! isset($this->sourceNavigationControlMarkers[$path]) ) {
                     $this->sourceNavigationControlMarkers[$path] = $this->allocateAuthorMarker('navigation-control');
@@ -2877,7 +2905,8 @@ final class HtmlTransformer
             return $marker;
         }
 
-        return $this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
+        $identity = $this->sourceElementIdentity($element);
+        return $this->sourceRichTextAnchorMarkers[$identity] ?? $this->sourceRichTextSemanticMarkers[$identity] ?? '';
     }
 
     /**
@@ -3155,7 +3184,7 @@ final class HtmlTransformer
     private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
     {
         $content = $this->innerHtml($element);
-        if ( '' === $content || ! preg_match('/<(?:span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:a|span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
 
@@ -3172,14 +3201,14 @@ final class HtmlTransformer
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'a', 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $sourceInlines[] = $sourceInline;
             }
         }
 
         $targetInlines = array();
         foreach ( $body->getElementsByTagName('*') as $targetInline ) {
-            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'a', 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $targetInlines[] = $targetInline;
             }
         }
@@ -3193,6 +3222,16 @@ final class HtmlTransformer
             $inline = $this->richTextInlineVisualDeclarations($sourceInline);
             $marker = $this->richTextMarkerForElement($sourceInline);
             if ( '' !== $marker ) {
+                if ( 'a' === strtolower($targetInline->tagName) && isset($this->sourceRichTextAnchorMarkers[$this->sourceElementIdentity($sourceInline)]) ) {
+                    $parent = $targetInline->parentNode;
+                    if ( null !== $parent ) {
+                        $mark = $document->createElement('mark');
+                        $mark->setAttribute('class', $marker);
+                        $parent->replaceChild($mark, $targetInline);
+                        $mark->appendChild($targetInline);
+                    }
+                    continue;
+                }
                 $targetInline->setAttribute('class', $this->mergeClassNames($this->attr($targetInline, 'class'), $marker));
             }
             if ( array() === $inline ) {
@@ -8339,6 +8378,8 @@ final class HtmlTransformer
             'rel'             => (string) ($linkAttrs['rel'] ?? ''),
         ), static fn (string $value): bool => '' !== trim($value));
 
+        $imageLink['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-propagated-image-link');
+
         $block = $this->rebuildBlock($block, array_merge($attrs, $imageLink));
         return true;
     }
@@ -8407,7 +8448,7 @@ final class HtmlTransformer
             $attributes .= ' rel="' . htmlspecialchars($linkAttrs['rel'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
 
-        return '<a' . $attributes . '>' . $content . '</a>';
+        return '<mark class="blocks-engine-propagated-link"><a' . $attributes . '>' . $content . '</a></mark>';
     }
 
     /**

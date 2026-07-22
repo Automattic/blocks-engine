@@ -281,8 +281,8 @@ final class WordPressSitePlan
                 continue;
             }
             $first = $candidates[array_key_first($candidates)][0];
-            $identity = hash('sha256', $area . "\0" . json_encode($first['classes']) . "\0" . $first['markup']);
-            foreach ($candidates as $rows) if ($identity !== hash('sha256', $area . "\0" . json_encode($rows[0]['classes']) . "\0" . $rows[0]['markup'])) {
+            $identity = hash('sha256', $area . "\0" . json_encode($first['classes']) . "\0" . $this->shellIdentityMarkup($first['markup']));
+            foreach ($candidates as $rows) if ($identity !== hash('sha256', $area . "\0" . json_encode($rows[0]['classes']) . "\0" . $this->shellIdentityMarkup($rows[0]['markup']))) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area);
                 continue 2;
             }
@@ -326,6 +326,12 @@ final class WordPressSitePlan
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => $diagnostics);
+    }
+
+    private function shellIdentityMarkup(string $markup): string
+    {
+        $normalized = preg_replace('/\b(blocks-engine-[a-z0-9-]+)-[a-f0-9]{12}-\d+\b/', '$1-{identity}', $markup) ?? $markup;
+        return preg_replace('/(?:"className":"blocks-engine-[a-z0-9-]+-\{identity\}",|,"className":"blocks-engine-[a-z0-9-]+-\{identity\}"|"className":"blocks-engine-[a-z0-9-]+-\{identity\}")/', '', $normalized) ?? $normalized;
     }
 
     private function withoutTopLevelShell(string $markup, string $area): ?string

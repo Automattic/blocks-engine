@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "panel-link" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a>", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a></mark>", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
@@ -27,8 +27,8 @@
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.0.attrs.href", "assert": "equals", "value": null },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">A summary of the latest reporting period.</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a></mark>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"blocks-engine-propagated-link\"><a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">A summary of the latest reporting period.</a></mark>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Quarterly Review" },
     { "path": "serialized_blocks", "assert": "contains", "value": "A summary of the latest reporting period." },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"https://example.com/details/\"" },

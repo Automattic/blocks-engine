@@ -12,10 +12,11 @@ final class PlaceholderMediaPattern
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(string): string $escapeHtml
+     * @param callable(DOMElement): array<string, mixed> $captionAttributes
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $escapeHtml, callable $createBlock): ?array
+    public function match(DOMElement $element, callable $presentationAttributes, callable $escapeHtml, callable $captionAttributes, callable $createBlock): ?array
     {
         if ( ! $this->isPlaceholderMediaElement($element) ) {
             return null;
@@ -29,7 +30,7 @@ final class PlaceholderMediaPattern
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $createBlock('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
+        $children = '' !== $label ? array( $createBlock('core/paragraph', array_merge($captionAttributes($element), array( 'content' => $escapeHtml($label) )), array(), null) ) : array();
 
         return $createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
     }
@@ -37,6 +38,12 @@ final class PlaceholderMediaPattern
     private function isPlaceholderMediaElement(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
+        if ( 'img' === strtolower($this->attr($element, 'role'))
+            && '' !== trim($this->attr($element, 'aria-label'))
+            && '' !== trim($this->attr($element, 'data-caption'))
+            && 0 === $element->childElementCount ) {
+            return true;
+        }
         if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
             return false;
         }
@@ -62,6 +69,10 @@ final class PlaceholderMediaPattern
 
     private function placeholderLabel(DOMElement $element): string
     {
+        $caption = trim($this->attr($element, 'data-caption'));
+        if ( '' !== $caption ) {
+            return $caption;
+        }
         foreach ( $element->getElementsByTagName('span') as $span ) {
             if ( ! $span instanceof DOMElement ) {
                 continue;
