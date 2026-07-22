@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-responsive-fill-media-box",
+  "description": "A responsive inline SVG (width/height=100%) inside a CSS-sized flex media wrapper fills its wrapper via a generated geometry carrier (figure width/height:100%, margin:0, img object-fit:contain) instead of collapsing to its intrinsic viewBox size with centering whitespace and a default block margin.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-responsive-fill-media-box.json",
+    "notes": "Distilled from the artist-music merch product-card media box: a 4:3 flex wrapper owning the media box with a viewBox SVG authored to fill it at 100%. Uses generic class names only."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.media-box{aspect-ratio:4 / 3;display:flex;align-items:center;justify-content:center;overflow:hidden}</style><main><div class=\"media-box\" aria-hidden=\"true\"><svg viewBox=\"0 0 300 220\" width=\"100%\" height=\"100%\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"300\" height=\"220\" fill=\"#1e1410\"></rect><circle cx=\"150\" cy=\"110\" r=\"60\" fill=\"#c4581a\"></circle></svg></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "is-resized" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"width\":\"100%\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image be-inline-geometry-" },
+    { "path": "assets.1.content", "assert": "contains", "value": "margin:0;width:100%;height:100%" },
+    { "path": "assets.1.content", "assert": "contains", "value": "object-fit:contain" }
+  ]
+}
