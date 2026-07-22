@@ -562,8 +562,8 @@ final class WordPressSitePlan
     private function routeLinks(string $content, string $origin, array $routes): string
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
-        $content = preg_replace_callback('/(\bhref\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
-        return preg_replace_callback('/(["\']url["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        return preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string
