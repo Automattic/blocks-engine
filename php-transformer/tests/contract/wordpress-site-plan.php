@@ -271,6 +271,8 @@ $unresolvedLocal = $plan; $unresolvedLocal['pages'][0]['canonical_block_markup']
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedLocal), 'Validation rejects unresolved local browser references.');
 $dataSvg = $plan; $dataSvg['pages'][0]['canonical_block_markup'] .= '<div style="background-image:url(data:image/svg+xml,%3Csvg%3E%3C/svg%3E)"></div>'; $dataSvg['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($dataSvg['pages'][0]['canonical_block_markup']);
 WordPressSitePlan::assertValid($dataSvg); $assert(true, 'Validation preserves complete data URLs instead of treating the payload after its comma as a local reference.');
+$encodedQuotedDataSvg = $plan; $encodedQuotedDataSvg['pages'][0]['canonical_block_markup'] .= '<div style="background-image:url(&quot;data:image/svg+xml,%3Csvg%3E%3C/svg%3E&quot;)"></div>'; $encodedQuotedDataSvg['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($encodedQuotedDataSvg['pages'][0]['canonical_block_markup']);
+WordPressSitePlan::assertValid($encodedQuotedDataSvg); $assert(true, 'Validation preserves data URLs with HTML-encoded CSS quotes.');
 $unresolvedSrcset = $plan; $unresolvedSrcset['pages'][0]['canonical_block_markup'] .= '<img srcset="/images/first.svg 1x, images/missing.svg 2x">'; $unresolvedSrcset['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($unresolvedSrcset['pages'][0]['canonical_block_markup']);
 $throws(static fn() => WordPressSitePlan::assertValid($unresolvedSrcset), 'Validation still rejects unresolved members of comma-separated srcset references.');
 $invalidMetadata = $plan; $invalidMetadata['pages'][0]['document_metadata']['scripts'][0]['asset_reference'] = '{{wordpress-site-plan:asset:asset-0000000000000000}}';
