@@ -160,7 +160,18 @@ final class BreakpointMediaDiffBuilder
                 $desktopRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($desktopChanged))) . '}';
             }
 
-            $mobileChanged = $this->changedDeclarations($this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true, $parentNode, $rootWidth), $baseMap);
+            $mobileFallback = $this->desktopOnlyResponsiveFallbackDeclarations($node, $baseMap, $depth, 0 === $depth ? $rootWidth : null, true, $parentNode, $rootWidth);
+            $mobileChanged = $this->changedDeclarations($mobileFallback, $baseMap);
+            if ( in_array('flex-shrink:1', $desktopChanged, true) && in_array('flex-shrink:0', $mobileFallback, true) ) {
+                $mobileChanged[] = 'flex-shrink:0';
+            }
+            if ( in_array('min-height:0', $desktopChanged, true) ) {
+                foreach ( $mobileFallback as $declaration ) {
+                    if ( str_starts_with($declaration, 'min-height:') && 'min-height:0' !== $declaration ) {
+                        $mobileChanged[] = $declaration;
+                    }
+                }
+            }
             if ( ! empty($mobileChanged) ) {
                 $mobileRules[] = '.' . $class . '{' . implode(';', array_values(array_unique($mobileChanged))) . '}';
             }
@@ -198,6 +209,11 @@ final class BreakpointMediaDiffBuilder
         $wrapsRow = in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null);
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== $position;
+        $isHorizontalFlexChild = $isFlexChild && 'row' === ($parentLayout['flex_direction'] ?? null);
+        $parentStacksOnMobile = $mobile
+            && $isHorizontalFlexChild
+            && ($this->nodeBoxDimension($parentNode ?? array(), 'width') ?? 0.0) > 340.0
+            && $this->hasContainerChild($parentNode ?? array());
 
         if ( $this->isResponsiveContainerType($type) && null !== $width && $width > ($mobile ? 340.0 : 767.0) ) {
             $declarations[] = 'width:100%';
@@ -219,7 +235,9 @@ final class BreakpointMediaDiffBuilder
                 }
             }
             if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
-                $declarations[] = 'min-height:0';
+                $declarations[] = $parentStacksOnMobile
+                    ? 'min-height:' . ($this->number)($minHeight) . 'px'
+                    : 'min-height:0';
             }
             if ( $mobile && $wrapsRow ) {
                 $declarations[] = 'height:auto';
@@ -247,7 +265,9 @@ final class BreakpointMediaDiffBuilder
         if ( $isFlexChild && null !== $width && $width > 320.0 ) {
             $declarations[] = 'max-width:100%';
             $declarations[] = 'min-width:0';
-            $declarations[] = 'flex-shrink:1';
+            if ( $isHorizontalFlexChild ) {
+                $declarations[] = $parentStacksOnMobile ? 'flex-shrink:0' : 'flex-shrink:1';
+            }
             if ( $this->isEqualWidthFlexRow($parentNode) ) {
                 $declarations[] = 'flex-basis:0';
                 $declarations[] = 'flex-grow:1';
