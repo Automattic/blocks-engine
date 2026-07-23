@@ -676,6 +676,9 @@ final class HtmlTransformer
             // landmark around an independently converted landmark block.
             $blocks = array($this->createBlock('core/group', $wrapperAttrs, $blocks, $child));
             $markup = $this->runtime->serializeBlocks($blocks);
+            $templatePartBlocks = $blocks;
+            unset($templatePartBlocks[0]['attrs']['tagName']);
+            $templatePartMarkup = $this->runtime->serializeBlocks($templatePartBlocks);
             if ( '' === trim($markup) ) {
                 continue;
             }
@@ -687,6 +690,7 @@ final class HtmlTransformer
                 'body_format' => 'blocks',
                 'block_markup' => $markup,
                 'inner_block_markup' => $innerMarkup,
+                'template_part_block_markup' => $templatePartMarkup,
                 'source_selector' => strtolower($child->tagName),
                 'source_classes' => $this->shellSourceClasses($child),
                 'source_hash' => hash('sha256', $this->outerHtml($child)),
