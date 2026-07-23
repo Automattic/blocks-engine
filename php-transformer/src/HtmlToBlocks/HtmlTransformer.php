@@ -1090,7 +1090,15 @@ final class HtmlTransformer
             }
             $matches = $this->matchingAuthorSourceElements($parsed);
             if ( array() === $matches ) {
-                $rewritten[] = $selector;
+                // A type selector (e.g. `.page-header p`) that matches no source
+                // element must still be projected through its source-tag marker
+                // rather than emitted bare. Otherwise a `<div>` later collapsed to a
+                // `<p>` (an eyebrow `<div class="label">`) would be newly captured by
+                // the dormant `.page-header p` rule and lose its own type scale.
+                // Rewriting to `:where(.source-p-marker)` — carried only by elements
+                // that were `<p>` in the source — makes the rule match exactly what
+                // the author intended and nothing that was structurally promoted.
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
             if ( $this->isRootChildSelector($parsed) ) {
@@ -3754,6 +3762,12 @@ final class HtmlTransformer
         // decoration, which the wrapper class still applies to the paragraph. Real
         // flex containers hold child elements and are already excluded above by the
         // `childElementCount === 0` guard (e.g. `.tier-price` wrapping a `<span>`).
+        //
+        // Descendant paragraph rules the source used a non-`p` tag to escape (e.g.
+        // `.page-header p { font-size: ... }` styling body copy while an eyebrow
+        // authored as `<div class="label">` avoided it) do not capture the collapsed
+        // paragraph: author `p` type selectors are projected through the source-`p`
+        // tag marker, which only elements that were `<p>` in the source carry.
         if ( 0 === $this->childElementCount($element) && ! $this->hasBoxChromeWrapperStyling($element) ) {
             return $this->createBlock(
                 'core/paragraph',
