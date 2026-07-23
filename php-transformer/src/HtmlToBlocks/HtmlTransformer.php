@@ -7435,15 +7435,23 @@ final class HtmlTransformer
      */
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
     {
+        $declarations = $this->presentationDeclarations($element);
         $url = $this->backgroundImageExtractor->urlFromStyle($this->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
         }
 
+        $width = trim((string) ($declarations['width'] ?? ''));
+        $height = trim((string) ($declarations['height'] ?? ''));
+        $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
+
         return $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
             'className' => 'blocks-engine-background-image',
+            'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
+            'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
+            'scale'     => in_array($scale, array( 'cover', 'contain' ), true) ? $scale : '',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
     }
 

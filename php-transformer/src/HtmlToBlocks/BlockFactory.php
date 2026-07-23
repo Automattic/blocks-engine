@@ -487,11 +487,15 @@ final class BlockFactory
      */
     private function imageDimensionStyle(array $attrs): string
     {
-        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) ) {
+        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) && ! array_key_exists('scale', $attrs) ) {
             return '';
         }
 
         $style = array();
+        if ( array_key_exists('scale', $attrs) && null !== $attrs['scale'] ) {
+            $style[] = 'object-fit:' . (string) $attrs['scale'];
+        }
+
         if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
             $style[] = 'width:' . (string) $attrs['width'];
         }
