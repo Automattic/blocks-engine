@@ -30,6 +30,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // A row of button-styled links (e.g. `<div class="stream-links"><a
+        // class="stream-btn">…</a>…</div>`) is a call-to-action button group, not
+        // site navigation. It matched here only because a container token like
+        // `links` looks navigational, but its anchors carry button signals and
+        // belong to the buttons pattern, which preserves their pill geometry and
+        // styling. Defer so navigation does not flatten them into menu items.
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasDirectListNavigationSignal($element) && $this->hasButtonStyledLinkChildren($element) ) {
+            return null;
+        }
+
         if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
             return null;
         }
@@ -844,6 +854,34 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $this->collectAnchorsExcluding($child, $anchors, $excluded);
             }
         }
+    }
+
+    /**
+     * Whether the container's direct link children are button-styled call-to-
+     * action anchors rather than navigation links. Requires every direct anchor
+     * to carry a button signal so a genuine nav menu with one incidental
+     * button-classed link is not misclassified.
+     */
+    private function hasButtonStyledLinkChildren(DOMElement $element): bool
+    {
+        $classifier = new ButtonSignalClassifier();
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                $anchors[] = $child;
+            }
+        }
+        if ( 2 > count($anchors) ) {
+            return false;
+        }
+
+        foreach ( $anchors as $anchor ) {
+            if ( ! $classifier->hasTransformSignal($anchor) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function hasNavigationSignal(DOMElement $element): bool

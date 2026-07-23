@@ -117,6 +117,26 @@ $multiPageAuthorAssets = array_values(array_filter($multiPage['assets'] ?? array
 $assert(1 === count($multiPageAuthorAssets), 'identical generated author stylesheets are emitted once across HTML routes');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
+// Collapsed-paragraph cascade isolation via the source-`p` tag marker. A shared
+// stylesheet carries a descendant-`p` body-copy rule (`.page-header p`) and an
+// eyebrow (`.label`) that collapses to a paragraph. The projected `.page-header
+// p` rule must target the source-`p` marker — carried only by elements that were
+// `<p>` in the source — so it styles the real intro paragraph but never captures
+// the collapsed eyebrow, which keeps its own class-owned type scale. No bare
+// `.page-header p` may survive to capture the promoted paragraph.
+$collapse = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><header class="page-header"><div class="label">Home Eyebrow</div><h1>Home</h1><p>Home intro copy.</p></header>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><header class="page-header"><div class="label">About Eyebrow</div><h1>About</h1><p>About intro copy.</p></header>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '*,*::before,*::after{margin:0;padding:0}.label{display:inline-flex;gap:.5rem;font-size:.68rem;letter-spacing:.2em;text-transform:uppercase}.page-header p{font-size:1.2rem;font-style:italic}' ),
+    ),
+) )->toArray();
+$collapseCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_values(array_filter($collapse['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), 'page-header')))));
+$assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
+$assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
+$assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
 if ( $failures > 0 ) {
     exit(1);
 }
