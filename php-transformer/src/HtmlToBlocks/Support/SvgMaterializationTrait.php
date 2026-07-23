@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use DOMElement;
 
 trait SvgMaterializationTrait
@@ -190,6 +191,15 @@ trait SvgMaterializationTrait
         }
 
         $style = trim($this->attr($element, 'style'));
+        if ( $this->cssOwnsMediaBox($element) ) {
+            $resolved = $this->presentationDeclarations($element);
+            foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
+                if ( ! isset($resolved[$dimension]) || preg_match('/(?:^|;)\s*' . preg_quote($dimension, '/') . '\s*:/i', $style) ) {
+                    continue;
+                }
+                $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolved[$dimension];
+            }
+        }
         foreach ( array( 'width', 'height' ) as $dimension ) {
             if ( empty($attrs[$dimension]) || preg_match('/(?:^|;)\s*' . $dimension . '\s*:/i', $style) ) {
                 continue;
@@ -399,7 +409,31 @@ trait SvgMaterializationTrait
         if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
             $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
         }
-        if ( '' === trim($css) || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $rootProperties = array();
+        ( new CssStylesheetTransformer() )->transform($css, static function (string $prelude, string $body) use (&$rootProperties): string {
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+            if ( null === $selectors || ! array_filter($selectors, static function (string $selector): bool {
+                $selector = preg_replace('/\/\*.*?\*\//s', '', $selector) ?? $selector;
+                return in_array(strtolower(trim($selector)), array( ':root', 'html' ), true);
+            }) ) {
+                return $prelude;
+            }
+            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                foreach ( $matches as $match ) {
+                    $rootProperties[(string) $match[1]] = trim((string) $match[2]);
+                }
+            }
+            return $prelude;
+        });
+        if ( array() !== $rootProperties ) {
+            return $rootProperties;
+        }
+
+        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
         }
 

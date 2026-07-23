@@ -17,8 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "nav" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "#home", "linkDestination": "custom" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "#home", "title": "Home" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-track" } },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "ticker-item" } },
@@ -30,9 +30,9 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 3 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group brand-logo" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "#home" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.text", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "equals", "value": "#home" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-track" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item\">Small Batch</p>" },

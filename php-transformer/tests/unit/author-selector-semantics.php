@@ -16,7 +16,14 @@ $assert = static function (bool $condition, string $message) use (&$failures, &$
     fwrite(STDERR, "FAIL: {$message}\n");
 };
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
-$css = static fn (array $result): string => (string) ($result['assets'][0]['content'] ?? '');
+$css = static function (array $result): string {
+    foreach ( $result['assets'] ?? array() as $asset ) {
+        if ( 'css' === ($asset['kind'] ?? '') ) {
+            return (string) ($asset['content'] ?? '');
+        }
+    }
+    return '';
+};
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');
@@ -82,6 +89,21 @@ $wrapperCss = $css($wrapper);
 $wrapperButton = $wrapper['blocks'][0]['innerBlocks'][0] ?? array();
 $assert('core/button' === ($wrapperButton['blockName'] ?? '') && str_contains((string) ($wrapperButton['attrs']['className'] ?? ''), 'blocks-engine-control-') && 2 === substr_count($wrapperCss, '> :where(.wp-block-button__link)') && str_contains($wrapperCss, ':hover') && str_contains($wrapperCss, ':focus') && 'pass' === ($wrapper['source_reports']['wp_block_validity']['status'] ?? ''), 'wrapper-driven role=button promotion retains logical anchor selectors, presentation wrapper attributes, and valid blocks');
 
+$nestedControl = $transform('<style>.action-shell{display:inline-flex;align-items:center;gap:8px;margin-top:1rem;padding:12px 20px;min-width:14rem;border:2px solid #123456;border-radius:999px;background:#123456;color:#fff;font-weight:700}.action-shell:hover{background:#234567}.action-shell:focus{outline:2px solid #fff}</style><div class="action-shell" role="button"><a href="/go"><span>Go now</span></a></div>');
+$nestedControlMarkup = (string) ($nestedControl['serialized_blocks'] ?? '');
+$nestedControlCss = $css($nestedControl);
+$assert(str_contains($nestedControlMarkup, '<div class="wp-block-buttons" style="margin-top:1rem"') && str_contains($nestedControlMarkup, '<div class="wp-block-button action-shell">') && ! str_contains($nestedControlMarkup, '<a href="/go"><a') && str_contains($nestedControlCss, '.action-shell{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;min-width:14rem;border:2px solid #123456;border-radius:999px;background:#123456;color:#fff;font-weight:700}') && str_contains($nestedControlCss, '.action-shell:hover{background:#234567}') && str_contains($nestedControlCss, '.action-shell:focus{outline:2px solid #fff}') && 'pass' === ($nestedControl['source_reports']['wp_block_validity']['status'] ?? ''), 'nested button wrappers retain authored layout and states while external margin maps to the native buttons wrapper');
+
+$layoutOnlyControl = $transform('<style>.layout-action{display:inline-flex;align-items:center;gap:8px;margin-top:1rem}</style><div class="layout-action" role="button"><a href="/go">Go now</a></div>');
+$layoutOnlyCss = $css($layoutOnlyControl);
+$assert(str_contains((string) ($layoutOnlyControl['serialized_blocks'] ?? ''), '<div class="wp-block-buttons" style="margin-top:1rem"') && str_contains($layoutOnlyCss, '.layout-action{display:inline-flex;align-items:center;gap:8px}') && ! str_contains($layoutOnlyCss, '> :where(.wp-block-button__link)'), 'layout-only source control rules remain on the canonical wrapper while external margin uses native spacing');
+
+$directControl = $transform('<style>.control-cluster{display:flex;gap:8px}.action-control{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;min-width:14rem;border:2px solid #123456;border-radius:999px;background:#123456;color:#fff;font-weight:700}.action-control:hover{background:#234567}.action-control:focus{outline:2px solid #fff}</style><div class="control-cluster"><a class="action-control" href="/go">Go now</a></div>');
+$directControlMarkup = (string) ($directControl['serialized_blocks'] ?? '');
+$directControlCss = $css($directControl);
+preg_match('/(blocks-engine-control-[a-f0-9]+-\d+)/', $directControlMarkup, $directControlMarker);
+$assert(! str_contains($directControlMarkup, 'wp-block-button action-control') && str_contains($directControlMarkup, 'wp-block-button blocks-engine-control-') && str_contains($directControlMarkup, 'control-cluster') && isset($directControlMarker[1]) && str_contains($directControlCss, ':where(.' . $directControlMarker[1] . '):not(.blocks-engine-specificity-class-') && str_contains($directControlCss, '> :where(.wp-block-button__link){display:inline-flex;align-items:center;gap:8px;padding:12px 20px;min-width:14rem;border:2px solid #123456;border-radius:999px;background:#123456;color:#fff;font-weight:700}') && 3 === substr_count($directControlCss, '> :where(.wp-block-button__link)') && str_contains($directControlCss, ':hover{background:#234567}') && str_contains($directControlCss, ':focus{outline:2px solid #fff}') && 'pass' === ($directControl['source_reports']['wp_block_validity']['status'] ?? ''), 'direct source controls retain marker specificity over later core/button defaults while preserving projected chrome, states, and valid blocks');
+
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
@@ -91,6 +113,31 @@ $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monosp
 $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
 $assert('24px' === ($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left'] ?? '') && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && preg_match('/where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\)\{margin-left:24px\}/', $controlMarginCss) && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins map to native buttons flex-item spacing while typography remains on its link');
+
+$structuredLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}.logo-mark{width:38px;height:38px;background:#111}.logo:hover{color:red}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark" aria-hidden="true"></span><span class="logo-text">The Block <span>Party</span></span></a></header>');
+$structuredLogoMarkup = (string) ($structuredLogo['serialized_blocks'] ?? '');
+$structuredLogoCss = $css($structuredLogo);
+$assert(str_contains($structuredLogoMarkup, '<!-- wp:button') && str_contains($structuredLogoMarkup, 'blocks-engine-control-') && str_contains($structuredLogoMarkup, '<div class="wp-block-button') && ! str_contains($structuredLogoMarkup, 'style="display:flex"') && str_contains($structuredLogoMarkup, '<span class="logo-mark" aria-hidden="true"') && str_contains($structuredLogoMarkup, 'background-color:transparent') && str_contains($structuredLogoMarkup, 'border-radius:0') && str_contains($structuredLogoMarkup, 'padding-top:0') && ! str_contains($structuredLogoMarkup, '<!-- wp:html') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link){display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link):hover{color:red}') && 'pass' === ($structuredLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured logo anchors neutralize invented button chrome and retain valid native inline content');
+
+$svgLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem}.logo-mark{width:38px;height:38px;display:grid;place-items:center;flex:none}.logo-mark svg{width:22px;height:22px}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark"><svg viewBox="0 0 38 38" aria-hidden="true"><circle cx="19" cy="19" r="18"/></svg></span><span class="logo-text">Block Party</span></a></header>');
+$svgLogoMarkup = (string) ($svgLogo['serialized_blocks'] ?? '');
+$assert(str_contains($svgLogoMarkup, '<span class="logo-mark" style="width:38px;height:38px;display:grid"') && str_contains($svgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($svgLogoMarkup, '<span class="logo-text">Block Party</span>') && 1 === count(array_filter($svgLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($svgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured text logos preserve passive inline SVG artwork and native RichText-safe container geometry');
+
+$plainSvgLogo = $transform('<style>.nav-logo{display:flex;align-items:center;gap:10px;margin-right:auto}</style><header><a class="nav-logo" href="/" aria-label="Home"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13"/></svg>Relay Atlas</a></header>');
+$plainSvgLogoMarkup = (string) ($plainSvgLogo['serialized_blocks'] ?? '');
+$assert(str_contains($plainSvgLogoMarkup, 'style="margin-right:auto"') && str_contains($plainSvgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($plainSvgLogoMarkup, 'Relay Atlas') && ! str_contains($plainSvgLogoMarkup, '<!-- wp:html') && 'pass' === ($plainSvgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'linked text logos preserve unclassed inline artwork and external spacing in block-valid structured chrome');
+
+$iconOnlyButton = $transform('<style>.toolbar .icon-cta{width:42px;height:42px;padding:8px;border:2px solid #111;border-radius:50%;background:#f4c542}.toolbar .icon-cta:hover{background:#111}.toolbar .icon-cta:focus{outline:3px solid #d14}</style><div class="toolbar"><button class="icon-cta" aria-label="Open filters" style="width:42px;height:42px"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M6 12h12M9 18h6"/></svg></button></div>');
+$iconOnlyMarkup = (string) ($iconOnlyButton['serialized_blocks'] ?? '');
+$iconOnlyCss = $css($iconOnlyButton);
+$assert(str_contains($iconOnlyMarkup, '<button type="button" class="wp-block-button__link') && str_contains($iconOnlyMarkup, 'title="Open filters"') && str_contains($iconOnlyMarkup, '<img src="assets/materialized-svg/') && ! str_contains($iconOnlyMarkup, '>Open filters</button>') && ! str_contains($iconOnlyMarkup, 'aria-label=') && str_contains($iconOnlyCss, '{height:42px !important;width:42px !important}') && str_contains($iconOnlyCss, '> :where(.wp-block-button__link){width:42px') && str_contains($iconOnlyCss, ':hover{background:#111}') && str_contains($iconOnlyCss, ':focus{outline:3px solid #d14}') && 1 === count(array_filter($iconOnlyButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($iconOnlyButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct icon-only buttons retain sanitized SVG artwork, a core-valid accessible title, wrapper geometry, and link-projected chrome without synthesized visible text');
+
+$labeledIconButton = $transform('<style>.ins-block span{font-size:.68rem;font-weight:600}</style><button class="ins-block"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v18H3z"/></svg><span>Paragraph</span></button>');
+$labeledIconButtonMarkup = (string) ($labeledIconButton['serialized_blocks'] ?? '');
+$assert(str_contains($labeledIconButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($labeledIconButtonMarkup, 'font-size:.68rem') && str_contains($labeledIconButtonMarkup, 'font-weight:600') && str_contains($labeledIconButtonMarkup, '>Paragraph</span>') && 1 === count(array_filter($labeledIconButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($labeledIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'labeled controls preserve passive inline SVG artwork and descendant typography beside their visible RichText label');
+
+$gridButton = $transform('<style>.controls{display:grid;grid-template-columns:repeat(3,1fr)}</style><div class="controls"><button>One</button><button>Two</button></div>');
+$assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 'has-custom-width wp-block-button__width-100'), 'native buttons that were direct grid items stretch through their structural wrappers');
 
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
@@ -116,6 +163,18 @@ $assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:bloc
 $richTextPunctuation = $transform('<style>.quote-mark{font-size:4rem}</style><p><span class="quote-mark">"</span>The team\'s launch</p>');
 $richTextPunctuationMarkup = (string) ($richTextPunctuation['serialized_blocks'] ?? '');
 $assert(str_contains($richTextPunctuationMarkup, '&quot;') && str_contains($richTextPunctuationMarkup, 'team&#039;s') && 'pass' === ($richTextPunctuation['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText straight punctuation uses entities that retain source glyphs through WordPress texturization');
+
+$standaloneBadge = $transform('<style>.card .badge{display:inline-block;margin-top:1rem;padding:.25rem .7rem;border:1px solid #999;border-radius:999px;background:#eee;color:#6040cc}</style><article class="card"><h2>Feature</h2><span class="badge">Stable</span></article>');
+$standaloneBadgeMarkup = (string) ($standaloneBadge['serialized_blocks'] ?? '');
+$assert(str_contains($standaloneBadgeMarkup, '<mark style="') && str_contains($standaloneBadgeMarkup, 'display:inline-block') && str_contains($standaloneBadgeMarkup, 'padding:.25rem .7rem') && str_contains($standaloneBadgeMarkup, 'border-radius:999px') && str_contains($standaloneBadgeMarkup, 'background:#eee') && 'pass' === ($standaloneBadge['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone RichText styling hooks carry static visual declarations without depending on runtime selector markers');
+
+$inlineStat = $transform('<style>.stat-num{font-size:4rem}.stat-num .suffix{font-size:2rem;color:#6040cc}</style><div class="stat-num"><span data-count="43">43</span><span class="suffix">%</span></div>');
+$inlineStatMarkup = (string) ($inlineStat['serialized_blocks'] ?? '');
+$assert(1 === substr_count($inlineStatMarkup, '<!-- wp:paragraph') && str_contains($inlineStatMarkup, '>43</span><mark style=') && str_contains($inlineStatMarkup, 'font-size:2rem') && str_contains($inlineStatMarkup, '>%</mark>'), 'non-structural inline metrics and suffixes remain in one styled RichText line');
+
+$gradientText = $transform('<style>:root{--hero:linear-gradient(90deg,#26f,#f56)}h1 .grad{background:var(--hero);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent}</style><h1>Open <span class="grad">forever</span></h1>');
+$gradientTextMarkup = (string) ($gradientText['serialized_blocks'] ?? '');
+$assert(str_contains($gradientTextMarkup, 'background:var(--hero)') && str_contains($gradientTextMarkup, 'background-clip:text') && str_contains($gradientTextMarkup, '-webkit-text-fill-color:transparent') && str_contains($gradientTextMarkup, 'color:transparent'), 'gradient RichText carries its clipped background and transparent text fallback inline');
 
 $richTextStates = $transform('<style>p .pill:hover{color:red}p .pill:focus{color:blue}p .pill:active{color:green}p .pill:visited{color:purple}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextStatesMarkup = (string) ($richTextStates['serialized_blocks'] ?? '');

@@ -28,10 +28,11 @@ trait FormDispatchTrait
         }
 
         if ( $this->formHasDataEntryControls($element) ) {
-            $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+            $preservationBlock = $this->htmlPreservationBlock($element);
+            $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock, $preservationBlock);
             $this->recordFormRuntimeIsland($element, $readableFormBlock);
 
-            return $this->htmlPreservationBlock($element);
+            return $preservationBlock;
         }
 
         $readableFormBlock = $this->readableFormBlockFromForm($element, true);

@@ -88,6 +88,10 @@ final class QuotePattern
         $caption = $this->firstChildElement($figure, 'figcaption');
         if ( '' === $citation && $caption instanceof DOMElement ) {
             $citation = $innerHtml($caption);
+            $captionClass = trim($this->attr($caption, 'class'));
+            if ( '' !== $captionClass ) {
+                $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
+            }
         }
 
         $value = $innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
@@ -101,7 +105,18 @@ final class QuotePattern
             return $createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure);
         }
 
-        $innerBlocks = $convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
+        $innerBlocks = array();
+        foreach ( $figure->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $child->isSameNode($blockquote) || $child->isSameNode($caption) ) {
+                continue;
+            }
+            $content = $innerHtml($child);
+            if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($stripAllTags($content)) ) {
+                continue;
+            }
+            $innerBlocks[] = $createBlock('core/paragraph', array_merge($presentationAttributes($child), array( 'content' => $content )), array(), $child);
+        }
+        $innerBlocks = array_merge($innerBlocks, $convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' )));
         if ( array() === $innerBlocks ) {
             $innerBlocks[] = $createBlock('core/paragraph', array( 'content' => $value ));
         }

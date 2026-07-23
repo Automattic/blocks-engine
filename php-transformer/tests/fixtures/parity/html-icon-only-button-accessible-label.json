@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-icon-only-button-accessible-label",
-  "description": "Uses an accessible label for icon-only button-like anchors after stripping decorative SVG markup.",
+  "description": "Maps an icon-only control label to a core-valid title after stripping decorative SVG markup.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-icon-only-button-accessible-label.json",
@@ -17,12 +17,13 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-button", "text": "Email us", "url": "mailto:hello@example.com" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-button", "title": "Email us", "url": "mailto:hello@example.com" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": ">Email us</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "title=\"Email us\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": ">Email us</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "fallbacks", "assert": "count", "count": 0 }

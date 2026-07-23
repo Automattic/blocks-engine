@@ -129,24 +129,28 @@ final class FormatBridge
             }
 
             $normalizedContent = $this->normalize($content, $from, $options);
-            $blocks = array_values($sourceAdapter->toBlocks($normalizedContent, $options));
+            $adapterResult = $sourceAdapter instanceof HtmlAdapter ? $sourceAdapter->transformResult($normalizedContent, $options) : array();
+            $blocks = array_values(array() !== $adapterResult
+                ? (is_array($adapterResult['blocks'] ?? null) ? $adapterResult['blocks'] : array())
+                : $sourceAdapter->toBlocks($normalizedContent, $options));
             $output = $from === $to ? $normalizedContent : $targetAdapter->fromBlocks($blocks, $options);
+            $assets = is_array($adapterResult['assets'] ?? null) ? $adapterResult['assets'] : array();
+            $fallbacks = is_array($adapterResult['fallbacks'] ?? null) ? $adapterResult['fallbacks'] : array();
             $metrics = array(
                 'input_bytes'      => strlen($content),
                 'output_bytes'     => strlen($output),
                 'block_count'      => count($blocks),
-                'fallback_count'   => 0,
+                'fallback_count'   => count($fallbacks),
                 'diagnostic_count' => 1,
             );
-            $sourceReports = array(
-                'format_bridge' => array(
+            $sourceReports = is_array($adapterResult['source_reports'] ?? null) ? $adapterResult['source_reports'] : array();
+            $sourceReports['format_bridge'] = array(
                     'source_format' => $from,
                     'target_format' => $to,
                     'input_bytes'   => strlen($content),
                     'output_bytes'  => strlen($output),
-                ),
-            );
-            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts($from, $blocks, array(), $sourceReports, array(), $provenance, $metrics);
+                );
+            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts($from, $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
 
             return new TransformerResult(
                 sourceReports: $sourceReports,
@@ -158,13 +162,15 @@ final class FormatBridge
                         'content' => $output,
                     ),
                 ),
-                diagnostics: array(
+                assets: $assets,
+                diagnostics: array_merge(is_array($adapterResult['diagnostics'] ?? null) ? $adapterResult['diagnostics'] : array(), array(
                     array(
                         'code'    => 'format_bridge_conversion_completed',
                         'message' => sprintf('Converted %s content to %s through the format bridge.', $from, $to),
                         'source'  => self::class,
                     ),
-                ),
+                )),
+                fallbacks: $fallbacks,
                 provenance: $provenance,
                 context: $context,
                 metrics: $metrics

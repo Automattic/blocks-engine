@@ -27,6 +27,27 @@ final class ArtifactCompiler
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
     /**
+     * Resolve the runtime selector context used when a caller converts one
+     * source document or landmark separately from full artifact compilation.
+     *
+     * @param array<int|string, mixed> $files
+     * @return array<string, mixed>
+     */
+    public function runtimeContextForSource(string $html, string $sourcePath, array $files): array
+    {
+        $normalized = ( new ArtifactNormalizer() )->normalize(array(
+            'entrypoint' => $sourcePath,
+            'files'      => $files,
+        ));
+
+        return array(
+            'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
+            'runtime_dom_selectors'    => $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']),
+            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
+        );
+    }
+
+    /**
      * @param array<string, mixed> $artifact
      */
     public function compile(array $artifact): TransformerResult
@@ -48,8 +69,18 @@ final class ArtifactCompiler
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath);
+        $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
+        $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
+        $allFallbacks = $entryBlocks['fallbacks'];
+        foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
+            $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
+            $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
+            $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
+        }
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
-        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $entryBlocks['author_stylesheet_projections']);
+        $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
@@ -57,7 +88,7 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
-        $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
+        $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -93,7 +124,7 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts']);
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks'], $runtimeIslandPackage);
         if ( array() !== $companionPluginPayload ) {
@@ -119,12 +150,12 @@ final class ArtifactCompiler
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
-            'fallback_count'        => count($entryBlocks['fallbacks']),
+            'fallback_count'        => count($allFallbacks),
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $entryBlocks['fallbacks'], $sourceReports, $assets, $provenance, $metrics);
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
 
         // Failed compilations have no materializable source identity and no site plan.
         if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
@@ -140,7 +171,7 @@ final class ArtifactCompiler
                     'documents' => $documents['documents'],
                     'assets' => $assets,
                     'diagnostics' => $diagnostics,
-                    'fallbacks' => $entryBlocks['fallbacks'],
+                    'fallbacks' => $allFallbacks,
                     'provenance' => $provenance,
                     'coverage' => array(),
                     'context' => array(),
@@ -161,10 +192,152 @@ final class ArtifactCompiler
             documents: $documents['documents'],
             assets: $assets,
             diagnostics: $diagnostics,
-            fallbacks: $entryBlocks['fallbacks'],
+            fallbacks: $allFallbacks,
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Promote provider-materializable findings into the canonical runtime contract.
+     *
+     * Explicit caller declarations remain authoritative. Detected entities fill
+     * only missing product/form collections and their matching dependencies.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array<int,array<string,mixed>>
+     */
+    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files): array
+    {
+        if ( '' === $entryPath ) return $declarations;
+        foreach ( $declarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) if ( is_array($entity) && array_key_exists('superseded_scripts', $entity) ) throw new \InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.');
+
+        $keys = array();
+        foreach ( $declarations as $declaration ) {
+            if ( ! is_array($declaration) ) continue;
+            $name = $declaration['type'] ?? $declaration['capability'] ?? null;
+            if ( is_string($declaration['kind'] ?? null) && is_string($name) ) $keys[$declaration['kind'] . ':' . $name] = true;
+        }
+
+        $slug = static function (string $value): string {
+            $value = strtolower(trim($value));
+            $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+            return trim($value, '-');
+        };
+        $price = static function (mixed $value): string {
+            if ( ! is_scalar($value) ) return '';
+            $clean = preg_replace('/[^0-9.,]/', '', trim((string) $value)) ?? '';
+            if ( '' === $clean ) return '';
+            $commaCount = substr_count($clean, ',');
+            $dotCount = substr_count($clean, '.');
+            $decimal = '';
+            if ( 0 < $commaCount && 0 < $dotCount ) $decimal = strrpos($clean, ',') > strrpos($clean, '.') ? ',' : '.';
+            elseif ( 1 === $commaCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, ',') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = ','; }
+            elseif ( 1 === $dotCount ) { $tail = strlen(substr($clean, (int) strrpos($clean, '.') + 1)); if ( 1 <= $tail && 2 >= $tail ) $decimal = '.'; }
+            if ( '' === $decimal ) return ltrim(preg_replace('/[^0-9]/', '', $clean) ?? '', '0') ?: '0';
+            $parts = explode($decimal, $clean); $fraction = preg_replace('/[^0-9]/', '', (string) array_pop($parts)) ?? ''; $integer = ltrim(preg_replace('/[^0-9]/', '', implode('', $parts)) ?? '', '0') ?: '0';
+            return strlen($fraction) > 2 ? number_format((float) ($integer . '.' . $fraction), 2, '.', '') : $integer . '.' . str_pad($fraction, 2, '0');
+        };
+
+        $products = array();
+        $forms = array();
+        foreach ( $fallbacks as $fallback ) {
+            if ( ! is_array($fallback) ) continue;
+            $code = (string) ($fallback['diagnostic_code'] ?? $fallback['kind'] ?? '');
+            $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : $entryPath;
+            if ( 'html_product_grid_fallback' === $code ) {
+                $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '');
+                foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
+                    if ( ! is_array($product) ) continue;
+                    $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
+                    $productSlug = $slug(is_scalar($product['slug'] ?? null) ? (string) $product['slug'] : $name);
+                    $regularPrice = $price($product['price'] ?? null);
+                    if ( '' === $name || '' === $productSlug || '' === $regularPrice ) continue;
+                    $row = array('name' => $name, 'slug' => $productSlug, 'regular_price' => $regularPrice);
+                    $salePrice = $price($product['sale_price'] ?? null); if ( '' !== $salePrice ) $row['sale_price'] = $salePrice;
+                    if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
+                    $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
+                    if ( '' !== trim($image) ) $row['image'] = $image;
+                    $selectors = array_values(array_unique(array_filter(array($product['source_selector'] ?? '', $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
+                    if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
+                    if ( is_array($product['binding'] ?? null) && 'generic/block-binding/v1' === ($product['binding']['schema'] ?? null) && is_string($product['binding']['search_block_markup'] ?? null) && '' !== trim($product['binding']['search_block_markup']) ) {
+                        $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
+                    }
+                    if ( ! isset($row['bindings']) ) continue;
+                    if ( isset($products[$productSlug]) ) {
+                        $products[$productSlug]['bindings'][] = $row['bindings'][0];
+                        continue;
+                    }
+                    $products[$productSlug] = $row;
+                }
+            } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
+                $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
+                    $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
+                }
+                if ( ! isset($form['bindings']) ) continue;
+                $supersededScripts = $this->supersededFormScripts($fallback, $files, $sourcePath);
+                if ( array() !== $supersededScripts ) $form['superseded_scripts'] = $supersededScripts;
+                $forms[$sourcePath . "\n" . $selector] = $form;
+            }
+        }
+        ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
+
+        $collections = array(
+            'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
+            'form' => array('type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
+        );
+        foreach ( $collections as $capability => $collection ) {
+            $entityKey = 'entity_collection:' . $collection['type'];
+            foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
+            if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                $keys[$entityKey] = true;
+            }
+            $dependencyKey = 'dependency:' . $capability;
+            if ( isset($keys[$entityKey]) && ! isset($keys[$dependencyKey]) ) {
+                $declarations[] = array('kind' => 'dependency', 'capability' => $capability, 'source_path' => $entryPath, 'required_for' => array($entityKey));
+                $keys[$dependencyKey] = true;
+            }
+        }
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+
+    /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */
+    private function supersededFormScripts(array $fallback, array $files, string $sourcePath): array
+    {
+        $ownedIds = array();
+        foreach ( array_merge(array($fallback['form'] ?? array()), is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array()) as $row ) {
+            if ( is_array($row) && is_string($row['id'] ?? null) && '' !== trim($row['id']) ) $ownedIds[$row['id']] = true;
+        }
+        if ( is_string($fallback['html'] ?? null) && preg_match_all('/\bid\s*=\s*["\']([^"\']+)["\']/i', $fallback['html'], $matches) ) foreach ( $matches[1] as $id ) $ownedIds[(string) $id] = true;
+        if ( array() === $ownedIds ) return array();
+        $formId = is_array($fallback['form'] ?? null) && is_string($fallback['form']['id'] ?? null) ? trim($fallback['form']['id']) : '';
+        if ( '' === $formId ) return array();
+        $targetSelector = '#' . $formId;
+
+        $superseded = array();
+        foreach ( $files as $file ) {
+            if ( !is_array($file) || 'inline-script' !== ($file['source'] ?? null) || $sourcePath !== ($file['source_path'] ?? null) || $targetSelector !== ($file['superseded_by'] ?? null) || !is_string($file['selector'] ?? null) || !is_string($file['content'] ?? null) ) continue;
+            $script = trim($file['content']);
+            if ( '' === $script || preg_match('/\b(?:window|globalThis|fetch|XMLHttpRequest|WebSocket|EventSource|navigator|localStorage|sessionStorage|indexedDB|eval|import|createElement|appendChild|insertBefore)\b|document\s*\.\s*(?:cookie|location)/i', $script) ) continue;
+            if ( !preg_match_all('/document\s*\.\s*getElementById\s*\(\s*["\']([^"\']+)["\']\s*\)/i', $script, $lookups) || array() !== array_diff(array_unique($lookups[1]), array_keys($ownedIds)) ) continue;
+            $ownedVariables = array();
+            if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*["\']([^"\']+)["\']\s*\)/i', $script, $assignments, PREG_SET_ORDER) ) foreach ( $assignments as $assignment ) if ( isset($ownedIds[$assignment[2]]) ) $ownedVariables[$assignment[1]] = true;
+            $withoutOwnedLookups = preg_replace('/document\s*\.\s*getElementById\s*\(\s*["\'][^"\']+["\']\s*\)/i', '', $script) ?? $script;
+            if ( preg_match('/\[\s*["\'][A-Za-z_$][A-Za-z0-9_$]*["\']\s*\]/', $withoutOwnedLookups) ) continue;
+            if ( preg_match('/\bdocument\s*\./i', $withoutOwnedLookups) ) continue;
+            if ( preg_match_all('/(?<![.\w$])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/', $withoutOwnedLookups, $calls) && array_diff(array_unique($calls[1]), array('if', 'for', 'while', 'switch', 'catch', 'function')) ) continue;
+            if ( preg_match_all('/\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/', $withoutOwnedLookups, $memberCalls) && array_diff(array_unique($memberCalls[1]), array('addEventListener', 'preventDefault', 'querySelector', 'querySelectorAll', 'trim', 'forEach')) ) continue;
+            if ( preg_match('/\.\s*(?:parentElement|parentNode|ownerDocument|children|firstElementChild|lastElementChild|nextElementSibling|previousElementSibling)\b/i', $withoutOwnedLookups) ) continue;
+            if ( preg_match_all('/([A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*\.\s*querySelector(?:All)?\s*\(/', $withoutOwnedLookups, $queries) && array_diff(array_map(static fn(string $receiver): string => preg_replace('/\s+/', '', $receiver) ?? $receiver, array_unique($queries[1])), array_keys($ownedVariables)) ) continue;
+            if ( preg_match_all('/\.\s*([A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)?)\s*=/', $withoutOwnedLookups, $writes) && array_diff(array_map(static fn(string $property): string => preg_replace('/\s+/', '', $property) ?? $property, array_unique($writes[1])), array('textContent', 'style.background', 'style.borderColor', 'style.display', 'value')) ) continue;
+            $superseded[] = array('schema' => 'blocks-engine/provider-script-supersession/v1', 'source_path' => $sourcePath, 'selector' => $file['selector'], 'asset_source_path' => $file['path'], 'body_hash' => hash('sha256', $script), 'target_selector' => $targetSelector, 'reason' => 'provider_binding_replaces_form_behavior');
+        }
+        usort($superseded, static fn(array $left, array $right): int => strcmp($left['body_hash'], $right['body_hash']));
+        return $superseded;
     }
 
     /**
@@ -776,31 +949,74 @@ final class ArtifactCompiler
     /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $projections
+     * @param array<int, array<string, mixed>> $primaryProjections
      * @return array<int, array<string, mixed>>
      */
-    private function applyAuthorStylesheetProjections(array $files, array $projections): array
+    private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array()): array
     {
         $byPath = array();
+        $primaryByPath = array();
+        foreach ( $primaryProjections as $projection ) {
+            if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
+                $primaryByPath[$projection['path']][$projection['content']] = true;
+            }
+        }
         foreach ( $projections as $projection ) {
             if ( is_string($projection['path'] ?? null) && is_string($projection['content'] ?? null) ) {
-                $byPath[$projection['path']] = $projection;
+                $path = $projection['path'];
+                $byPath[$path] ??= array();
+                $byPath[$path][$projection['content']] = true;
             }
         }
         foreach ( $files as &$file ) {
-            $projection = $byPath[$file['path'] ?? ''] ?? null;
-            if ( ! is_array($projection) || 'css' !== ($file['kind'] ?? '') ) {
+            $pathProjections = $byPath[$file['path'] ?? ''] ?? null;
+            if ( ! is_array($pathProjections) || 'css' !== ($file['kind'] ?? '') ) {
                 continue;
             }
-            $file['content'] = $projection['content'];
-            if ( array_key_exists('content_base64', $file) ) {
-                $file['content_base64'] = base64_encode($projection['content']);
+            foreach ( array_keys($primaryByPath[$file['path'] ?? ''] ?? array()) as $primaryContent ) {
+                unset($pathProjections[$primaryContent]);
             }
-            $file['bytes'] = $projection['bytes'];
+            $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
+            if ( array() === $authoritativeContent ) {
+                $authoritativeContent[] = (string) ($file['content'] ?? '');
+            }
+            $content = implode("\n", array_merge(array_keys($pathProjections), $authoritativeContent));
+            $file['content'] = $content;
+            // Projection rewrites the CSS text, so any base64 twin from the
+            // source payload is stale. Drop it and let the rewritten text be the
+            // sole representation rather than shipping an inconsistent encoding.
+            unset($file['content_base64']);
+            $file['bytes'] = strlen($content);
+            $file['encoding'] = 'text';
+            $file['binary'] = false;
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
-            $file['provenance']['hash'] = $projection['hash'];
+            $file['provenance']['hash'] = hash('sha256', $content);
         }
         unset($file);
         return $files;
+    }
+
+    /**
+     * Compile non-entry HTML documents once so their stylesheet projections are
+     * available before theme assets are materialized.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<string, mixed>>
+     */
+    private function compileHtmlSourceDocuments(array $files, string $entryPath): array
+    {
+        $documents = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            if ( '' === $path || $entryPath === $path ) {
+                continue;
+            }
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', '', true);
+        }
+        return $documents;
     }
 
     /**
@@ -1495,6 +1711,13 @@ final class ArtifactCompiler
                 $selectors[(string) $selector] = true;
             }
         }
+        if ( preg_match_all('/document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*\.\s*forEach\s*\(\s*(?:\(\s*)?([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\))?\s*=>\s*\{([\s\S]{0,2000}?)\n\s*\}\s*\)/', $script, $callbacks, PREG_SET_ORDER) ) {
+            foreach ( $callbacks as $callback ) {
+                if ( preg_match('/\b' . preg_quote((string) $callback[3], '/') . '\s*' . $runtimeUsePattern . '/', (string) $callback[4]) ) {
+                    $selectors[(string) $callback[2]] = true;
+                }
+            }
+        }
         if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ( $assignments as $assignment ) {
                 if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
@@ -1658,9 +1881,15 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
     {
         $pages = array();
+        $assetPayloadsByPath = array();
+        foreach ( $assets as $asset ) {
+            $path = (string) ($asset['path'] ?? '');
+            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+            $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
+        }
         foreach ( $artifact['files'] as $file ) {
             if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
@@ -1672,10 +1901,17 @@ final class ArtifactCompiler
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
                 ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
-                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true);
+                : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
-                if ( is_array($generatedAsset) && ! in_array($generatedAsset, $assets, true) ) {
+                if ( is_array($generatedAsset) ) {
+                    $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
+                    $payload = is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? '');
+                    $payloadHash = hash('sha256', $payload);
+                    if ( isset($assetPayloadsByPath[$generatedAssetPath][$payloadHash]) ) {
+                        continue;
+                    }
                     $assets[] = $generatedAsset;
+                    $assetPayloadsByPath[$generatedAssetPath][$payloadHash] = true;
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
@@ -1703,7 +1939,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files']),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
@@ -1969,8 +2205,8 @@ final class ArtifactCompiler
         );
     }
 
-    /** @param array<int, array<string, mixed>> $files @return array<string, mixed> */
-    private function fullDocumentMetadata(string $html, string $sourcePath, array $files): array
+    /** @param array<int, array<string, mixed>> $files @param array<int, array<string, mixed>> $generatedAssets @return array<string, mixed> */
+    private function fullDocumentMetadata(string $html, string $sourcePath, array $files, array $generatedAssets = array()): array
     {
         $headEnd = preg_match('/<head\b[^>]*>.*?<\/head\s*>/is', $html, $head) ? (int) strpos($html, $head[0]) + strlen($head[0]) : 0;
         $reference = static fn(string $value): array => array('url' => $value);
@@ -1985,6 +2221,8 @@ final class ArtifactCompiler
             return $values;
         };
         $placement = static fn(int $offset): string => $offset < $headEnd ? 'head' : 'body';
+        $inlineScripts = array();
+        foreach ($generatedAssets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['selector'] ?? null) && is_string($asset['path'] ?? null)) $inlineScripts[$asset['selector']] = $asset['path'];
         $meta = array(); $links = array(); $scripts = array();
         if (preg_match_all('/<meta\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0];
@@ -1999,7 +2237,12 @@ final class ArtifactCompiler
         if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
             $async = $this->hasHtmlAttribute($open, 'async'); $defer = $this->hasHtmlAttribute($open, 'defer'); $module = 'module' === strtolower($this->htmlAttribute($open, 'type'));
-            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : array('source_kind' => 'inline', 'body_hash' => hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag)))));
+            $selector = 'script:nth-of-type(' . (count($scripts) + 1) . ')';
+            $supersededBy = $this->htmlAttribute($open, 'data-blocks-engine-superseded-by');
+            $inlineBodyHash = hash('sha256', trim((string) preg_replace('/^.*?>|<\/script\s*>$/is', '', $tag)));
+            $inline = isset($inlineScripts[$selector]) ? $reference($inlineScripts[$selector]) : array('source_kind' => 'inline', 'body_hash' => $inlineBodyHash);
+            if ( '' !== $supersededBy ) $inline = array_merge($inline, array('selector' => $selector, 'superseded_by' => $supersededBy, 'body_hash' => $inlineBodyHash));
+            $scripts[] = array_merge(array('order' => count($scripts), 'placement' => $placement((int) $match[1]), 'async' => $async, 'defer' => $defer, 'module' => $module, 'nomodule' => $this->hasHtmlAttribute($open, 'nomodule'), 'effective_loading' => $async ? 'async' : (($defer || $module) ? 'defer' : 'blocking')), $attributes($open, array('type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority')), '' !== $src ? $reference($src) : $inline);
         }
         $title = preg_match('/<title\b[^>]*>(.*?)<\/title\s*>/is', $html, $match) ? trim(html_entity_decode(strip_tags((string) $match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8')) : $this->titleFromHtml($html, $sourcePath);
         return array('source_context' => array('source_path' => $sourcePath, 'kind' => 'html'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => $meta, 'links' => $links, 'scripts' => $scripts);
@@ -2197,12 +2440,15 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<int, array<string, mixed>>
      */
-    private function entryTransformDiagnostics(array $diagnostics): array
+    private function entryTransformDiagnostics(array $diagnostics, string $sourcePath = ''): array
     {
-        return array_values(array_filter(
+        $diagnostics = array_values(array_filter(
             $diagnostics,
             static fn (array $diagnostic): bool => 'html_to_blocks_core_slice' !== ($diagnostic['code'] ?? '')
         ));
+        if ( '' !== $sourcePath ) foreach ( $diagnostics as &$diagnostic ) if ( !isset($diagnostic['source_path']) ) $diagnostic['source_path'] = $sourcePath;
+        unset($diagnostic);
+        return $diagnostics;
     }
 
     /**

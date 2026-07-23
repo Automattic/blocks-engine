@@ -12,9 +12,10 @@ final class CssStylesheetTransformer
      * Transform selector preludes in style rules, retaining all other source bytes.
      *
      * The callback receives the complete prelude, including its original whitespace
-     * and comments, and must return its replacement.
+     * and comments, and must return its replacement. It may optionally return a
+     * list of prelude/body pairs when a caller needs to split one source rule.
      *
-     * @param callable(string): string $transformSelectorPrelude
+     * @param callable(string, string): string|list<array{prelude: string, body: string}> $transformSelectorPrelude
      */
     public function transform(string $stylesheet, callable $transformSelectorPrelude): string
     {
@@ -105,9 +106,18 @@ final class CssStylesheetTransformer
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= null === $transformStyleRule
-                    ? $transformSelectorPrelude($prelude) . '{' . $body . '}'
-                    : $transformStyleRule($prelude, $body);
+                if ( null !== $transformStyleRule ) {
+                    $output .= $transformStyleRule($prelude, $body);
+                } else {
+                    $transformed = $transformSelectorPrelude($prelude, $body);
+                    if ( is_array($transformed) ) {
+                        foreach ( $transformed as $rule ) {
+                            $output .= $rule['prelude'] . '{' . $rule['body'] . '}';
+                        }
+                    } else {
+                        $output .= $transformed . '{' . $body . '}';
+                    }
+                }
             } else {
                 $output .= substr($css, $offset, $blockEnd - $offset + 1);
             }

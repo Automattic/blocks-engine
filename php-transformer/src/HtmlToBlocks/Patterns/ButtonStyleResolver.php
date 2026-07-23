@@ -22,9 +22,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
  * exact mechanic every other block uses. This class keeps ONLY the button-specific
  * presentation policy layered on top of that shared mechanic, keyed off the
  * resolved declarations:
- *  - Filled buttons get style.color.background + style.color.text (+ border radius).
+ *  - Filled buttons get style.color.background/gradient + style.color.text (+ border radius).
  *  - Outline/ghost buttons (transparent/absent background) get style.border.* +
- *    style.color.text and never a background or gradient fill.
+ *    style.color.text without inventing a fill.
  *  - Buttons carry padding but not margin (inter-button spacing rides on the
  *    parent core/buttons block gap), plus source shadow and a curated
  *    typography subset.
@@ -61,13 +61,16 @@ final class ButtonStyleResolver
         $mapped = $this->mapper->map($declarations)['style'];
         $style  = array();
 
-        // Button color policy: paintable fill + text only, never a gradient. Emit
-        // background before text to match the native core/button attribute shape.
+        // Emit canonical button paint so theme defaults cannot replace authored chrome.
         $color      = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
         $background = (string) ($color['background'] ?? '');
+        $gradient   = (string) ($color['gradient'] ?? '');
         $text       = (string) ($color['text'] ?? '');
         if ( '' !== $background ) {
             $style['color']['background'] = $background;
+        }
+        if ( '' !== $gradient ) {
+            $style['color']['gradient'] = $gradient;
         }
         if ( '' !== $text ) {
             $style['color']['text'] = $text;

@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -221,6 +222,9 @@ final class HtmlTransformer
      */
     private array $sourceProvenance = array();
 
+    /** @var array<string,int> */
+    private array $blockBindingOccurrences = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -345,6 +349,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
+    /** @var array<string, string> Source wrapper paths promoted into core/button. */
+    private array $sourceButtonPresentationMarkers = array();
+
     /** @var array<string, true> Source controls that need selector projection. */
     private array $sourceControlPaths = array();
 
@@ -423,6 +430,7 @@ final class HtmlTransformer
         $this->frozenHiddenStateFindings = array();
         $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
+        $this->blockBindingOccurrences = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->runtimeIslands = array();
@@ -438,6 +446,7 @@ final class HtmlTransformer
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
+        $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
@@ -534,7 +543,7 @@ final class HtmlTransformer
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
-        $this->appendProductGridFallbacks($body, $fallbacks);
+        $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
@@ -787,7 +796,7 @@ final class HtmlTransformer
                 $parsed = CssSelectorMatcher::parse($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'nav', 'p' ), true) ) {
+                    if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
                         $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }
@@ -973,9 +982,96 @@ final class HtmlTransformer
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
-                : $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $this->cssDeclarationString($inner) . '}';
+                : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
         });
+    }
+
+    private function rewriteAuthorStyleRule(string $prelude, string $body): string
+    {
+        $projectedPrelude = $this->rewriteAuthorSelectorPrelude($prelude);
+        $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
+        if ( '' === $wrapperPrelude ) {
+            return $projectedPrelude . '{' . $body . '}';
+        }
+
+        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
+        if ( '' === $layout ) {
+            return $projectedPrelude . '{' . $body . '}';
+        }
+        if ( '' === $control ) {
+            return $wrapperPrelude . '{' . $body . '}';
+        }
+
+        return $wrapperPrelude . '{' . $layout . '}' . $projectedPrelude . '{' . $control . '}';
+    }
+
+    private function buttonPresentationWrapperPrelude(string $prelude): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return '';
+        }
+
+        $rewritten = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
+                continue;
+            }
+            $matches = $this->matchingAuthorSourceElements($parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $markers = array();
+            foreach ( $matches as $element ) {
+                $marker = $this->sourceButtonPresentationMarkers[$element->getNodePath() ?? ''] ?? null;
+                if ( ! is_string($marker) ) {
+                    continue 2;
+                }
+                $markers[] = $marker;
+            }
+            foreach ( array_unique($markers) as $marker ) {
+                $rewritten[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed);
+            }
+        }
+
+        return implode(',', $rewritten);
+    }
+
+    /** @return array{string, string} */
+    private function splitButtonPresentationDeclarations(string $body): array
+    {
+        $layout = array();
+        $control = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $name = strtolower(trim(strtok($declaration, ':')));
+            if ( '' === $name || ! str_contains($declaration, ':') ) {
+                $control[] = $declaration;
+                continue;
+            }
+            if ( $this->isButtonWrapperLayoutProperty($name) ) {
+                $layout[] = $declaration;
+            } else {
+                $control[] = $declaration;
+            }
+        }
+
+        return array( implode(';', $layout), implode(';', $control) );
+    }
+
+    private function isButtonWrapperLayoutProperty(string $property): bool
+    {
+        return in_array($property, array(
+            'align-content', 'align-items', 'align-self', 'clear', 'display', 'float',
+            'flex', 'flex-basis', 'flex-direction', 'flex-flow', 'flex-grow', 'flex-shrink',
+            'flex-wrap', 'gap', 'grid', 'grid-area', 'grid-auto-columns', 'grid-auto-flow',
+            'grid-auto-rows', 'grid-column', 'grid-row', 'grid-template', 'grid-template-areas',
+            'grid-template-columns', 'grid-template-rows', 'isolation', 'justify-content',
+            'justify-items', 'justify-self', 'order', 'overflow', 'overflow-x', 'overflow-y',
+            'place-content', 'place-items', 'place-self', 'position', 'top', 'right', 'bottom',
+            'left', 'z-index',
+        ), true);
     }
 
     private function rewriteAuthorSelectorPrelude(string $prelude, bool $controlWrapper = false): string
@@ -1664,8 +1760,13 @@ final class HtmlTransformer
             if ( '' !== $richTextMarker ) {
                 $content = $this->innerHtml($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    $declarations = $this->richTextInlineVisualDeclarations($element);
+                    if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
+                        $declarations['color'] = 'transparent';
+                    }
+                    $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
                     return $this->createBlock('core/paragraph', array(
-                        'content' => '<mark style="--blocks-engine-richtext-marker:' . $richTextMarker . '">' . $content . '</mark>',
+                        'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                     ), array(), $element);
                 }
             }
@@ -2082,6 +2183,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $logo ) {
@@ -2187,6 +2289,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
             );
@@ -2413,6 +2516,11 @@ final class HtmlTransformer
                 }
                 if ( isset($this->sourceControlMarkers[$path]) ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                }
+                $presentationPath = $sourceElement->getNodePath() ?? '';
+                if ( '' !== $presentationPath && $presentationPath !== $path ) {
+                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
+                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
                 }
             }
             $provenanceId = $this->nextSourceProvenanceId++;
@@ -2877,7 +2985,18 @@ final class HtmlTransformer
     private function richTextInlineVisualDeclarations(DOMElement $element): array
     {
         $allowed = array_flip(array(
+            '-webkit-background-clip',
+            '-webkit-text-fill-color',
+            'background',
+            'background-clip',
             'background-color',
+            'border',
+            'border-bottom',
+            'border-color',
+            'border-left',
+            'border-radius',
+            'border-right',
+            'border-top',
             'color',
             'display',
             'font-family',
@@ -2886,8 +3005,22 @@ final class HtmlTransformer
             'font-weight',
             'letter-spacing',
             'line-height',
+            'height',
+            'max-height',
+            'max-width',
+            'margin',
+            'margin-bottom',
+            'margin-left',
+            'margin-right',
+            'margin-top',
+            'padding',
+            'padding-bottom',
+            'padding-left',
+            'padding-right',
+            'padding-top',
             'text-decoration',
             'text-transform',
+            'width',
         ));
 
         $declarations = array();
@@ -2897,6 +3030,10 @@ final class HtmlTransformer
             }
         }
         $declarations = array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+
+        if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
+            $declarations['color'] = 'transparent';
+        }
 
         return array_intersect_key($declarations, $allowed);
     }
@@ -3235,6 +3372,19 @@ final class HtmlTransformer
         return false;
     }
 
+    private function authoredDisplay(DOMElement $element): string
+    {
+        $display = '';
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( isset($rule['declarations']['display']) && $this->matchesCssSelector($element, $rule['selector']) ) {
+                $display = (string) $rule['declarations']['display'];
+            }
+        }
+
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
+    }
+
     private function isInlineContentElement(string $tagName): bool
     {
         return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
@@ -3267,7 +3417,9 @@ final class HtmlTransformer
 
     private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
     {
-        return $this->hasLogoBrandSignal($anchor) && 0 < $anchor->getElementsByTagName('svg')->length;
+        return $this->hasLogoBrandSignal($anchor)
+            && 0 < $anchor->getElementsByTagName('svg')->length
+            && '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' ))));
     }
 
     private function hasLogoBrandSignal(DOMElement $element): bool
@@ -3367,24 +3519,7 @@ final class HtmlTransformer
             }
         }
 
-        $blocks = array();
         $textRun = '';
-        $hasTextRun = false;
-        $flushTextRun = function () use ( &$blocks, &$textRun, &$hasTextRun ): bool {
-            $content = trim($textRun);
-            $textRun = '';
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return true;
-            }
-            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return false;
-            }
-
-            $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $content ));
-            $hasTextRun = true;
-            return true;
-        };
-
         $generatedAssets = $this->generatedAssets;
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
@@ -3411,12 +3546,13 @@ final class HtmlTransformer
             $textRun .= $image;
         }
 
-        if ( ! $flushTextRun() || ! $hasTextRun ) {
+        $content = trim($textRun);
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             $this->generatedAssets = $generatedAssets;
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element);
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     private function richTextContentWithMaterializedSvgImages(DOMElement $element, string $content): ?string
@@ -3646,7 +3782,7 @@ final class HtmlTransformer
         // A CSS-addressed inline leaf needs an independent native wrapper. Do
         // not absorb it into this parent RichText paragraph, where its selector
         // path and flex/grid item geometry would be lost.
-        if ( $this->hasAuthorSemanticMarkedChild($element) || $this->hasRichTextMarkedDescendant($element) ) {
+        if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }
 
@@ -4142,8 +4278,9 @@ final class HtmlTransformer
      * and schema.org vocabulary — never fixture names or specific class strings.
      *
      * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $blocks
      */
-    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks): void
+    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
     {
         $emitted = 0;
         $coveredPaths = array();
@@ -4169,7 +4306,7 @@ final class HtmlTransformer
                 }
             }
 
-            $products = $this->productCardsForContainer($element);
+            $products = $this->productCardsForContainer($element, $blocks);
             if ( count($products) < 2 ) {
                 continue;
             }
@@ -4262,7 +4399,7 @@ final class HtmlTransformer
      *
      * @return array<int, array<string, mixed>>
      */
-    private function productCardsForContainer(DOMElement $container): array
+    private function productCardsForContainer(DOMElement $container, array $blocks = array()): array
     {
         $products = array();
         foreach ( $container->childNodes as $child ) {
@@ -4272,11 +4409,72 @@ final class HtmlTransformer
 
             $product = $this->productCardData($child);
             if ( null !== $product ) {
+                $binding = $this->commerceBindingForCard($child, $blocks);
+                if ( array() !== $binding ) {
+                    $product['binding'] = $binding;
+                }
                 $products[] = $product;
             }
         }
 
         return $products;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function commerceBindingForCard(DOMElement $card, array $blocks): array
+    {
+        if ( array() === $blocks ) {
+            return array();
+        }
+        $control = $this->cartControlElement($card);
+        if ( null === $control ) {
+            return array();
+        }
+        $block = $this->blockForSourceSelector($blocks, $this->elementSelector($control));
+        if ( null === $block ) {
+            return array();
+        }
+        $markup = $this->runtime->serializeBlocks(array($block));
+        return $this->blockBinding($markup, 'commerce_controls', $this->runtimeDomSelectorsForElement($control));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>|null
+     */
+    private function blockForSourceSelector(array $blocks, string $selector): ?array
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+            $provenanceId = $block['_source_provenance_id'] ?? null;
+            if ( is_int($provenanceId) && $selector === ($this->sourceProvenance[$provenanceId]['selector'] ?? null) ) {
+                return $block;
+            }
+            $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
+            if ( null !== $nested ) {
+                return $nested;
+            }
+        }
+        return null;
+    }
+
+    /** @return array<string,mixed> */
+    private function blockBinding(string $markup, string $role, array $supersededRuntimeSelectors = array()): array
+    {
+        if ( '' === trim($markup) ) {
+            return array();
+        }
+        $key = hash('sha256', $role . "\n" . $markup);
+        $this->blockBindingOccurrences[$key] = ($this->blockBindingOccurrences[$key] ?? 0) + 1;
+        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => $this->blockBindingOccurrences[$key], 'role' => $role);
+        $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
+        if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
+        return $binding;
     }
 
     /**
@@ -4509,6 +4707,11 @@ final class HtmlTransformer
      */
     private function hasCartControl(DOMElement $card): bool
     {
+        return null !== $this->cartControlElement($card);
+    }
+
+    private function cartControlElement(DOMElement $card): ?DOMElement
+    {
         $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
             if ( ! $descendant instanceof DOMElement ) {
@@ -4534,18 +4737,18 @@ final class HtmlTransformer
 
             foreach ( $tokens as $token ) {
                 if ( str_contains($haystack, $token) ) {
-                    return true;
+                    return $descendant;
                 }
             }
 
             // "add" alone is ambiguous, so require it to co-occur with a commerce
             // context word ("cart"/"bag"/"basket") to count as a cart control.
             if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
-                return true;
+                return $descendant;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -5542,6 +5745,20 @@ final class HtmlTransformer
         return false;
     }
 
+    /** @return array<int,string> */
+    private function runtimeDomSelectorsForElement(DOMElement $element): array
+    {
+        $selectors = array();
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) $selectors[] = '#' . $id;
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) $selectors[] = '.' . $class;
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
+            if ( ! $this->isPresentationalAnimationSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
+        }
+        return array_values(array_unique($selectors));
+    }
+
     private function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
         if ( array() === $this->runtimeDomSelectors && array() === $this->runtimeCanvasSelectors ) {
@@ -6408,10 +6625,12 @@ final class HtmlTransformer
      * @param array<string, mixed>|null $readableFormBlock
      * @return array<string, mixed>
      */
-    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock): array
+    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
     {
         $controls = $this->formControls($element);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $bindingBlock ??= $readableFormBlock;
+        $bindingMarkup = null !== $bindingBlock ? $this->runtime->serializeBlocks(array($bindingBlock)) : '';
 
         return FallbackDiagnostic::build(array(
             'type'            => 'html',
@@ -6428,6 +6647,7 @@ final class HtmlTransformer
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            'binding'         => $this->blockBinding($bindingMarkup, 'form', $this->runtimeDomSelectorsForElement($element)),
             'controls'        => $controls,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),

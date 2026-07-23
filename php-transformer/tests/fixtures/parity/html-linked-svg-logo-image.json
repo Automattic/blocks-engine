@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-svg-logo-image",
-  "description": "A brand/logo anchor wrapping passive SVG artwork and text materializes the SVG as editable core/image media while preserving inline/nav media box and text color parity.",
+  "description": "A brand/logo anchor wrapping passive SVG artwork and text materializes the SVG inside a native link control while preserving inline geometry and text color parity.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-svg-logo-image.json",
@@ -16,18 +16,19 @@
     "content": "<a class=\"brand-logo\" href=\"/\" aria-label=\"Acme home\" style=\"display:flex;align-items:center;gap:12px;color:#faf4e8;text-decoration:none\"><span class=\"brand-mark\" aria-hidden=\"true\" style=\"flex-shrink:0\"><svg width=\"38\" height=\"38\" viewBox=\"0 0 38 38\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 28 Q7.5 23 12 28 Q16.5 33 21 28 Q25.5 23 30 28 Q33 31 36 28\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" fill=\"none\"/></svg></span><span><span class=\"brand-name\">Acme Studio</span><span class=\"brand-sub\" style=\"display:block;font-size:10px;letter-spacing:.2em;text-transform:uppercase\">Est. 2018</span></span></a>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "brand-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "href": "/", "linkDestination": "custom", "width": "38px", "height": "38px" } }
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "/", "title": "Acme home" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "/" },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/button" },
+    { "path": "blocks.0.innerBlocks.0.attrs.text", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "equals", "value": "/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stroke=\"#faf4e8\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"brand-mark\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "line-height:0" },
     { "path": "serialized_blocks", "assert": "contains", "value": "background-color:transparent" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },

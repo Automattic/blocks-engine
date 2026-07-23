@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><style>.red{color:red}</style><link rel="stylesheet" href="a.css"><style>.hero p{color:green}</style><link rel="stylesheet" href="b.css"><link rel="stylesheet" href="a.css"></head><body><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><div class="hero"><p>Copy</p></div></body></html>' ),
-        array( 'path' => 'a.css', 'kind' => 'css', 'content' => 'a.cta:hover{padding:1rem}' ),
+        array( 'path' => 'a.css', 'kind' => 'css', 'content_base64' => base64_encode('a.cta:hover{padding:1rem}') ),
         array( 'path' => 'b.css', 'kind' => 'css', 'content' => '[href="/go"]{color:blue}' ),
         array( 'path' => 'a.occurrence-2.css', 'kind' => 'css', 'content' => '.authored-collision{color:purple}' ),
     ),
@@ -34,7 +34,8 @@ foreach ( $planAssets as $asset ) {
     $hash = hash('sha256', $content);
     $assert(strlen($content) === ($asset['bytes'] ?? null) && $hash === ($asset['hash'] ?? null), 'materialization plan payload hashes describe rewritten content');
 }
-$assert(hash('sha256', 'a.cta:hover{padding:1rem}') === ($assets[1]['source_hash'] ?? null) && ($assets[1]['hash'] ?? '') !== ($assets[1]['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
+$assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assets[1]['source_hash'] ?? null) && ($assets[1]['hash'] ?? '') !== ($assets[1]['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
+$assert('text' === ($assets[1]['content_encoding'] ?? '') && ! isset($assets[1]['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
 $assert(! str_contains((string) ($assets[1]['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assets[1]['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
 $assert(hash('sha256', '.hero p{color:green}') === ($assets[2]['source_hash'] ?? null) && ! str_contains((string) ($assets[2]['content'] ?? ''), '.hero p') && str_contains((string) ($assets[2]['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assets[4]['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assets[5]['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
@@ -48,6 +49,35 @@ $richText = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $richTextAssets = $richText['assets'] ?? array();
 $assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
+
+$multiPage = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><style>.rows li{gap:1rem}</style><main><ul class="rows"><li><span>About</span><span>Now</span></li></ul></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => 'p{margin:0}.rows li{display:grid}' ),
+    ),
+) )->toArray();
+$multiPageAssets = array_column($multiPage['assets'] ?? array(), null, 'path');
+$sharedCss = (string) ($multiPageAssets['site.css']['content'] ?? '');
+$aboutCss = (string) ($multiPageAssets['about.inline.css']['content'] ?? '');
+$assert(str_contains($sharedCss, 'blocks-engine-source-p-') && str_contains($sharedCss, 'blocks-engine-source-li-'), 'shared stylesheet merges projections required by entry and sibling HTML documents');
+$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && str_ends_with($aboutCss, '.rows li{gap:1rem}'), 'sibling inline projection precedes the original stylesheet so retained selectors remain authoritative');
+$multiPageCompiledAssetPaths = array_column($multiPage['source_reports']['compiled_site']['assets'] ?? array(), 'path');
+$assert(count($multiPageCompiledAssetPaths) === count(array_unique($multiPageCompiledAssetPaths)), 'multi-page compilation deduplicates byte-identical generated assets by source path');
+$assert(isset($multiPage['source_reports']['wordpress_site_plan']), 'multi-page generated asset aggregation remains a valid WordPress site plan');
+
+$multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><h1>Home</h1></main>' ),
+        array( 'path' => 'contact.html', 'kind' => 'html', 'content' => '<main><form action="#" method="post"><input type="email" name="email" required><button type="submit">Send</button></form></main>' ),
+        array( 'path' => 'shop.html', 'kind' => 'html', 'content' => '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down">-</button><span aria-live="polite">1</span><button data-dir="up">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><button class="add-to-cart">Add to cart</button></article></li></ul></main>' ),
+    ),
+) )->toArray();
+$runtimeFallbacks = array_column($multiPageRuntime['fallbacks'] ?? array(), null, 'diagnostic_code');
+$runtimeReportFallbacks = array_column($multiPageRuntime['source_reports']['conversion_report']['fallback_diagnostics'] ?? array(), null, 'diagnostic_code');
+$assert('contact.html' === ($runtimeFallbacks['html_form_fallback']['source'] ?? ''), 'sibling form finding reaches the artifact result with source-page identity');
+$assert('shop.html' === ($runtimeFallbacks['html_product_grid_fallback']['source'] ?? ''), 'sibling product finding reaches the artifact result with source-page identity');
+$assert(isset($runtimeReportFallbacks['html_form_fallback'], $runtimeReportFallbacks['html_product_grid_fallback']), 'site conversion report exposes sibling form and product provider targets');
 
 $types = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -72,7 +102,7 @@ $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
 $assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
-$assert($imageCss === base64_decode((string) ($image['assets'][0]['content_base64'] ?? ''), true), 'stylesheet projection keeps text and base64 payload representations consistent');
+$assert('text' === ($image['assets'][0]['content_encoding'] ?? '') && ! isset($image['assets'][0]['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(

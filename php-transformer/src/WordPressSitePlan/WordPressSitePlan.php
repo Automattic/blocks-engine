@@ -31,6 +31,12 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         $references = new AssetReferenceCanonicalizer($tokens);
         $routeMap = $this->canonicalRoutes($compiled['pages'] ?? null, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
+        // A binding anchors on the source page's block markup, which the plan
+        // rewrites for canonical routes (e.g. a form action="../about.html"
+        // becomes action="/about"). Rewrite the binding markup through the same
+        // route map so its anchor still matches the canonical page markup and
+        // downstream materialization replaces the route-canonical block.
+        $runtimeDeclarations = $this->routeLinkedEntityBindings($runtimeDeclarations, $routeMap);
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routeMap);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $routes = $this->routesForPages($pages);
@@ -41,9 +47,10 @@ final class WordPressSitePlan
         $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);
+        self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts);
         $operations = $this->operations($pages);
-        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations);
+        $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts']), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
@@ -70,6 +77,33 @@ final class WordPressSitePlan
         return $plan;
     }
 
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $assets */
+    private static function assertEntityBindingsRemainPageOwned(array $declarations, array $pages, array $assets): void
+    {
+        $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
+        $assetsBySource = array_column($assets, null, 'source_path');
+        $scriptsBySource = array();
+        foreach ( $pages as $page ) foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) if ( is_array($script) && is_string($script['selector'] ?? null) ) $scriptsBySource[$page['source_path'] . "\n" . $script['selector']] = $script;
+        foreach ( $declarations as $declaration ) {
+            foreach ( $declaration['payload']['entities'] ?? array() as $entity ) {
+                $bindings = is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array();
+                $bindingSources = array_fill_keys(array_filter(array_column($bindings, 'source_path'), 'is_string'), true);
+                foreach ( $bindings as $binding ) {
+                    $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
+                    if ( !is_string($source) || !is_string($search) || !is_int($occurrence) || $occurrence < 1 || substr_count((string) ($markupBySource[$source] ?? ''), $search) < $occurrence ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after shell extraction.');
+                }
+                $formId = is_array($entity) && is_array($entity['form'] ?? null) && is_string($entity['form']['id'] ?? null) ? $entity['form']['id'] : '';
+                foreach ( is_array($entity) && is_array($entity['superseded_scripts'] ?? null) ? $entity['superseded_scripts'] : array() as $supersession ) {
+                    if ( !is_array($supersession) || array('asset_source_path','body_hash','reason','schema','selector','source_path','target_selector') !== array_keys($supersession) || 'blocks-engine/provider-script-supersession/v1' !== $supersession['schema'] || !isset($bindingSources[$supersession['source_path']]) || !preg_match('/^script:nth-of-type\([1-9][0-9]*\)$/', $supersession['selector']) || !self::safePath($supersession['asset_source_path']) || !self::hash($supersession['body_hash']) || '#' . $formId !== $supersession['target_selector'] || 'provider_binding_replaces_form_behavior' !== $supersession['reason'] ) throw new InvalidArgumentException('A provider script supersession proof is malformed or detached from its bound form.');
+                    $script = $scriptsBySource[$supersession['source_path'] . "\n" . $supersession['selector']] ?? null;
+                    $asset = $assetsBySource[$supersession['asset_source_path']] ?? null;
+                    $assetReference = is_array($asset) && is_string($asset['token'] ?? null) ? '{{wordpress-site-plan:asset:' . $asset['token'] . '}}' : null;
+                    if ( !is_array($script) || ('inline' !== ($script['source_kind'] ?? null) && $assetReference !== ($script['asset_reference'] ?? null)) || $supersession['body_hash'] !== ($script['body_hash'] ?? null) || $supersession['target_selector'] !== ($script['superseded_by'] ?? null) || !is_array($asset) || 'inline-script' !== ($asset['source'] ?? null) || !is_string($asset['content'] ?? null) || $supersession['body_hash'] !== hash('sha256', trim($asset['content'])) || $supersession['body_hash'] !== ($asset['hash'] ?? null) ) throw new InvalidArgumentException('A provider script supersession proof does not match its source inline-script asset and document metadata.');
+                }
+            }
+        }
+    }
+
     /** @param array<string,mixed> $plan */
     public static function assertValid(array $plan): void
     {
@@ -83,6 +117,7 @@ final class WordPressSitePlan
         }
         self::assertSource($plan['source']);
         RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
+        self::assertEntityBindingsRemainPageOwned($plan['runtime_declarations'], $plan['pages'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
         self::assertRows($plan['navigation_links'], 'navigation link', array('kind', 'source_path', 'source_relation', 'order'), array('target_path', 'target_slug'));
@@ -385,7 +420,7 @@ final class WordPressSitePlan
     private function reporting(array $pages, array $data, array $scriptDiagnostics = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
     /** @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>> */
-    private function canonicalRoutes(mixed $documents, array $legacyRoutes): array { if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.'); $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route; $entryRoot = self::entryRootFromDocuments($documents); $routes = array(); $paths = array(); foreach ($documents as $order => $document) { if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.'); $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array(); $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot); if (isset($paths[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.'); $paths[$path] = true; $previous = $legacy[$document['source_path']] ?? array(); $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order); } return $routes; }
+    private function canonicalRoutes(mixed $documents, array $legacyRoutes): array { if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.'); $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route; $entryRoot = self::entryRootFromDocuments($documents); $routes = array(); $paths = array(); foreach ($documents as $order => $document) { if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.'); if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/')) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.'); $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array(); $path = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path'] ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot); if (isset($paths[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.'); $paths[$path] = true; $previous = $legacy[$document['source_path']] ?? array(); $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order); } return $routes; }
     /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $routes @return array<int,array<string,mixed>> */
     private function pageHierarchy(array $pages, array $routes): array
     {
@@ -461,17 +496,29 @@ final class WordPressSitePlan
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @param array<int,array<string,mixed>> $operations @return array{scripts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    private function scriptLoading(array $pages, array $parts, array $assets, array $tokens, array $operations): array
+    private function scriptLoading(array $pages, array $parts, array $assets, array $tokens, array $operations, array $runtimeDeclarations): array
     {
         $targets = array(); foreach ($tokens as $token) $targets[$token['token']] = $token['target_path'];
         $contents = array(); foreach ($assets as $asset) if (is_string($asset['content'] ?? null)) $contents[$asset['target_path']] = $asset['content'];
         $inlineTargets = array(); foreach ($assets as $asset) if ('inline-script' === ($asset['source'] ?? null) && is_string($asset['content'] ?? null)) $inlineTargets[self::contentHash($asset['content'])] = $asset['target_path'];
         $frontPages = array(); foreach ($operations as $operation) if ('site_reading' === ($operation['kind'] ?? null)) $frontPages[$operation['front_page_reconciliation_identity']] = true;
+        $superseded = array();
+        foreach ( $runtimeDeclarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) foreach ( $entity['superseded_scripts'] ?? array() as $script ) if ( is_array($script) && is_string($script['source_path'] ?? null) && is_string($script['selector'] ?? null) && is_string($script['body_hash'] ?? null) && is_string($script['target_selector'] ?? null) ) $superseded[$script['source_path'] . "\n" . $script['selector'] . "\n" . $script['body_hash'] . "\n" . $script['target_selector']] = true;
         $scripts = array(); $diagnostics = array(); $instances = array();
         foreach (array_merge($pages, $parts) as $document) foreach ($document['document_metadata']['scripts'] ?? array() as $script) {
             $source = $document['source_path'] . '#' . ($script['order'] ?? '');
             $unsupported = static function (string $code, string $message) use (&$diagnostics, $source): void { $diagnostics[] = array('code' => $code, 'severity' => 'warning', 'message' => $message, 'source_path' => $source); };
             if (!is_array($script)) { $unsupported('wordpress_site_plan_script_invalid', 'Document script metadata is invalid.'); continue; }
+            $supersessionKey = $document['source_path'] . "\n" . ($script['selector'] ?? '') . "\n" . ($script['body_hash'] ?? '') . "\n" . ($script['superseded_by'] ?? '');
+            if ( isset($superseded[$supersessionKey]) ) continue;
+            // A form-runtime script (marked with a supersession target) that a
+            // provider binding did not safely supersede must not be materialized
+            // as an ordinary inline asset: its retained behavior (network or
+            // global side effects) is exactly what made it ineligible for
+            // supersession. Keep the plan not_proven so the materializer treats
+            // the residual runtime island as unresolved rather than silently
+            // shipping the unsafe handler.
+            if ( '' !== (string) ($script['superseded_by'] ?? '') ) { $unsupported('wordpress_site_plan_script_form_runtime_unsuperseded', 'A form-runtime script was not safely superseded by a provider binding and cannot be materialized as a static inline asset.'); continue; }
             $localTarget = null;
             if ('inline' === ($script['source_kind'] ?? null)) { $localTarget = $inlineTargets[$script['body_hash'] ?? ''] ?? null; if (null === $localTarget) { $unsupported('wordpress_site_plan_script_inline_unbound', 'Inline document script metadata has no matching canonical asset.'); continue; } }
             if (true === ($script['module'] ?? false) && true === ($script['nomodule'] ?? false)) { $unsupported('wordpress_site_plan_script_module_nomodule_conflict', 'A document script cannot combine module and nomodule semantics.'); continue; }
@@ -503,7 +550,7 @@ final class WordPressSitePlan
     private static function stripEntryRoot(string $sourcePath, string $entryRoot): string { if ('' === $entryRoot) return $sourcePath; $prefix = rtrim($entryRoot, '/') . '/'; return str_starts_with($sourcePath, $prefix) ? substr($sourcePath, strlen($prefix)) : $sourcePath; }
     // Resolve the site root directory from the entrypoint document/page so route
     // derivation and validation agree on the same web root without shared state.
-    private static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && !empty($document['entrypoint']) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
+    private static function entryRootFromDocuments(array $documents): string { foreach ($documents as $document) { if (is_array($document) && (!empty($document['entrypoint']) || 'entrypoint' === ($document['source_relation'] ?? null)) && is_string($document['source_path'] ?? null)) { $dir = str_replace('\\', '/', dirname($document['source_path'])); return in_array($dir, array('.', '/', ''), true) ? '' : $dir; } } return ''; }
     private static function canonicalRoutePath(string $path): string { if (!preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $path)) throw new InvalidArgumentException('WordPress site plan has an unsafe explicit page route.'); return $path; }
     private static function parentRoutePath(string $path): string { $parent = dirname($path); return '.' === $parent || '/' === $parent ? '/' : '/' . trim($parent, '/'); }
     /** @return array<int,string> */
@@ -568,6 +615,50 @@ final class WordPressSitePlan
         while (array() !== $from && array() !== $to && $from[0] === $to[0]) { array_shift($from); array_shift($to); }
         return str_repeat('../', count($from)) . implode('/', $to);
     }
+    /**
+     * Rewrite route links inside every entity binding's search markup so the
+     * binding anchors on the same canonical block markup the plan emits for its
+     * source page. Only single-directory route links change; other markup is
+     * byte-preserved so binding hashes and occurrence counts stay stable.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $routes
+     * @return array<int,array<string,mixed>>
+     */
+    private function routeLinkedEntityBindings(array $declarations, array $routes): array
+    {
+        foreach ( $declarations as &$declaration ) {
+            if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
+                continue;
+            }
+            foreach ( $declaration['payload']['entities'] as &$entity ) {
+                if ( ! is_array($entity) || ! isset($entity['bindings']) || ! is_array($entity['bindings']) ) {
+                    continue;
+                }
+                foreach ( $entity['bindings'] as &$binding ) {
+                    if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
+                        $binding['search_block_markup'] = $this->routeLinks($binding['search_block_markup'], $binding['source_path'], $routes);
+                    }
+                }
+                unset($binding);
+            }
+            unset($entity);
+        }
+        unset($declaration);
+
+        // Rewriting binding markup changes the payload, so drop the derived
+        // hashes and re-normalize to recompute canonical identity and content
+        // hashes; the reconciliation identity (source path + kind) is stable.
+        foreach ( $declarations as &$declaration ) {
+            if ( is_array($declaration) ) {
+                unset($declaration['payload_hash'], $declaration['content_hash']);
+            }
+        }
+        unset($declaration);
+
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+
     /** @param array<int,array<string,mixed>> $routes */
     private function routeLinks(string $content, string $origin, array $routes): string
     {
@@ -581,7 +672,12 @@ final class WordPressSitePlan
         if ('' === $value || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }
         if (str_contains($value, '%') || str_contains($value, '\\')) return null;
-        $path = str_starts_with($value, '/') ? ltrim($value, '/') : self::resolveRouteSource($origin, $value);
+        // A root-relative link (e.g. /contact.html) targets the site web root,
+        // which is the entrypoint's packaging directory. Resolve it against that
+        // root so it matches the document source path (website/contact.html)
+        // rather than a bare top-level path the artifact never contains.
+        $entryRoot = self::entryRootFromDocuments($routes);
+        $path = str_starts_with($value, '/') ? ('' === $entryRoot ? ltrim($value, '/') : $entryRoot . '/' . ltrim($value, '/')) : self::resolveRouteSource($origin, $value);
         if (null === $path) return null;
         foreach ($routes as $route) if (is_array($route) && $path === ($route['source_path'] ?? null)) return $route['target_path'] . $suffix;
         return null;
@@ -597,7 +693,7 @@ final class WordPressSitePlan
         try { $theme = json_decode((string) $themeJson['payload']['data'], true, 512, JSON_THROW_ON_ERROR); } catch (\JsonException) { throw new InvalidArgumentException('WordPress site plan theme.json is not valid JSON.'); }
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
-        $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations']);
+        $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
         if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
             if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
@@ -653,11 +749,21 @@ final class WordPressSitePlan
     private static function assertNoLocalBrowserReferences(string $content): void
     {
         $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $patterns = array('/\b(?:src|href|srcset|poster|action)\s*=\s*["\']([^"\']+)["\']/i', '/["\'](?:url|src|href|srcset|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', '/(?:url\(\s*["\']?|@import\s+(?:url\(\s*)?["\']?)([^\s\)"\';]+)/i');
-        foreach ($patterns as $pattern) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach (preg_match('~^[a-z][a-z0-9+.-]*:~i', trim((string) $value)) ? array($value) : explode(',', (string) $value) as $candidate) {
+        $assertReference = static function (string $candidate): void {
             $url = trim(preg_split('/\s+/', trim($candidate))[0] ?? '');
             if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $url)) throw new InvalidArgumentException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url));
+        };
+        $patterns = array(
+            array('/\b(?:src|href|poster|action)\s*=\s*["\']([^"\']+)["\']/i', false),
+            array('/\bsrcset\s*=\s*["\']([^"\']+)["\']/i', true),
+            array('/["\'](?:url|src|href|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', false),
+            array('/["\']srcset["\']\s*:\s*["\']([^"\']+)["\']/i', true),
+        );
+        foreach ($patterns as [$pattern, $commaSeparated]) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach ($commaSeparated ? explode(',', (string) $value) : array((string) $value) as $candidate) {
+            $assertReference($candidate);
         }
+        if (preg_match_all('/url\(\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\']+))\s*\)/i', $content, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
+        if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')));
     }
     /** @param array<string,bool> $tokens @param array<string,array<string,mixed>> $writes */
     private static function assertResolution(array $plan, array $tokens, array $writes): void
@@ -690,11 +796,24 @@ final class WordPressSitePlan
             if (array_key_exists('resolved_url', $declaration)) throw new InvalidArgumentException('WordPress site plan external metadata URL must not carry a resolved alias.');
         }
     }
-    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && $route['path'] !== $expected) || (isset($page['synthetic']) && true !== $page['synthetic'])) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
+    private static function assertRoute(array $page, string $entryRoot = ''): void { $route = $page['route'] ?? null; $expected = is_string($page['metadata']['route_path'] ?? null) && '' !== $page['metadata']['route_path'] ? self::canonicalRoutePath($page['metadata']['route_path']) : self::pageRoutePath($page['source_path'], $entryRoot); if (!is_array($route) || !is_string($route['path'] ?? null) || !preg_match('~^/(?:[a-z0-9-]+(?:/[a-z0-9-]+)*)?$~', $route['path']) || !is_string($route['parent_path'] ?? null) || !is_string($route['slug'] ?? null) || self::parentRoutePath($route['path']) !== $route['parent_path'] || self::routeSlug($route['path']) !== $route['slug'] || (!isset($page['synthetic']) && $route['path'] !== $expected) || (isset($page['synthetic']) && (true !== $page['synthetic'] || !str_starts_with((string) ($page['source_path'] ?? ''), 'wordpress-site-plan/routes/')))) throw new InvalidArgumentException('WordPress site plan page route is invalid.'); }
     /** @param array<string,string> $tokens */
     private static function assertDocument(mixed $document, string $kind, bool $part, array $tokens): void { if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['slug']??null)||!is_string($document['title']??null)||!is_string($document['post_type']??null)||!is_string($document['parent_source_path']??null)||!is_bool($document['entrypoint']??null)||!is_string($document['canonical_block_markup']??null)||''===trim($document['canonical_block_markup'])||!is_array($document['metadata']??null)||!is_array($document['document_metadata']??null)||!is_array($document['provenance']??null)||!self::hash($document['reconciliation_identity']??null)||!self::hash($document['content_hash']??null)||($part&&(!is_string($document['area']??null)||''===$document['area']||!is_array($document['placement']??null)))||(!$part&&(null!==($document['area']??null)||null!==($document['placement']??null))))throw new InvalidArgumentException("WordPress site plan {$kind} is structurally invalid.");if($part&&$document['reconciliation_identity']!==self::identity('template-part',$document['source_path'],'parts/'.$document['slug'].'.html'))throw new InvalidArgumentException('WordPress site plan template part identity is invalid.');if($part&&in_array($document['placement']['kind']??null,array('entry_shell','shared_shell'),true)&&(!is_string($document['placement']['source_path']??null)||!is_array($document['placement']['template_slugs']??null)||array()=== $document['placement']['template_slugs']))throw new InvalidArgumentException('WordPress site plan template part placement is invalid.');self::assertDocumentMetadata($document['document_metadata'],$tokens);self::assertTokens($document['canonical_block_markup'],$tokens);self::assertNoLocalBrowserReferences($document['canonical_block_markup']); }
     /** @param array<string,mixed> $metadata @param array<string,bool> $tokens */
-    private static function assertDocumentMetadata(array $metadata, array $tokens): void { if(!is_array($metadata['source_context']??null)||!self::safePath($metadata['source_context']['source_path']??null)||!is_string($metadata['source_context']['kind']??null)||!is_string($metadata['title']??null)||!is_array($metadata['title_declaration']??null)||0!==($metadata['title_declaration']['order']??null)||'head'!==($metadata['title_declaration']['placement']??null)||!is_array($metadata['meta']??null)||!is_array($metadata['links']??null)||!is_array($metadata['scripts']??null))throw new InvalidArgumentException('WordPress site plan document metadata is structurally invalid.');foreach($metadata['meta'] as $index=>$row)if(!is_array($row)||$index!==($row['order']??null)||!in_array($row['placement']??null,array('head','body'),true)||array_diff(array_keys($row),array('order','placement','charset','name','property','http_equiv','content')))throw new InvalidArgumentException('WordPress site plan meta declaration is invalid.');foreach($metadata['links'] as $index=>$row){if(!is_array($row)||$index!==($row['order']??null)||!in_array($row['placement']??null,array('head','body'),true)||(!is_string($row['asset_reference']??null)&&!self::explicitUrl($row['url']??null))||array_diff(array_keys($row),array('order','placement','rel','type','media','integrity','crossorigin','referrerpolicy','as','fetchpriority','sizes','asset_reference','url','resolved_url')))throw new InvalidArgumentException('WordPress site plan link declaration is invalid.');if(is_string($row['asset_reference']??null))self::assertTokens($row['asset_reference'],$tokens);}foreach($metadata['scripts'] as $index=>$row){if(!is_array($row)||$index!==($row['order']??null)||!in_array($row['placement']??null,array('head','body'),true)||!is_bool($row['defer']??null)||!is_bool($row['async']??null)||!is_bool($row['module']??null)||!is_bool($row['nomodule']??null)||!in_array($row['effective_loading']??null,array('blocking','defer','async'),true)||($row['async']&&'async'!==$row['effective_loading'])||(!$row['async']&&($row['defer']||$row['module'])&&'defer'!==$row['effective_loading'])||(!$row['async']&&!$row['defer']&&!$row['module']&&'blocking'!==$row['effective_loading'])||(!is_string($row['asset_reference']??null)&&!self::explicitUrl($row['url']??null)&&'inline'!==($row['source_kind']??null))||array_diff(array_keys($row),array('order','placement','async','defer','module','nomodule','effective_loading','type','integrity','crossorigin','referrerpolicy','fetchpriority','asset_reference','url','resolved_url','source_kind','body_hash')))throw new InvalidArgumentException('WordPress site plan script declaration is invalid.');if(is_string($row['asset_reference']??null))self::assertTokens($row['asset_reference'],$tokens);}}
+    private static function assertDocumentMetadata(array $metadata, array $tokens): void
+    {
+        if (!is_array($metadata['source_context'] ?? null) || !self::safePath($metadata['source_context']['source_path'] ?? null) || !is_string($metadata['source_context']['kind'] ?? null) || !is_string($metadata['title'] ?? null) || !is_array($metadata['title_declaration'] ?? null) || 0 !== ($metadata['title_declaration']['order'] ?? null) || 'head' !== ($metadata['title_declaration']['placement'] ?? null) || !is_array($metadata['meta'] ?? null) || !is_array($metadata['links'] ?? null) || !is_array($metadata['scripts'] ?? null)) throw new InvalidArgumentException('WordPress site plan document metadata is structurally invalid.');
+        foreach ($metadata['meta'] as $index => $row) if (!is_array($row) || $index !== ($row['order'] ?? null) || !in_array($row['placement'] ?? null, array('head', 'body'), true) || array_diff(array_keys($row), array('order', 'placement', 'charset', 'name', 'property', 'http_equiv', 'content'))) throw new InvalidArgumentException('WordPress site plan meta declaration is invalid.');
+        foreach ($metadata['links'] as $index => $row) {
+            if (!is_array($row) || $index !== ($row['order'] ?? null) || !in_array($row['placement'] ?? null, array('head', 'body'), true) || (!is_string($row['asset_reference'] ?? null) && !self::explicitUrl($row['url'] ?? null)) || array_diff(array_keys($row), array('order', 'placement', 'rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes', 'asset_reference', 'url', 'resolved_url'))) throw new InvalidArgumentException('WordPress site plan link declaration is invalid.');
+            if (is_string($row['asset_reference'] ?? null)) self::assertTokens($row['asset_reference'], $tokens);
+        }
+        foreach ($metadata['scripts'] as $index => $row) {
+            if (!is_array($row) || $index !== ($row['order'] ?? null) || !in_array($row['placement'] ?? null, array('head', 'body'), true) || !is_bool($row['defer'] ?? null) || !is_bool($row['async'] ?? null) || !is_bool($row['module'] ?? null) || !is_bool($row['nomodule'] ?? null) || !in_array($row['effective_loading'] ?? null, array('blocking', 'defer', 'async'), true) || ($row['async'] && 'async' !== $row['effective_loading']) || (!$row['async'] && ($row['defer'] || $row['module']) && 'defer' !== $row['effective_loading']) || (!$row['async'] && !$row['defer'] && !$row['module'] && 'blocking' !== $row['effective_loading']) || (!is_string($row['asset_reference'] ?? null) && !self::explicitUrl($row['url'] ?? null) && 'inline' !== ($row['source_kind'] ?? null)) || array_diff(array_keys($row), array('order', 'placement', 'async', 'defer', 'module', 'nomodule', 'effective_loading', 'type', 'integrity', 'crossorigin', 'referrerpolicy', 'fetchpriority', 'asset_reference', 'url', 'resolved_url', 'source_kind', 'body_hash', 'selector', 'superseded_by'))) throw new InvalidArgumentException('WordPress site plan script declaration is invalid.');
+            if (isset($row['superseded_by']) && (!is_string($row['selector'] ?? null) || !preg_match('/^script:nth-of-type\([1-9][0-9]*\)$/', $row['selector']) || !is_string($row['superseded_by']) || !preg_match('/^#[A-Za-z][A-Za-z0-9_-]*$/', $row['superseded_by']) || !self::hash($row['body_hash'] ?? null))) throw new InvalidArgumentException('WordPress site plan script supersession metadata is invalid.');
+            if (is_string($row['asset_reference'] ?? null)) self::assertTokens($row['asset_reference'], $tokens);
+        }
+    }
     /** @param array<string,mixed> $reporting @param array<string,bool> $pagePaths @param array<string,bool> $tokens */
     private static function assertReporting(array $reporting, array $pagePaths, array $tokens, array $diagnostics): void { if(!is_array($reporting['source_documents']??null)||!is_array($reporting['metrics']??null)||!is_array($reporting['diagnostic_codes']??null))throw new InvalidArgumentException('WordPress site plan reporting summary is invalid.');$sources=array();foreach($reporting['source_documents'] as $document){if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['kind']??null)||!is_string($document['body_format']??null)||!is_bool($document['block_document']??null)||!is_array($document['provenance']??null))throw new InvalidArgumentException('WordPress site plan source document summary is invalid.');self::unique($sources,$document['source_path'],'source document');}if(count($sources)!==count($pagePaths)||array_keys($sources)!==array_keys($pagePaths))throw new InvalidArgumentException('WordPress site plan source document summaries do not match pages.');foreach(array('source_document_count','block_document_count','native_block_count','fallback_count') as $key)if(!is_int($reporting['metrics'][$key]??null))throw new InvalidArgumentException('WordPress site plan reporting metric is invalid.');$linked=array_fill_keys($reporting['diagnostic_codes'],true);foreach($reporting['diagnostic_codes'] as $code)if(!is_string($code)||''===$code)throw new InvalidArgumentException('WordPress site plan diagnostic linkage is invalid.');foreach($diagnostics as $diagnostic)if(is_array($diagnostic)&&is_string($diagnostic['code']??null)&&!isset($linked[$diagnostic['code']]))throw new InvalidArgumentException('WordPress site plan diagnostics are not linked to reporting.');}
     /** @param array<string,string> $tokens */

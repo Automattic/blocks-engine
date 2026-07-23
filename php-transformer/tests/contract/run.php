@@ -805,6 +805,16 @@ $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'arti
 $assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+$runtimeContext = ( new ArtifactCompiler() )->runtimeContextForSource(
+    '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
+    'index.html',
+    array(
+        'index.html' => '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
+        'js/app.js'  => "document.querySelectorAll('.theme-toggle').forEach(button => {\n  const sync = () => button.setAttribute('aria-label', 'Toggle theme');\n  button.addEventListener('click', toggleTheme);\n});",
+    )
+);
+$assert(in_array('.theme-toggle', $runtimeContext['runtime_dom_selectors'] ?? array(), true), 'standalone source runtime context exposes behavior-bearing DOM selectors');
+$assert('js/app.js' === ($runtimeContext['runtime_script_metadata'][0]['path'] ?? ''), 'standalone source runtime context exposes materialized script metadata');
 
 $artifactSvgSelectors = ( new ArtifactCompiler() )->compile(
     array(
@@ -975,6 +985,15 @@ $assert('core/paragraph' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph
 $assert(str_contains($paragraphSvgSerialized, '<!-- wp:paragraph'), 'paragraph inline SVG serializes as a native paragraph block');
 $assert(str_contains($paragraphSvgSerialized, '<a href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object');
 $assert(! str_contains($paragraphSvgSerialized, '<svg'), 'paragraph inline SVG is not stored as unsupported SVG RichText markup');
+
+$inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
+    '<style>.track{display:flex}.token{display:inline-flex;align-items:center;gap:8px}.token svg{width:18px;height:18px}</style><main><div class="track"><span class="token">Open Source <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg></span></div></main>'
+)->toArray();
+$inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
+$assert(str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph {"className":"token'), 'inline flex text and SVG collapse to one styled native paragraph instead of a one-child group');
+$assert(str_contains($inlineFlexSvgMarkup, '<p class="token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled paragraph');
+$assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+$assert('pass' === ($inlineFlexSvgResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline flex SVG paragraph remains editor-valid');
 
 $coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeHtml, array())->toArray();
@@ -1213,6 +1232,9 @@ $assert('Mastodon' === ($footerNavigationMenus[2]['items'][0]['label'] ?? ''), '
 $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'icon-only social links use title as navigation label');
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"content":"Product","level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title","content":"Company"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
+$assert(2 === substr_count($footerNavigationSerialized, '"orientation":"vertical"'), 'labeled footer navigation retains vertical column flow without changing unlabeled social navigation');
 
 $complexHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-expanded="false" aria-controls="menu">Menu</button><nav class="primary-nav" aria-label="Primary"><div id="menu" class="nav-list"><a href="/">Home</a><a class="nav-divider" role="separator" href="#">/</a><span class="separator">|</span><button class="dropdown-toggle" aria-expanded="false">More</button><a href="/shop"><span>Shop</span><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></div></nav><div class="mobile-nav overlay"><div class="drawer-panel"><nav class="drawer-nav" aria-label="Mobile"><a href="/">Home</a><a href="/shop">Shop</a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></nav></div></div></div></header>'
@@ -1470,6 +1492,14 @@ $quoteCitationFooter = ( new HtmlTransformer() )->transform(
 $quoteCitationParity = $quoteCitationFooter['source_reports']['semantic_parity'] ?? array();
 $assert('pass' === ($quoteCitationParity['status'] ?? ''), 'blockquote citation footer is not counted as a page footer landmark');
 $assert(1 === ($quoteCitationParity['landmarks']['source']['footer'] ?? null), 'semantic parity counts only the actual page footer landmark');
+
+$decoratedFigureQuote = ( new HtmlTransformer() )->transform(
+    '<style>.quote-card .mark{font-size:3rem}.quote-who{display:flex;gap:.8rem}.quote-avatar{width:44px;height:44px}</style><figure class="quote-card"><div class="mark" aria-hidden="true">&ldquo;</div><blockquote>Open publishing matters.</blockquote><figcaption class="quote-who"><span class="quote-avatar" aria-hidden="true">RM</span><span><b>Rosa Medina</b><span>Writer</span></span></figcaption></figure>'
+)->toArray();
+$decoratedFigureQuoteSerialized = (string) ($decoratedFigureQuote['serialized_blocks'] ?? '');
+$assert(str_contains($decoratedFigureQuoteSerialized, '<p class="mark">“</p>'), 'figure quote preserves a styled decorative lead mark as native content');
+$assert(str_contains($decoratedFigureQuoteSerialized, '<cite><span class="quote-who">'), 'figure quote preserves the figcaption layout class around native citation content');
+$assert('pass' === ($decoratedFigureQuote['source_reports']['wp_block_validity']['status'] ?? ''), 'decorated figure quote remains block-valid');
 
 $assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
     $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
@@ -1925,6 +1955,7 @@ $artifactInlineSvgImageAssets = array_values(array_filter($artifactInlineSvgAsse
 $assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
 $assert(1 === count($artifactInlineSvgImageAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
 $assert(str_contains((string) ($artifactInlineSvgImageAssets[0]['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact inline SVG asset preserves sanitized SVG content');
+$assert('importer_owned' === ($artifactInlineSvgImageAssets[0]['source_role'] ?? '') && true === ($artifactInlineSvgImageAssets[0]['pipeline_sanitized'] ?? null), 'artifact materialization plan preserves generated SVG ownership and sanitization provenance');
 $assert(str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'assets/materialized-svg/'), 'artifact safe inline SVG serializes a materialized image URL');
 
 $artifactNonEntryInlineSvg = $compiler->compile(
@@ -3312,6 +3343,9 @@ assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schem
 assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Format bridge result conversion should expose block arrays.');
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
+$htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
+assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $unsupportedSourceResult = $bridge->convertResult('<p>Hello</p>', 'xml', 'html')->toArray();
 assertSame('failed', $unsupportedSourceResult['status'], 'Unsupported source formats should fail through diagnostics.');
 assertSame('unsupported_source_format', $unsupportedSourceResult['diagnostics'][0]['code'], 'Unsupported source diagnostics should identify the source format.');

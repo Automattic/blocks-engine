@@ -21,6 +21,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\CorpusDiagnostics\CorpusDetectors;
+use Automattic\BlocksEngine\PhpTransformer\CorpusDiagnostics\CorpusDiagnosticsRunner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -35,6 +36,13 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     ++$failures;
     fwrite(STDERR, 'FAIL: ' . $message . ('' !== $detail ? ' - ' . $detail : '') . PHP_EOL);
 };
+
+$fixtureCorpus = sys_get_temp_dir() . '/blocks-engine-corpus-' . bin2hex(random_bytes(4));
+mkdir($fixtureCorpus . '/canonical', 0777, true);
+file_put_contents($fixtureCorpus . '/canonical/index.html', '<main><p>Canonical fixture metadata</p></main>');
+file_put_contents($fixtureCorpus . '/canonical/fixture.json', json_encode(array('fixture_class' => 'marketing/static', 'class' => 'unknown')));
+$fixtureReport = (new CorpusDiagnosticsRunner())->run($fixtureCorpus);
+$assert('marketing/static' === ($fixtureReport['fixtures']['canonical/index.html']['class'] ?? null), '0: corpus diagnostics prefers canonical fixture_class metadata');
 
 // Spans carry aria-hidden so the transformer preserves them in RichText content
 // (a bare classed span is collapsed) — this mirrors how class/style-bearing

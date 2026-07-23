@@ -41,6 +41,14 @@ $assert(str_contains($markup, 'box-shadow:0 0 24px rgba(232,160,32,0.3)'), 'rend
 $assert(str_contains($markup, 'background-color:#e8a020'), 'rendered core/button carries source fill', $markup);
 $assert(str_contains($markup, 'color:#050d1a'), 'rendered core/button carries source text color', $markup);
 
+$themed = ( new HtmlTransformer() )->transform(
+    '<style>:root{--ink:#1d2230;--brand:linear-gradient(135deg,#2c63ff,#ff5d73)}[data-theme="dark"]{--ink:#f3f1ea}.btn{background:var(--brand);color:var(--ink)}</style><button class="btn">Continue</button>'
+)->toArray();
+$themedMarkup = (string) ($themed['serialized_blocks'] ?? '');
+$assert(str_contains($themedMarkup, 'background:linear-gradient(135deg,#2c63ff,#ff5d73)'), 'button gradient maps to canonical style.color.gradient', $themedMarkup);
+$assert(str_contains($themedMarkup, 'color:#1d2230'), 'default root custom properties are not replaced by conditional theme overrides', $themedMarkup);
+$assert(! str_contains($themedMarkup, 'color:#f3f1ea'), 'inactive dark-theme custom properties do not leak into canonical button paint', $themedMarkup);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);

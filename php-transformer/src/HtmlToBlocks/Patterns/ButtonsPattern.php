@@ -23,11 +23,12 @@ final class ButtonsPattern
      * @param callable(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
+    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock): ?array
     {
         $fileBlock = $fileBlockFromAnchor($anchor);
         if ( null !== $fileBlock ) {
@@ -38,27 +39,36 @@ final class ButtonsPattern
             return null;
         }
 
-        return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock) ), $anchor);
+        return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock) ), $anchor);
     }
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
+     * @param callable(DOMElement): bool $isGridItem
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $createBlock): array
+    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $isGridItem, callable $createBlock): array
     {
+        $attrs = $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle);
+        if ( $isGridItem($button) ) {
+            $attrs['width'] = 100;
+        }
+        $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
+
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes), array(
-            $createBlock('core/button', array_merge(
-                $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle),
+            $createBlock('core/button', array_filter(array_merge(
+                $attrs,
                 $this->buttonRuntimeAttributes($button),
                 array(
                     'tagName' => 'button',
-                    'text'    => $this->buttonText($button, $innerHtml($button)),
+                    'text'    => $text,
+                    'title'   => $this->buttonAccessibleTitle($button, $text),
                 )
-            ), array(), $button),
+            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);
     }
 
@@ -66,22 +76,23 @@ final class ButtonsPattern
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
+    public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock): ?array
     {
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element) ) {
-            return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock, $element) ), $element);
+            return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock, $element) ), $element);
         }
 
 		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ( $containerHasButtonSignal || $this->hasButtonSignal($child) ) ) {
-                $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock);
+                $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock);
             }
         }
 
@@ -96,17 +107,30 @@ final class ButtonsPattern
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
+     * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
+    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
     {
         $presentationElement ??= $anchor;
+        $resolvedPresentation = trim((string) $resolvedStyle($presentationElement));
+        $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
+        $attrs = $this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle);
+        // The canonical core/button wrapper is structural. A source control's
+        // classes would otherwise let an unprojected stylesheet paint that outer
+        // div instead of the link that Gutenberg actually renders as the button.
+        if ( $presentationElement === $anchor && $hasAuthoredStyleRules ) {
+            $this->removeSourceControlClasses($attrs, $anchor);
+        }
 
-        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle), array(
-            'text' => $this->buttonText($anchor, $innerHtml($anchor)),
+        $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
+
+        return $createBlock('core/button', array_filter(array_merge($attrs, array(
+            'text' => $text,
             'url'  => $attr($anchor, 'href'),
+            'title' => $this->buttonAccessibleTitle($anchor, $text),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
@@ -124,19 +148,27 @@ final class ButtonsPattern
             : array();
     }
 
-    private function buttonText(DOMElement $element, string $html): string
+    /** @param callable(DOMElement, string): ?string $materializeSvgImages */
+    private function buttonText(DOMElement $element, string $html, callable $materializeSvgImages): string
     {
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
         $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
+        $html = $materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         $html = $this->unwrapPresentationalSpan(trim($html));
-        if ( '' !== trim($this->plainText($html)) ) {
+        if ( '' !== trim($this->plainText($html)) || preg_match('/<img\b[^>]*>/i', $html) ) {
             return $html;
         }
 
-        return $this->accessibleFallbackLabel($element);
+        return '';
+    }
+
+    private function buttonAccessibleTitle(DOMElement $element, string $text): string
+    {
+        return '' === $this->plainText($text)
+            ? html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            : '';
     }
 
     private function plainText(string $html): string
@@ -302,6 +334,33 @@ final class ButtonsPattern
         }
 
         return array( 'type' => $button->getAttribute('type') );
+    }
+
+    private function hasRuntimeBehaviorSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function removeSourceControlClasses(array &$attrs, DOMElement $element): void
+    {
+        $sourceClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = array_filter(
+            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
+        );
+        if ( array() === $classes ) {
+            unset($attrs['className']);
+            return;
+        }
+
+        $attrs['className'] = implode(' ', $classes);
     }
 
     private function hasOutlineSignal(DOMElement $element, string $style): bool

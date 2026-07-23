@@ -30,7 +30,8 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "btn-primary" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button btn-primary" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-control-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:999px;color:#fff;background-color:#1257ff;padding-top:12px;padding-right:20px;padding-bottom:12px;padding-left:20px\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "nav-cta" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "style=\"background-color:#101827;color:white;padding:10px 16px;border-radius:8px\"" },

@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-sized-html-valid",
-  "description": "Represents passive inline SVGs as native core/image with explicit intrinsic sizing derived from viewBox, while decorative SVGs inside button-like links are stripped from native core/button labels.",
+  "description": "Represents passive inline SVGs as native core/image with explicit intrinsic sizing derived from viewBox, including sanitized SVG artwork inside native button labels.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-sized-html-valid.json",
@@ -20,7 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-cta", "text": "Reserve", "url": "/reserve" } }
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-cta", "url": "/reserve" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -31,11 +31,11 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
     { "path": "blocks.0.innerBlocks.1.attrs.alt", "assert": "equals", "value": "Hero flame" },
     { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "assets.1.content", "assert": "contains", "value": "linearGradient" },
+    { "path": "assets.2.content", "assert": "contains", "value": "linearGradient" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:icon" },
-    { "path": "assets", "assert": "count", "count": 3 },
+    { "path": "assets", "assert": "count", "count": 4 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
