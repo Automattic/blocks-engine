@@ -1299,11 +1299,20 @@ $assert(str_contains($captionedPlaceholderMarkup, 'blocks-engine-placeholder-med
 $assert(str_contains($captionedPlaceholderCss, 'position:absolute') && str_contains($captionedPlaceholderCss, 'left:12px') && str_contains($captionedPlaceholderCss, 'bottom:10px') && str_contains($captionedPlaceholderCss, 'margin:0'), 'materialized placeholder caption preserves pseudo-element overlay geometry without affecting layout flow');
 
 $inlineMetadataFlow = ( new HtmlTransformer() )->transform(
-    '<style>.event-meta{font-size:.82rem}.event-meta .pipe{margin:0 8px}.event-meta .room-code{font-family:monospace}</style><div class="event-meta">Committee chair: Prof. Mahalingam <span class="pipe">·</span> <span class="room-code">M-302</span> Mendel Hall</div>'
+    '<style>.event-meta{font-size:.82rem;margin-bottom:6px}.event-meta .pipe{margin:0 8px}.event-meta .room-code{font-family:monospace}</style><div class="event-meta">Committee chair: Prof. Mahalingam <span class="pipe">·</span> <span class="room-code">M-302</span> Mendel Hall</div>'
 )->toArray();
 $inlineMetadataBlock = $inlineMetadataFlow['blocks'][0] ?? array();
 $assert('core/paragraph' === ($inlineMetadataBlock['blockName'] ?? '') && 'event-meta' === ($inlineMetadataBlock['attrs']['className'] ?? ''), 'phrasing-only div with direct text remains one metadata flow');
 $assert(str_contains((string) ($inlineMetadataBlock['attrs']['content'] ?? ''), 'Prof. Mahalingam') && str_contains((string) ($inlineMetadataBlock['attrs']['content'] ?? ''), 'M-302'), 'metadata flow preserves text and inline semantic tokens together');
+$assert(array('top' => '0', 'right' => '0', 'left' => '0') === ($inlineMetadataBlock['attrs']['style']['spacing']['margin'] ?? array()), 'non-paragraph metadata hosts leave authored stylesheet margins active and neutralize unspecified paragraph margins');
+
+$standaloneTextControls = ( new HtmlTransformer() )->transform(
+    '<style>.section-head{display:flex}.more-link{display:block;margin-bottom:6px}.event-date{border-right:1px solid}.month,.day,.time{display:block}.time{margin-top:4px}</style><div class="section-head"><a class="more-link" href="/news">All news</a></div><div class="event-date"><span class="month">Jun</span><span class="day">25</span><time class="time">3:00 PM</time></div>'
+)->toArray();
+$standaloneLinkBlock = $standaloneTextControls['blocks'][0]['innerBlocks'][0] ?? array();
+$standaloneTimeBlock = $standaloneTextControls['blocks'][1]['innerBlocks'][2] ?? array();
+$assert(array('top' => '0', 'right' => '0', 'left' => '0') === ($standaloneLinkBlock['attrs']['style']['spacing']['margin'] ?? array()), 'standalone source links leave authored stylesheet margins active without paragraph theme defaults');
+$assert(array('top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0') === ($standaloneTimeBlock['attrs']['style']['spacing']['margin'] ?? array()) && str_contains((string) ($standaloneTimeBlock['attrs']['content'] ?? ''), 'class="time"'), 'inline source elements hosted by paragraphs keep their source-owned inner margin and a neutral wrapper margin');
 
 $wrappingNavigation = ( new HtmlTransformer() )->transform(
     '<nav><ul style="display:flex;flex-wrap:wrap;gap:1rem"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'

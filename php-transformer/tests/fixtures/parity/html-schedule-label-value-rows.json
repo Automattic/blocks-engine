@@ -26,10 +26,10 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"session-row\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p><time class=\"session-time\">10:00 AM</time></p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-title\">Opening keynote</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-label\">Location</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-value\">Main Hall</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\"><time class=\"session-time\">10:00 AM</time></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-title\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">Opening keynote</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-label\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">Location</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-value\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">Main Hall</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "10:00 AM\n" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

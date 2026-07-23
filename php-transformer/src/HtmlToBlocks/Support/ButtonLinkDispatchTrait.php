@@ -45,7 +45,7 @@ trait ButtonLinkDispatchTrait
         }
 
         if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) ))), array(), $element);
         }
 
         if ( '' === trim($element->textContent ?? '') ) {
@@ -62,7 +62,7 @@ trait ButtonLinkDispatchTrait
         // A non-button anchor has no native width support. Promote its source
         // presentation to the paragraph wrapper so generated geometry remains
         // attached to the rendered block rather than being silently discarded.
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+        return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) ))), array(), $element);
     }
 
     /**

@@ -1976,7 +1976,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array( 'content' => $content )));
+            return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array( 'content' => $content ), false));
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
@@ -3747,7 +3747,7 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array_merge($this->presentationAttributes($element), array( 'content' => $content ))), array(), $element);
     }
 
     private function richTextContentWithoutDecorativeSvg(DOMElement $element): string
@@ -4174,29 +4174,24 @@ final class HtmlTransformer
     }
 
     /**
-     * A paragraph is the valid native host for a standalone source inline flex or
-     * grid item. Its theme default margins are not part of that element's box, so
-     * use its resolved source margin when present or establish a zero baseline.
+     * A paragraph is the valid native host for non-paragraph source content. Its
+     * theme default margins are not part of that source box, so fill unspecified
+     * wrapper margins with zero while retaining margins projected onto the host.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function paragraphAttributesForNonParagraphContent(DOMElement $element, array $attrs): array
+    private function paragraphAttributesForNonParagraphContent(DOMElement $element, array $attrs, bool $sourcePresentationOnWrapper = true): array
     {
-        $parent = $element->parentNode;
-        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''))) : '';
-        if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-            return $attrs;
-        }
-
-        $sourceMargin = $this->presentationAttributes($element)['style']['spacing']['margin'] ?? array();
-        if ( ! is_array($sourceMargin) || array() === $sourceMargin ) {
-            $sourceMargin = array(
-                'top'    => '0',
-                'right'  => '0',
-                'bottom' => '0',
-                'left'   => '0',
-            );
+        $sourceMargin = $attrs['style']['spacing']['margin'] ?? array();
+        $sourceMargin = is_array($sourceMargin) ? $sourceMargin : array();
+        $declarations = $sourcePresentationOnWrapper
+            ? array_merge($this->structuralPresentationDeclarations($element), $this->presentationDeclarations($element))
+            : array();
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            if ( ! array_key_exists($side, $sourceMargin) && (! $sourcePresentationOnWrapper || (! isset($declarations['margin']) && ! isset($declarations['margin-' . $side]))) ) {
+                $sourceMargin[$side] = '0';
+            }
         }
 
         return array_replace_recursive(array(

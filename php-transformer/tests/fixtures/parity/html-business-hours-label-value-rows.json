@@ -26,8 +26,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hours-row\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-day\">Monday</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-time closed\">Closed</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-day\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">Monday</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-time closed\" style=\"margin-top:0;margin-right:0;margin-bottom:0;margin-left:0\">Closed</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "Monday\n" }
   ]
 }
