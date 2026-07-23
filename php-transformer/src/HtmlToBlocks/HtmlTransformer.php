@@ -3740,6 +3740,24 @@ final class HtmlTransformer
             return null;
         }
 
+        // A pure-text styled wrapper whose CSS is typographic only (no box-model
+        // geometry) round-trips as a single styled `core/paragraph` carrying the
+        // wrapper class. The `core/group` + default inner paragraph form neither
+        // inherits the wrapper's typographic scale onto that inner paragraph nor
+        // suppresses default block spacing, so an eyebrow like `<div class="label">
+        // The Shop</div>` renders at the wrong size and pushes every following
+        // block down. The group form is retained only when the wrapper owns
+        // box-model geometry (padding/border/flex) that a block-level container
+        // must preserve.
+        if ( 0 === $this->childElementCount($element) && ! $this->hasBoxModelWrapperStyling($element) ) {
+            return $this->createBlock(
+                'core/paragraph',
+                array_merge($this->presentationAttributes($element), array( 'content' => $content )),
+                array(),
+                $element
+            );
+        }
+
         return $this->createBlock(
             'core/group',
             $this->presentationAttributes($element),
@@ -3747,6 +3765,15 @@ final class HtmlTransformer
             $element
         );
     }
+
+    /**
+     * Box-model CSS declarations that give a text wrapper block-level geometry
+     * (padding, border, explicit sizing, or flex/grid layout) which must be
+     * preserved on a `core/group` rather than flattened onto a paragraph.
+     *
+     * @var array<int, string>
+     */
+    private const BOX_MODEL_WRAPPER_PROPERTIES = array( 'display', 'gap', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
 
     private function hasVisualTextWrapperSignal(DOMElement $element): bool
     {
@@ -3759,8 +3786,16 @@ final class HtmlTransformer
             return false;
         }
 
-        $declarations = $this->presentationDeclarations($element);
-        foreach ( array( 'display', 'gap', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' ) as $property ) {
+        return $this->hasBoxModelWrapperStyling($element);
+    }
+
+    private function hasBoxModelWrapperStyling(DOMElement $element): bool
+    {
+        // Read the raw matched declarations rather than the post-projection
+        // presentation set: box-model properties such as padding are consumed
+        // into block-supports attributes and would otherwise be invisible here.
+        $declarations = $this->structuralPresentationDeclarations($element);
+        foreach ( self::BOX_MODEL_WRAPPER_PROPERTIES as $property ) {
             if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
                 return true;
             }
