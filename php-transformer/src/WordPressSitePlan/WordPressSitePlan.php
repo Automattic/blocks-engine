@@ -31,6 +31,12 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         $references = new AssetReferenceCanonicalizer($tokens);
         $routeMap = $this->canonicalRoutes($compiled['pages'] ?? null, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
+        // A binding anchors on the source page's block markup, which the plan
+        // rewrites for canonical routes (e.g. a form action="../about.html"
+        // becomes action="/about"). Rewrite the binding markup through the same
+        // route map so its anchor still matches the canonical page markup and
+        // downstream materialization replaces the route-canonical block.
+        $runtimeDeclarations = $this->routeLinkedEntityBindings($runtimeDeclarations, $routeMap);
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routeMap);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $routes = $this->routesForPages($pages);
@@ -608,6 +614,50 @@ final class WordPressSitePlan
         while (array() !== $from && array() !== $to && $from[0] === $to[0]) { array_shift($from); array_shift($to); }
         return str_repeat('../', count($from)) . implode('/', $to);
     }
+    /**
+     * Rewrite route links inside every entity binding's search markup so the
+     * binding anchors on the same canonical block markup the plan emits for its
+     * source page. Only single-directory route links change; other markup is
+     * byte-preserved so binding hashes and occurrence counts stay stable.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $routes
+     * @return array<int,array<string,mixed>>
+     */
+    private function routeLinkedEntityBindings(array $declarations, array $routes): array
+    {
+        foreach ( $declarations as &$declaration ) {
+            if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
+                continue;
+            }
+            foreach ( $declaration['payload']['entities'] as &$entity ) {
+                if ( ! is_array($entity) || ! isset($entity['bindings']) || ! is_array($entity['bindings']) ) {
+                    continue;
+                }
+                foreach ( $entity['bindings'] as &$binding ) {
+                    if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
+                        $binding['search_block_markup'] = $this->routeLinks($binding['search_block_markup'], $binding['source_path'], $routes);
+                    }
+                }
+                unset($binding);
+            }
+            unset($entity);
+        }
+        unset($declaration);
+
+        // Rewriting binding markup changes the payload, so drop the derived
+        // hashes and re-normalize to recompute canonical identity and content
+        // hashes; the reconciliation identity (source path + kind) is stable.
+        foreach ( $declarations as &$declaration ) {
+            if ( is_array($declaration) ) {
+                unset($declaration['payload_hash'], $declaration['content_hash']);
+            }
+        }
+        unset($declaration);
+
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+
     /** @param array<int,array<string,mixed>> $routes */
     private function routeLinks(string $content, string $origin, array $routes): string
     {

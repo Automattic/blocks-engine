@@ -982,10 +982,13 @@ final class ArtifactCompiler
             }
             $content = implode("\n", array_merge(array_keys($pathProjections), $authoritativeContent));
             $file['content'] = $content;
+            // Projection rewrites the CSS text, so any base64 twin from the
+            // source payload is stale. Drop it and let the rewritten text be the
+            // sole representation rather than shipping an inconsistent encoding.
+            unset($file['content_base64']);
             $file['bytes'] = strlen($content);
             $file['encoding'] = 'text';
             $file['binary'] = false;
-            unset($file['content_base64']);
             $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
             $file['provenance']['hash'] = hash('sha256', $content);
         }
