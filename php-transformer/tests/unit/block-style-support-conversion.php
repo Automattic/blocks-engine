@@ -193,6 +193,19 @@ $assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 
+// A universal reset (`* { margin: 0; padding: 0 }`) sets zero-valued box
+// properties on every element. Those must not count as box chrome, or an
+// eyebrow like `<div class="eyebrow">The Shop</div>` would be disqualified from
+// collapsing and would render at the wrong scale with default block spacing.
+// The wrapper also uses `display:inline-flex;gap` only to align a `::before`
+// dash — flex without child elements is not block geometry.
+$resetHtml = '<header class="page-header"><div class="eyebrow">The Shop</div><h1>Carry something home.</h1></header>';
+$resetCss = '*,*::before,*::after{margin:0;padding:0}.eyebrow{display:inline-flex;align-items:center;gap:0.8rem;font-size:0.68rem;letter-spacing:0.22em;text-transform:uppercase}.eyebrow::before{content:"";display:block;width:2.2rem;height:1px}';
+$resetResult = ( new HtmlTransformer() )->transform($resetHtml, array('static_css' => $resetCss))->toArray();
+$resetMarkup = (string) ($resetResult['serialized_blocks'] ?? '');
+$assert(str_contains($resetMarkup, '<p class="eyebrow">The Shop</p>'), '29b: a pure-text eyebrow under a universal zero reset collapses to a styled paragraph', $resetMarkup);
+$assert(! preg_match('/<!-- wp:group[^>]*"className":"eyebrow"/', $resetMarkup), '29c: the zero-reset eyebrow does not round-trip as a one-child group', $resetMarkup);
+
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';
 $stackResult = ( new HtmlTransformer() )->transform($stackHtml, array())->toArray();
 $stack = $stackResult['blocks'][0] ?? array();

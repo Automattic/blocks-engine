@@ -3740,16 +3740,21 @@ final class HtmlTransformer
             return null;
         }
 
-        // A pure-text styled wrapper whose CSS is typographic only (no box-model
-        // geometry) round-trips as a single styled `core/paragraph` carrying the
-        // wrapper class. The `core/group` + default inner paragraph form neither
-        // inherits the wrapper's typographic scale onto that inner paragraph nor
-        // suppresses default block spacing, so an eyebrow like `<div class="label">
-        // The Shop</div>` renders at the wrong size and pushes every following
-        // block down. The group form is retained only when the wrapper owns
-        // box-model geometry (padding/border/flex) that a block-level container
-        // must preserve.
-        if ( 0 === $this->childElementCount($element) && ! $this->hasBoxModelWrapperStyling($element) ) {
+        // A pure-text styled wrapper whose CSS carries no block-level box chrome
+        // round-trips as a single styled `core/paragraph` carrying the wrapper
+        // class. The `core/group` + default inner paragraph form neither inherits
+        // the wrapper's typographic scale onto that inner paragraph nor suppresses
+        // default block spacing, so an eyebrow like `<div class="label">The Shop
+        // </div>` renders at the wrong size and pushes every following block down.
+        //
+        // Only real box chrome — padding, border, or explicit sizing — disqualifies
+        // the collapse, because a paragraph cannot reproduce that geometry. Flex
+        // layout (`display`/`gap`) does not: a childless text leaf has no flex
+        // items, so its `display:inline-flex;gap` only positions a `::before`
+        // decoration, which the wrapper class still applies to the paragraph. Real
+        // flex containers hold child elements and are already excluded above by the
+        // `childElementCount === 0` guard (e.g. `.tier-price` wrapping a `<span>`).
+        if ( 0 === $this->childElementCount($element) && ! $this->hasBoxChromeWrapperStyling($element) ) {
             return $this->createBlock(
                 'core/paragraph',
                 array_merge($this->presentationAttributes($element), array( 'content' => $content )),
@@ -3768,12 +3773,22 @@ final class HtmlTransformer
 
     /**
      * Box-model CSS declarations that give a text wrapper block-level geometry
-     * (padding, border, explicit sizing, or flex/grid layout) which must be
-     * preserved on a `core/group` rather than flattened onto a paragraph.
+     * (padding, border, explicit sizing, or flex/grid layout) which mark it as a
+     * visual text wrapper worth preserving as a distinct block.
      *
      * @var array<int, string>
      */
     private const BOX_MODEL_WRAPPER_PROPERTIES = array( 'display', 'gap', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
+
+    /**
+     * Box-chrome CSS declarations that a `core/paragraph` cannot reproduce, so a
+     * pure-text wrapper carrying any of them must stay a `core/group`. Excludes
+     * flex/grid layout properties, which only matter when the wrapper actually has
+     * child elements to lay out.
+     *
+     * @var array<int, string>
+     */
+    private const BOX_CHROME_WRAPPER_PROPERTIES = array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
 
     private function hasVisualTextWrapperSignal(DOMElement $element): bool
     {
@@ -3791,12 +3806,51 @@ final class HtmlTransformer
 
     private function hasBoxModelWrapperStyling(DOMElement $element): bool
     {
+        return $this->wrapperStylingMatches($element, self::BOX_MODEL_WRAPPER_PROPERTIES);
+    }
+
+    private function hasBoxChromeWrapperStyling(DOMElement $element): bool
+    {
+        return $this->wrapperStylingMatches($element, self::BOX_CHROME_WRAPPER_PROPERTIES);
+    }
+
+    /**
+     * @param array<int, string> $properties
+     */
+    private function wrapperStylingMatches(DOMElement $element, array $properties): bool
+    {
         // Read the raw matched declarations rather than the post-projection
         // presentation set: box-model properties such as padding are consumed
         // into block-supports attributes and would otherwise be invisible here.
         $declarations = $this->structuralPresentationDeclarations($element);
-        foreach ( self::BOX_MODEL_WRAPPER_PROPERTIES as $property ) {
-            if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
+        foreach ( $properties as $property ) {
+            if ( isset($declarations[$property]) && $this->cssValueIsNonZero((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a CSS length/box value contributes real geometry. A universal reset
+     * (`* { margin: 0; padding: 0 }`) sets zero-valued box properties on every
+     * element; those must not be treated as box chrome or every wrapper would be
+     * disqualified from collapsing to a paragraph. Treats empty, `0`, `none`, and
+     * all-zero shorthand values (`0 0 0 0`, `0px`) as no geometry.
+     */
+    private function cssValueIsNonZero(string $value): bool
+    {
+        $normalized = strtolower(trim($value));
+        if ( '' === $normalized || 'none' === $normalized ) {
+            return false;
+        }
+
+        foreach ( preg_split('/[\s,]+/', $normalized) ?: array() as $token ) {
+            if ( '' === $token ) {
+                continue;
+            }
+            if ( ! preg_match('/^0(?:\.0+)?[a-z%]*$/', $token) ) {
                 return true;
             }
         }
