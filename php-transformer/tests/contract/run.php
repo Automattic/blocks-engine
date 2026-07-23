@@ -322,6 +322,16 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
+// A row of button-styled links whose container merely carries a `links` token is
+// a call-to-action button group, not site navigation. It must convert to
+// core/buttons (preserving pill geometry) instead of being flattened into a
+// core/navigation menu of half-height text links.
+$ctaLinkRowResult = ( new HtmlTransformer() )->transform('<div class="stream-links"><a class="stream-btn" href="#">Spotify</a><a class="stream-btn" href="#">Bandcamp</a><a class="stream-btn" href="#">Apple Music</a></div>')->toArray();
+$ctaSerialized = (string) ($ctaLinkRowResult['serialized_blocks'] ?? '');
+$assert(str_contains($ctaSerialized, '<!-- wp:buttons'), 'button-styled link row converts to core/buttons instead of navigation');
+$assert(! str_contains($ctaSerialized, '<!-- wp:navigation'), 'button-styled link row is not misclassified as core/navigation');
+$assert(str_contains($ctaSerialized, 'stream-links'), 'the converted button group preserves the container class');
+
 $accordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item active"><button class="faq-question" aria-expanded="true" aria-controls="answer-a">What is covered?</button><div id="answer-a" class="faq-answer"><p>Assessment and treatment planning.</p></div></div><div class="faq-item"><button class="faq-question" aria-expanded="false" aria-controls="answer-b">How long is a visit?</button><div id="answer-b" class="faq-answer"><p>Most visits take 45 minutes.</p></div></div></section>')->toArray();
 $accordionBlock = $accordionResult['blocks'][0] ?? array();
 $accordionItems = $accordionBlock['innerBlocks'] ?? array();
