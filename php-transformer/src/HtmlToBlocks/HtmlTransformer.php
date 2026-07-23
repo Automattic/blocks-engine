@@ -225,6 +225,9 @@ final class HtmlTransformer
     /** @var array<string,int> */
     private array $blockBindingOccurrences = array();
 
+    /** @var array<string,true> */
+    private array $formControlSlotPaths = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -431,6 +434,7 @@ final class HtmlTransformer
         $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
         $this->blockBindingOccurrences = array();
+        $this->formControlSlotPaths = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->runtimeIslands = array();
@@ -1655,6 +1659,10 @@ final class HtmlTransformer
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
+            return $this->htmlPreservationBlock($element);
+        }
 
         if ( $this->isRedundantMenuToggleControl($element) ) {
             return null;
@@ -6473,6 +6481,58 @@ final class HtmlTransformer
     }
 
     /**
+     * Preserve one unambiguous controls-only subtree as the provider binding
+     * slot while converting the form's surrounding visual content normally.
+     *
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array{block:array<string,mixed>,slot:array<string,mixed>}|null
+     */
+    private function compositionalFormBlock(DOMElement $form, array &$fallbacks): ?array
+    {
+        $slot = $this->formControlSlotElement($form);
+        if ( null === $slot ) return null;
+
+        $path = $slot->getNodePath();
+        $this->formControlSlotPaths[$path] = true;
+        try {
+            $children = $this->convertChildren($form, $fallbacks, true);
+        } finally {
+            unset($this->formControlSlotPaths[$path]);
+        }
+        if ( array() === $children ) return null;
+
+        return array(
+            'block' => $this->createBlock('core/group', $this->presentationAttributes($form), $children, $form),
+            'slot'  => $this->htmlPreservationBlock($slot),
+        );
+    }
+
+    private function formControlSlotElement(DOMElement $form): ?DOMElement
+    {
+        $controls = $this->formControlElements($form);
+        if ( array() === $controls ) return null;
+
+        $formPath = $form->getNodePath();
+        for ( $candidate = $controls[0]->parentNode; $candidate instanceof DOMElement && $candidate->getNodePath() !== $formPath; $candidate = $candidate->parentNode ) {
+            if ( array_filter($controls, fn(DOMElement $control): bool => !$this->elementContains($candidate, $control)) ) continue;
+            foreach ( $candidate->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) continue 2;
+                if ( !$child instanceof DOMElement ) continue;
+                if ( !array_filter($controls, fn(DOMElement $control): bool => $this->elementContains($child, $control)) ) continue 2;
+            }
+            return $candidate;
+        }
+        return null;
+    }
+
+    private function elementContains(DOMElement $ancestor, DOMElement $element): bool
+    {
+        $ancestorPath = $ancestor->getNodePath();
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) if ( $node->getNodePath() === $ancestorPath ) return true;
+        return false;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     private function readableFormControlBlockFromElement(DOMElement $element): ?array
@@ -6735,8 +6795,11 @@ final class HtmlTransformer
     {
         $controls = $this->formControls($element);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
         $bindingMarkup = null !== $bindingBlock ? $this->runtime->serializeBlocks(array($bindingBlock)) : '';
+        $supersededRuntimeSelectors = $this->runtimeDomSelectorsForElement($element);
+        if ( $replacesRuntimeIsland ) $supersededRuntimeSelectors[] = $this->runtimeIslandSelector($element);
 
         return FallbackDiagnostic::build(array(
             'type'            => 'html',
@@ -6753,7 +6816,7 @@ final class HtmlTransformer
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'binding'         => $this->blockBinding($bindingMarkup, 'form', $this->runtimeDomSelectorsForElement($element)),
+            'binding'         => $this->blockBinding($bindingMarkup, 'form', $supersededRuntimeSelectors),
             'controls'        => $controls,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),

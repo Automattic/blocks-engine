@@ -28,6 +28,12 @@ trait FormDispatchTrait
         }
 
         if ( $this->formHasDataEntryControls($element) ) {
+            $composition = $this->compositionalFormBlock($element, $fallbacks);
+            if ( null !== $composition ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
+                $this->recordFormRuntimeIsland($element, $composition['block']);
+                return $composition['block'];
+            }
             $preservationBlock = $this->htmlPreservationBlock($element);
             $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock, $preservationBlock);
             $this->recordFormRuntimeIsland($element, $readableFormBlock);
