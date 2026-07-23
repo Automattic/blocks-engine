@@ -187,11 +187,11 @@ $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12p
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();
 $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: class-owned section badge stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-name'), '26: class-owned card tier label stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27: class-owned card price row stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: class-owned card result row stays a group wrapper', $labelMarkup);
-$assert(! str_contains($labelMarkup, '<p class="tier-name"'), '29: card label is not flattened into a paragraph that breaks wrapper CSS', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27: box-model card price row stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
+$assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';
 $stackResult = ( new HtmlTransformer() )->transform($stackHtml, array())->toArray();
