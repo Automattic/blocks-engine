@@ -99,14 +99,15 @@ final class ArtifactNormalizer
             $seenPaths[$path] = true;
             $mimeType = $this->mimeType((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? (str_contains((string) ($file['type'] ?? ''), '/') ? $file['type'] : '')), $path);
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
-            $role = $this->role((string) ($file['role'] ?? ''), $kind, $mimeType, $path);
+            $declaredRole = $this->sanitizeKey((string) ($file['role'] ?? ''));
+            $role = $this->role($declaredRole, $kind, $mimeType, $path);
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
             $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
             $contentBase64 = $payload['content_base64'];
             if ( $binary && '' === $contentBase64 ) {
                 $contentBase64 = base64_encode($payload['content']);
             }
-            $entrypoint = in_array($path, $safeEntrypoints, true) || ! empty($file['entrypoint']) || 'entry' === $role;
+            $entrypoint = in_array($path, $safeEntrypoints, true) || ! empty($file['entrypoint']) || 'entry' === $declaredRole;
             if ( $entrypoint && ! in_array($path, $safeEntrypoints, true) ) {
                 $safeEntrypoints[] = $path;
             }
