@@ -372,6 +372,28 @@ trait StyleResolutionTrait
         return $className;
     }
 
+    private function blockifiedLinkClassName(DOMElement $element): string
+    {
+        $parent = $element->parentNode;
+        $parentDisplay = $parent instanceof DOMElement
+            ? strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')))
+            : '';
+        if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return '';
+        }
+
+        $sourceDisplay = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')));
+        $display = match ( $sourceDisplay ) {
+            'flex', 'inline-flex' => 'flex',
+            'grid', 'inline-grid' => 'grid',
+            default => 'block',
+        };
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\nblockified-link\n" . $display);
+        $this->generatedGeometryRules[$className] = '.' . $className . '>a{display:' . $display . '}';
+
+        return $className;
+    }
+
     /**
      * @return array<string, string>
      */
@@ -835,6 +857,7 @@ trait StyleResolutionTrait
             'font-family',
             'font-size',
             'font-style',
+            'font-variant-caps',
             'font-weight',
             'letter-spacing',
             'gap',
@@ -865,6 +888,7 @@ trait StyleResolutionTrait
             'row-gap',
             'text-align',
             'text-decoration',
+            'text-shadow',
             'text-transform',
             'width',
             'z-index',

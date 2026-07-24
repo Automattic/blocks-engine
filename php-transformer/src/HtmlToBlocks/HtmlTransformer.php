@@ -748,7 +748,8 @@ final class HtmlTransformer
             $cssParts[] = $markerReset;
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
@@ -1785,10 +1786,10 @@ final class HtmlTransformer
     {
         $className = $this->syntheticFlexItemClassName($element);
 
-        return array_filter(array(
+        return $this->paragraphAttributesForNonParagraphContent($element, array_filter(array(
             'content'   => $imageMarkup,
             'className' => $className,
-        ), static fn (string $value): bool => '' !== $value);
+        ), static fn (string $value): bool => '' !== $value), false);
     }
 
     /**
@@ -3185,9 +3186,12 @@ final class HtmlTransformer
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
     }
 
-    private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
+    /** @param list<string> $excludedDescendantTags */
+    private function richTextContentWithMaterializedInlineStyles(DOMElement $element, array $excludedDescendantTags = array()): string
     {
-        $content = $this->innerHtml($element);
+        $content = array() === $excludedDescendantTags
+            ? $this->innerHtml($element)
+            : $this->innerHtmlWithoutTags($element, $excludedDescendantTags);
         if ( '' === $content || ! preg_match('/<(?:a|span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
@@ -3205,7 +3209,9 @@ final class HtmlTransformer
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'a', 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $sourceInline instanceof DOMElement
+                && in_array(strtolower($sourceInline->tagName), array( 'a', 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true)
+                && ! $this->hasExcludedRichTextAncestor($sourceInline, $element, $excludedDescendantTags) ) {
                 $sourceInlines[] = $sourceInline;
             }
         }
@@ -3249,6 +3255,18 @@ final class HtmlTransformer
         return $this->innerHtml($body);
     }
 
+    /** @param list<string> $excludedTags */
+    private function hasExcludedRichTextAncestor(DOMElement $element, DOMElement $root, array $excludedTags): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement && $parent !== $root; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), $excludedTags, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<string, string>
      */
@@ -3272,6 +3290,7 @@ final class HtmlTransformer
             'font-family',
             'font-size',
             'font-style',
+            'font-variant-caps',
             'font-weight',
             'letter-spacing',
             'line-height',
@@ -5807,7 +5826,7 @@ final class HtmlTransformer
                 }
             }
 
-            $content = $this->innerHtmlWithoutTags($child, array( 'ul', 'ol' ));
+            $content = $this->richTextContentWithMaterializedInlineStyles($child, array( 'ul', 'ol' ));
             if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
                 continue;
             }

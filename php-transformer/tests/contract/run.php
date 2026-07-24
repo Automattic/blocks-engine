@@ -1282,21 +1282,35 @@ $assert('4px' === ($explicitGapNavigationBlock['attrs']['style']['spacing']['blo
 $assert('18px' === ($explicitGapNavigationBlock['innerBlocks'][1]['attrs']['style']['spacing']['margin']['left'] ?? ''), 'explicit navigation gap leaves authored item margins intact');
 
 $quickLinkCards = ( new HtmlTransformer() )->transform(
-    '<div class="quick-links"><a class="quick-link" href="/apply"><h3>Apply</h3><p>Choose a program.</p></a><a class="quick-link" href="/visit"><h3>Visit</h3><p>Plan your trip.</p></a></div>'
+    '<div class="quick-links"><a class="quick-link" href="/apply"><svg class="quick-link-icon" viewBox="0 0 24 24"><path d="M3 9l9-5 9 5-9 5z"/></svg><h3>Apply</h3><p>Choose a program.</p></a><a class="quick-link" href="/visit"><h3>Visit</h3><p>Plan your trip.</p></a></div>'
 )->toArray();
 $quickLinkCardsBlock = $quickLinkCards['blocks'][0] ?? array();
 $quickLinkCardsCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $quickLinkCards['assets'] ?? array()));
 $assert('core/group' === ($quickLinkCardsBlock['blockName'] ?? '') && 'quick-links' === ($quickLinkCardsBlock['attrs']['className'] ?? ''), 'card-like quick-links container remains a layout group rather than a navigation menu');
 $assert('core/group' === ($quickLinkCardsBlock['innerBlocks'][0]['blockName'] ?? '') && 'quick-link' === ($quickLinkCardsBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'block-content quick link remains a card group');
+$assert(array('top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0') === ($quickLinkCardsBlock['innerBlocks'][0]['innerBlocks'][0]['attrs']['style']['spacing']['margin'] ?? array()), 'synthetic SVG image-object host does not add paragraph margins to card layout');
 $assert(str_contains((string) ($quickLinkCards['serialized_blocks'] ?? ''), '<mark class="blocks-engine-propagated-link"><a href="/apply">') && str_contains($quickLinkCardsCss, '.blocks-engine-propagated-link{background-color:transparent;color:inherit}.blocks-engine-propagated-link>a{color:inherit;border:0;text-decoration:inherit}'), 'synthetic card link wrappers inherit source card paint instead of acquiring browser mark, standalone link color, or borders');
 
 $captionedPlaceholder = ( new HtmlTransformer() )->transform(
-    '<style>.visual{position:relative;aspect-ratio:16/9}.visual::after{content:attr(data-caption);position:absolute;left:12px;bottom:10px;color:#fff;background:rgba(0,0,0,.7);padding:4px 8px}</style><div class="visual" role="img" aria-label="Research vessel at sea" data-caption="Spring research cruise"></div>'
+    '<style>.visual{position:relative;aspect-ratio:16/9}.visual::after{content:attr(data-caption);position:absolute;left:12px;bottom:10px;color:#fff;background:rgba(0,0,0,.7);padding:4px 8px;text-shadow:0 1px 2px rgba(0,0,0,.6)}</style><div class="visual" role="img" aria-label="Research vessel at sea" data-caption="Spring research cruise"></div>'
 )->toArray();
 $captionedPlaceholderMarkup = (string) ($captionedPlaceholder['serialized_blocks'] ?? '');
 $captionedPlaceholderCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $captionedPlaceholder['assets'] ?? array()));
 $assert(str_contains($captionedPlaceholderMarkup, 'blocks-engine-placeholder-media') && str_contains($captionedPlaceholderMarkup, 'Spring research cruise') && str_contains($captionedPlaceholderMarkup, 'blocks-engine-placeholder-caption-'), 'CSS visual placeholder materializes its generated caption as editable native text');
-$assert(str_contains($captionedPlaceholderCss, 'position:absolute') && str_contains($captionedPlaceholderCss, 'left:12px') && str_contains($captionedPlaceholderCss, 'bottom:10px') && str_contains($captionedPlaceholderCss, 'margin:0'), 'materialized placeholder caption preserves pseudo-element overlay geometry without affecting layout flow');
+$assert(str_contains($captionedPlaceholderCss, 'position:absolute') && str_contains($captionedPlaceholderCss, 'left:12px') && str_contains($captionedPlaceholderCss, 'bottom:10px') && str_contains($captionedPlaceholderCss, 'text-shadow:0 1px 2px rgba(0,0,0,.6)') && str_contains($captionedPlaceholderCss, 'margin:0'), 'materialized placeholder caption preserves pseudo-element paint and overlay geometry without affecting layout flow');
+
+$listItemDescendantLinks = ( new HtmlTransformer() )->transform(
+    '<style>a{color:#900}.site-footer a{color:#fff}</style><footer class="site-footer"><ul><li><a href="/programs">Programs</a></li></ul></footer>'
+)->toArray();
+$listItemDescendantLinkMarkup = (string) ($listItemDescendantLinks['serialized_blocks'] ?? '');
+$listItemDescendantLinkCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $listItemDescendantLinks['assets'] ?? array()));
+$assert((bool) preg_match('/<mark class="blocks-engine-richtext-anchor-[^"]+"><a href="\\/programs">Programs<\\/a><\\/mark>/', $listItemDescendantLinkMarkup), 'list-item RichText materializes projected anchor identity around valid link content');
+$assert((bool) preg_match('/mark\.blocks-engine-richtext-anchor-[^{]+>a\{color:#fff\}/', $listItemDescendantLinkCss), 'descendant link paint remains attached after list-item RichText projection');
+
+$richTextVariantCaps = ( new HtmlTransformer() )->transform(
+    '<style>.small-caps{font-variant-caps:all-small-caps;letter-spacing:.06em}</style><p>Founded <span class="small-caps">est. 1947</span></p>'
+)->toArray();
+$assert(str_contains((string) ($richTextVariantCaps['serialized_blocks'] ?? ''), 'font-variant-caps:all-small-caps'), 'RichText materialization preserves authored font variant caps');
 
 $inlineMetadataFlow = ( new HtmlTransformer() )->transform(
     '<style>.event-meta{font-size:.82rem;margin-bottom:6px}.event-meta .pipe{margin:0 8px}.event-meta .room-code{font-family:monospace}</style><div class="event-meta">Committee chair: Prof. Mahalingam <span class="pipe">·</span> <span class="room-code">M-302</span> Mendel Hall</div>'
@@ -1307,11 +1321,13 @@ $assert(str_contains((string) ($inlineMetadataBlock['attrs']['content'] ?? ''), 
 $assert(array('top' => '0', 'right' => '0', 'left' => '0') === ($inlineMetadataBlock['attrs']['style']['spacing']['margin'] ?? array()), 'non-paragraph metadata hosts leave authored stylesheet margins active and neutralize unspecified paragraph margins');
 
 $standaloneTextControls = ( new HtmlTransformer() )->transform(
-    '<style>.section-head{display:flex}.more-link{display:block;margin-bottom:6px}.event-date{border-right:1px solid}.month,.day,.time{display:block}.time{margin-top:4px}</style><div class="section-head"><a class="more-link" href="/news">All news</a></div><div class="event-date"><span class="month">Jun</span><span class="day">25</span><time class="time">3:00 PM</time></div>'
+    '<style>a{border-bottom:1px solid currentColor}.section-head{display:flex}.more-link{margin-bottom:6px}.event-date{border-right:1px solid}.month,.day,.time{display:block}.time{margin-top:4px}</style><div class="section-head"><a class="more-link" href="/news">All news</a></div><div class="event-date"><span class="month">Jun</span><span class="day">25</span><time class="time">3:00 PM</time></div>'
 )->toArray();
 $standaloneLinkBlock = $standaloneTextControls['blocks'][0]['innerBlocks'][0] ?? array();
 $standaloneTimeBlock = $standaloneTextControls['blocks'][1]['innerBlocks'][2] ?? array();
+$standaloneTextControlsCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $standaloneTextControls['assets'] ?? array()));
 $assert(array('top' => '0', 'right' => '0', 'left' => '0') === ($standaloneLinkBlock['attrs']['style']['spacing']['margin'] ?? array()), 'standalone source links leave authored stylesheet margins active without paragraph theme defaults');
+$assert(preg_match('/\.be-inline-geometry-[a-f0-9]+>a\{display:block\}/', $standaloneTextControlsCss) && str_contains((string) ($standaloneLinkBlock['attrs']['className'] ?? ''), 'be-inline-geometry-'), 'direct flex-item links retain their blockified border box after paragraph hosting');
 $assert(array('top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0') === ($standaloneTimeBlock['attrs']['style']['spacing']['margin'] ?? array()) && str_contains((string) ($standaloneTimeBlock['attrs']['content'] ?? ''), 'class="time"'), 'inline source elements hosted by paragraphs keep their source-owned inner margin and a neutral wrapper margin');
 
 $wrappingNavigation = ( new HtmlTransformer() )->transform(
