@@ -94,7 +94,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
-        $this->promoteDirectAnchorSpacing($element, $presentationAttributes, $containerAttrs, $links);
+        $this->promoteDirectAnchorSpacing($element, $presentationAttributes, $navigationAttrs, $links);
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 

@@ -27,6 +27,14 @@ trait ButtonLinkDispatchTrait
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
         );
         if ( null !== $logo ) {
+            $button = $logo['innerBlocks'][0] ?? null;
+            $layoutClass = $this->buttonLinkLayoutClassName($element);
+            if ( is_array($button) && '' !== $layoutClass ) {
+                $buttonAttrs = is_array($button['attrs'] ?? null) ? $button['attrs'] : array();
+                $buttonAttrs['className'] = $this->mergePresentationClassNames((string) ($buttonAttrs['className'] ?? ''), $layoutClass);
+                $logo['innerBlocks'][0] = $this->rebuildBlock($button, $buttonAttrs);
+                $logo = $this->rebuildBlock($logo, is_array($logo['attrs'] ?? null) ? $logo['attrs'] : array());
+            }
             return $logo;
         }
 

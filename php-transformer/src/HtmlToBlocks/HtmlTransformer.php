@@ -1945,9 +1945,9 @@ final class HtmlTransformer
                     if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
                         $declarations['color'] = 'transparent';
                     }
-                    $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
+                    $style = $this->cssDeclarationString($declarations);
                     return $this->createBlock('core/paragraph', array(
-                        'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
+                        'content' => '<mark class="' . $richTextMarker . '"' . ( '' !== $style ? ' style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '' ) . '>' . $content . '</mark>',
                     ), array(), $element);
                 }
             }
@@ -4189,7 +4189,13 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        $attrs = array_merge($this->presentationAttributes($element), array( 'content' => $content ));
+        $declarations = array_merge($this->structuralPresentationDeclarations($element), $this->presentationDeclarations($element));
+        if ( array_filter(array_keys($declarations), static fn (string $property): bool => 'margin' === $property || str_starts_with($property, 'margin-')) ) {
+            $attrs = $this->paragraphAttributesForNonParagraphContent($element, $attrs);
+        }
+
+        return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }
 
     /**

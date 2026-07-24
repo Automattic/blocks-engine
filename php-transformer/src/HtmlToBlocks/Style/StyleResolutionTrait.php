@@ -394,6 +394,30 @@ trait StyleResolutionTrait
         return $className;
     }
 
+    private function buttonLinkLayoutClassName(DOMElement $element): string
+    {
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        $declarations = array_intersect_key($inline, array_flip(array(
+            'display',
+            'align-items',
+            'justify-content',
+            'flex-direction',
+            'flex-wrap',
+            'gap',
+            'row-gap',
+            'column-gap',
+        )));
+        if ( array() === $declarations ) {
+            return '';
+        }
+
+        $rule = $this->cssDeclarationString($declarations);
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\nbutton-link-layout\n" . $rule);
+        $this->generatedGeometryRules[$className] = '.' . $className . '> .wp-block-button__link{' . $rule . '}';
+
+        return $className;
+    }
+
     /**
      * @return array<string, string>
      */

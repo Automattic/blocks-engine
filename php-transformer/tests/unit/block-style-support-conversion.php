@@ -83,10 +83,11 @@ $linkedBrandResult = ( new HtmlTransformer() )->transform(
     array()
 )->toArray();
 $linkedBrand = $linkedBrandResult['blocks'][0] ?? array();
-$linkedBrandAttrs = is_array($linkedBrand['attrs'] ?? null) ? $linkedBrand['attrs'] : array();
+$linkedBrandButton = $linkedBrand['innerBlocks'][0] ?? array();
+$linkedBrandAttrs = is_array($linkedBrandButton['attrs'] ?? null) ? $linkedBrandButton['attrs'] : array();
 $linkedBrandCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($linkedBrandResult['assets'] ?? null) ? $linkedBrandResult['assets'] : array()));
-$assert('nowrap' === ($linkedBrandAttrs['layout']['flexWrap'] ?? ''), '16a: inline flex logo groups retain the CSS non-wrapping default', json_encode($linkedBrandAttrs['layout'] ?? array()));
-$assert(str_contains((string) ($linkedBrandAttrs['className'] ?? ''), 'be-inline-geometry-') && str_contains($linkedBrandCss, '{gap:18px}'), '16b: inline flex logo groups retain their exact gap without escalating cascade priority', $linkedBrandCss);
+$assert('core/buttons' === ($linkedBrand['blockName'] ?? '') && 'core/button' === ($linkedBrandButton['blockName'] ?? ''), '16a: linked text logos retain current native button semantics', json_encode($linkedBrand));
+$assert(str_contains((string) ($linkedBrandAttrs['className'] ?? ''), 'be-inline-geometry-') && str_contains($linkedBrandCss, '> .wp-block-button__link{display:flex;align-items:center;gap:18px}'), '16b: linked text logos retain their inline flex alignment and exact gap on the rendered link', $linkedBrandCss);
 
 $cardHtml = '<section class="pricing-shell" style="max-width:1120px;margin:0 auto;padding:5rem 2rem"><article class="pricing-card" style="max-width:360px;padding:2rem;background:#fff"><h2>Team</h2><p>Scale every launch.</p></article></section>';
 $cardResult = ( new HtmlTransformer() )->transform($cardHtml, array())->toArray();
