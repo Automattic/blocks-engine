@@ -37,7 +37,7 @@ final class MaterializationPlanBuilder
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
         $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
-        $routes = $this->routes($pages);
+        $routes = $this->routes($pages, (string) ($compiledSite['entry_path'] ?? ''));
         $navigationLinks = $this->navigationLinks($pages, $templateParts, $routes);
         $menus = $this->menus($navigationLinks);
         $assetRewriteCandidates = $this->assetRewriteCandidates($pages, $templateParts, $assets);
@@ -119,9 +119,10 @@ final class MaterializationPlanBuilder
 
     /**
      * @param array<int,array<string,mixed>> $pages
+     * @param string $entryPath
      * @return array<int,array<string,mixed>>
      */
-    private function routes(array $pages): array
+    private function routes(array $pages, string $entryPath = ''): array
     {
         $routes = array();
         foreach ( $pages as $index => $page ) {
@@ -134,7 +135,7 @@ final class MaterializationPlanBuilder
             $routes[] = array_filter(array(
                 'kind'        => 'route',
                 'source_path' => $sourcePath,
-                'target_path' => $this->routePath($page),
+                'target_path' => $this->routePath($page, $entryPath),
                 'target_slug' => $targetSlug,
                 'title'       => (string) ($page['title'] ?? ''),
                 'parent_source_path' => (string) (($page['metadata']['parent_source_path'] ?? '') ?: ''),
@@ -392,12 +393,22 @@ final class MaterializationPlanBuilder
     /**
      * @param array<string,mixed> $page
      */
-    private function routePath(array $page): string
+    private function routePath(array $page, string $entryPath = ''): string
     {
         $sourcePath = (string) ($page['source_path'] ?? '');
         $slug = (string) ($page['slug'] ?? '');
-        if ( ! empty($page['entrypoint']) || preg_match('#(^|/)index\.[A-Za-z0-9]+$#', $sourcePath) ) {
+        if ( ! empty($page['entrypoint']) ) {
             return '/';
+        }
+        if ( preg_match('#(^|/)index\.[A-Za-z0-9]+$#', $sourcePath) ) {
+            $directory = trim((string) pathinfo($sourcePath, PATHINFO_DIRNAME), '.');
+            $entryDirectory = trim((string) pathinfo($entryPath, PATHINFO_DIRNAME), '.');
+            if ( '' !== $entryDirectory && str_starts_with($directory . '/', $entryDirectory . '/') ) {
+                $directory = substr($directory, strlen($entryDirectory) + 1);
+            }
+            if ( '' !== $directory ) {
+                return '/' . trim($directory, '/');
+            }
         }
 
         return '/' . trim('' !== $slug ? $slug : $this->slugFromPath($sourcePath), '/');
