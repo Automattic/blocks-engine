@@ -31,12 +31,10 @@ final class WordPressSitePlan
         $tokens = $this->tokens($assets);
         $references = new AssetReferenceCanonicalizer($tokens);
         $routeMap = $this->canonicalRoutes($compiled['pages'] ?? null, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
-        // A binding anchors on the source page's block markup, which the plan
-        // rewrites for canonical routes (e.g. a form action="../about.html"
-        // becomes action="/about"). Rewrite the binding markup through the same
-        // route map so its anchor still matches the canonical page markup and
-        // downstream materialization replaces the route-canonical block.
-        $runtimeDeclarations = $this->routeLinkedEntityBindings($runtimeDeclarations, $routeMap);
+        // Bindings anchor on source-page block markup. Canonicalize their asset
+        // references and routes through the same pipeline as page documents so
+        // the anchors still match the destination-independent page markup.
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap);
         $pages = $this->documents($compiled['pages'] ?? null, false, $tokens, $references, $routeMap);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $routes = $this->routesForPages($pages);
@@ -44,7 +42,7 @@ final class WordPressSitePlan
         // canonical plan rebuilds them from full page shell candidates.
         $compiledParts = is_array($compiled['template_parts'] ?? null) ? array_values(array_filter($compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
-        $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true));
+        $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true), $runtimeDeclarations);
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
@@ -254,10 +252,18 @@ final class WordPressSitePlan
         return $candidates;
     }
 
-    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
-    private function sharedShells(array $pages, array $reservedSlugs = array()): array
+    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    private function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array()): array
     {
         $parts = array(); $diagnostics = array();
+        foreach ($pages as &$page) {
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
+                if (null !== $restored) $page['canonical_block_markup'] = $restored;
+            }
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
         foreach (array('header', 'footer') as $area) {
             if (isset($reservedSlugs[$area])) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area);
@@ -277,17 +283,36 @@ final class WordPressSitePlan
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area);
                 continue 2;
             }
-            foreach ($pages as $index => &$page) {
+            $withShells = array(); $withoutShells = array(); $boundSources = array(); $boundCount = 0;
+            foreach ($pages as $index => $page) {
                 if (!empty($page['synthetic'])) continue;
-                $withoutShell = $this->withoutTopLevelShell($page['canonical_block_markup'], $area);
-                if (null === $withoutShell) {
+                $withShell = $this->replaceTopLevelShell($page['canonical_block_markup'], $area, $candidates[$index][0]['markup']);
+                $withoutShell = null === $withShell ? null : $this->withoutTopLevelShell($withShell, $area);
+                if (null === $withShell || null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path']);
-                    unset($page); continue 2;
+                    continue 2;
                 }
-                $page['canonical_block_markup'] = $withoutShell;
-                $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+                $withShells[$index] = $withShell;
+                $withoutShells[$index] = $withoutShell;
+                foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array() as $binding) {
+                    $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
+                    if (($binding['source_path'] ?? null) === ($page['source_path'] ?? null) && is_string($search) && is_int($occurrence) && $occurrence > substr_count($withoutShell, $search)) {
+                        ++$boundCount; $boundSources[$page['source_path']] = true;
+                    }
+                }
             }
-            unset($page);
+            if ($boundCount > 0) {
+                foreach ($withShells as $index => $withShell) {
+                    $pages[$index]['canonical_block_markup'] = $withShell;
+                    $pages[$index]['content_hash'] = self::contentHash($withShell);
+                }
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because extracting it would remove runtime entity binding anchors.", 'area' => $area, 'binding_count' => $boundCount, 'source_paths' => array_keys($boundSources));
+                continue;
+            }
+            foreach ($withoutShells as $index => $withoutShell) {
+                $pages[$index]['canonical_block_markup'] = $withoutShell;
+                $pages[$index]['content_hash'] = self::contentHash($withoutShell);
+            }
             $singlePage = 1 === count($applicable);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
@@ -301,6 +326,11 @@ final class WordPressSitePlan
     }
 
     private function withoutTopLevelShell(string $markup, string $area): ?string
+    {
+        return $this->replaceTopLevelShell($markup, $area, '');
+    }
+
+    private function replaceTopLevelShell(string $markup, string $area, string $replacement): ?string
     {
         if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return null;
         $depth = 0; $candidate = null;
@@ -319,7 +349,7 @@ final class WordPressSitePlan
             if (!$selfClosing) ++$depth;
         }
         if (!is_array($candidate) || !is_int($candidate['end'])) return null;
-        return substr($markup, 0, $candidate['start']) . substr($markup, $candidate['end']);
+        return substr($markup, 0, $candidate['start']) . $replacement . substr($markup, $candidate['end']);
     }
 
     /** @param mixed $assets @return array<int,array<string,mixed>> */
@@ -616,16 +646,14 @@ final class WordPressSitePlan
         return str_repeat('../', count($from)) . implode('/', $to);
     }
     /**
-     * Rewrite route links inside every entity binding's search markup so the
-     * binding anchors on the same canonical block markup the plan emits for its
-     * source page. Only single-directory route links change; other markup is
-     * byte-preserved so binding hashes and occurrence counts stay stable.
+     * Canonicalize every entity binding's search markup through the same asset
+     * and route projections used for its source page.
      *
      * @param array<int,array<string,mixed>> $declarations
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function routeLinkedEntityBindings(array $declarations, array $routes): array
+    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes): array
     {
         foreach ( $declarations as &$declaration ) {
             if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
@@ -637,7 +665,8 @@ final class WordPressSitePlan
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
-                        $binding['search_block_markup'] = $this->routeLinks($binding['search_block_markup'], $binding['source_path'], $routes);
+                        $markup = $references->content($binding['search_block_markup'], $binding['source_path']);
+                        $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
                     }
                 }
                 unset($binding);

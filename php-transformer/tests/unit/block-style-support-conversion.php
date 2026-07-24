@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityComparator;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 
 $failures = 0;
 $passes   = 0;
@@ -44,6 +45,23 @@ $assert('flex' === ($attrs['layout']['type'] ?? ''), '5: display:flex maps to fl
 $assert('space-between' === ($attrs['layout']['justifyContent'] ?? ''), '6: justify-content maps to layout.justifyContent', json_encode($attrs['layout'] ?? array()));
 $assert(! isset($attrs['style']['box-shadow']), '7: unsupported box-shadow is not stored as block style', json_encode($attrs['style'] ?? array()));
 $assert(! is_string($attrs['style'] ?? null), '8: block style attr is structured, never a raw style string');
+
+$uniformBorder = ( new StyleAttributeMapper() )->map(array(
+    'border-top-width' => '12.808px',
+    'border-right-width' => '12.808px',
+    'border-bottom-width' => '12.808px',
+    'border-left-width' => '12.808px',
+    'border-style' => 'solid',
+    'border-color' => '#ffffff',
+));
+$assert('12.808px' === ($uniformBorder['style']['border']['width'] ?? ''), '8a: equal physical border widths collapse into canonical border support', json_encode($uniformBorder));
+
+$classBorderImage = ( new HtmlTransformer() )->transform(
+    '<img class="photo" src="/photo.jpg" alt="Portrait">',
+    array('static_css' => '.photo{border-top-width:12.808px;border-right-width:12.808px;border-bottom-width:12.808px;border-left-width:12.808px;border-style:solid;border-color:#fff}')
+)->toArray();
+$classBorderImageAttrs = $classBorderImage['blocks'][0]['attrs'] ?? array();
+$assert('12.808px' === ($classBorderImageAttrs['style']['border']['width'] ?? ''), '8b: matched class CSS physical border widths reach native image support', json_encode($classBorderImageAttrs));
 
 $groupHtml = '<div class="hero-row" style="display:flex;justify-content:center;gap:1rem;min-height:100svh;padding:2rem;background:var(--wp--preset--color--base)"><p>Hello</p><p>World</p></div>';
 $groupResult = ( new HtmlTransformer() )->transform($groupHtml, array())->toArray();

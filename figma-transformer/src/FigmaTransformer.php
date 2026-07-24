@@ -1551,6 +1551,10 @@ final class FigmaTransformer
             'invalid_numeric_token_count' => 0,
             'invalid_numeric_tokens' => array(),
         );
+        $textCoverage = array(
+            'empty_decoded_text_nodes' => 0,
+            'missing_emitted_text_nodes' => 0,
+        );
         $htmlArtifact = array(
             'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
             'media_query_count' => 0,
@@ -1629,6 +1633,8 @@ final class FigmaTransformer
             $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
             DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
             DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
+            $pageQualitySummary = is_array($diagnostics['artifact_quality']['summary'] ?? null) ? $diagnostics['artifact_quality']['summary'] : array();
+            DiagnosticAggregation::addIntegerCounts($textCoverage, $pageQualitySummary, array('empty_decoded_text_nodes', 'missing_emitted_text_nodes'));
             $pageHtmlArtifact = is_array($diagnostics['html_artifact'] ?? null) ? $diagnostics['html_artifact'] : array();
             DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count', 'fixed_width_declaration_count', 'fixed_width_with_responsive_override_count', 'fixed_width_without_responsive_override_count', 'giant_fixed_section_count', 'large_overflow_risk_count', 'fallback_prone_form_island_count', 'fallback_prone_svg_island_count', 'fallback_prone_input_island_count', 'invalid_list_child_count', 'missing_semantic_role_count'));
             DiagnosticAggregation::appendContextSamples($htmlArtifact, 'fixed_width_samples', $pageHtmlArtifact, 'fixed_width_samples', $pageContext);
@@ -1777,6 +1783,12 @@ final class FigmaTransformer
         );
         $generatedSvgAssets = $this->generatedSvgAssetsFromReport($assetReport);
 
+        $artifactQuality = $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css, $htmlArtifact);
+        $artifactQuality['summary'] = array_merge(
+            is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
+            $textCoverage
+        );
+
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'scope' => 'multi_page',
@@ -1793,7 +1805,7 @@ final class FigmaTransformer
             'links' => $links,
             'css' => $css,
             'html_artifact' => $htmlArtifact,
-            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css, $htmlArtifact),
+            'artifact_quality' => $artifactQuality,
             'diagnostic_codes' => $diagnosticCodes,
         );
     }

@@ -453,6 +453,9 @@ final class StyleAttributeMapper
         }
 
         $width = trim((string) ($declarations['border-width'] ?? $shorthand['width'] ?? ''));
+        if ( '' === $width ) {
+            $width = $this->uniformBorderSideValue('width', $declarations, $consumed);
+        }
         $style = strtolower(trim((string) ($declarations['border-style'] ?? $shorthand['style'] ?? '')));
         $colorValue = $this->cssColor((string) ($declarations['border-color'] ?? $shorthand['color'] ?? ''));
         foreach ( array( 'border-width', 'border-style', 'border-color' ) as $name ) {
@@ -481,6 +484,27 @@ final class StyleAttributeMapper
         }
 
         return $border;
+    }
+
+    /**
+     * Collapse equal physical side values into the canonical border support.
+     * Unequal sides remain under author stylesheet ownership.
+     *
+     * @param array<string, string> $declarations
+     * @param array<string, bool> $consumed
+     */
+    private function uniformBorderSideValue(string $property, array $declarations, array &$consumed): string
+    {
+        $names = array_map(static fn (string $side): string => 'border-' . $side . '-' . $property, array( 'top', 'right', 'bottom', 'left' ));
+        $values = array_map(static fn (string $name): string => trim((string) ($declarations[ $name ] ?? '')), $names);
+        if ( in_array('', $values, true) || 1 !== count(array_unique($values)) ) {
+            return '';
+        }
+
+        foreach ( $names as $name ) {
+            $consumed[ $name ] = true;
+        }
+        return $values[0];
     }
 
     /**

@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/top.png", "alt": "Featured story", "className": "blocks-engine-background-image" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/top.png", "alt": "Featured story", "className": "blocks-engine-background-image", "width": "691px", "height": "345.5px", "scale": "cover" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Featured story", "level": 1 } }
   ],
   "expected_fallbacks": [],
@@ -25,6 +25,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero layered-image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/top.png\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"object-fit:cover;width:691px;height:345.5px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "src=\"assets/bottom.png\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

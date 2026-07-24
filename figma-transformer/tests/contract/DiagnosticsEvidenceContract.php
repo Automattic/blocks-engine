@@ -944,6 +944,8 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
     $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
     $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
+    $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['empty_decoded_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-empty-text-count-aggregated');
+    $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['missing_emitted_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-missing-text-count-aggregated');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('decision_traces', 'schema'), 'blocks-engine/figma-transformer/decision-traces/v1', 'diagnostics-evidence-multi-page-decision-traces-schema');
     $assert(2 <= ($multiPageDiagnostics['decision_traces']['domain_counts']['positioning_context'] ?? 0), 'diagnostics-evidence-multi-page-decision-traces-positioning-aggregated');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('layout', 'positional_parity', 'schema'), 'blocks-engine/figma-transformer/positional-parity/v1', 'diagnostics-evidence-multi-page-positional-parity-schema');

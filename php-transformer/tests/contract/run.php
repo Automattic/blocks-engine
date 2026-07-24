@@ -3203,8 +3203,8 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], 'class="wp-block-image has-custom-border has-border-color source-image"'), 'core/image emits the custom-border class required by core save');
-$assert(str_contains($borderedImage['innerHTML'], 'style="border-color:#ffffff;border-style:solid"'), 'core/image retains canonical border support styles');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image has-custom-border has-border-color source-image"><img'), 'core/image emits border support classes on the figure without figure styles');
+$assert(str_contains($borderedImage['innerHTML'], 'alt="Bordered" class="has-border-color" style="border-color:#ffffff;border-style:solid"'), 'core/image emits border support classes and styles on the image element');
 
 $defaultTable = $factory->create(
     'core/table',

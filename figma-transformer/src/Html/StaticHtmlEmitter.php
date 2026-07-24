@@ -4716,6 +4716,9 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isComposedVectorChild($node, $parentNode) ) {
             return 'composed-into-parent';
         }
+        if ( null !== $parentNode && $this->formControlComposesChild($parentNode, $node) ) {
+            return 'form-control-composed-into-parent';
+        }
         if ( $this->isComponentSourceDuplicateNode($node) ) {
             return 'component_source_duplicate';
         }
@@ -4735,7 +4738,13 @@ final class StaticHtmlEmitter
 
     private function isIntentionalComponentCloneSuppression(string $reason): bool
     {
-        return in_array($reason, array('hidden', 'zero-area', 'mask-source', 'composed-into-parent', 'non-rendering-vector-layer', 'invisible-zero-area-scaffold', 'component_source_duplicate'), true);
+        return in_array($reason, array('hidden', 'zero-area', 'mask-source', 'composed-into-parent', 'form-control-composed-into-parent', 'non-rendering-vector-layer', 'invisible-zero-area-scaffold', 'component_source_duplicate'), true);
+    }
+
+    private function formControlComposesChild(array $parent, array $child): bool
+    {
+        $parentIsControl = ($this->isInputLike($parent) || $this->isTextareaLike($parent)) && $this->hasFormControlAccessoryChildren($parent);
+        return $parentIsControl && ($this->isFormControlPlaceholderChild($child) || $this->isInputLike($child, $parent) || $this->isTextareaLike($child, $parent));
     }
 
     /**
