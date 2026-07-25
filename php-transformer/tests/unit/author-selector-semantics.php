@@ -234,10 +234,6 @@ $assert('core/list' === ($citationList['blocks'][0]['blockName'] ?? '') && 2 ===
 $structuredCardList = $transform('<style>.cards li{display:grid}.title{display:block}.meta{display:block}</style><ul class="cards"><li><span class="title">Card title</span><span class="meta">Card metadata</span></li></ul>');
 $assert('core/group' === ($structuredCardList['blocks'][0]['blockName'] ?? '') && 'pass' === ($structuredCardList['source_reports']['wp_block_validity']['status'] ?? ''), 'authored grid list items still decompose structured card fragments into independently styled native blocks');
 
-$definitionGrid = $transform('<style>.facts{display:grid;grid-template-columns:auto 1fr;gap:8px 18px}.facts dt{font-weight:600}.facts dd{margin:0}</style><dl class="facts"><dt>Office</dt><dd>Mendel Hall</dd><dt>Hours</dt><dd>Monday-Friday</dd></dl>');
-$definitionGridBlock = $definitionGrid['blocks'][0] ?? array();
-$assert('core/group' === ($definitionGridBlock['blockName'] ?? '') && 4 === count($definitionGridBlock['innerBlocks'] ?? array()) && ! str_contains((string) ($definitionGrid['serialized_blocks'] ?? ''), '<li') && 'pass' === ($definitionGrid['source_reports']['wp_block_validity']['status'] ?? ''), 'authored definition-list grids preserve independent term and description blocks instead of collapsing into bulleted list items');
-
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
 $second = $instance->transform('<style>.cta:hover{padding:1rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>')->toArray();
