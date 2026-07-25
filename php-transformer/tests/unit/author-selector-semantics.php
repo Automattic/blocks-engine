@@ -224,6 +224,10 @@ $structural = $transform('<style>.product-layout{display:grid;grid-template-colu
 $structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
 $assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($css($structural), '.product-layout > .detail-pane') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group and child classes survive native grid materialization');
 
+$sidebarGrid = $transform('<style>.with-sidebar{display:grid;grid-template-columns:15rem minmax(0,1fr);gap:3rem}</style><div class="with-sidebar"><aside>Sections</aside><main><h1>Content</h1></main></div>');
+$sidebarGridBlock = $sidebarGrid['blocks'][0] ?? array();
+$assert('core/group' === ($sidebarGridBlock['blockName'] ?? '') && 'with-sidebar' === ($sidebarGridBlock['attrs']['className'] ?? ''), 'class-owned sidebar grids remain source-controlled groups instead of equal-width core columns');
+
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
 $second = $instance->transform('<style>.cta:hover{padding:1rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>')->toArray();
