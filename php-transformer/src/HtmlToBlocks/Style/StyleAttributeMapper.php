@@ -455,6 +455,8 @@ final class StyleAttributeMapper
         $width = trim((string) ($declarations['border-width'] ?? $shorthand['width'] ?? ''));
         if ( '' === $width ) {
             $width = $this->uniformBorderSideValue('width', $declarations, $consumed);
+        } elseif ( $this->hasDifferingBorderSideValue('width', $width, $declarations) ) {
+            $width = '';
         }
         $style = strtolower(trim((string) ($declarations['border-style'] ?? $shorthand['style'] ?? '')));
         $colorValue = $this->cssColor((string) ($declarations['border-color'] ?? $shorthand['color'] ?? ''));
@@ -484,6 +486,19 @@ final class StyleAttributeMapper
         }
 
         return $border;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasDifferingBorderSideValue(string $property, string $value, array $declarations): bool
+    {
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            $sideValue = trim((string) ($declarations['border-' . $side . '-' . $property] ?? ''));
+            if ( '' !== $sideValue && $sideValue !== $value ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
