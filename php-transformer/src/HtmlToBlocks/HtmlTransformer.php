@@ -4070,7 +4070,7 @@ final class HtmlTransformer
         return $this->createBlock(
             'core/group',
             $this->presentationAttributes($element),
-            array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+            array( $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array( 'content' => $content ), false)) ),
             $element
         );
     }
