@@ -2003,9 +2003,12 @@ final class HtmlTransformer
         }
 
         if ( 'dl' === $tagName ) {
-            $items = $this->definitionListItems($element);
-            if ( array() !== $items ) {
-                return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+            $display = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')));
+            if ( ! in_array($display, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true) ) {
+                $items = $this->definitionListItems($element);
+                if ( array() !== $items ) {
+                    return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+                }
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
