@@ -68,14 +68,14 @@ $asymmetricBorderShorthand = ( new StyleAttributeMapper() )->map(array(
     'border' => '1px solid #cccccc',
     'border-left' => '4px solid #990000',
 ));
-$assert(! isset($asymmetricBorderShorthand['style']['border']['width']) && '4px solid #990000' === ($asymmetricBorderShorthand['leftover']['border-left'] ?? ''), '8c: physical border shorthands prevent uniform native width from overriding a distinct side', json_encode($asymmetricBorderShorthand));
+$assert(! isset($asymmetricBorderShorthand['style']['border']['width']) && ! isset($asymmetricBorderShorthand['style']['border']['color']) && '4px solid #990000' === ($asymmetricBorderShorthand['leftover']['border-left'] ?? ''), '8c: physical border shorthands prevent uniform native styles from overriding a distinct side', json_encode($asymmetricBorderShorthand));
 
 $classAsymmetricBorder = ( new HtmlTransformer() )->transform(
     '<article class="course"><p>Text</p></article>',
     array('static_css' => '.course{border:1px solid #ccc;border-left:4px solid #900}')
 )->toArray();
 $classAsymmetricBorderAttrs = $classAsymmetricBorder['blocks'][0]['attrs'] ?? array();
-$assert(! isset($classAsymmetricBorderAttrs['style']['border']['width']), '8d: matched physical border shorthands prevent a conflicting native width', json_encode($classAsymmetricBorderAttrs));
+$assert(! isset($classAsymmetricBorderAttrs['style']['border']['width']) && ! isset($classAsymmetricBorderAttrs['style']['border']['color']) && 'solid' === ($classAsymmetricBorderAttrs['style']['border']['style'] ?? ''), '8d: matched physical border shorthands preserve only non-conflicting native border styles', json_encode($classAsymmetricBorderAttrs));
 
 $classBorderImage = ( new HtmlTransformer() )->transform(
     '<img class="photo" src="/photo.jpg" alt="Portrait">',

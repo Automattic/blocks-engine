@@ -459,7 +459,13 @@ final class StyleAttributeMapper
             $width = '';
         }
         $style = strtolower(trim((string) ($declarations['border-style'] ?? $shorthand['style'] ?? '')));
+        if ( '' !== $style && $this->hasDifferingBorderSideValue('style', $style, $declarations) ) {
+            $style = '';
+        }
         $colorValue = $this->cssColor((string) ($declarations['border-color'] ?? $shorthand['color'] ?? ''));
+        if ( '' !== $colorValue && $this->hasDifferingBorderSideValue('color', $colorValue, $declarations) ) {
+            $colorValue = '';
+        }
         foreach ( array( 'border-width', 'border-style', 'border-color' ) as $name ) {
             if ( isset($declarations[ $name ]) ) {
                 $consumed[ $name ] = true;
@@ -496,6 +502,12 @@ final class StyleAttributeMapper
             if ( '' === $sideValue ) {
                 $sideShorthand = $this->parseBorderShorthand((string) ($declarations['border-' . $side] ?? ''));
                 $sideValue = trim((string) ($sideShorthand[ $property ] ?? ''));
+            }
+            if ( 'style' === $property ) {
+                $sideValue = strtolower($sideValue);
+            } elseif ( 'color' === $property ) {
+                $sideValue = strtolower($this->cssColor($sideValue));
+                $value     = strtolower($this->cssColor($value));
             }
             if ( '' !== $sideValue && $sideValue !== $value ) {
                 return true;
