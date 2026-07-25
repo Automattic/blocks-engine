@@ -236,9 +236,10 @@ $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();
 $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
+$tierNameBlock = $labelResult['blocks'][0]['innerBlocks'][1]['innerBlocks'][0] ?? array();
 
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
+$assert('core/paragraph' === ($tierNameBlock['blockName'] ?? '') && 'tier-name' === ($tierNameBlock['attrs']['className'] ?? '') && array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ) === ($tierNameBlock['attrs']['style']['spacing']['margin'] ?? array()), '26: typography-only card tier label collapses without acquiring paragraph margins', json_encode($tierNameBlock));
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27: box-model card price row stays a group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);

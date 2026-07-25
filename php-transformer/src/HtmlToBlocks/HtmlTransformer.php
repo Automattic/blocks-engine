@@ -4061,7 +4061,7 @@ final class HtmlTransformer
         if ( 0 === $this->childElementCount($element) && ! $this->hasBoxChromeWrapperStyling($element) ) {
             return $this->createBlock(
                 'core/paragraph',
-                array_merge($this->presentationAttributes($element), array( 'content' => $content )),
+                $this->paragraphAttributesForNonParagraphContent($element, array_merge($this->presentationAttributes($element), array( 'content' => $content ))),
                 array(),
                 $element
             );
@@ -4190,10 +4190,7 @@ final class HtmlTransformer
         }
 
         $attrs = array_merge($this->presentationAttributes($element), array( 'content' => $content ));
-        $declarations = array_merge($this->structuralPresentationDeclarations($element), $this->presentationDeclarations($element));
-        if ( array_filter(array_keys($declarations), static fn (string $property): bool => 'margin' === $property || str_starts_with($property, 'margin-')) ) {
-            $attrs = $this->paragraphAttributesForNonParagraphContent($element, $attrs);
-        }
+        $attrs = $this->paragraphAttributesForNonParagraphContent($element, $attrs);
 
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }
