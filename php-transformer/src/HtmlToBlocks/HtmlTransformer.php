@@ -389,9 +389,6 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $placeholderCaptionRules = array();
 
-    /** @var array<string, bool> */
-    private array $classOwnedLayoutSelectors = array();
-
     /** A collision-checked custom element used solely to retain type specificity. */
     private string $authorSpecificityShim = '';
 
@@ -476,7 +473,6 @@ final class HtmlTransformer
         $this->authorMarkerCollisionText = '';
         $this->authorStylesheetAssets = array();
         $this->placeholderCaptionRules = array();
-        $this->classOwnedLayoutSelectors = array();
         $this->authorSpecificityShim = '';
         $this->authorClassSpecificityShim = '';
         $this->authorIdSpecificityShim = '';
@@ -762,9 +758,6 @@ final class HtmlTransformer
         if ( array() !== $this->placeholderCaptionRules ) {
             $cssParts[] = implode("\n", $this->placeholderCaptionRules);
         }
-        if ( $includeAuthorStyles && '' !== $this->classOwnedLayoutResetCss() ) {
-            $cssParts[] = $this->classOwnedLayoutResetCss();
-        }
         if ( str_contains($serializedBlocks, 'blocks-engine-propagated-link') || str_contains($serializedBlocks, 'blocks-engine-propagated-image-link') ) {
             $cssParts[] = '.blocks-engine-propagated-link{background-color:transparent;color:inherit}.blocks-engine-propagated-link>a{color:inherit;border:0;text-decoration:inherit}'
                 . "\n" . '.blocks-engine-propagated-image-link>a{color:inherit;border:0;text-decoration:inherit}';
@@ -1049,16 +1042,11 @@ final class HtmlTransformer
     {
         $projections = array();
         $markerReset = $this->richTextMarkerResetCss();
-        $layoutReset = $this->classOwnedLayoutResetCss();
         foreach ( $this->authorStylesheetAssets as $asset ) {
             $content = $this->rewriteAuthorStylesheet($asset['content']);
             if ( '' !== $markerReset ) {
                 $content = $markerReset . "\n" . $content;
                 $markerReset = '';
-            }
-            if ( '' !== $layoutReset ) {
-                $content .= "\n" . $layoutReset;
-                $layoutReset = '';
             }
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -1070,15 +1058,6 @@ final class HtmlTransformer
             );
         }
         return $projections;
-    }
-
-    private function classOwnedLayoutResetCss(): string
-    {
-        $rules = array();
-        foreach ( array_keys($this->classOwnedLayoutSelectors) as $selector ) {
-            $rules[] = ':where(' . $selector . '):is(.is-layout-flow,.is-layout-constrained)>*+*{margin-block-start:0}';
-        }
-        return implode("\n", $rules);
     }
 
     private function allocateAuthorMarker(string $kind): string

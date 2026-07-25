@@ -222,8 +222,7 @@ $assert(! str_contains($ordinaryInlineMarkup, 'blocks-engine-semantic-') && 'cor
 
 $structural = $transform('<style>.product-layout{display:grid;grid-template-columns:1fr 20rem;gap:3rem}.product-layout > .detail-pane{min-width:0}</style><div class="product-layout"><div>Primary</div><aside class="detail-pane">Secondary</aside></div>');
 $structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
-$structuralCss = $css($structural);
-$assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($structuralCss, '.product-layout > .detail-pane') && str_contains($structuralCss, ':where(.product-layout):is(.is-layout-flow,.is-layout-constrained)>*+*{margin-block-start:0}') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group owns grid geometry without WordPress default flow gaps');
+$assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($css($structural), '.product-layout > .detail-pane') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group and child classes survive native grid materialization');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
