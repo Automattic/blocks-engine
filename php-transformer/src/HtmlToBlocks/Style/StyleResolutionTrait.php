@@ -118,11 +118,17 @@ trait StyleResolutionTrait
             return $this->presentationAttributesCache[$cacheKey];
         }
 
+        $resolvedDeclarations = $this->presentationDeclarations($element);
         $declarations = $this->classOwnedResponsiveDeclarations(
             $element,
-            $this->presentationDeclarations($element)
+            $resolvedDeclarations
         );
         $mapped       = $this->styleAttributeMapper()->map($declarations);
+
+        $classOwnedLayout = $this->classOwnsLayout($element, $resolvedDeclarations);
+        if ( $classOwnedLayout ) {
+            $this->registerClassOwnedLayoutSelector($element);
+        }
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
@@ -138,6 +144,32 @@ trait StyleResolutionTrait
         $this->presentationAttributesCache[$cacheKey] = $attrs;
 
         return $attrs;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function classOwnsLayout(DOMElement $element, array $declarations): bool
+    {
+        if ( ! $this->hasOwnStyleHook($element) ) {
+            return false;
+        }
+
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+
+        $inlineDisplay = strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')));
+        return ! in_array($inlineDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    private function registerClassOwnedLayoutSelector(DOMElement $element): void
+    {
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $className ) {
+            if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $className) ) {
+                $this->classOwnedLayoutSelectors['.' . $className] = true;
+                return;
+            }
+        }
     }
 
     /**
