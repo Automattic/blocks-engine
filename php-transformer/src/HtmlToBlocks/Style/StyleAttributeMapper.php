@@ -493,6 +493,10 @@ final class StyleAttributeMapper
     {
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
             $sideValue = trim((string) ($declarations['border-' . $side . '-' . $property] ?? ''));
+            if ( '' === $sideValue ) {
+                $sideShorthand = $this->parseBorderShorthand((string) ($declarations['border-' . $side] ?? ''));
+                $sideValue = trim((string) ($sideShorthand[ $property ] ?? ''));
+            }
             if ( '' !== $sideValue && $sideValue !== $value ) {
                 return true;
             }

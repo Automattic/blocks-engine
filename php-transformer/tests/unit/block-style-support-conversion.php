@@ -64,12 +64,18 @@ $asymmetricBorder = ( new StyleAttributeMapper() )->map(array(
 ));
 $assert(! isset($asymmetricBorder['style']['border']['width']) && '4px' === ($asymmetricBorder['leftover']['border-left-width'] ?? ''), '8b: physical width overrides keep asymmetric borders under author stylesheet ownership', json_encode($asymmetricBorder));
 
+$asymmetricBorderShorthand = ( new StyleAttributeMapper() )->map(array(
+    'border' => '1px solid #cccccc',
+    'border-left' => '4px solid #990000',
+));
+$assert(! isset($asymmetricBorderShorthand['style']['border']['width']) && '4px solid #990000' === ($asymmetricBorderShorthand['leftover']['border-left'] ?? ''), '8c: physical border shorthands prevent uniform native width from overriding a distinct side', json_encode($asymmetricBorderShorthand));
+
 $classBorderImage = ( new HtmlTransformer() )->transform(
     '<img class="photo" src="/photo.jpg" alt="Portrait">',
     array('static_css' => '.photo{border-top-width:12.808px;border-right-width:12.808px;border-bottom-width:12.808px;border-left-width:12.808px;border-style:solid;border-color:#fff}')
 )->toArray();
 $classBorderImageAttrs = $classBorderImage['blocks'][0]['attrs'] ?? array();
-$assert('12.808px' === ($classBorderImageAttrs['style']['border']['width'] ?? ''), '8c: matched class CSS physical border widths reach native image support', json_encode($classBorderImageAttrs));
+$assert('12.808px' === ($classBorderImageAttrs['style']['border']['width'] ?? ''), '8d: matched class CSS physical border widths reach native image support', json_encode($classBorderImageAttrs));
 
 $groupHtml = '<div class="hero-row" style="display:flex;justify-content:center;gap:1rem;min-height:100svh;padding:2rem;background:var(--wp--preset--color--base)"><p>Hello</p><p>World</p></div>';
 $groupResult = ( new HtmlTransformer() )->transform($groupHtml, array())->toArray();
