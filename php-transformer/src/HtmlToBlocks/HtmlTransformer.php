@@ -5886,12 +5886,15 @@ final class HtmlTransformer
      * A `<li>` that is a structured inline card: all of its content is inline
      * (text + inline formats/links — no block-level children), and it carries at
      * least two class/style styling-hook inline fragments (e.g. a classed title
-     * link plus dek/meta spans). The "two hooks" threshold distinguishes a
-     * stacked card from flowing text that merely contains a single inline link.
+     * link plus dek/meta spans) whose authored layout makes them independent
+     * items. The layout requirement distinguishes a stacked card from flowing
+     * citation/byline text that carries several inline styling hooks.
      */
     private function isStructuredCardItem(DOMElement $item): bool
     {
         $stylingHookFragments = 0;
+        $blockStylingHookFragments = 0;
+        $hasStyledLinkFragment = false;
         foreach ( $item->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 continue;
@@ -5913,10 +5916,18 @@ final class HtmlTransformer
 
             if ( $this->isStylingHookInline($child) ) {
                 ++$stylingHookFragments;
+                $hasStyledLinkFragment = $hasStyledLinkFragment || 'a' === $tag;
+                $display = strtolower(trim((string) ($this->structuralPresentationDeclarations($child)['display'] ?? '')));
+                if ( in_array($display, array( 'block', 'flex', 'grid', 'inline-flex', 'inline-grid' ), true) ) {
+                    ++$blockStylingHookFragments;
+                }
             }
         }
 
-        return $stylingHookFragments >= 2;
+        $itemDisplay = strtolower(trim((string) ($this->structuralPresentationDeclarations($item)['display'] ?? '')));
+        $itemOwnsFragmentLayout = in_array($itemDisplay, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true);
+
+        return $stylingHookFragments >= 2 && ( $hasStyledLinkFragment || $itemOwnsFragmentLayout || $blockStylingHookFragments >= 2 );
     }
 
     /**

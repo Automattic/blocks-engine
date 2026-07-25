@@ -228,6 +228,12 @@ $sidebarGrid = $transform('<style>.with-sidebar{display:grid;grid-template-colum
 $sidebarGridBlock = $sidebarGrid['blocks'][0] ?? array();
 $assert('core/group' === ($sidebarGridBlock['blockName'] ?? '') && 'with-sidebar' === ($sidebarGridBlock['attrs']['className'] ?? ''), 'class-owned sidebar grids remain source-controlled groups instead of equal-width core columns');
 
+$citationList = $transform('<style>.citations{list-style:none}.citations .authors{font-family:sans-serif}.citations .title{font-style:italic}.citations .venue{font-size:.9rem}.citations .doi{display:block;margin-top:4px}</style><ol class="citations"><li><span class="authors">A. Author.</span> <span class="title">One article.</span> <span class="venue">Journal 1.</span> <span class="doi">doi:1</span></li><li><span class="authors">B. Author.</span> <span class="title">Another article.</span> <span class="venue">Journal 2.</span> <span class="doi">doi:2</span></li></ol>');
+$assert('core/list' === ($citationList['blocks'][0]['blockName'] ?? '') && 2 === count($citationList['blocks'][0]['innerBlocks'] ?? array()) && 'pass' === ($citationList['source_reports']['wp_block_validity']['status'] ?? ''), 'classed citation fragments remain flowing native list-item RichText when only one fragment is block-level');
+
+$structuredCardList = $transform('<style>.cards li{display:grid}.title{display:block}.meta{display:block}</style><ul class="cards"><li><span class="title">Card title</span><span class="meta">Card metadata</span></li></ul>');
+$assert('core/group' === ($structuredCardList['blocks'][0]['blockName'] ?? '') && 'pass' === ($structuredCardList['source_reports']['wp_block_validity']['status'] ?? ''), 'authored grid list items still decompose structured card fragments into independently styled native blocks');
+
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
 $second = $instance->transform('<style>.cta:hover{padding:1rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>')->toArray();
