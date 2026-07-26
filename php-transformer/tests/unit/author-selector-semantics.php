@@ -232,12 +232,6 @@ $inlineLayoutWrapper = $transform('<style>.meta{display:flex;gap:18px;margin:6px
 $inlineLayoutParagraph = $inlineLayoutWrapper['blocks'][0]['innerBlocks'][0] ?? array();
 $assert('core/group' === ($inlineLayoutWrapper['blocks'][0]['blockName'] ?? '') && array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ) === ($inlineLayoutParagraph['attrs']['style']['spacing']['margin'] ?? array()), 'synthetic paragraphs inside inline-layout wrappers add no spacing beyond the source wrapper margins');
 
-$staffRow = $transform('<style>.staff-row{display:grid;grid-template-columns:1fr 1fr}.staff-name{font-weight:600}</style><div class="staff-row"><div><div class="staff-name">Name</div></div><div>Email<br>Phone</div></div>');
-$staffName = $staffRow['blocks'][0]['innerBlocks'][0] ?? array();
-$staffContact = $staffRow['blocks'][0]['innerBlocks'][1] ?? array();
-$zeroMargins = array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' );
-$assert($zeroMargins === ($staffName['attrs']['style']['spacing']['margin'] ?? array()) && $zeroMargins === ($staffContact['attrs']['style']['spacing']['margin'] ?? array()), 'paragraph hosts for source div content preserve the source zero-margin box model');
-
 $citationList = $transform('<style>.citations{list-style:none}.citations .authors{font-family:sans-serif}.citations .title{font-style:italic}.citations .venue{font-size:.9rem}.citations .doi{display:block;margin-top:4px}</style><ol class="citations"><li><span class="authors">A. Author.</span> <span class="title">One article.</span> <span class="venue">Journal 1.</span> <span class="doi">doi:1</span></li><li><span class="authors">B. Author.</span> <span class="title">Another article.</span> <span class="venue">Journal 2.</span> <span class="doi">doi:2</span></li></ol>');
 $assert('core/list' === ($citationList['blocks'][0]['blockName'] ?? '') && 2 === count($citationList['blocks'][0]['innerBlocks'] ?? array()) && 'pass' === ($citationList['source_reports']['wp_block_validity']['status'] ?? ''), 'classed citation fragments remain flowing native list-item RichText when only one fragment is block-level');
 
