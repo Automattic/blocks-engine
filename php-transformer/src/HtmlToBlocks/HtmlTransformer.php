@@ -268,6 +268,8 @@ final class HtmlTransformer
      */
     private array $generatedBlocks = array();
 
+    private bool $descriptionListBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -440,6 +442,7 @@ final class HtmlTransformer
         $this->runtimeIslands = array();
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
+        $this->descriptionListBlockGenerated = false;
         $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
@@ -570,6 +573,18 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        if ( $this->descriptionListBlockGenerated ) {
+            $diagnostics[] = array(
+                'code' => 'semantic_description_list_gutenberg_gap',
+                'message' => 'A semantic description list was materialized with the Blocks Engine companion block because Gutenberg has no core description-list block.',
+                'source' => self::class,
+                'severity' => 'info',
+                'references' => array(
+                    'https://github.com/WordPress/gutenberg/issues/4880',
+                    'https://github.com/WordPress/gutenberg/pull/20760',
+                ),
+            );
+        }
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
@@ -578,6 +593,16 @@ final class HtmlTransformer
             'available_core_blocks' => $nativeTargetBlocks,
             'runtime_islands' => $this->runtimeIslands,
             'generated_blocks' => $this->generatedBlocks,
+            'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
+                array(
+                    'id' => 'semantic-description-list',
+                    'block_name' => DescriptionListBlockGenerator::NAME,
+                    'references' => array(
+                        'https://github.com/WordPress/gutenberg/issues/4880',
+                        'https://github.com/WordPress/gutenberg/pull/20760',
+                    ),
+                ),
+            ) : array(),
             'interaction_candidates' => $interactionCandidates,
             'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
             'shell_artifacts' => $shellArtifacts,
@@ -1841,6 +1866,11 @@ final class HtmlTransformer
         }
 
         if ( 'dl' === $tagName ) {
+            $descriptionList = $this->descriptionListBlockFromElement($element);
+            if ( null !== $descriptionList ) {
+                return $descriptionList;
+            }
+
             $metadataGrid = $this->metadataGridBlockFromElement($element);
             if ( null !== $metadataGrid ) {
                 return $metadataGrid;
@@ -5503,6 +5533,137 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /**
+     * Preserve a direct, valid description list as a static companion block.
+     * Wrapped or malformed lists deliberately return null for the established
+     * core/list and core/group safety paths below.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function descriptionListBlockFromElement(DOMElement $list): ?array
+    {
+        $groups = array();
+        $group = null;
+
+        foreach ( $list->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( ! in_array($tag, array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
+                return null;
+            }
+            if ( 'dt' === $tag ) {
+                if ( null === $group || array() !== $group['descriptions'] ) {
+                    if ( null !== $group ) {
+                        $groups[] = $group;
+                    }
+                    $group = array( 'terms' => array(), 'descriptions' => array() );
+                }
+                $group['terms'][] = $this->descriptionListItem($child);
+                continue;
+            }
+            if ( 'dd' !== $tag || null === $group || array() === $group['terms'] ) {
+                return null;
+            }
+            $group['descriptions'][] = $this->descriptionListItem($child);
+        }
+
+        if ( null === $group || array() === $group['descriptions'] ) {
+            return null;
+        }
+        $groups[] = $group;
+
+        if ( ! $this->descriptionListBlockGenerated ) {
+            $this->generatedBlocks[] = ( new DescriptionListBlockGenerator() )->definition();
+            $this->descriptionListBlockGenerated = true;
+        }
+
+        $markup = $this->descriptionListMarkup($list, $groups);
+        return array(
+            'blockName' => DescriptionListBlockGenerator::NAME,
+            'attrs' => array_filter(array(
+                'className' => $list->getAttribute('class'),
+                'style' => $list->getAttribute('style'),
+                'groups' => $groups,
+            ), static fn (mixed $value): bool => '' !== $value),
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    private function descriptionListItemSupportsRichText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( 'a' !== $tag && 'br' !== $tag && ! $this->isInlineContentElement($tag) ) {
+                return false;
+            }
+            foreach ( $child->attributes as $attribute ) {
+                if ( 'a' !== $tag || ! in_array(strtolower($attribute->name), array( 'href', 'target', 'rel' ), true) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->descriptionListItemSupportsRichText($child) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array<string, string> */
+    private function descriptionListItem(DOMElement $element): array
+    {
+        return array_filter(array(
+            'content' => $this->innerHtml($element),
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+    }
+
+    /** @param array<int, array<string, mixed>> $groups */
+    private function descriptionListMarkup(DOMElement $list, array $groups): string
+    {
+        $markup = '<dl' . $this->descriptionListMarkupAttributes(array(
+            'className' => $list->getAttribute('class'),
+            'style' => $list->getAttribute('style'),
+        )) . '>';
+        foreach ( $groups as $group ) {
+            foreach ( $group['terms'] as $term ) {
+                $markup .= '<dt' . $this->descriptionListMarkupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
+            }
+            foreach ( $group['descriptions'] as $description ) {
+                $markup .= '<dd' . $this->descriptionListMarkupAttributes($description) . '>' . ($description['content'] ?? '') . '</dd>';
+            }
+        }
+        return $markup . '</dl>';
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function descriptionListMarkupAttributes(array $attributes): string
+    {
+        $markup = '';
+        foreach ( array( 'className' => 'class', 'style' => 'style' ) as $key => $name ) {
+            if ( '' !== (string) ($attributes[$key] ?? '') ) {
+                $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        return $markup;
     }
 
     /**

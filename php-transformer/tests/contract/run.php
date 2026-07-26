@@ -320,12 +320,9 @@ $metadataDefinitionList = ( new HtmlTransformer() )->transform(
 )->toArray();
 $metadataDefinitionListMarkup = (string) ($metadataDefinitionList['serialized_blocks'] ?? '');
 $metadataDefinitionListBlock = $metadataDefinitionList['blocks'][0] ?? array();
-$assert('core/group' === ($metadataDefinitionListBlock['blockName'] ?? null), 'grid definition lists convert to a native group grid');
-$assert(4 === count($metadataDefinitionListBlock['innerBlocks'] ?? array()), 'definition-list metadata grid preserves each label and value cell');
-$assert(str_contains($metadataDefinitionListMarkup, 'facts') && ! str_contains($metadataDefinitionListMarkup, 'is-layout-grid'), 'definition-list metadata group preserves stylesheet-owned grid tracks without Gutenberg layout classes');
-$assert(! str_contains($metadataDefinitionListMarkup, 'gap:'), 'definition-list metadata group does not collapse source gaps into a Gutenberg gap shorthand');
-$assert(4 === substr_count($metadataDefinitionListMarkup, 'margin-top:0;margin-bottom:0'), 'metadata cells suppress paragraph flow margins');
-$assert('pass' === ($metadataDefinitionList['source_reports']['wp_block_validity']['status'] ?? ''), 'definition-list metadata grid emits editor-valid native blocks');
+$assert('blocks-engine/description-list' === ($metadataDefinitionListBlock['blockName'] ?? null), 'direct definition lists use the semantic companion block');
+$assert(str_contains($metadataDefinitionListMarkup, '<dl class="facts"><dt>Office</dt><dd>North Hall</dd>'), 'definition-list markup retains source dl, dt, and dd semantics');
+$assert('pass' === ($metadataDefinitionList['source_reports']['wp_block_validity']['status'] ?? ''), 'description-list block emits editor-valid static markup');
 
 $repeatedMetadataRows = ( new HtmlTransformer() )->transform(
     '<style>.record{display:grid;grid-template-columns:7rem 1fr;gap:6px 12px}</style><section><div class="record"><strong>Role</strong><span>Coordinator</span></div><div class="record"><strong>Location</strong><span>Remote</span></div></section>'
@@ -335,15 +332,15 @@ $assert(str_contains($repeatedMetadataMarkup, 'record') && ! str_contains($repea
 $assert(! str_contains($repeatedMetadataMarkup, '<strong>Role</strong> Coordinator'), 'repeated metadata rows do not flatten labels and values into prose');
 
 $ordinaryDefinitionList = ( new HtmlTransformer() )->transform('<dl><dt>First topic</dt><dd>A full explanatory paragraph.</dd><dt>Second topic</dt><dd>Another explanatory paragraph.</dd></dl>')->toArray();
-$assert('core/list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary definition lists without layout evidence remain lists');
+$assert('blocks-engine/description-list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary direct definition lists retain semantic markup');
 $ordinaryProseRows = ( new HtmlTransformer() )->transform('<section><div style="display:grid;grid-template-columns:1fr 1fr"><p>First paragraph.</p><p>Second paragraph.</p></div><div style="display:grid;grid-template-columns:1fr 1fr"><p>Third paragraph.</p><p>Fourth paragraph.</p></div></section>')->toArray();
 $assert(0 === substr_count((string) ($ordinaryProseRows['serialized_blocks'] ?? ''), 'margin-top:0;margin-bottom:0'), 'ordinary grid prose is not misclassified as metadata rows');
 $horizontalFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-direction:row;gap:1rem}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
-$assert('core/list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary horizontal flex definition lists remain lists without wrapping evidence');
+$assert('blocks-engine/description-list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'direct flex definition lists retain semantic markup');
 $wrappingFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-wrap:wrap;column-gap:18px;row-gap:8px}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
 $wrappingFlexMarkup = (string) ($wrappingFlexDefinitionList['serialized_blocks'] ?? '');
-$assert('core/group' === ($wrappingFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'wrapping flex definition lists with repeated records convert to native groups');
-$assert(str_contains($wrappingFlexMarkup, 'terms') && ! str_contains($wrappingFlexMarkup, 'is-layout-flex') && ! str_contains($wrappingFlexMarkup, 'gap:'), 'wrapping flex metadata preserves separate source row and column gaps without Gutenberg shorthand');
+$assert('blocks-engine/description-list' === ($wrappingFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'wrapping direct definition lists retain semantic markup');
+$assert(str_contains($wrappingFlexMarkup, '<dl class="terms">') && ! str_contains($wrappingFlexMarkup, 'is-layout-flex'), 'wrapping definition lists preserve stylesheet classes without Gutenberg layout classes');
 
 $navigationResult = ( new HtmlTransformer() )->transform('<nav class="primary"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $navigationBlock = $navigationResult['blocks'][0] ?? array();
@@ -3513,6 +3510,22 @@ $contextualBridgeResult = $bridge->convertResult(
 assertSame(array('strict' => true, 'allow_fallbacks' => false), $contextualBridgeResult['context'], 'convertResult should expose normalized context flags.');
 assertSame('fixture:format-bridge', $contextualBridgeResult['provenance'][0]['source'], 'convertResult should expose generic provenance source metadata.');
 assertSame('contract-test', $contextualBridgeResult['provenance'][0]['scope'], 'convertResult should expose generic provenance scope metadata.');
+
+$descriptionListArtifact = ( new ArtifactCompiler() )->compile(array(
+    'site' => array( 'slug' => 'description-lists' ),
+    'files' => array(
+        'index.html' => '<main><dl><dt>Home</dt><dd>Primary</dd></dl></main>',
+        'contact.html' => '<main><dl><dt>Office</dt><dd>North Hall</dd></dl></main>',
+        'about.html' => '<main><dl><dt>Office</dt><dd>North Hall</dd></dl></main>',
+    ),
+))->toArray();
+$descriptionListPayload = $descriptionListArtifact['source_reports']['companion_plugin_payload'] ?? array();
+$descriptionListBlocks = $descriptionListPayload['blocks'] ?? array();
+$assert(1 === count($descriptionListBlocks), 'multi-page description lists project one deduplicated companion definition');
+$assert('blocks-engine/description-list' === ($descriptionListBlocks[0]['block_json']['name'] ?? null), 'companion payload projects the generated description-list block metadata');
+$assert(str_contains((string) ($descriptionListBlocks[0]['assets']['index.js'] ?? ''), 'registerBlockType'), 'companion payload projects the installable editor asset');
+$assert('semantic-description-list' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'multi-page artifacts aggregate the Gutenberg gap once');
+$assert('https://github.com/WordPress/gutenberg/pull/20760' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['references'][1] ?? null), 'gap diagnostic records the stalled Gutenberg implementation context');
 
 fwrite(STDOUT, "Format bridge scaffold passed.\n");
 
