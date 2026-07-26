@@ -710,7 +710,38 @@ final class WordPressSitePlan
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
-        return preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+
+        return preg_replace_callback(
+            '~(<!--\s+wp:[^\s>]+\s+)(\{.*?\})(\s+/?-->)~s',
+            function (array $match) use ($origin, $routes): string {
+                $attributes = json_decode($match[2], true);
+                if ( ! is_array($attributes) ) return $match[0];
+                $attributes = $this->routeBlockAttributeValue($attributes, $origin, $routes);
+                $encoded = json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                if ( false === $encoded ) return $match[0];
+                $encoded = preg_replace('/--/', '\\u002d\\u002d', $encoded) ?? $encoded;
+                $encoded = preg_replace('/</', '\\u003c', $encoded) ?? $encoded;
+                $encoded = preg_replace('/>/', '\\u003e', $encoded) ?? $encoded;
+                $encoded = preg_replace('/&/', '\\u0026', $encoded) ?? $encoded;
+                $encoded = preg_replace('/\\\\"/', '\\u0022', $encoded) ?? $encoded;
+                return $match[1] . $encoded . $match[3];
+            },
+            $content
+        ) ?? $content;
+    }
+
+    /** @param array<int,array<string,mixed>> $routes */
+    private function routeBlockAttributeValue(mixed $value, string $origin, array $routes, string $key = ''): mixed
+    {
+        if ( is_array($value) ) {
+            foreach ( $value as $childKey => $childValue ) $value[$childKey] = $this->routeBlockAttributeValue($childValue, $origin, $routes, is_string($childKey) ? $childKey : '');
+            return $value;
+        }
+        if ( ! is_string($value) ) return $value;
+        if ( in_array($key, array('url', 'href', 'action'), true) ) return $this->routeReference($value, $origin, $routes) ?? $value;
+        if ( preg_match('/\b(?:href|action)\s*=\s*["\']/i', $value) ) return $this->routeLinks($value, $origin, $routes);
+        return $value;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string

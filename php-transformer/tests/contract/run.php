@@ -315,6 +315,33 @@ $assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null),
 $rowspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td rowspan="2">Merged</td><td>A</td></tr><tr><td>B</td></tr></table>')->toArray();
 $assert('core/html' === ($rowspanTableResult['blocks'][0]['blockName'] ?? null), 'rowspan table falls back to core/html');
 
+$metadataDefinitionList = ( new HtmlTransformer() )->transform(
+    '<style>.facts{display:grid;grid-template-columns:8rem 1fr;gap:8px 18px}</style><dl class="facts"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></dl>'
+)->toArray();
+$metadataDefinitionListMarkup = (string) ($metadataDefinitionList['serialized_blocks'] ?? '');
+$metadataDefinitionListBlock = $metadataDefinitionList['blocks'][0] ?? array();
+$assert('blocks-engine/description-list' === ($metadataDefinitionListBlock['blockName'] ?? null), 'direct definition lists use the semantic companion block');
+$assert(str_contains($metadataDefinitionListMarkup, '<dl class="facts">') && str_contains($metadataDefinitionListMarkup, '<dt>Office</dt><dd>North Hall</dd>'), 'definition-list markup retains source dl dt dd semantics and classes');
+$assert('pass' === ($metadataDefinitionList['source_reports']['wp_block_validity']['status'] ?? ''), 'description-list block emits editor-valid static markup');
+
+$repeatedMetadataRows = ( new HtmlTransformer() )->transform(
+    '<style>.record{display:grid;grid-template-columns:7rem 1fr;gap:6px 12px}</style><section><div class="record"><strong>Role</strong><span>Coordinator</span></div><div class="record"><strong>Location</strong><span>Remote</span></div></section>'
+)->toArray();
+$repeatedMetadataMarkup = (string) ($repeatedMetadataRows['serialized_blocks'] ?? '');
+$assert(str_contains($repeatedMetadataMarkup, 'record') && ! str_contains($repeatedMetadataMarkup, 'is-layout-grid'), 'repeated visually labelled rows preserve their stylesheet-owned grids');
+$assert(! str_contains($repeatedMetadataMarkup, '<strong>Role</strong> Coordinator'), 'repeated metadata rows do not flatten labels and values into prose');
+
+$ordinaryDefinitionList = ( new HtmlTransformer() )->transform('<dl><dt>First topic</dt><dd>A full explanatory paragraph.</dd><dt>Second topic</dt><dd>Another explanatory paragraph.</dd></dl>')->toArray();
+$assert('blocks-engine/description-list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary direct definition lists retain semantic markup');
+$ordinaryProseRows = ( new HtmlTransformer() )->transform('<section><div style="display:grid;grid-template-columns:1fr 1fr"><p>First paragraph.</p><p>Second paragraph.</p></div><div style="display:grid;grid-template-columns:1fr 1fr"><p>Third paragraph.</p><p>Fourth paragraph.</p></div></section>')->toArray();
+$assert(0 === substr_count((string) ($ordinaryProseRows['serialized_blocks'] ?? ''), 'margin-top:0;margin-bottom:0'), 'ordinary grid prose is not misclassified as metadata rows');
+$horizontalFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-direction:row;gap:1rem}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
+$assert('blocks-engine/description-list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'direct flex definition lists retain semantic markup');
+$wrappingFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-wrap:wrap;column-gap:18px;row-gap:8px}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
+$wrappingFlexMarkup = (string) ($wrappingFlexDefinitionList['serialized_blocks'] ?? '');
+$assert('blocks-engine/description-list' === ($wrappingFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'wrapping direct definition lists retain semantic markup');
+$assert(str_contains($wrappingFlexMarkup, '<dl class="terms">') && ! str_contains($wrappingFlexMarkup, 'is-layout-flex'), 'wrapping definition lists preserve stylesheet classes without Gutenberg layout classes');
+
 $navigationResult = ( new HtmlTransformer() )->transform('<nav class="primary"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $navigationBlock = $navigationResult['blocks'][0] ?? array();
 $assert('core/navigation' === ($navigationBlock['blockName'] ?? null), 'navigation conversion still emits a navigation block');
@@ -3058,6 +3085,38 @@ $companionAbsent = $compiler->compile(
     array( 'files' => array( 'index.html' => '<main><h1>Plain</h1><p>No blocks</p></main>' ) )
 )->toArray();
 $assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
+
+$descriptionListCompanion = $compiler->compile(
+    array(
+        'site' => array( 'slug' => 'descriptions' ),
+        'files' => array(
+            'index.html' => '<main><dl class="facts" style="display:grid"><dt class="term">Office</dt><dd class="value">North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></dl></main>',
+        ),
+    )
+)->toArray();
+$descriptionListPayload = $descriptionListCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$descriptionListBlock = $descriptionListCompanion['blocks'][0] ?? array();
+$descriptionListPayloadBlock = $descriptionListPayload['blocks'][0] ?? array();
+$assert('blocks-engine/description-list' === ($descriptionListBlock['blockName'] ?? null), 'artifact compilation emits the canonical description-list block');
+$assert('<dl class="facts" style="display:grid"><dt class="term">Office</dt><dd class="value">North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></dl>' === ($descriptionListBlock['innerHTML'] ?? null), 'artifact compilation preserves description-list static markup and presentation attributes');
+$assert('blocks-engine/description-list' === ($descriptionListPayloadBlock['block_json']['name'] ?? null), 'description-list companion payload includes block.json');
+$assert('file:./index.js' === ($descriptionListPayloadBlock['block_json']['editorScript'] ?? null), 'description-list payload declares its editor asset through block metadata');
+$assert(str_contains((string) ($descriptionListPayloadBlock['assets']['index.js'] ?? ''), 'registerBlockType'), 'description-list payload carries the no-build editor asset through generic assets');
+$assert('semantic-description-list' === ($descriptionListCompanion['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'artifact source report identifies the description-list Gutenberg gap');
+
+$secondaryDescriptionListCompanion = $compiler->compile(
+    array(
+        'site' => array( 'slug' => 'secondary-descriptions' ),
+        'files' => array(
+            'index.html' => '<main><h1>Home</h1></main>',
+            'contact.html' => '<main><dl><dt>Office</dt><dd>North Hall</dd></dl></main>',
+        ),
+    )
+)->toArray();
+$secondaryDescriptionListPayload = $secondaryDescriptionListCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$secondaryDescriptionListPayloadBlock = $secondaryDescriptionListPayload['blocks'][0] ?? array();
+$assert('blocks-engine/description-list' === ($secondaryDescriptionListPayloadBlock['block_json']['name'] ?? null), 'secondary-page description lists contribute the canonical companion block definition');
+$assert('semantic-description-list' === ($secondaryDescriptionListCompanion['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'secondary-page description-list gaps reach the artifact source report');
 
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream

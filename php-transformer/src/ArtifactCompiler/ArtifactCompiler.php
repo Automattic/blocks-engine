@@ -67,17 +67,23 @@ final class ArtifactCompiler
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
+        $generatedBlockNamespace = $companionPluginPayloadBuilder->blockNamespace($artifact);
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
-        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath);
+        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $generatedBlockNamespace);
+        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $generatedBlockNamespace);
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
+        $allGeneratedBlocks = $entryBlocks['generated_blocks'];
+        $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
+            $allGeneratedBlocks = array_merge($allGeneratedBlocks, $compiledHtmlDocument['generated_blocks'] ?? array());
+            $allGutenbergGaps = array_merge($allGutenbergGaps, $compiledHtmlDocument['gutenberg_gaps'] ?? array());
         }
+        $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
@@ -125,8 +131,11 @@ final class ArtifactCompiler
             ),
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
+        if ( array() !== $allGutenbergGaps ) {
+            $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
+        }
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
-        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks'], $runtimeIslandPackage);
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }
@@ -375,7 +384,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -389,6 +398,7 @@ final class ArtifactCompiler
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],
             'generated_blocks'  => $result['generated_blocks'],
+            'gutenberg_gaps'    => $result['gutenberg_gaps'],
             'interaction_candidates' => $result['interaction_candidates'],
             'superseded_selectors' => $result['superseded_selectors'],
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
@@ -398,7 +408,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
@@ -411,6 +421,7 @@ final class ArtifactCompiler
                 'assets'            => array(),
                 'runtime_islands'   => array(),
                 'generated_blocks'  => array(),
+                'gutenberg_gaps'    => array(),
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
@@ -427,6 +438,7 @@ final class ArtifactCompiler
                 'assets'            => array(),
                 'runtime_islands'   => array(),
                 'generated_blocks'  => array(),
+                'gutenberg_gaps'    => array(),
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
@@ -460,6 +472,7 @@ final class ArtifactCompiler
                 $files
             ),
             'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
+            'gutenberg_gaps'    => is_array($result['source_reports']['gutenberg_gaps'] ?? null) ? $result['source_reports']['gutenberg_gaps'] : array(),
             'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
             'superseded_selectors' => array_values(array_filter(
                 is_array($result['source_reports']['superseded_selectors'] ?? null) ? $result['source_reports']['superseded_selectors'] : array(),
@@ -1022,7 +1035,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function compileHtmlSourceDocuments(array $files, string $entryPath): array
+    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = ''): array
     {
         $documents = array();
         foreach ( $files as $file ) {
@@ -1033,7 +1046,7 @@ final class ArtifactCompiler
             if ( '' === $path || $entryPath === $path ) {
                 continue;
             }
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', '', true);
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', $generatedBlockNamespace, true);
         }
         return $documents;
     }

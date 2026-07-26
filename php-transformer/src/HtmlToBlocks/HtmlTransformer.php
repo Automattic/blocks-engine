@@ -268,6 +268,8 @@ final class HtmlTransformer
      */
     private array $generatedBlocks = array();
 
+    private bool $descriptionListBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -449,6 +451,7 @@ final class HtmlTransformer
         $this->runtimeIslands = array();
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
+        $this->descriptionListBlockGenerated = false;
         $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
@@ -584,6 +587,18 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        if ( $this->descriptionListBlockGenerated ) {
+            $diagnostics[] = array(
+                'code' => 'semantic_description_list_gutenberg_gap',
+                'message' => 'A semantic description list was materialized with the Blocks Engine companion block because Gutenberg has no core description-list block.',
+                'source' => self::class,
+                'severity' => 'info',
+                'references' => array(
+                    'https://github.com/WordPress/gutenberg/issues/4880',
+                    'https://github.com/WordPress/gutenberg/pull/20760',
+                ),
+            );
+        }
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
@@ -592,6 +607,16 @@ final class HtmlTransformer
             'available_core_blocks' => $nativeTargetBlocks,
             'runtime_islands' => $this->runtimeIslands,
             'generated_blocks' => $this->generatedBlocks,
+            'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
+                array(
+                    'id' => 'semantic-description-list',
+                    'block_name' => DescriptionListBlockGenerator::NAME,
+                    'references' => array(
+                        'https://github.com/WordPress/gutenberg/issues/4880',
+                        'https://github.com/WordPress/gutenberg/pull/20760',
+                    ),
+                ),
+            ) : array(),
             'interaction_candidates' => $interactionCandidates,
             'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
             'shell_artifacts' => $shellArtifacts,
@@ -2003,6 +2028,16 @@ final class HtmlTransformer
         }
 
         if ( 'dl' === $tagName ) {
+            $descriptionList = $this->descriptionListBlockFromElement($element);
+            if ( null !== $descriptionList ) {
+                return $descriptionList;
+            }
+
+            $metadataGrid = $this->metadataGridBlockFromElement($element);
+            if ( null !== $metadataGrid ) {
+                return $metadataGrid;
+            }
+
             $items = $this->definitionListItems($element);
             if ( array() !== $items ) {
                 return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
@@ -5808,6 +5843,288 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /**
+     * Preserve a direct, valid description list as a static companion block.
+     * Wrapped or malformed lists deliberately return null for the established
+     * core/list and core/group safety paths below.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function descriptionListBlockFromElement(DOMElement $list): ?array
+    {
+        $groups = array();
+        $group = null;
+
+        foreach ( $list->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( 'dt' === $tag ) {
+                if ( null === $group || array() !== $group['descriptions'] ) {
+                    if ( null !== $group ) {
+                        $groups[] = $group;
+                    }
+                    $group = array( 'terms' => array(), 'descriptions' => array() );
+                }
+                $group['terms'][] = $this->descriptionListItem($child);
+                continue;
+            }
+            if ( 'dd' !== $tag || null === $group || array() === $group['terms'] ) {
+                return null;
+            }
+            $group['descriptions'][] = $this->descriptionListItem($child);
+        }
+
+        if ( null === $group || array() === $group['descriptions'] ) {
+            return null;
+        }
+        $groups[] = $group;
+
+        if ( ! $this->descriptionListBlockGenerated ) {
+            $this->generatedBlocks[] = ( new DescriptionListBlockGenerator() )->definition();
+            $this->descriptionListBlockGenerated = true;
+        }
+
+        return array(
+            'blockName' => DescriptionListBlockGenerator::NAME,
+            'attrs' => array_filter(array(
+                'className' => $list->getAttribute('class'),
+                'style' => $list->getAttribute('style'),
+                'groups' => $groups,
+            ), static fn (mixed $value): bool => '' !== $value),
+            'innerBlocks' => array(),
+            'innerHTML' => $this->descriptionListMarkup($list, $groups),
+            'innerContent' => array( $this->descriptionListMarkup($list, $groups) ),
+        );
+    }
+
+    /** @return array<string, string> */
+    private function descriptionListItem(DOMElement $element): array
+    {
+        return array_filter(array(
+            'content' => $this->innerHtml($element),
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+    }
+
+    /** @param array<int, array<string, mixed>> $groups */
+    private function descriptionListMarkup(DOMElement $list, array $groups): string
+    {
+        $markup = '<dl' . $this->descriptionListMarkupAttributes(array(
+            'className' => $list->getAttribute('class'),
+            'style' => $list->getAttribute('style'),
+        )) . '>';
+        foreach ( $groups as $group ) {
+            foreach ( $group['terms'] as $term ) {
+                $markup .= '<dt' . $this->descriptionListMarkupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
+            }
+            foreach ( $group['descriptions'] as $description ) {
+                $markup .= '<dd' . $this->descriptionListMarkupAttributes($description) . '>' . ($description['content'] ?? '') . '</dd>';
+            }
+        }
+        return $markup . '</dl>';
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function descriptionListMarkupAttributes(array $attributes): string
+    {
+        $markup = '';
+        foreach ( array( 'className' => 'class', 'style' => 'style' ) as $key => $name ) {
+            if ( '' !== (string) ($attributes[$key] ?? '') ) {
+                $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        return $markup;
+    }
+
+    /**
+     * Convert compact label/value grids into native blocks without letting the
+     * paragraph block's default margins turn each record into prose flow.
+     *
+     * A definition list provides the relationship semantically. Generic wrappers
+     * need both a grid/flex layout and repeated, visually distinguished labels;
+     * this keeps ordinary text wrappers out of the recognizer.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function metadataGridBlockFromElement(DOMElement $element): ?array
+    {
+        $children = $this->directMetadataCells($element);
+        if ( count($children) < 2 || 0 !== count($children) % 2 ) {
+            return null;
+        }
+
+        $isDefinitionList = 'dl' === strtolower($element->tagName);
+        if ( $isDefinitionList ) {
+            if ( count($children) < 4 ) {
+                return null;
+            }
+            foreach ( $children as $index => $child ) {
+                if ( (0 === $index % 2 && 'dt' !== strtolower($child->tagName)) || (1 === $index % 2 && 'dd' !== strtolower($child->tagName)) ) {
+                    return null;
+                }
+            }
+        } elseif ( ! $this->isRepeatedMetadataRow($element, $children) ) {
+            return null;
+        }
+
+        $style = $this->metadataPresentationStyle($element);
+        if ( ! $this->isMetadataLayoutStyle($style) ) {
+            return null;
+        }
+
+        if ( $this->isFlexMetadataStyle($style) && ! $this->hasStrongFlexMetadataEvidence($element, $children, $isDefinitionList, $style) ) {
+            return null;
+        }
+
+        $blocks = array();
+        foreach ( $children as $child ) {
+            $content = $this->metadataCellContent($child);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+            $blocks[] = $this->createBlock('core/paragraph', $this->metadataCellAttributes($child, $content), array(), $child);
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        // The source stylesheet owns the grid tracks and independent gaps. Core's
+        // layout support emits classes and a gap shorthand that can override both.
+        unset($attrs['layout'], $attrs['style']['spacing']['blockGap']);
+        if ( empty($attrs['style']['spacing']) ) {
+            unset($attrs['style']['spacing']);
+        }
+        if ( empty($attrs['style']) ) {
+            unset($attrs['style']);
+        }
+
+        return $this->createBlock('core/group', $attrs, $blocks, $element);
+    }
+
+    /** @return array<int, DOMElement> */
+    private function directMetadataCells(DOMElement $element): array
+    {
+        $cells = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return array();
+            }
+            if ( $this->hasBlockContentChildren($child) ) {
+                return array();
+            }
+            $cells[] = $child;
+        }
+
+        return $cells;
+    }
+
+    /** @param array<int, DOMElement> $children */
+    private function isRepeatedMetadataRow(DOMElement $element, array $children): bool
+    {
+        if ( 2 !== count($children) || ! $this->hasMetadataLabelPresentation($children[0]) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        $matchingRows = 0;
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || ! $this->isMetadataLayoutStyle($this->metadataPresentationStyle($sibling)) ) {
+                continue;
+            }
+            $cells = $this->directMetadataCells($sibling);
+            if ( 2 === count($cells) && $this->hasMetadataLabelPresentation($cells[0]) ) {
+                ++$matchingRows;
+            }
+        }
+
+        return 2 <= $matchingRows;
+    }
+
+    private function hasMetadataLabelPresentation(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'b', 'strong' ), true) ) {
+            return true;
+        }
+
+        $style = $this->cssDeclarations($this->metadataPresentationStyle($element));
+        $weight = (int) preg_replace('/\D.*/', '', (string) ($style['font-weight'] ?? ''));
+        if ( 600 <= $weight || in_array(strtolower(trim((string) ($style['text-transform'] ?? ''))), array( 'uppercase', 'capitalize' ), true) ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'b', 'strong' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isMetadataLayoutStyle(string $style): bool
+    {
+        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?(?:grid|flex)\b/i', $style);
+    }
+
+    private function isFlexMetadataStyle(string $style): bool
+    {
+        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style);
+    }
+
+    /** @param array<int, DOMElement> $children */
+    private function hasStrongFlexMetadataEvidence(DOMElement $element, array $children, bool $isDefinitionList, string $style): bool
+    {
+        if ( 1 !== preg_match('/(?:^|;)\s*flex-wrap\s*:\s*wrap(?:-reverse)?\b/i', $style) ) {
+            return false;
+        }
+
+        // A definition list supplies repeated term/description records. Generic
+        // rows additionally need the repeated labelled-row evidence above.
+        return $isDefinitionList
+            ? 4 <= count($children)
+            : $this->isRepeatedMetadataRow($element, $children);
+    }
+
+    private function metadataPresentationStyle(DOMElement $element): string
+    {
+        // Layout is structural evidence, so inspect matching stylesheet rules even
+        // when the element is not otherwise a high-value style boundary.
+        return $this->cssDeclarationString($this->structuralPresentationDeclarations($element));
+    }
+
+    /** @return array<string, mixed> */
+    private function metadataCellAttributes(DOMElement $element, string $content): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        $attrs['content'] = $content;
+        $attrs['style']['spacing']['margin']['top'] = '0';
+        $attrs['style']['spacing']['margin']['bottom'] = '0';
+
+        return $attrs;
+    }
+
+    private function metadataCellContent(DOMElement $element): string
+    {
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( in_array(strtolower($element->tagName), array( 'dt', 'b', 'strong' ), true) ) {
+            return '<strong>' . $content . '</strong>';
+        }
+
+        return $content;
     }
 
     /**
