@@ -2024,7 +2024,10 @@ final class ArtifactCompiler
                 $shellArtifact['slug'] = 'entry-' . $slug;
             }
             $partSlugs[(string) $shellArtifact['slug']] = true;
-            if ( is_string($shellArtifact['inner_block_markup'] ?? null) ) {
+            if ( is_string($shellArtifact['template_part_block_markup'] ?? null) ) {
+                $shellArtifact['block_markup'] = $shellArtifact['template_part_block_markup'];
+                unset($shellArtifact['template_part_block_markup'], $shellArtifact['inner_block_markup']);
+            } elseif ( is_string($shellArtifact['inner_block_markup'] ?? null) ) {
                 $shellArtifact['block_markup'] = $shellArtifact['inner_block_markup'];
                 unset($shellArtifact['inner_block_markup']);
             }
