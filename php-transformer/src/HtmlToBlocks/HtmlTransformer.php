@@ -752,9 +752,6 @@ final class HtmlTransformer
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
-        if ( str_contains($serializedBlocks, 'blocks-engine-definition-list') ) {
-            $cssParts[] = ':where(.blocks-engine-definition-list){list-style:none;padding-inline-start:0}';
-        }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
         }
@@ -896,7 +893,7 @@ final class HtmlTransformer
                 $parsed = CssSelectorMatcher::parse($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'dd', 'dt', 'li', 'nav', 'p' ), true) ) {
+                    if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
                         $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }
@@ -2006,15 +2003,9 @@ final class HtmlTransformer
         }
 
         if ( 'dl' === $tagName ) {
-            $display = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')));
-            $styledLayout = in_array($display, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true);
-            $items = $styledLayout ? $this->styledDefinitionListItems($element) : $this->definitionListItems($element);
+            $items = $this->definitionListItems($element);
             if ( array() !== $items ) {
-                $attrs = $this->presentationAttributes($element);
-                if ( $styledLayout ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-definition-list');
-                }
-                return $this->createBlock('core/list', $attrs, $items, $element);
+                return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
@@ -5811,34 +5802,6 @@ final class HtmlTransformer
                     'content' => trim($prefix . ( '' !== $prefix && '' !== trim($description) ? ' ' : '' ) . $description),
                 )), array(), $child);
             }
-        }
-
-        return $items;
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function styledDefinitionListItems(DOMElement $list): array
-    {
-        $items = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) ) {
-                return array();
-            }
-
-            $content = $this->richTextContentWithMaterializedInlineStyles($child);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                continue;
-            }
-
-            $items[] = $this->createBlock(
-                'core/list-item',
-                array_merge($this->presentationAttributes($child), array( 'content' => $content )),
-                array(),
-                $child
-            );
         }
 
         return $items;
