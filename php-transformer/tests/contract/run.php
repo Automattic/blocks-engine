@@ -2571,9 +2571,15 @@ $fontMaterializationPlan = ( new FontMaterializationPlanBuilder() )->googleFonts
     array('family' => 'Open Sans', 'weights' => array(400, 700)),
     array('family' => 'Poppins', 'weights' => array(500)),
     array('family' => 'Arial', 'weights' => array(400)),
+    array('family' => 'inherit', 'weights' => array(400)),
+    array('family' => 'INITIAL', 'weights' => array(400)),
+    array('family' => 'unset', 'weights' => array(400)),
+    array('family' => 'revert', 'weights' => array(400)),
+    array('family' => 'revert-layer', 'weights' => array(400)),
 ));
 $assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontMaterializationPlan['schema'] ?? null), 'font materialization exposes schema');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontMaterializationPlan['css'] ?? null), 'font materialization builds deterministic google fonts css');
+$assert(array('Open Sans', 'Poppins') === array_column($fontMaterializationPlan['fonts'] ?? array(), 'family'), 'font materialization excludes web-safe and CSS-wide family keywords');
 $assert('assets/css/fonts.css' === ($fontMaterializationPlan['stylesheets'][0]['path'] ?? null), 'font materialization emits stylesheet asset plan');
 
 $fontAwarePlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
