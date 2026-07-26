@@ -4352,7 +4352,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            $blocks[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+            $blocks[] = $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($child, array_merge($this->presentationAttributes($child), array( 'content' => $content ))), array(), $child);
         }
 
         return 1 < count($blocks) ? $blocks : null;
