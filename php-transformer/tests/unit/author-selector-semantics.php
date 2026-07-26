@@ -238,6 +238,12 @@ $staffContact = $staffRow['blocks'][0]['innerBlocks'][1] ?? array();
 $zeroMargins = array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' );
 $assert($zeroMargins === ($staffName['attrs']['style']['spacing']['margin'] ?? array()) && $zeroMargins === ($staffContact['attrs']['style']['spacing']['margin'] ?? array()), 'paragraph hosts for source div content preserve the source zero-margin box model');
 
+$definitionGrid = $transform('<style>.facts{display:grid;grid-template-columns:auto 1fr;gap:8px 18px}.facts dt{font-weight:600}.facts dd{margin:0}</style><dl class="facts"><dt>Office</dt><dd>Mendel Hall</dd><dt>Hours</dt><dd>Monday-Friday</dd></dl>');
+$definitionGridBlock = $definitionGrid['blocks'][0] ?? array();
+$definitionMarkup = (string) ($definitionGrid['serialized_blocks'] ?? '');
+$definitionCss = implode("\n", array_column($definitionGrid['assets'] ?? array(), 'content'));
+$assert('core/list' === ($definitionGridBlock['blockName'] ?? '') && 4 === count($definitionGridBlock['innerBlocks'] ?? array()) && str_contains((string) ($definitionGridBlock['attrs']['className'] ?? ''), 'blocks-engine-definition-list') && ! str_contains($definitionMarkup, '<strong>') && str_contains($definitionCss, ':where(.blocks-engine-definition-list){list-style:none;padding-inline-start:0}') && 'pass' === ($definitionGrid['source_reports']['wp_block_validity']['status'] ?? ''), 'styled definition lists preserve alternating editable grid items without synthetic list chrome');
+
 $citationList = $transform('<style>.citations{list-style:none}.citations .authors{font-family:sans-serif}.citations .title{font-style:italic}.citations .venue{font-size:.9rem}.citations .doi{display:block;margin-top:4px}</style><ol class="citations"><li><span class="authors">A. Author.</span> <span class="title">One article.</span> <span class="venue">Journal 1.</span> <span class="doi">doi:1</span></li><li><span class="authors">B. Author.</span> <span class="title">Another article.</span> <span class="venue">Journal 2.</span> <span class="doi">doi:2</span></li></ol>');
 $assert('core/list' === ($citationList['blocks'][0]['blockName'] ?? '') && 2 === count($citationList['blocks'][0]['innerBlocks'] ?? array()) && 'pass' === ($citationList['source_reports']['wp_block_validity']['status'] ?? ''), 'classed citation fragments remain flowing native list-item RichText when only one fragment is block-level');
 
