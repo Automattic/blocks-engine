@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 final class FontMaterializationPlanBuilder
 {
     public const SCHEMA = 'blocks-engine/php-transformer/font-materialization-plan/v1';
+    private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'revert', 'revert-layer', 'unset');
 
     /**
      * @param array<int,array<string,mixed>> $fontUsage
@@ -365,7 +366,10 @@ final class FontMaterializationPlanBuilder
      */
     private function isInvalidFontFamily(string $family): bool
     {
-        return str_contains($family, '(') || str_contains($family, ')') || str_starts_with($family, '--');
+        return str_contains($family, '(')
+            || str_contains($family, ')')
+            || str_starts_with($family, '--')
+            || in_array(strtolower($family), self::CSS_WIDE_KEYWORDS, true);
     }
 
     /**
