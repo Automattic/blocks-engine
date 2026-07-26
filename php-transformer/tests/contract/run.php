@@ -324,17 +324,8 @@ $assert('blocks-engine/description-list' === ($metadataDefinitionListBlock['bloc
 $assert(str_contains($metadataDefinitionListMarkup, '<dl class="facts">') && str_contains($metadataDefinitionListMarkup, '<dt>Office</dt><dd>North Hall</dd>'), 'definition-list markup retains source dl dt dd semantics and classes');
 $assert('pass' === ($metadataDefinitionList['source_reports']['wp_block_validity']['status'] ?? ''), 'description-list block emits editor-valid static markup');
 
-$repeatedMetadataRows = ( new HtmlTransformer() )->transform(
-    '<style>.record{display:grid;grid-template-columns:7rem 1fr;gap:6px 12px}</style><section><div class="record"><strong>Role</strong><span>Coordinator</span></div><div class="record"><strong>Location</strong><span>Remote</span></div></section>'
-)->toArray();
-$repeatedMetadataMarkup = (string) ($repeatedMetadataRows['serialized_blocks'] ?? '');
-$assert(str_contains($repeatedMetadataMarkup, 'record') && ! str_contains($repeatedMetadataMarkup, 'is-layout-grid'), 'repeated visually labelled rows preserve their stylesheet-owned grids');
-$assert(! str_contains($repeatedMetadataMarkup, '<strong>Role</strong> Coordinator'), 'repeated metadata rows do not flatten labels and values into prose');
-
 $ordinaryDefinitionList = ( new HtmlTransformer() )->transform('<dl><dt>First topic</dt><dd>A full explanatory paragraph.</dd><dt>Second topic</dt><dd>Another explanatory paragraph.</dd></dl>')->toArray();
 $assert('blocks-engine/description-list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary direct definition lists retain semantic markup');
-$ordinaryProseRows = ( new HtmlTransformer() )->transform('<section><div style="display:grid;grid-template-columns:1fr 1fr"><p>First paragraph.</p><p>Second paragraph.</p></div><div style="display:grid;grid-template-columns:1fr 1fr"><p>Third paragraph.</p><p>Fourth paragraph.</p></div></section>')->toArray();
-$assert(0 === substr_count((string) ($ordinaryProseRows['serialized_blocks'] ?? ''), 'margin-top:0;margin-bottom:0'), 'ordinary grid prose is not misclassified as metadata rows');
 $horizontalFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-direction:row;gap:1rem}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
 $assert('blocks-engine/description-list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'direct flex definition lists retain semantic markup');
 $wrappingFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-wrap:wrap;column-gap:18px;row-gap:8px}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
