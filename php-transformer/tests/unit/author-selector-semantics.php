@@ -237,6 +237,10 @@ $metadataChildren = $metadata['blocks'][0]['innerBlocks'] ?? array();
 $zeroMargins = array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' );
 $assert(2 === count($metadataChildren) && $zeroMargins === ($metadataChildren[0]['attrs']['style']['spacing']['margin'] ?? array()) && $zeroMargins === ($metadataChildren[1]['attrs']['style']['spacing']['margin'] ?? array()), 'paragraph hosts for structured inline metadata leaves preserve the source zero-margin box model');
 
+$markedMetadata = $transform('<style>.fact{display:grid}.fact .fact-label{display:block;font-weight:600;margin-bottom:4px}.fact .fact-value{font-family:monospace}</style><div class="fact"><span class="fact-label">Students</span><span class="fact-value">287</span></div>');
+$markedMetadataValue = $markedMetadata['blocks'][0]['innerBlocks'][1] ?? array();
+$assert('core/paragraph' === ($markedMetadataValue['blockName'] ?? '') && $zeroMargins === ($markedMetadataValue['attrs']['style']['spacing']['margin'] ?? array()) && str_contains((string) ($markedMetadataValue['attrs']['content'] ?? ''), '<mark class="blocks-engine-richtext-'), 'a CSS-addressed inline metadata leaf gains no paragraph margins when materialized as marked RichText');
+
 $citationList = $transform('<style>.citations{list-style:none}.citations .authors{font-family:sans-serif}.citations .title{font-style:italic}.citations .venue{font-size:.9rem}.citations .doi{display:block;margin-top:4px}</style><ol class="citations"><li><span class="authors">A. Author.</span> <span class="title">One article.</span> <span class="venue">Journal 1.</span> <span class="doi">doi:1</span></li><li><span class="authors">B. Author.</span> <span class="title">Another article.</span> <span class="venue">Journal 2.</span> <span class="doi">doi:2</span></li></ol>');
 $assert('core/list' === ($citationList['blocks'][0]['blockName'] ?? '') && 2 === count($citationList['blocks'][0]['innerBlocks'] ?? array()) && 'pass' === ($citationList['source_reports']['wp_block_validity']['status'] ?? ''), 'classed citation fragments remain flowing native list-item RichText when only one fragment is block-level');
 

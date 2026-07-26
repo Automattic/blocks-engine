@@ -1973,9 +1973,9 @@ final class HtmlTransformer
                         $declarations['color'] = 'transparent';
                     }
                     $style = $this->cssDeclarationString($declarations);
-                    return $this->createBlock('core/paragraph', array(
+                    return $this->createBlock('core/paragraph', $this->paragraphAttributesForNonParagraphContent($element, array(
                         'content' => '<mark class="' . $richTextMarker . '"' . ( '' !== $style ? ' style="' . htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '' ) . '>' . $content . '</mark>',
-                    ), array(), $element);
+                    ), false), array(), $element);
                 }
             }
 
