@@ -64,12 +64,25 @@ final class BlockFactory
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
 
-        // RichText block save() does not reproduce dimensions.maxWidth. Inline
+        // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
-        if ( in_array($name, array( 'core/group', 'core/columns', 'core/list-item', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/group', 'core/columns', 'core/list-item', 'core/paragraph', 'core/separator' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);
+            }
+            if ( empty($attrs['style']) ) {
+                unset($attrs['style']);
+            }
+        }
+
+        if ( 'core/separator' === $name ) {
+            unset($attrs['style']['spacing']['margin']['left'], $attrs['style']['spacing']['margin']['right']);
+            if ( empty($attrs['style']['spacing']['margin']) ) {
+                unset($attrs['style']['spacing']['margin']);
+            }
+            if ( empty($attrs['style']['spacing']) ) {
+                unset($attrs['style']['spacing']);
             }
             if ( empty($attrs['style']) ) {
                 unset($attrs['style']);
