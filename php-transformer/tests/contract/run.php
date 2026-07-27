@@ -738,6 +738,13 @@ $assert(1 === substr_count($separatorMarkup, 'has-alpha-channel-opacity'), 'sepa
 $assert(1 === substr_count($separatorMarkup, 'has-css-opacity'), 'separator serialization emits has-css-opacity exactly once');
 $assert(! str_contains($separatorMarkup, 'wp-block-separator divider wp-block-separator'), 'separator serialization does not duplicate generated classes');
 
+$boundedSeparator = ( new HtmlTransformer() )->transform('<main><hr class="rule" style="max-width:var(--max);margin:0 auto"></main>')->toArray();
+$boundedSeparatorAttrs = $boundedSeparator['blocks'][0]['attrs'] ?? array();
+$boundedSeparatorMarkup = (string) ($boundedSeparator['serialized_blocks'] ?? '');
+$boundedSeparatorCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $boundedSeparator['assets'] ?? array()));
+$assert(array('top' => '0', 'bottom' => '0') === ($boundedSeparatorAttrs['style']['spacing']['margin'] ?? null) && ! isset($boundedSeparatorAttrs['style']['dimensions']), 'separator keeps only spacing supported by its canonical core block attributes');
+$assert(! str_contains($boundedSeparatorMarkup, 'margin-left:auto') && ! str_contains($boundedSeparatorMarkup, 'max-width:var(--max)') && str_contains($boundedSeparatorCss, 'margin-left:auto !important') && str_contains($boundedSeparatorCss, 'margin-right:auto !important') && str_contains($boundedSeparatorCss, 'max-width:var(--max) !important'), 'separator moves unsupported horizontal and width geometry to its generated carrier stylesheet');
+
 $customStateFindings = ( new CanonicalSaveShapeValidator() )->findings(array(array(
     'blockName'    => 'core/group',
     'attrs'        => array(),

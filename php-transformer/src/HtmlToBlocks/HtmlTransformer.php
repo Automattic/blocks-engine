@@ -2094,7 +2094,7 @@ final class HtmlTransformer
         }
 
         if ( 'hr' === $tagName ) {
-            return $this->createBlock('core/separator', $this->presentationAttributes($element), array(), $element);
+            return $this->createBlock('core/separator', $this->presentationAttributes($element, array(), array( 'margin-left', 'margin-right' )), array(), $element);
         }
 
         if ( 'br' === $tagName ) {

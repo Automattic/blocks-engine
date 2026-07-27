@@ -108,9 +108,9 @@ trait StyleResolutionTrait
      *
      * @return array<string, mixed>
      */
-    private function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
+    private function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
     {
-        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $excludedGeometryProperties);
+        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $excludedGeometryProperties) . ':' . implode(',', $forcedGeometryProperties);
         if ( isset($this->presentationAttributesCache[$cacheKey]) ) {
             return $this->presentationAttributesCache[$cacheKey];
         }
@@ -120,12 +120,15 @@ trait StyleResolutionTrait
             $this->presentationDeclarations($element)
         );
         $mapped       = $this->styleAttributeMapper()->map($declarations);
+        $forcedGeometryDeclarations = array() === $forcedGeometryProperties
+            ? array()
+            : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->promotedClassName($this->attr($element, 'class')),
-                $this->inlineGeometryClassName($element, $excludedGeometryProperties)
+                $this->inlineGeometryClassName($element, $excludedGeometryProperties, $forcedGeometryProperties, $forcedGeometryDeclarations)
             ),
             'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties),
             'style'     => $mapped['style'],
@@ -230,15 +233,15 @@ trait StyleResolutionTrait
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.
      */
-    private function inlineGeometryClassName(DOMElement $element, array $excludedProperties = array()): string
+    private function inlineGeometryClassName(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array(), array $forcedDeclarations = array()): string
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
-        foreach ($this->inlineGeometryProperties() as $property) {
+        foreach (array_values(array_unique(array_merge($this->inlineGeometryProperties(), $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
-            $rawValue = trim((string) ($declarations[$property] ?? ''));
+            $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
             if (1 === preg_match('/\s*!important\s*$/i', $rawValue)) {
                 continue;
             }
