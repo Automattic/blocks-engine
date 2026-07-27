@@ -1,0 +1,45 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-css-import-web-font-materialization",
+  "description": "Materializes typefaces declared by a Google Fonts CSS import with their requested weights and typography roles.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-css-import-web-font-materialization.json",
+    "notes": "Covers web-font source discovery when the provider URL exists only in a linked author stylesheet."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Web-font materialization is an upstream transformer contract with no legacy package equivalent."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<!doctype html><html><head><title>Imported Fonts</title><link rel=\"stylesheet\" href=\"styles/site.css\"></head><body><main><h1>Welcome</h1><p>Body copy.</p></main></body></html>",
+          "kind": "html",
+          "role": "entry"
+        },
+        {
+          "path": "styles/site.css",
+          "content": "@import url('https://fonts.googleapis.com/css2?family=Display+One:wght@400;500;700&family=Body+Two:wght@400;600&display=swap');h1,h2,h3{font-family:\"Display One\",system-ui,sans-serif}body{font-family:\"Body Two\",system-ui,sans-serif}",
+          "kind": "css",
+          "mime_type": "text/css"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.0.family", "assert": "equals", "value": "Body Two" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.0.weights", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.1.family", "assert": "equals", "value": "Display One" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.1.weights", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.roles.heading", "assert": "equals", "value": "Display One" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.roles.body", "assert": "equals", "value": "Body Two" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.css", "assert": "contains", "value": "family=Display+One:wght@400;500;700" }
+  ]
+}

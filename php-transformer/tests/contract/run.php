@@ -2605,6 +2605,14 @@ $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detec
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
 
+$importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '',
+    '@import url(\'https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Noto+Sans+JP:wght@400;500;700&display=swap\'); body{font-family:"Noto Sans JP",sans-serif}h1{font-family:"EB Garamond",serif}'
+);
+$assert(array('EB Garamond', 'Noto Sans JP') === array_column($importedWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection captures families declared only by a CSS import');
+$assert(array(400, 500, 600, 700) === ($importedWebFontPlan['fonts'][0]['weights'] ?? null), 'CSS-imported web-font detection preserves italic axis tuple weights');
+$assert(array(400, 500, 700) === ($importedWebFontPlan['fonts'][1]['weights'] ?? null), 'CSS-imported web-font detection preserves repeated family weights');
+
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
     'body { font-family: "Crimson Pro", Georgia, serif; } .mono { font-family: "JetBrains Mono", monospace; }'
