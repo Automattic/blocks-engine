@@ -842,6 +842,20 @@ $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'arti
 $assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+$artifactRuntimeAnchor = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><div class="event"><a class="event-add" href="#">Add to calendar</a></div><script src="js/app.js"></script></main>',
+            'js/app.js'  => 'document.querySelectorAll(".event-add").forEach(function (link) { link.addEventListener("click", function (event) { event.preventDefault(); }); });',
+        ),
+    )
+)->toArray();
+$artifactRuntimeAnchorMarkup = (string) ($artifactRuntimeAnchor['serialized_blocks'] ?? '');
+$artifactRuntimeAnchorIslands = $artifactRuntimeAnchor['source_reports']['runtime_islands'] ?? array();
+$assert(str_contains($artifactRuntimeAnchorMarkup, '<!-- wp:html ') && str_contains($artifactRuntimeAnchorMarkup, '<a class="event-add" href="#">Add to calendar</a>'), 'artifact compiler preserves behavior-bearing anchors as exact runtime DOM targets');
+$assert(1 === count($artifactRuntimeAnchorIslands) && '.event-add' === ($artifactRuntimeAnchorIslands[0]['selector'] ?? ''), 'artifact compiler reports a behavior-bearing anchor as one bounded runtime DOM island');
+$assert('pass' === ($artifactRuntimeAnchor['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity resolves behavior-bearing anchor selectors against preserved markup');
 $runtimeContext = ( new ArtifactCompiler() )->runtimeContextForSource(
     '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
     'index.html',
