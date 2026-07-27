@@ -863,6 +863,30 @@ $artifactRuntimeAnchorIslands = $artifactRuntimeAnchor['source_reports']['runtim
 $assert(str_contains($artifactRuntimeAnchorMarkup, '<!-- wp:html ') && str_contains($artifactRuntimeAnchorMarkup, '<a class="event-add" href="#">Add to calendar</a>'), 'artifact compiler preserves behavior-bearing anchors as exact runtime DOM targets');
 $assert(1 === count($artifactRuntimeAnchorIslands) && '.event-add' === ($artifactRuntimeAnchorIslands[0]['selector'] ?? ''), 'artifact compiler reports a behavior-bearing anchor as one bounded runtime DOM island');
 $assert('pass' === ($artifactRuntimeAnchor['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity resolves behavior-bearing anchor selectors against preserved markup');
+$runtimeMutationStateIslands = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><div class="lang-toggle"><button class="on">EN</button><button>DE</button></div><div data-chip-group><button class="chip is-on">All</button><button class="chip">New</button></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".lang-toggle button").forEach(btn => { btn.addEventListener("click", () => { const group = btn.closest(".lang-toggle"); group.querySelectorAll("button").forEach(b => b.classList.remove("on")); btn.classList.add("on"); }); }); document.querySelectorAll("[data-chip-group]").forEach(group => { const chips = group.querySelectorAll(".chip"); chips.forEach(chip => chip.addEventListener("click", () => { chips.forEach(c => c.classList.remove("is-on")); chip.classList.add("is-on"); })); });',
+        ),
+    )
+)->toArray();
+$runtimeMutationStateSelectors = array_map(static fn (array $island): string => (string) ($island['selector'] ?? ''), $runtimeMutationStateIslands['source_reports']['runtime_islands'] ?? array());
+$assert(in_array('.lang-toggle', $runtimeMutationStateSelectors, true), 'runtime islands retain stable language-toggle query target');
+$assert(2 === count($runtimeMutationStateSelectors), 'nested runtime targets collapse into their preserved stable query roots');
+$assert(! in_array('.on', $runtimeMutationStateSelectors, true) && ! in_array('.is-on', $runtimeMutationStateSelectors, true), 'runtime islands do not report mutation-state classes as target selectors');
+$separateRuntimeIslands = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><div class="runtime-parent"><button class="runtime-child">Nested</button></div><button class="runtime-child">Separate</button><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelector(".runtime-parent").addEventListener("click", () => {}); document.querySelectorAll(".runtime-child").forEach(button => button.addEventListener("click", () => {}));',
+        ),
+    )
+)->toArray();
+$separateRuntimeIslandSelectors = array_map(static fn (array $island): string => (string) ($island['selector'] ?? ''), $separateRuntimeIslands['source_reports']['runtime_islands'] ?? array());
+$assert(2 === count($separateRuntimeIslandSelectors), 'runtime island collapse retains matching controls outside the preserved parent subtree');
 $runtimeContext = ( new ArtifactCompiler() )->runtimeContextForSource(
     '<header><button class="theme-toggle">Theme</button><script src="js/app.js"></script></header>',
     'index.html',
