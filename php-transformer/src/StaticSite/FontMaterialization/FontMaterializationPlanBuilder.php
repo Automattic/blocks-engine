@@ -39,10 +39,10 @@ final class FontMaterializationPlanBuilder
     /**
      * Build a materialization plan from raw web-font sources.
      *
-     * Detects linked web-font stylesheets (e.g. Google Fonts `css2`/`css`
-     * `<link>` tags) in the supplied HTML and `font-family` declarations in the
-     * supplied CSS, preserving the discovered typefaces and their heading/body
-     * roles so that materialized output keeps the source typography.
+     * Detects web-font stylesheets (e.g. Google Fonts `css2`/`css` `<link>` and
+     * CSS `@import` sources) plus `font-family` declarations, preserving the
+     * discovered typefaces and their heading/body roles so that materialized
+     * output keeps the source typography.
      *
      * @return array<string,mixed>
      */
@@ -58,6 +58,7 @@ final class FontMaterializationPlanBuilder
 
         $fontUsage = array_merge(
             $this->fontUsageFromLinkedStylesheets($html),
+            $this->fontUsageFromCssImports($css),
             $this->fontUsageFromCssDeclarations($resolvedCss)
         );
         $roles = $this->fontRolesFromCss($resolvedCss);
@@ -110,6 +111,29 @@ final class FontMaterializationPlanBuilder
             if ( '' === $href ) {
                 continue;
             }
+            foreach ( $this->fontUsageFromFontHref($href) as $font ) {
+                $usage[] = $font;
+            }
+        }
+
+        return $usage;
+    }
+
+    /**
+     * Parse web-font stylesheet URLs from CSS `@import` rules.
+     *
+     * @return array<int,array{family:string,weights:array<int,int>}>
+     */
+    private function fontUsageFromCssImports(string $css): array
+    {
+        $css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
+        if ( '' === trim($css) || ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $usage = array();
+        foreach ( $matches as $match ) {
+            $href = (string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? ''));
             foreach ( $this->fontUsageFromFontHref($href) as $font ) {
                 $usage[] = $font;
             }
