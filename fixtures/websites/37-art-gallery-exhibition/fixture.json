@@ -8,5 +8,8 @@
     "has-nav",
     "multipage"
   ],
+  "capabilities": [
+    "forms"
+  ],
   "complexity": 2
 }
