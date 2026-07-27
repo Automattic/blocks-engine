@@ -13,6 +13,10 @@ trait ButtonLinkDispatchTrait
      */
     private function convertAnchorDispatchElement(DOMElement $element, array &$fallbacks): ?array
     {
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
         $linkedLogo = $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
         if ( null !== $linkedLogo ) {
             return $linkedLogo;
