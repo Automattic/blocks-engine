@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-contact-links-not-navigation",
-  "description": "Keeps tel/mail contact link clusters as content instead of site navigation.",
+  "description": "Keeps unstyled tel/mail contact link clusters as content instead of site navigation or speculative buttons.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-contact-links-not-navigation.json",
@@ -16,9 +16,7 @@
     "content": "<div class=\"visit-links\"><a href=\"tel:+15038417220\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg>(503) 841-7220</a><a href=\"mailto:hello@example.com\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg>hello@example.com</a></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/buttons", "attrs": { "className": "visit-links" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "tel:+15038417220" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "url": "mailto:hello@example.com" } }
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "visit-links" } }
   ],
   "expected_fallbacks": [],
   "expect": [

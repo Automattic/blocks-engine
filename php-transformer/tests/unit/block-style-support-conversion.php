@@ -116,7 +116,7 @@ $anchorCss = implode("\n", array_map(static fn (array $asset): string => (string
 $assert(! str_contains($anchorMarkup, 'wp-block-button__width-50'), '30: ordinary anchors do not claim core/button width support', $anchorMarkup);
 $assert(str_contains($anchorMarkup, 'be-inline-geometry-') && str_contains($anchorCss, 'width:50%'), '31: ordinary anchors retain applicable width geometry', $anchorMarkup . "\n" . $anchorCss);
 
-$buttonResult = ( new HtmlTransformer() )->transform('<a class="button" href="/buy" style="width:50%;max-width:20rem;aspect-ratio:2 / 1">Buy</a>', array())->toArray();
+$buttonResult = ( new HtmlTransformer() )->transform('<a class="button" href="/buy" style="padding:8px 12px;background:#135e96;width:50%;max-width:20rem;aspect-ratio:2 / 1">Buy</a>', array())->toArray();
 $button = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
 $buttonAttrs = is_array($button['attrs'] ?? null) ? $button['attrs'] : array();
 $buttonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($buttonResult['assets'] ?? null) ? $buttonResult['assets'] : array()));
@@ -174,7 +174,7 @@ $assert(
     '46: repeated transforms retain byte-identical carrier markup and assets'
 );
 
-$importantButton = ( new HtmlTransformer() )->transform('<a class="button" href="/buy" style="width:50%!important;min-width:12rem!important;max-width:30rem!important;height:3rem!important;aspect-ratio:2 / 1!important;flex-basis:20rem!important">Buy</a>', array())->toArray();
+$importantButton = ( new HtmlTransformer() )->transform('<a class="button" href="/buy" style="padding:8px 12px;background:#135e96;width:50%!important;min-width:12rem!important;max-width:30rem!important;height:3rem!important;aspect-ratio:2 / 1!important;flex-basis:20rem!important">Buy</a>', array())->toArray();
 $importantButtonMarkup = (string) ($importantButton['serialized_blocks'] ?? '');
 $assert(! str_contains($importantButtonMarkup, 'wp-block-button__width-50') && str_contains($importantButtonMarkup, 'width:50%!important') && str_contains($importantButtonMarkup, 'min-width:12rem!important') && str_contains($importantButtonMarkup, 'max-width:30rem!important') && str_contains($importantButtonMarkup, 'height:3rem!important') && str_contains($importantButtonMarkup, 'aspect-ratio:2 / 1!important') && str_contains($importantButtonMarkup, 'flex-basis:20rem!important'), '47: core/button preserves source-important geometry on its wrapper without native width classes', $importantButtonMarkup);
 

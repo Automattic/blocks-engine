@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-button-style-fidelity-unstyled-default",
-  "description": "Negative case: a button-class anchor with no resolvable source color/border CSS is not fabricated with colors. It converts to a default core/button with no style attribute, has-background, or inline color styling.",
+  "description": "Negative case: a button-class anchor with no explicit resolved surface or role remains a paragraph anchor. Conservative semantics prevent WordPress default button chrome from being fabricated for textual links.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-style-fidelity-unstyled-default.json",
-    "notes": "Generic style-fidelity negative fixture: unstyled buttons stay default (issue #233)."
+    "notes": "Generic style-fidelity negative fixture: class names alone do not establish button semantics."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,13 +16,13 @@
     "content": "<main><a class=\"btn cta-link\" href=\"/go\">Go now</a></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Go now", "url": "/go", "className": "btn cta-link" } }
+    { "path": "blocks.0", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btn cta-link\"><a class=\"wp-block-button__link wp-element-button\" href=\"/go\">Go now</a></div>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"btn cta-link\"><a href=\"/go\">Go now</a></p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "has-background" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "has-text-color" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "style=" }

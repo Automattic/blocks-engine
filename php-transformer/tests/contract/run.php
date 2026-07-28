@@ -353,7 +353,7 @@ $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null
 // a call-to-action button group, not site navigation. It must convert to
 // core/buttons (preserving pill geometry) instead of being flattened into a
 // core/navigation menu of half-height text links.
-$ctaLinkRowResult = ( new HtmlTransformer() )->transform('<div class="stream-links"><a class="stream-btn" href="#">Spotify</a><a class="stream-btn" href="#">Bandcamp</a><a class="stream-btn" href="#">Apple Music</a></div>')->toArray();
+$ctaLinkRowResult = ( new HtmlTransformer() )->transform('<style>.stream-btn{display:inline-flex;padding:10px 16px;background:#135e96;color:#fff;border-radius:4px}</style><div class="stream-links"><a class="stream-btn" href="#">Spotify</a><a class="stream-btn" href="#">Bandcamp</a><a class="stream-btn" href="#">Apple Music</a></div>')->toArray();
 $ctaSerialized = (string) ($ctaLinkRowResult['serialized_blocks'] ?? '');
 $assert(str_contains($ctaSerialized, '<!-- wp:buttons'), 'button-styled link row converts to core/buttons instead of navigation');
 $assert(! str_contains($ctaSerialized, '<!-- wp:navigation'), 'button-styled link row is not misclassified as core/navigation');
@@ -914,7 +914,7 @@ $assert(str_contains($artifactSvgMarkup, '<section id="panel"'), 'artifact compi
 $assert('pass' === ($artifactSvgSelectors['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime parity passes for queried and script-populated SVG roots');
 
 $buttonResult = ( new HtmlTransformer() )->transform(
-    '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
+    '<main><a class="primary-button" href="#" style="padding:10px 16px;background:#135e96"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
 $assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
@@ -926,7 +926,7 @@ $assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
 $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
-    '<main><a class="artist-button" href="/music" style="font-size:1rem;color:#fdf0d5;border:1px solid #fdf0d5">Listen now</a></main>'
+    '<main><a class="artist-button" href="/music" style="padding:10px 16px;font-size:1rem;color:#fdf0d5;border:1px solid #fdf0d5">Listen now</a></main>'
 )->toArray();
 $buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_blocks'] ?? '');
 $assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class required by core/button save markup');
@@ -1531,7 +1531,7 @@ $assert('monospace' === ($lateNavigationLinkAttrs['style']['typography']['fontFa
 $assert('#637188' === ($lateNavigationAttrs['customTextColor'] ?? ''), 'late shared link color reaches core navigation context');
 
 $headerCluster = ( new HtmlTransformer() )->transform(
-    '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
+    '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start" style="padding:10px 16px;background:#135e96">Get started</a></div></header>'
 )->toArray();
 $headerClusterSerialized = (string) ($headerCluster['serialized_blocks'] ?? '');
 $headerClusterParity = $headerCluster['source_reports']['semantic_parity'] ?? array();

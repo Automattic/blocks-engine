@@ -15,6 +15,7 @@ final class PatternContext
      * @param callable(DOMElement): array<int, array<string, mixed>>|null $convertChildren
      * @param callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null $convertChildrenWithoutTags
      * @param callable(DOMElement, DOMElement): string|null $navigationUnderlineColor
+     * @param callable(DOMElement): string|null $resolvedStyle
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -23,7 +24,8 @@ final class PatternContext
         private readonly mixed $isRuntimeDomTarget = null,
         private readonly mixed $convertChildren = null,
         private readonly mixed $convertChildrenWithoutTags = null,
-        private readonly mixed $navigationUnderlineColor = null
+        private readonly mixed $navigationUnderlineColor = null,
+        private readonly mixed $resolvedStyle = null
     ) {
     }
 
@@ -81,5 +83,13 @@ final class PatternContext
     public function navigationUnderlineColorCallback(): ?callable
     {
         return is_callable($this->navigationUnderlineColor) ? $this->navigationUnderlineColor : null;
+    }
+
+    /**
+     * @return callable(DOMElement): string|null
+     */
+    public function resolvedStyleCallback(): ?callable
+    {
+        return is_callable($this->resolvedStyle) ? $this->resolvedStyle : null;
     }
 }

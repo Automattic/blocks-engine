@@ -38,16 +38,10 @@ final class HighValueStyleBoundaryPolicy
             return true;
         }
 
+        // Anchor surface styles determine whether an anchor is a control or
+        // ordinary text, so classifier evidence must not depend on its name.
         if ( 'a' === $tagName ) {
-            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                if ( 'nav' === strtolower($node->tagName) ) {
-                    return true;
-                }
-                $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
-                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
-                    return true;
-                }
-            }
+            return true;
         }
 
         return false;

@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<div class=\"product-grid\"><article class=\"product-card\"><svg class=\"product-image\" role=\"img\" aria-label=\"Ceramic bowl\" viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg><h3 class=\"product-name\">Ceramic Bowl</h3><p class=\"product-price\">$42</p><a class=\"product-cta\" href=\"/products/bowl\">Buy now</a></article><article class=\"product-card\"><svg class=\"product-image\" role=\"img\" aria-label=\"Linen towel\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"></rect></svg><h3 class=\"product-name\">Linen Towel</h3><p class=\"product-price\">$18</p><a class=\"product-cta\" href=\"/products/towel\">Buy now</a></article></div>"
+    "content": "<div class=\"product-grid\"><article class=\"product-card\"><svg class=\"product-image\" role=\"img\" aria-label=\"Ceramic bowl\" viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg><h3 class=\"product-name\">Ceramic Bowl</h3><p class=\"product-price\">$42</p><a class=\"product-cta\" href=\"/products/bowl\" style=\"padding:10px 16px;background:#135e96\">Buy now</a></article><article class=\"product-card\"><svg class=\"product-image\" role=\"img\" aria-label=\"Linen towel\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"></rect></svg><h3 class=\"product-name\">Linen Towel</h3><p class=\"product-price\">$18</p><a class=\"product-cta\" href=\"/products/towel\" style=\"padding:10px 16px;background:#135e96\">Buy now</a></article></div>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "product-grid", "layout": { "type": "grid" } } },

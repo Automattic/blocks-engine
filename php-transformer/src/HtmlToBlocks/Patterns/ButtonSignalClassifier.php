@@ -7,17 +7,13 @@ use DOMElement;
 
 final class ButtonSignalClassifier
 {
-    public function hasTransformSignal(DOMElement $element): bool
+    public function hasTransformSignal(DOMElement $element, string $resolvedStyle = ''): bool
     {
         if ( 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
             return true;
         }
 
-        return $this->hasClassSignal($element)
-            || $this->hasAnyToken($element, array( 'cta', 'action' ))
-            || $this->hasPhrase($element, array( 'call-to-action', 'primary-action', 'secondary-action' ))
-            || $this->hasActionText($element)
-            || $this->hasStyleSignal($element);
+        return $this->hasStyleSignal($element, $resolvedStyle);
     }
 
     /**
@@ -40,16 +36,15 @@ final class ButtonSignalClassifier
     }
 
     /**
-     * Detect button-like inline styling.
+     * Detect an explicit, visible button surface.
      *
-     * Treats an element as a button when it carries padding plus a button shape
-     * signal (a filled, non-transparent background or a border radius). This lets
-     * styled anchors with no recognizable class still be promoted to buttons,
-     * while plain text links (no padding/fill) stay links.
+     * Class names and action-oriented text are not enough: they commonly label
+     * textual CTAs, navigation, and legal links. A control needs box padding plus
+     * visible fill, border, or rounding in its resolved author styles.
      */
-    public function hasStyleSignal(DOMElement $element): bool
+    public function hasStyleSignal(DOMElement $element, string $resolvedStyle = ''): bool
     {
-        $style = strtolower($element->hasAttribute('style') ? $element->getAttribute('style') : '');
+        $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : ($element->hasAttribute('style') ? $element->getAttribute('style') : ''));
         if ( '' === $style || ! preg_match('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*[^;]+/', $style) ) {
             return false;
         }
@@ -58,62 +53,13 @@ final class ButtonSignalClassifier
             return true;
         }
 
+        // A side-specific border with matching padding is commonly an underline.
+        // Only the box-wide shorthand establishes an outlined control surface.
+        if ( preg_match('/(?:^|;)\s*border\s*:\s*[^;]+/', $style) === 1 ) {
+            return preg_match('/(?:^|;)\s*border\s*:\s*(?:0|none)\s*(?:;|$)/', $style) !== 1;
+        }
+
         return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1
             && preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
-    }
-
-    /**
-     * @param array<int, string> $tokens
-     */
-    private function hasAnyToken(DOMElement $element, array $tokens): bool
-    {
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-                if ( in_array($token, $tokens, true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<int, string> $phrases
-     */
-    private function hasPhrase(DOMElement $element, array $phrases): bool
-    {
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            $value = strtolower($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
-            foreach ( $phrases as $phrase ) {
-                if ( str_contains($value, $phrase) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function hasActionText(DOMElement $element): bool
-    {
-        $text = strtolower(trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? ''));
-        if ( '' === $text ) {
-            return false;
-        }
-
-        return in_array($text, array(
-            'add to cart',
-            'buy now',
-            'checkout',
-            'shop now',
-            'get started',
-            'sign up',
-            'subscribe',
-            'donate',
-            'register',
-            'book now',
-        ), true);
     }
 }

@@ -1628,7 +1628,8 @@ final class HtmlTransformer
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
-            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor)
+            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
         );
     }
 
@@ -1668,7 +1669,8 @@ final class HtmlTransformer
             null,
             null,
             null,
-            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor)
+            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
         );
     }
 

@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><svg class=\"status-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle></svg><svg class=\"hero-flame-svg\" viewBox=\"0 0 100 160\" role=\"img\" aria-label=\"Hero flame\"><defs><linearGradient id=\"flame-grad\" x1=\"50\" y1=\"0\" x2=\"50\" y2=\"160\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0%\" stop-color=\"#ff9060\"></stop><stop offset=\"100%\" stop-color=\"#e06012\"></stop></linearGradient></defs><path d=\"M50 0 C90 56 82 122 50 160 C18 122 10 56 50 0Z\" fill=\"url(#flame-grad)\"></path></svg><a class=\"icon-cta\" href=\"/reserve\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M2 8h12\"></path></svg><span>Reserve</span></a></main>"
+    "content": "<main><svg class=\"status-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle></svg><svg class=\"hero-flame-svg\" viewBox=\"0 0 100 160\" role=\"img\" aria-label=\"Hero flame\"><defs><linearGradient id=\"flame-grad\" x1=\"50\" y1=\"0\" x2=\"50\" y2=\"160\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0%\" stop-color=\"#ff9060\"></stop><stop offset=\"100%\" stop-color=\"#e06012\"></stop></linearGradient></defs><path d=\"M50 0 C90 56 82 122 50 160 C18 122 10 56 50 0Z\" fill=\"url(#flame-grad)\"></path></svg><a class=\"icon-cta\" href=\"/reserve\" style=\"padding:10px 16px;background:#135e96\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M2 8h12\"></path></svg><span>Reserve</span></a></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },

@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Blocks</td></tr></tbody><caption>Inventory</caption></table><figure><img src=\"https://example.com/image.jpg\" alt=\"Example\" width=\"640\" height=\"480\"><figcaption>Caption</figcaption></figure><div><a href=\"https://example.com/start\">Start</a><a href=\"https://example.com/more\">More</a></div>[gallery ids=\"1,2\"]"
+    "content": "<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Blocks</td></tr></tbody><caption>Inventory</caption></table><figure><img src=\"https://example.com/image.jpg\" alt=\"Example\" width=\"640\" height=\"480\"><figcaption>Caption</figcaption></figure><div><a href=\"https://example.com/start\" style=\"padding:10px 16px;background:#135e96\">Start</a><a href=\"https://example.com/more\" style=\"padding:10px 16px;background:#135e96\">More</a></div>[gallery ids=\"1,2\"]"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/table", "attrs": { "caption": "Inventory" } },

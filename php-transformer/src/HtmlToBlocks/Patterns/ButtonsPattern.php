@@ -35,7 +35,7 @@ final class ButtonsPattern
             return $fileBlock;
         }
 
-        if ( ! $this->hasButtonSignal($anchor) ) {
+        if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor)) ) {
             return null;
         }
 
@@ -84,14 +84,13 @@ final class ButtonsPattern
     public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock): ?array
     {
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
-        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element) ) {
+        if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, (string) $resolvedStyle($element)) ) {
             return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock, $element) ), $element);
         }
 
-		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ( $containerHasButtonSignal || $this->hasButtonSignal($child) ) ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && $this->hasButtonSignal($child, (string) $resolvedStyle($child)) ) {
                 $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock);
             }
         }
@@ -166,9 +165,7 @@ final class ButtonsPattern
 
     private function buttonAccessibleTitle(DOMElement $element, string $text): string
     {
-        return '' === $this->plainText($text)
-            ? html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8')
-            : '';
+        return html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     private function plainText(string $html): string
@@ -381,53 +378,18 @@ final class ButtonsPattern
         return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
     }
 
-    private function hasButtonSignal(DOMElement $anchor): bool
+    private function hasButtonSignal(DOMElement $anchor, string $resolvedStyle = ''): bool
     {
-        return $this->signalClassifier->hasTransformSignal($anchor);
+        return $this->signalClassifier->hasTransformSignal($anchor, $resolvedStyle);
     }
 
-    private function hasContainerButtonSignal(DOMElement $element): bool
-    {
-        return $this->hasAnyToken($element, array( 'buttons', 'button', 'btns', 'cta', 'actions' )) || $this->hasPhrase($element, array( 'button-group', 'button-row', 'cta-group', 'call-to-action' ));
-    }
-
-    private function hasWrapperButtonSignal(DOMElement $element): bool
+    private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool
     {
         if ( 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
             return true;
         }
 
-        return $this->signalClassifier->hasClassSignal($element)
-            || $this->hasAnyToken($element, array( 'cta', 'action' ))
-            || $this->hasPhrase($element, array( 'call-to-action', 'primary-action', 'secondary-action' ))
-            || $this->signalClassifier->hasStyleSignal($element);
-    }
-
-	private function isDirectAnchorRow(DOMElement $element): bool
-	{
-		$anchors = 0;
-		$buttonSignals = 0;
-		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof DOMElement ) {
-				if ( 'a' !== strtolower($child->tagName) || '' === trim($child->textContent ?? '') ) {
-					return false;
-				}
-				if ( ! $this->isSimpleAnchor($child) ) {
-					return false;
-				}
-				++$anchors;
-				if ( $this->hasButtonSignal($child) ) {
-					++$buttonSignals;
-				}
-				continue;
-			}
-
-			if ( '' !== trim($child->textContent ?? '') ) {
-				return false;
-			}
-		}
-
-		return $anchors > 1 && 0 === $buttonSignals;
+        return $this->signalClassifier->hasStyleSignal($element, $resolvedStyle);
 	}
 
 	private function singleSimpleAnchorChild(DOMElement $element): ?DOMElement
@@ -490,22 +452,5 @@ final class ButtonsPattern
 
         return false;
     }
-
-    /**
-     * @param array<int, string> $phrases
-     */
-	private function hasPhrase(DOMElement $element, array $phrases): bool
-	{
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            $value = strtolower($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
-            foreach ( $phrases as $phrase ) {
-                if ( str_contains($value, $phrase) ) {
-                    return true;
-                }
-            }
-        }
-
-		return false;
-	}
 
 }
