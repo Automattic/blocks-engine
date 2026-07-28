@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-css-import-webfont-face-proof",
+  "description": "Builds deterministic typed face, receipt, provenance, hash, and browser-readiness records for static and variable webfont imports.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-css-import-webfont-face-proof.json",
+    "notes": "Generic webfont import proof contract."
+  },
+  "legacy_comparison": { "skip": true, "reason": "The generic proof contract has no legacy equivalent." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        { "path": "index.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"styles/fonts.css\"></head><body><h1>Heading</h1></body></html>", "kind": "html", "role": "entry" },
+        { "path": "styles/fonts.css", "content": "@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap');@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');body{font-family:Inter,sans-serif}", "kind": "css", "mime_type": "text/css" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.imports", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.face_records", "assert": "count", "count": 4 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.receipts", "assert": "count", "count": 4 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.browser_readiness.required", "assert": "equals", "value": true },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.browser_readiness.face_records", "assert": "count", "count": 4 }
+  ]
+}

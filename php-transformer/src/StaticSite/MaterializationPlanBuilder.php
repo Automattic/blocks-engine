@@ -324,7 +324,7 @@ final class MaterializationPlanBuilder
             $fontHtml = (string) ($theme['font_link_html'] ?? '');
             $fontCss = (string) ($theme['static_css'] ?? '');
             if ( '' !== $fontHtml || '' !== $fontCss ) {
-                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss);
+                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, is_array($theme['font_css_sources'] ?? null) ? $theme['font_css_sources'] : array());
             }
         }
 

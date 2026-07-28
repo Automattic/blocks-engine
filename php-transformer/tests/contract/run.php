@@ -2634,6 +2634,21 @@ $assert(array('EB Garamond', 'Noto Sans JP') === array_column($importedWebFontPl
 $assert(array(400, 500, 600, 700) === ($importedWebFontPlan['fonts'][0]['weights'] ?? null), 'CSS-imported web-font detection preserves italic axis tuple weights');
 $assert(array(400, 500, 700) === ($importedWebFontPlan['fonts'][1]['weights'] ?? null), 'CSS-imported web-font detection preserves repeated family weights');
 
+$webFontProofPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '',
+    '@import url("https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap");@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");',
+    array(array('path' => 'styles/fonts.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap");@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('a', 64)))
+);
+$assert(2 === count($webFontProofPlan['imports'] ?? array()), 'web-font imports retain one deterministic provenance record per source import');
+$assert('styles/fonts.css' === ($webFontProofPlan['imports'][0]['provenance']['source_path'] ?? null), 'web-font import proof retains the source stylesheet path');
+$assert(str_repeat('a', 64) === ($webFontProofPlan['imports'][0]['provenance']['source_hash'] ?? null), 'web-font import proof retains the source stylesheet hash');
+$assert(4 === count($webFontProofPlan['face_records'] ?? array()), 'web-font imports resolve static and variable declared faces without Cartesian style expansion');
+$assert(array('kind' => 'range', 'min' => 100, 'max' => 900) === ($webFontProofPlan['face_records'][0]['weight'] ?? null) || array('kind' => 'range', 'min' => 100, 'max' => 900) === ($webFontProofPlan['face_records'][1]['weight'] ?? null), 'variable web-font faces retain typed weight ranges');
+$assert(4 === count($webFontProofPlan['receipts'] ?? array()) && 4 === count($webFontProofPlan['browser_readiness']['receipt_refs'] ?? array()), 'web-font proof retains durable face receipt references for browser readiness');
+$assert(hash('sha256', (string) ($webFontProofPlan['stylesheets'][0]['content'] ?? '')) === ($webFontProofPlan['stylesheets'][0]['expected_content_hash'] ?? null), 'web-font stylesheet carries an expected content hash');
+$unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
+$assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
+
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
     'body { font-family: "Crimson Pro", Georgia, serif; } .mono { font-family: "JetBrains Mono", monospace; }'
