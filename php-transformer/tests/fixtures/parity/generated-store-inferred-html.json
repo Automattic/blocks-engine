@@ -35,7 +35,7 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" },
     { "path": "serialized_blocks", "assert": "contains", "value": "#signal-hoodie" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p><a href=\"#signal-hoodie\">Add to cart</a></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-synthetic-paragraph\"><a href=\"#signal-hoodie\">Add to cart</a></p>" },
     { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
     { "path": "fallbacks.0.kind", "assert": "equals", "value": "html_product_grid_fallback" },

@@ -17,8 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "event-time", "content": "Thursday — Saturday<br>5:00 PM – 10:00 PM" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address", "content": "The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em>" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "event-time blocks-engine-synthetic-paragraph", "content": "Thursday — Saturday<br>5:00 PM – 10:00 PM" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address blocks-engine-synthetic-paragraph", "content": "The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em>" } }
   ],
   "expected_fallbacks": [],
   "expect": [

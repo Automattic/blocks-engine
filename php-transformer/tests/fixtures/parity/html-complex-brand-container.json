@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-brand" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "site-logo" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "site-logo blocks-engine-synthetic-paragraph" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "tagline", "content": "Dinner plans for busy families." } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "newsletter-form" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "success", "content": "You are in." } },
