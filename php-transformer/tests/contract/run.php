@@ -536,6 +536,21 @@ $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
+$boundedTopologyHtml = static function (int $extraControls): string {
+    $controls = '';
+    for ( $index = 0; $index < 63; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
+    $controls .= '<input name="standalone"><button type="submit">Send</button>';
+    for ( $index = 0; $index < $extraControls; ++$index ) $controls .= '<input name="extra-' . $index . '">';
+    return '<main><form>' . $controls . '</form></main>';
+};
+$exactTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(0))->toArray()['fallbacks'][0]['control_topology'] ?? array();
+$overflowTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(1))->toArray()['fallbacks'][0]['control_topology'] ?? array();
+$assert(128 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
+$assert(128 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
+$assert(64 === ($overflowTopology['nodes'][127]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
+$presentationTopology = ( new HtmlTransformer() )->transform('<main><form><custom-element id="bad id" class="safe bad/token one two three four five six seven eight nine ' . str_repeat('x', 81) . '"><input name="safe"></custom-element><button type="submit">Send</button></form></main>')->toArray()['fallbacks'][0]['control_topology']['nodes'][0] ?? array();
+$assert(! isset($presentationTopology['tag']) && ! isset($presentationTopology['source_id']), 'form topology omits unsupported wrapper tags and malformed source IDs');
+$assert('safe one two three four five six seven' === ($presentationTopology['class'] ?? ''), 'form topology retains only the first eight bounded safe class tokens');
 
 $newsletterFallback = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'

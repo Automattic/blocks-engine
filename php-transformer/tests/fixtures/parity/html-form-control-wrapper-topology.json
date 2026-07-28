@@ -1,0 +1,48 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-form-control-wrapper-topology",
+  "description": "Preserves bounded, provider-neutral wrapper topology alongside compatible flat form controls.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-form-control-wrapper-topology.json",
+    "notes": "Issue #700 requires shared wrapper geometry to survive provider-neutral form extraction without using raw HTML as the topology contract."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This additive upstream contract has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><form id=\"contact\" action=\"/contact\"><div id=\"name-row\" class=\"row row-2\"><div class=\"field first\"><input name=\"first_name\"></div><div class=\"field last\"><input name=\"last_name\"></div></div><div class=\"field standalone\"><textarea name=\"message\"></textarea></div><div><div><div><div><div><div><div><div><div><input name=\"bounded_out\"></div></div></div></div></div></div></div></div></div><button type=\"submit\">Send</button></form></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks.0.controls", "assert": "count", "count": 5 },
+    { "path": "fallbacks.0.controls.3.name", "assert": "equals", "value": "bounded_out" },
+    { "path": "fallbacks.0.control_topology.schema", "assert": "equals", "value": "generic/form-control-topology/v1" },
+    { "path": "fallbacks.0.control_topology.max_depth", "assert": "equals", "value": 8 },
+    { "path": "fallbacks.0.control_topology.max_nodes", "assert": "equals", "value": 128 },
+    { "path": "fallbacks.0.control_topology.truncated", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.control_topology.nodes", "assert": "count", "count": 17 },
+    { "path": "fallbacks.0.control_topology.nodes.0.id", "assert": "equals", "value": "wrapper-0" },
+    { "path": "fallbacks.0.control_topology.nodes.0.source_id", "assert": "equals", "value": "name-row" },
+    { "path": "fallbacks.0.control_topology.nodes.0.class", "assert": "equals", "value": "row row-2" },
+    { "path": "fallbacks.0.control_topology.nodes.1.parent", "assert": "equals", "value": "wrapper-0" },
+    { "path": "fallbacks.0.control_topology.nodes.1.order", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.control_topology.nodes.2.control", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.control_topology.nodes.3.parent", "assert": "equals", "value": "wrapper-0" },
+    { "path": "fallbacks.0.control_topology.nodes.3.order", "assert": "equals", "value": 1 },
+    { "path": "fallbacks.0.control_topology.nodes.4.control", "assert": "equals", "value": 1 },
+    { "path": "fallbacks.0.control_topology.nodes.5.parent", "assert": "equals", "value": null },
+    { "path": "fallbacks.0.control_topology.nodes.5.order", "assert": "equals", "value": 1 },
+    { "path": "fallbacks.0.control_topology.nodes.5.class", "assert": "equals", "value": "field standalone" },
+    { "path": "fallbacks.0.control_topology.nodes.6.control", "assert": "equals", "value": 2 },
+    { "path": "fallbacks.0.control_topology.nodes.16.control", "assert": "equals", "value": 4 }
+  ]
+}

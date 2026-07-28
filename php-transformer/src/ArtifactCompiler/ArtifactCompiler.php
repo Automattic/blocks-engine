@@ -282,6 +282,7 @@ final class ArtifactCompiler
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
                 }
