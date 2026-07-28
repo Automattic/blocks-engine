@@ -21,7 +21,7 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"btn cta-link\"><a href=\"/go\">Go now</a></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"btn cta-link blocks-engine-synthetic-paragraph\"><a href=\"/go\">Go now</a></p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "has-background" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "has-text-color" },

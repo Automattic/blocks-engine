@@ -1855,7 +1855,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $element);
+            return $this->createBlock('core/paragraph', array( 'content' => $content ));
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {

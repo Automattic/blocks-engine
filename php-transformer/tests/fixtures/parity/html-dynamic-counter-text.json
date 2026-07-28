@@ -18,9 +18,9 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "impact" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "metric-card" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number", "content": "47,200" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number blocks-engine-synthetic-paragraph", "content": "47,200" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "<span class=\"metric-unit\" aria-hidden=\"true\">+</span>" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number", "content": "$8.4M" } }
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number blocks-engine-synthetic-paragraph", "content": "$8.4M" } }
   ],
   "expected_fallbacks": [],
   "expect": [

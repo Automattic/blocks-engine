@@ -30,7 +30,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Breaking news ticker\"} --><p>Breaking news ticker</p><!-- /wp:paragraph -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Sale ends soon\"} --><p>Sale ends soon</p><!-- /wp:paragraph -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Orphan caption text\"} --><p>Orphan caption text</p><!-- /wp:paragraph -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Subscribe to updates\"} --><p>Subscribe to updates</p><!-- /wp:paragraph -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Subscribe to updates\",\"className\":\"blocks-engine-synthetic-paragraph\"} --><p class=\"blocks-engine-synthetic-paragraph\">Subscribe to updates</p><!-- /wp:paragraph -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<marquee" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<blink" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

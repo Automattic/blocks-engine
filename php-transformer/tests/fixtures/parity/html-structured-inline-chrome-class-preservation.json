@@ -21,10 +21,10 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "#home", "title": "Home" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "ticker-track" } },
-    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "ticker-item" } },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "ticker-item blocks-engine-synthetic-paragraph" } },
     { "path": "blocks.2.innerBlocks.0", "name": "core/group", "attrs": { "className": "card-footer" } },
-    { "path": "blocks.2.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "card-tag" } },
-    { "path": "blocks.2.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "card-price" } }
+    { "path": "blocks.2.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "card-tag blocks-engine-synthetic-paragraph" } },
+    { "path": "blocks.2.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "card-price blocks-engine-synthetic-paragraph" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -35,11 +35,11 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "equals", "value": "#home" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group ticker-track" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item\">Small Batch</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item ticker-dot\">•</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item blocks-engine-synthetic-paragraph\">Small Batch</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"ticker-item ticker-dot blocks-engine-synthetic-paragraph\">•</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group card-footer" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-tag\">Espresso</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-price\">$4.50</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-tag blocks-engine-synthetic-paragraph\">Espresso</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"card-price blocks-engine-synthetic-paragraph\">$4.50</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "Small Batch•Direct Trade" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
