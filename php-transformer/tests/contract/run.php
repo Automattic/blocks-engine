@@ -744,6 +744,19 @@ $boundedSeparatorCss = implode("\n", array_map(static fn (array $asset): string 
 $assert(array('top' => '0', 'bottom' => '0') === ($boundedSeparatorAttrs['style']['spacing']['margin'] ?? null) && ! isset($boundedSeparatorAttrs['style']['dimensions']), 'separator keeps only spacing supported by its canonical core block attributes');
 $assert(! str_contains($boundedSeparatorMarkup, 'margin-left:auto') && ! str_contains($boundedSeparatorMarkup, 'max-width:var(--max)') && str_contains($boundedSeparatorCss, 'margin-left:auto !important') && str_contains($boundedSeparatorCss, 'margin-right:auto !important') && str_contains($boundedSeparatorCss, 'max-width:var(--max) !important'), 'separator moves unsupported horizontal and width geometry to its generated carrier stylesheet');
 
+$boundedColumn = ( new HtmlTransformer() )->transform(
+    '<main><div class="column-row" style="display:flex"><article class="bounded-column"><h2>Article</h2><p>Body</p></article><aside><p>Aside</p></aside></div></main>',
+    array('static_css' => ':root{--measure:42rem}.bounded-column{max-width:var(--measure);padding:1rem}')
+)->toArray();
+$boundedColumnBlock = $boundedColumn['blocks'][0]['innerBlocks'][0] ?? array();
+$boundedColumnAttrs = $boundedColumnBlock['attrs'] ?? array();
+$boundedColumnMarkup = (string) ($boundedColumn['serialized_blocks'] ?? '');
+$boundedColumnCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $boundedColumn['assets'] ?? array()));
+$assert('core/column' === ($boundedColumnBlock['blockName'] ?? '') && 'bounded-column' === ($boundedColumnAttrs['className'] ?? ''), 'bounded source child becomes a core/column and retains its class-owned geometry selector');
+$assert(! isset($boundedColumnAttrs['style']['dimensions']['maxWidth']) && ! str_contains($boundedColumnMarkup, 'max-width:var(--measure)'), 'column omits max-width unsupported by its canonical Gutenberg save wrapper');
+$assert(str_contains($boundedColumnCss, '.bounded-column{max-width:var(--measure);padding:1rem}'), 'generated stylesheet retains the exact class-owned column max-width geometry');
+$assert('pass' === ($boundedColumn['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded column serialization passes canonical Gutenberg wrapper validity');
+
 $customStateFindings = ( new CanonicalSaveShapeValidator() )->findings(array(array(
     'blockName'    => 'core/group',
     'attrs'        => array(),

@@ -66,7 +66,7 @@ final class BlockFactory
 
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
-        if ( in_array($name, array( 'core/group', 'core/columns', 'core/list-item', 'core/paragraph', 'core/separator' ), true) ) {
+        if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/list-item', 'core/paragraph', 'core/separator' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);
