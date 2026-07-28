@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-pseudo-state-rules-not-inlined-resting",
-  "description": "Pseudo-state (:hover) and pseudo-element (::before) CSS rules describe transient/generated presentation and must never be folded into an element's RESTING inline style. A CTA matched by .cta{...} AND .cta:hover{...} renders with its resting fill (#13314f / #ffffff / 6px radius) and never the hover values (#f0ac22 / #000000 / 2px). A benefit card matched by .benefit-card{...} plus .benefit-card:hover{...} and .benefit-card::before{...} keeps its resting background (#101418) and never the hover (#1b2230) or pseudo-element (#ff0000) backgrounds. The pseudo-state declarations stay in the verbatim materialized stylesheet, where they fire on real interaction.",
+  "description": "Pseudo-state (:hover) and pseudo-element (::before) CSS rules describe transient/generated presentation and must never be folded into an element's RESTING inline style. A CTA matched by .cta{...} AND .cta:hover{...} renders with its resting text color and radius, while its class-owned fill remains in the projected stylesheet and never becomes competing support paint. A benefit card matched by .benefit-card{...} plus .benefit-card:hover{...} and .benefit-card::before{...} keeps its background under stylesheet ownership, separate from hover (#1b2230) and pseudo-element (#ff0000) backgrounds. The pseudo-state declarations stay in the materialized stylesheet, where they fire on real interaction.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-pseudo-state-rules-not-inlined-resting.json",
@@ -26,7 +26,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:6px;color:#ffffff;background-color:#13314f;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"background-color:#101418;padding-top:40px;padding-right:36px;padding-bottom:40px;padding-left:36px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"padding-top:40px;padding-right:36px;padding-bottom:40px;padding-left:36px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "#f0ac22" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "border-radius:2px" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "color:#000000" },

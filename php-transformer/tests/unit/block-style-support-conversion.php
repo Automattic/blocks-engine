@@ -270,6 +270,53 @@ $assert(($paintDeclarations['background-position'] ?? '') === 'center top', '43:
 $assert(($paintDeclarations['background-size'] ?? '') === '120% 80%,100% 100%', '44: background-size survives safe CSS resolution', json_encode($paintDeclarations));
 $assert(($paintDeclarations['background-repeat'] ?? '') === 'no-repeat', '45: background-repeat survives safe CSS resolution', json_encode($paintDeclarations));
 $assert(($paintDeclarations['box-shadow'] ?? '') === '0 28px 80px rgba(20,12,4,.18)', '46: box-shadow survives safe CSS resolution', json_encode($paintDeclarations));
+$assert(! isset($paintAttrs['style']['color']['background']) && ! isset($paintAttrs['style']['color']['gradient']) && ! isset($paintAttrs['backgroundColor']), '47: class-owned layered paint does not become competing color support', json_encode($paintAttrs));
+$assert(! str_contains((string) ($paintResult['serialized_blocks'] ?? ''), 'has-background'), '48: class-owned layered paint emits no Gutenberg background class', (string) ($paintResult['serialized_blocks'] ?? ''));
+
+$classGradientHtml = '<main><section class="artist-card"><p>Artist</p></section></main>';
+$classGradientCss = '.artist-card{background:linear-gradient(135deg,#ff5c8a 0%,#583c87 100%);padding:2rem}';
+$classGradientResult = ( new HtmlTransformer() )->transform($classGradientHtml, array('static_css' => $classGradientCss))->toArray();
+$classGradient = $classGradientResult['blocks'][0] ?? array();
+$classGradientAttrs = is_array($classGradient['attrs'] ?? null) ? $classGradient['attrs'] : array();
+$classGradientMarkup = (string) ($classGradientResult['serialized_blocks'] ?? '');
+
+$assert('artist-card' === ($classGradientAttrs['className'] ?? ''), '49: class-owned directional gradient retains its author class', json_encode($classGradientAttrs));
+$assert(! isset($classGradientAttrs['style']['color']) && ! isset($classGradientAttrs['backgroundColor']), '50: class-owned directional gradient stays out of color support', json_encode($classGradientAttrs));
+$assert(! str_contains($classGradientMarkup, 'has-background') && ! str_contains($classGradientMarkup, 'background:linear-gradient'), '51: class-owned directional gradient does not serialize competing support paint', $classGradientMarkup);
+
+$mapper = new StyleAttributeMapper();
+$inlineGradient = $mapper->map(array('background' => 'linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)'));
+$inlineSolid = $mapper->map(array('background-color' => '#243b53'));
+$assert('linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)' === ($inlineGradient['style']['color']['gradient'] ?? ''), '52: inline directional gradient remains Gutenberg color support', json_encode($inlineGradient));
+$assert('#243b53' === ($inlineSolid['style']['color']['background'] ?? ''), '53: inline solid background remains Gutenberg color support', json_encode($inlineSolid));
+$assert(str_contains($mapper->serialize($inlineGradient['style'])['style'], 'background:linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)') && str_contains($mapper->serialize($inlineSolid['style'])['style'], 'background-color:#243b53'), '54: inline paint support serializes valid Gutenberg-compatible declarations');
+
+$inlineSolidResult = ( new HtmlTransformer() )->transform('<main><section style="background-color:#243b53"><p>Solid</p></section></main>', array())->toArray();
+$inlineSolidBlock = $inlineSolidResult['blocks'][0] ?? array();
+$inlineSolidMarkup = (string) ($inlineSolidResult['serialized_blocks'] ?? '');
+$assert('#243b53' === ($inlineSolidBlock['attrs']['style']['color']['background'] ?? ''), '55: HtmlTransformer maps inline solid background to native color support', json_encode($inlineSolidBlock));
+$assert(str_contains($inlineSolidMarkup, 'has-background') && str_contains($inlineSolidMarkup, 'background-color:#243b53'), '56: inline solid background serializes Gutenberg support markup', $inlineSolidMarkup);
+
+$inlineGradientResult = ( new HtmlTransformer() )->transform('<main><section style="background:linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)"><p>Gradient</p></section></main>', array())->toArray();
+$inlineGradientBlock = $inlineGradientResult['blocks'][0] ?? array();
+$inlineGradientMarkup = (string) ($inlineGradientResult['serialized_blocks'] ?? '');
+$assert('linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)' === ($inlineGradientBlock['attrs']['style']['color']['gradient'] ?? ''), '57: HtmlTransformer maps inline directional gradient to native color support', json_encode($inlineGradientBlock));
+$assert(str_contains($inlineGradientMarkup, 'has-background') && str_contains($inlineGradientMarkup, 'background:linear-gradient(135deg,#ff5c8a 0%,#583c87 100%)'), '58: inline directional gradient serializes Gutenberg support markup', $inlineGradientMarkup);
+
+$compoundPaintCss = '.gallery{--card-overlay:#203040;--card-start:#ff5c8a;--card-end:#583c87}.gallery .artist-card{background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.8),transparent 40%),linear-gradient(135deg,var(--card-start),var(--card-end));background-position:center top;background-size:120% 80%,100% 100%;background-repeat:no-repeat}';
+$compoundPaintHtml = '<main class="gallery"><section class="artist-card" style="background-color:var(--card-overlay)"><p>Artist</p></section></main>';
+$compoundPaintResult = ( new HtmlTransformer() )->transform($compoundPaintHtml, array('static_css' => $compoundPaintCss))->toArray();
+$compoundPaintBlock = $compoundPaintResult['blocks'][0]['innerBlocks'][0] ?? array();
+$compoundPaintMarkup = (string) ($compoundPaintResult['serialized_blocks'] ?? '');
+$compoundPaintCssAsset = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $compoundPaintResult['assets'] ?? array()));
+
+$assert('var(--card-overlay)' === ($compoundPaintBlock['attrs']['style']['color']['background'] ?? ''), '59: inherited CSS variable used by inline background-color remains the only mapped paint override', json_encode($compoundPaintBlock));
+$assert(! isset($compoundPaintBlock['attrs']['style']['color']['gradient']) && str_contains($compoundPaintMarkup, 'has-background') && str_contains($compoundPaintMarkup, 'background-color:var(--card-overlay)'), '60: inline background-color support does not consume class-owned layers', $compoundPaintMarkup);
+$assert(str_contains($compoundPaintCssAsset, '.gallery{--card-overlay:#203040;--card-start:#ff5c8a;--card-end:#583c87}') && str_contains($compoundPaintCssAsset, 'artist-card') && str_contains($compoundPaintCssAsset, 'background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.8),transparent 40%),linear-gradient(135deg,var(--card-start),var(--card-end))') && str_contains($compoundPaintCssAsset, 'background-position:center top') && str_contains($compoundPaintCssAsset, 'background-size:120% 80%,100% 100%') && str_contains($compoundPaintCssAsset, 'background-repeat:no-repeat'), '61: projected compound selector preserves inherited variables and layered background shorthand', $compoundPaintCssAsset);
+
+$compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintHtml, $compoundPaintCss);
+$compoundCandidateProbe = ( new StaticStyleParityProbe() )->extract(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($compoundPaintMarkup), $compoundPaintCssAsset);
+$assert(0 < (int) ($compoundSourceProbe['summary']['styled_total'] ?? 0) && 0 < (int) ($compoundCandidateProbe['summary']['styled_total'] ?? 0), '62: layered background cascade case produces nonzero source and candidate style probes', json_encode(array($compoundSourceProbe['summary'] ?? array(), $compoundCandidateProbe['summary'] ?? array())));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");

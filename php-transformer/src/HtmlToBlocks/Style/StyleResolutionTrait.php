@@ -119,6 +119,7 @@ trait StyleResolutionTrait
             $element,
             $this->presentationDeclarations($element)
         );
+        $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map($declarations);
         $forcedGeometryDeclarations = array() === $forcedGeometryProperties
             ? array()
@@ -176,6 +177,38 @@ trait StyleResolutionTrait
                 continue;
             }
             unset($declarations[$property]);
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * Background support emits inline declarations and `has-background`, which
+     * changes the cascade for matched stylesheet rules. Keep author-owned paint
+     * in the projected stylesheet; source inline declarations retain support
+     * mapping because their cascade ownership is already inline.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function classOwnedBackgroundPaintDeclarations(DOMElement $element, array $declarations): array
+    {
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        foreach ( array(
+            'background',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
+        ) as $property ) {
+            if ( ! isset($inline[ $property ]) ) {
+                unset($declarations[ $property ]);
+            }
         }
 
         return $declarations;
