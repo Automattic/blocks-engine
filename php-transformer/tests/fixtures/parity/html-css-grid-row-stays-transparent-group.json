@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<div class=\"event-row\" style=\"display:grid;grid-template-columns:90px 1fr auto;align-items:center;gap:2rem;padding:1.5rem 0\"><div class=\"date\">Mar 8</div><div class=\"venue\">The Moth House</div><a class=\"btn\" href=\"/tickets\">Tickets</a></div>"
+    "content": "<div class=\"event-row\" style=\"display:grid;grid-template-columns:90px 1fr auto;align-items:center;gap:2rem;padding:1.5rem 0\"><div class=\"date\">Mar 8</div><div class=\"venue\">The Moth House</div><a class=\"btn\" href=\"/tickets\" style=\"padding:10px 16px;background:#135e96\">Tickets</a></div>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "event-row" } },

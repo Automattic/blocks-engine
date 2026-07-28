@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<a class=\"btn\" href=\"/go\"><span><strong>Go</strong> now</span></a>"
+    "content": "<a class=\"btn\" href=\"/go\" style=\"padding:10px 16px;background:#135e96\"><span><strong>Go</strong> now</span></a>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
@@ -23,7 +23,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\" href=\"/go\"><strong>Go</strong> now</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/go\"><strong>Go</strong> now</a>" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

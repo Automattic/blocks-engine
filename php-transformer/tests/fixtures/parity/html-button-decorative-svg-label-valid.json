@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<a class=\"cta-phone\" href=\"tel:+16165550182\"><svg class=\"phone-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h16v16H4z\"></path></svg><span>Call now</span></a>"
+    "content": "<a class=\"cta-phone\" href=\"tel:+16165550182\" style=\"padding:10px 16px;background:#135e96\"><svg class=\"phone-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h16v16H4z\"></path></svg><span>Call now</span></a>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },

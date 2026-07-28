@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<div class=\"hero\" style=\"display:flex;flex-direction:column;gap:1rem\"><span class=\"eyebrow\">New</span><h1>Title</h1><p>Subhead</p><a class=\"btn\" href=\"/x\">Go</a></div>"
+    "content": "<div class=\"hero\" style=\"display:flex;flex-direction:column;gap:1rem\"><span class=\"eyebrow\">New</span><h1>Title</h1><p>Subhead</p><a class=\"btn\" href=\"/x\" style=\"padding:10px 16px;background:#135e96\">Go</a></div>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero", "layout": { "type": "flex", "orientation": "vertical" } } },

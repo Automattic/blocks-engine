@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-button-generic-class-and-style-signal",
-  "description": "Recognizes button-like anchors generically: a camelCase class carrying the btn token, an inline button-shape style (padding plus fill and radius) with no recognizable class, and role=button all convert to core/buttons/core/button rather than plain links.",
+  "description": "Recognizes button-like anchors generically when they carry an explicit surface or role: a camelCase class with inline surface styling, an inline button-shape style with no recognizable class, and role=button all convert to core/buttons/core/button rather than plain links.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-generic-class-and-style-signal.json",
@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><a class=\"btnPrimary\" href=\"/teams\">See the Teams</a><a href=\"/signup\" style=\"display:inline-block;padding:12px 24px;background:#0a66c2;color:#ffffff;border-radius:6px\">Sign up today</a><a href=\"/donate\" role=\"button\">Donate</a></main>"
+    "content": "<main><a class=\"btnPrimary\" href=\"/teams\" style=\"padding:10px 16px;background:#135e96\">See the Teams</a><a href=\"/signup\" style=\"display:inline-block;padding:12px 24px;background:#0a66c2;color:#ffffff;border-radius:6px\">Sign up today</a><a href=\"/donate\" role=\"button\">Donate</a></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },

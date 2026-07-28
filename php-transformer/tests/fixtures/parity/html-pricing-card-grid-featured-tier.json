@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<section class=\"pricing-card-grid\"><article class=\"pricing-card featured-tier\"><span class=\"tier-badge\">Most popular</span><div class=\"tier-price-row\"><h3 class=\"tier-name\">Pro</h3><span class=\"price\">$29</span></div><p>For growing teams.</p><a class=\"cta-button\" href=\"/checkout/pro\">Get started</a></article><article class=\"pricing-card\"><div class=\"tier-price-row\"><h3 class=\"tier-name\">Starter</h3><span class=\"price\">$9</span></div><p>For new projects.</p><a class=\"cta-button\" href=\"/checkout/starter\">Get started</a></article></section>"
+    "content": "<section class=\"pricing-card-grid\"><article class=\"pricing-card featured-tier\"><span class=\"tier-badge\">Most popular</span><div class=\"tier-price-row\"><h3 class=\"tier-name\">Pro</h3><span class=\"price\">$29</span></div><p>For growing teams.</p><a class=\"cta-button\" href=\"/checkout/pro\" style=\"padding:10px 16px;background:#135e96\">Get started</a></article><article class=\"pricing-card\"><div class=\"tier-price-row\"><h3 class=\"tier-name\">Starter</h3><span class=\"price\">$9</span></div><p>For new projects.</p><a class=\"cta-button\" href=\"/checkout/starter\" style=\"padding:10px 16px;background:#135e96\">Get started</a></article></section>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "pricing-card-grid", "layout": { "type": "grid" } } },

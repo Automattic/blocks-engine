@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<section class=\"hero\"><div class=\"container\"><span class=\"eyebrow\">A Public Service Announcement</span><h1><span class=\"strike\">WordPress</span><br>is officially dead.</h1><p class=\"lede\">Generated from a <em>single sentence</em>. No <code>wp-admin</code>.</p><div class=\"cta-row\"><a class=\"btn primary\" href=\"manifesto.html\">Read the Manifesto</a><a class=\"btn ghost\" href=\"proof.html\">See The Proof</a></div></div></section>"
+    "content": "<section class=\"hero\"><div class=\"container\"><span class=\"eyebrow\">A Public Service Announcement</span><h1><span class=\"strike\">WordPress</span><br>is officially dead.</h1><p class=\"lede\">Generated from a <em>single sentence</em>. No <code>wp-admin</code>.</p><div class=\"cta-row\"><a class=\"btn primary\" href=\"manifesto.html\" style=\"padding:10px 16px;background:#135e96\">Read the Manifesto</a><a class=\"btn ghost\" href=\"proof.html\" style=\"padding:10px 16px;border:1px solid #135e96\">See The Proof</a></div></div></section>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },

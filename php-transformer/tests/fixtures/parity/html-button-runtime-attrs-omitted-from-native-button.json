@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-button-runtime-attrs-omitted-from-native-button",
-  "description": "Converts runtime-styled source buttons to valid native core/button markup without serializing unsupported data-* or ARIA attrs.",
+  "description": "Converts runtime-styled source buttons to valid native core/button markup without serializing unsupported data-* or ARIA attrs; the accessible label maps to core/button's canonical title attribute.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-runtime-attrs-omitted-from-native-button.json",
@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "amount-btn", "tagName": "button", "type": "button", "text": "$15" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "amount-btn", "tagName": "button", "type": "button", "text": "$15", "title": "Donate $15 monthly" } }
   ],
   "expected_fallbacks": [
     {
@@ -30,7 +30,7 @@
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\">$15</button>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\" title=\"Donate $15 monthly\">$15</button>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "data-amount" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-label" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-controls" },

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-whole-element-link-button-like",
-  "description": "A whole-element link whose content is button-like (a button signal on a short-text anchor wrapping block-level markup) routes to core/button/core/buttons with the href preserved, rather than collapsing to a link-dropped core/group (#260).",
+  "description": "A whole-element link with an explicit button surface and short-text block-level markup routes to core/button/core/buttons with the href preserved, rather than collapsing to a link-dropped core/group (#260).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-whole-element-link-button-like.json",
-    "notes": "Generic structural coverage: an <a> carrying a button class signal wraps a single short-text block element. The button recognizer fires upstream of the link-wrapper group path, so the href is preserved natively on core/button."
+    "notes": "Generic structural coverage: an <a> carrying explicit surface styling wraps a single short-text block element. The button recognizer fires upstream of the link-wrapper group path, so the href is preserved natively on core/button."
   },
   "legacy_comparison": {
     "skip": true,
@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<a class=\"btn-primary\" href=\"/signup\"><div>Sign Up Free</div></a>"
+    "content": "<a class=\"btn-primary\" href=\"/signup\" style=\"padding:10px 16px;background:#135e96\"><div>Sign Up Free</div></a>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },

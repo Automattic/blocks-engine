@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<a class=\"primary-button\" href=\"/book\"><h3>Reserve now</h3><span aria-hidden=\"true\"></span></a>"
+    "content": "<a class=\"primary-button\" href=\"/book\" style=\"padding:10px 16px;background:#135e96\"><h3>Reserve now</h3><span aria-hidden=\"true\"></span></a>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
@@ -24,7 +24,8 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary-button\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\" href=\"/book\">Reserve now</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/book\">Reserve now</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<h3>Reserve now</h3>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-hidden=\"true\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
