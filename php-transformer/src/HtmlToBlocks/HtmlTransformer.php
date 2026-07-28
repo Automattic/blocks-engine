@@ -351,6 +351,8 @@ final class HtmlTransformer
     /** @var array<string, string> Source tag names whose serialized blocks need provenance classes. */
     private array $sourceTagMarkers = array();
 
+    private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
+
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
@@ -759,6 +761,11 @@ final class HtmlTransformer
         $markerReset = $this->richTextMarkerResetCss();
         if ( '' !== $markerReset ) {
             $cssParts[] = $markerReset;
+        }
+        if ( str_contains($serializedBlocks, self::SYNTHETIC_PARAGRAPH_CLASS) ) {
+            // A paragraph is required for valid block markup, but phrasing content
+            // did not have paragraph margins in the source document.
+            $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
@@ -1848,7 +1855,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/paragraph', array( 'content' => $content ));
+            return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $element);
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
@@ -2568,6 +2575,9 @@ final class HtmlTransformer
 
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
+            if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+            }
             if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
             }
@@ -3457,6 +3467,12 @@ final class HtmlTransformer
         return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
     }
 
+    private function isInlineSourceElement(string $tagName): bool
+    {
+        return $this->isInlineContentElement($tagName)
+            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
+    }
+
     private function hasBlockContentChildren(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
@@ -3958,7 +3974,10 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        $attrs = $this->presentationAttributes($element);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+        $attrs['content'] = $content;
+        return $this->createBlock('core/paragraph', $attrs, array(), $element);
     }
 
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
