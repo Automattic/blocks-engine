@@ -66,6 +66,15 @@ final class FallbackEmitter
      */
     private array $runtimeCanvasSelectors = array();
 
+    /**
+     * DOM identity for each emitted runtime island, kept aligned by index with
+     * the transformer's accumulator so nested findings can be compared without
+     * exposing implementation-only node paths in diagnostics.
+     *
+     * @var array<int, array{document: int, path: string}>
+     */
+    private array $runtimeIslandOrigins = array();
+
     private readonly SubtreeClassifier $classifier;
 
     private readonly CustomBlockGenerator $blockGenerator;
@@ -285,6 +294,7 @@ final class FallbackEmitter
         $this->fallbackProvenance     = $fallbackProvenance;
         $this->runtimeScriptMetadata  = $runtimeScriptMetadata;
         $this->runtimeCanvasSelectors = $runtimeCanvasSelectors;
+        $this->runtimeIslandOrigins   = array();
     }
 
     /**
@@ -523,7 +533,12 @@ final class FallbackEmitter
             'selector' => $island['selector'] ?? '',
             'snippet'  => $island['source_snippet'] ?? '',
         ), JSON_UNESCAPED_SLASHES);
-        foreach ( $runtimeIslands as $existing ) {
+        $origin = array(
+            'document' => $element->ownerDocument instanceof DOMDocument ? spl_object_id($element->ownerDocument) : 0,
+            'path'     => $element->getNodePath() ?? '',
+        );
+        $nestedIslandIndexes = array();
+        foreach ( $runtimeIslands as $index => $existing ) {
             $existingKey = json_encode(array(
                 'kind'     => $existing['kind'] ?? '',
                 'selector' => $existing['selector'] ?? '',
@@ -532,9 +547,32 @@ final class FallbackEmitter
             if ( $key === $existingKey ) {
                 return;
             }
+
+            $existingOrigin = $this->runtimeIslandOrigins[$index] ?? null;
+            if ( ! is_array($existingOrigin)
+                || 0 === $origin['document']
+                || $origin['document'] !== ($existingOrigin['document'] ?? 0)
+                || '' === $origin['path']
+                || '' === ($existingOrigin['path'] ?? '')
+            ) {
+                continue;
+            }
+
+            $existingPath = (string) $existingOrigin['path'];
+            if ( str_starts_with($origin['path'], $existingPath . '/') ) {
+                return;
+            }
+            if ( str_starts_with($existingPath, $origin['path'] . '/') ) {
+                $nestedIslandIndexes[] = $index;
+            }
         }
 
+        foreach ( array_reverse($nestedIslandIndexes) as $index ) {
+            array_splice($runtimeIslands, $index, 1);
+            array_splice($this->runtimeIslandOrigins, $index, 1);
+        }
         $runtimeIslands[] = $island;
+        $this->runtimeIslandOrigins[] = $origin;
     }
 
     /**
