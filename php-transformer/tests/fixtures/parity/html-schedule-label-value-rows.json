@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-schedule-label-value-rows",
-  "description": "Preserves schedule/session label-value rows as editable columns instead of flattening time and title text.",
+  "description": "Preserves schedule/session label-value rows as editable groups when the source has no equal-width layout signal, retaining time semantics and source flow.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-schedule-label-value-rows.json",
-    "notes": "Generic event/session row coverage for static site imports."
+    "notes": "Generic event/session row coverage: Group is the faithful representation for the source's stacked flow."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,19 +17,19 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "schedule-list" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "session-row" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "session-time" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "session-title" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/columns", "attrs": { "className": "detail-pair" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "session-row" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "session-time blocks-engine-synthetic-paragraph", "content": "<time class=\"session-time\">10:00 AM</time>" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "detail-pair" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"session-row\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p><time class=\"session-time\">10:00 AM</time></p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-title\">Opening keynote</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-label\">Location</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-value\">Main Hall</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-time blocks-engine-synthetic-paragraph\"><time class=\"session-time\">10:00 AM</time></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<time class=\"session-time\">10:00 AM</time>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-title blocks-engine-synthetic-paragraph\">Opening keynote</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-label blocks-engine-synthetic-paragraph\">Location</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-value blocks-engine-synthetic-paragraph\">Main Hall</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "10:00 AM\n" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

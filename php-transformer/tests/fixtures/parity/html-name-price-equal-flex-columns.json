@@ -1,0 +1,25 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-name-price-equal-flex-columns",
+  "description": "Name/price and label/value rows with explicit equal zero-basis flex items remain native Columns decompositions.",
+  "legacy_comparison": { "skip": true, "reason": "Compatibility coverage for faithful name/price decomposition." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.menu-row,.detail-pair{display:flex}.item-name,.item-price,.detail-label,.detail-value{flex:1 1 0}</style><div class=\"menu-row\"><p class=\"item-name\">Roasted Carrots</p><p class=\"item-price\">$14</p></div><div class=\"detail-pair\"><p class=\"detail-label\">Location</p><p class=\"detail-value\">Main Hall</p></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "menu-row" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "item-name" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "item-price" } },
+    { "path": "blocks.1", "name": "core/columns", "attrs": { "className": "detail-pair" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/column", "attrs": { "className": "detail-label" } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/column", "attrs": { "className": "detail-value" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"menu-row\"}" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 }
+  ]
+}

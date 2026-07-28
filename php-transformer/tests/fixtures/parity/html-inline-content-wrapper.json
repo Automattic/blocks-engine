@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-content-wrapper",
-  "description": "Converts generic block wrappers containing only phrasing content into one paragraph, preserving genuine inline formats and line breaks while keeping unstyled link rows as ordinary anchor content.",
+  "description": "Converts generic block wrappers containing only phrasing content into editable native blocks while preserving inline formats, line breaks, links, and source row geometry.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-content-wrapper.json",
-    "notes": "Synthetic coverage for static HTML rows such as menu prices, hours, and address details."
+    "notes": "Synthetic coverage for static HTML rows such as menu prices, hours, and address details; unstyled rows remain Groups to preserve source flow."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,9 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "hours-row" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "hours-day" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "hours-time" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hours-row" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address blocks-engine-synthetic-paragraph", "content": "<strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/group" }
   ],
@@ -27,7 +25,10 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<strong>412 Coalyard Lane</strong>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<br>Portland, OR" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/one\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/two\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

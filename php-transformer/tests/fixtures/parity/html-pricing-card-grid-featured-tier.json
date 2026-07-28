@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-pricing-card-grid-featured-tier",
-  "description": "Preserves pricing card grids with featured tier badges, name/price rows, and CTA buttons as standard blocks.",
+  "description": "Preserves pricing card grids with featured tier badges, source-faithful name/price groups, and CTA buttons as standard blocks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-pricing-card-grid-featured-tier.json",
-    "notes": "Generic commerce card coverage based on class and text signals, not product-specific markup."
+    "notes": "Generic commerce card coverage: name/price rows remain Groups unless source layout proves equal-width columns."
   },
   "legacy_comparison": {
     "skip": true,
@@ -18,20 +18,20 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "pricing-card-grid", "layout": { "type": "grid" } } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "pricing-card featured-tier" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/columns", "attrs": { "className": "tier-price-row" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/column", "attrs": { "className": "tier-name" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/column", "attrs": { "className": "price" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "tier-price-row" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-button", "text": "Get started", "url": "/checkout/pro" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/columns", "attrs": { "className": "tier-price-row" } }
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "tier-price-row" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "tier-badge" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"tier-price-row\"} -->" },
-    { "path": "source_reports.html.structure_signals.3.signals.name_price_row", "assert": "equals", "value": true },
-    { "path": "source_reports.html.structure_signals.10.signals.price_like", "assert": "equals", "value": true }
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h3 class=\"wp-block-heading tier-name\">Pro</h3>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"price\">$29</p>" },
+    { "path": "source_reports.html.structure_signals.1.signals.name_price_row", "assert": "equals", "value": true },
+    { "path": "source_reports.html.structure_signals.4.signals.price_like", "assert": "equals", "value": true }
   ]
 }

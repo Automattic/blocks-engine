@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-menu-name-price-description-row",
-  "description": "Preserves restaurant menu rows with item name, price, and description without flattening the name/price row.",
+  "description": "Preserves restaurant menu rows as editable native groups without inventing equal-width columns for an unpositioned name/price row.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-menu-name-price-description-row.json",
-    "notes": "Generic menu item coverage for name/price/description rows."
+    "notes": "Generic menu item coverage: Group preserves the source row geometry until explicit equal-width flex signals are present."
   },
   "legacy_comparison": {
     "skip": true,
@@ -18,16 +18,16 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "menu-list" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "menu-item" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "menu-row" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "item-name" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "item-price" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "menu-row" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "item-description", "content": "Harissa yogurt, herbs, toasted seeds." } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"menu-row\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"item-name blocks-engine-synthetic-paragraph\">Roasted Carrots</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"item-price blocks-engine-synthetic-paragraph\">$14</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "item-description" },
     { "path": "source_reports.html.structure_signals.2.signals.name_price_row", "assert": "equals", "value": true }
   ]

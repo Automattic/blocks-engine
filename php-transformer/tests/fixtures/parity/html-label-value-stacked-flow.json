@@ -1,0 +1,20 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-label-value-stacked-flow",
+  "description": "A semantic label/value row without a horizontal layout signal remains a group, preserving normal stacked block flow.",
+  "legacy_comparison": { "skip": true, "reason": "Regression coverage for source geometry preservation." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.compare-row{padding:12px 0;border-top:1px solid #aeb8b1}</style><div class=\"compare-row\"><p class=\"compare-label\">PHP runs on</p><p class=\"compare-value\">A long-running web server</p></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "compare-row" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "compare-label", "content": "PHP runs on" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "compare-value", "content": "A long-running web server" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 }
+  ]
+}
