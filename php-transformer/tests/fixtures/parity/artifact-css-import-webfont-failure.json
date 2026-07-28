@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-css-import-webfont-failure",
+  "description": "Retains a source-provenanced diagnostic when an imported webfont provider cannot be materialized.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-css-import-webfont-failure.json",
+    "notes": "Generic unsupported-provider failure coverage."
+  },
+  "legacy_comparison": { "skip": true, "reason": "The generic import diagnostic has no legacy equivalent." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        { "path": "index.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"styles/fonts.css\"></head><body>Copy</body></html>", "kind": "html", "role": "entry" },
+        { "path": "styles/fonts.css", "content": "@import url('https://fonts.example.test/css?family=Brand+Sans:wght@400');body{font-family:'Brand Sans',sans-serif}", "kind": "css", "mime_type": "text/css" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.imports", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.schema", "assert": "equals", "value": "blocks-engine/webfont-materialization/v1" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.diagnostics", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.imports.0.diagnostics", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.diagnostics.0.code", "assert": "equals", "value": "webfont_import_unsupported_provider" }
+  ]
+}

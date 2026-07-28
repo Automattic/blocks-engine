@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-fixture-37-webfont-dedup",
+  "description": "Compiles fixture 37's repeated stylesheet usage into one canonical Inter import and face set.",
+  "source_reference": {
+    "repo": "blocks-engine",
+    "path": "fixtures/websites/37-art-gallery-exhibition",
+    "notes": "The fixture's shared stylesheet imports Inter 100 through 900 and is referenced by every page."
+  },
+  "legacy_comparison": { "skip": true, "reason": "The shared webfont contract is a new producer contract." },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        { "path": "index.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"css/style.css\"></head><body><main>Beton Galerie</main></body></html>", "kind": "html", "role": "entry" },
+        { "path": "artists.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"css/style.css\"></head><body><main>Artists</main></body></html>", "kind": "html" },
+        { "path": "css/style.css", "content": "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');:root{--font:'Inter',system-ui,sans-serif}body{font-family:var(--font)}", "kind": "css", "mime_type": "text/css" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.schema", "assert": "equals", "value": "blocks-engine/webfont-materialization/v1" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.imports", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.faces", "assert": "count", "count": 9 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.receipts", "assert": "count", "count": 9 }
+  ]
+}

@@ -1112,6 +1112,18 @@ final class ArtifactCompiler
         return $includeNavigationCompat ? $css . $this->navigationAnchorCompatCss($css) : $css;
     }
 
+    /** @return array<int,array{path:string,content:string,source_hash:string}> */
+    private function themeFontCssSources(array $files): array
+    {
+        $sources = array();
+        foreach ( $files as $file ) {
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || '' === trim($file['content']) ) continue;
+            $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
+        }
+        usort($sources, static fn (array $left, array $right): int => strcmp($left['path'], $right['path']));
+        return $sources;
+    }
+
     private function navigationAnchorCompatCss(string $css): string
     {
         $rules = array();
@@ -2051,6 +2063,7 @@ final class ArtifactCompiler
                     'images'      => $this->assetPathsByRole($assets, 'image'),
                     'font_link_html' => $this->themeFontLinkHtml($artifact['files']),
                     'static_css'  => $this->themeStaticCss($artifact['files']),
+                    'font_css_sources' => $this->themeFontCssSources($artifact['files']),
                     'template_parts' => array_values(array_map(
                         static fn (array $part): string => (string) ($part['source_path'] ?? ''),
                         $templateParts

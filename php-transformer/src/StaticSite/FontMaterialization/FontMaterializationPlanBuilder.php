@@ -46,7 +46,7 @@ final class FontMaterializationPlanBuilder
      *
      * @return array<string,mixed>
      */
-    public function fromWebFontSources(string $html = '', string $css = ''): array
+    public function fromWebFontSources(string $html = '', string $css = '', array $cssSources = array()): array
     {
         // Source typography is frequently applied through CSS custom properties
         // (`body { font-family: var(--font-body) }` defined by
@@ -56,10 +56,10 @@ final class FontMaterializationPlanBuilder
         // the materialized Google Fonts request and the body role.
         $resolvedCss = $this->resolveCssVariables($css);
 
+        $imports = $this->webFontImports($css, $cssSources);
         $fontUsage = array_merge(
             $this->fontUsageFromLinkedStylesheets($html),
-            $this->fontUsageFromCssImports($css),
-            $this->fontUsageFromCssDeclarations($resolvedCss)
+            ...array_merge(array_column($imports, 'font_usage'), array($this->fontUsageFromCssDeclarations($resolvedCss)))
         );
         $roles = $this->fontRolesFromCss($resolvedCss);
 
@@ -78,7 +78,61 @@ final class FontMaterializationPlanBuilder
             }
         }
 
-        return $this->googleFonts($fontUsage, $roles);
+        $plan = $this->googleFonts($fontUsage, $roles);
+        $faces = array();
+        $diagnostics = array();
+        foreach ( $imports as $import ) {
+            if ( array() === $import['faces'] ) {
+                $diagnostics[] = array('code' => $import['supported'] ? 'webfont_import_unresolved' : 'webfont_import_unsupported_provider', 'severity' => 'warning', 'import_ref' => $import['id'], 'source_path' => $import['provenance']['source_path'], 'selector' => $import['provenance']['selector'], 'href_hash' => $import['href_hash']);
+                continue;
+            }
+            foreach ( $import['faces'] as $face ) {
+                $face['id'] = 'webfont-face-' . substr(hash('sha256', $import['id'] . "\n" . $face['id']), 0, 20);
+                $faces[] = array_merge($face, array('import_ref' => $import['id']));
+            }
+        }
+        usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
+        $importCss = $this->cssFromImports($imports);
+        if ( '' !== $importCss ) {
+            $plan['css'] = $importCss;
+            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $importCss . "\n"));
+        }
+        if ( isset($plan['stylesheets'][0]) ) {
+            $plan['stylesheets'][0]['content_hash'] = hash('sha256', (string) $plan['stylesheets'][0]['content']);
+            $plan['stylesheets'][0]['expected_content_hash'] = $plan['stylesheets'][0]['content_hash'];
+        }
+        $plan['webfont_contract'] = $this->webFontContract($imports, $faces, $diagnostics);
+        $plan = array_merge($plan, $this->legacyWebFontProjection($plan['webfont_contract']));
+        return $plan;
+    }
+
+    /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $diagnostics */
+    private function webFontContract(array $imports, array $faces, array $diagnostics): array
+    {
+        $diagnosticsByImport = array();
+        foreach ( $diagnostics as $diagnostic ) $diagnosticsByImport[$diagnostic['import_ref'] ?? ''][] = $diagnostic;
+        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
+        $importsById = array_column($contractImports, null, 'id');
+        $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array(), 'sources' => array($importsById[$face['import_ref']]['source'])), $faces);
+        $contractReceipts = array_map(static fn (array $face): array => array('id' => $face['receipt_id'], 'face_id' => $face['id'], 'import_id' => $face['import_id'], 'required' => true, 'state' => 'pending_browser_readiness'), $contractFaces);
+        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'browser_readiness' => array('schema' => 'blocks-engine/webfont-browser-readiness/v1', 'required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
+    }
+
+    /** @param array<string,mixed> $contract @return array<string,mixed> */
+    private function legacyWebFontProjection(array $contract): array
+    {
+        $imports = array_map(static fn (array $import): array => array('id' => $import['id'], 'href' => $import['source']['url'], 'href_hash' => hash('sha256', $import['source']['url']), 'provider' => $import['provider'], 'provenance' => $import['provenance']), $contract['imports']);
+        $faces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_ref' => $face['import_id'], 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes']), $contract['faces']);
+        $receipts = array_map(static fn (array $receipt): array => array('id' => $receipt['id'], 'face_ref' => $receipt['face_id'], 'import_ref' => $receipt['import_id'], 'status' => $receipt['state']), $contract['receipts']);
+        return array('imports' => $imports, 'face_records' => $faces, 'receipts' => $receipts, 'browser_readiness' => array('schema' => $contract['browser_readiness']['schema'], 'required' => 'required' === $contract['browser_readiness']['state'], 'face_records' => array_column($faces, 'id'), 'receipt_refs' => $contract['browser_readiness']['required_receipt_ids']), 'diagnostics' => $contract['diagnostics'], 'compatibility_projection' => array('schema' => 'blocks-engine/webfont-materialization-legacy-projection/v1', 'source_schema' => $contract['schema']));
+    }
+
+    /** @param array<int,array<string,mixed>> $imports */
+    private function cssFromImports(array $imports): string
+    {
+        $urls = array();
+        foreach ( $imports as $import ) if ( $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
+        return implode("\n", $urls);
     }
 
     /**
@@ -140,6 +194,99 @@ final class FontMaterializationPlanBuilder
         }
 
         return $usage;
+    }
+
+    /**
+     * Resolve CSS imports into stable source records and typed face declarations.
+     *
+     * @param array<int,array<string,mixed>> $cssSources
+     * @return array<int,array<string,mixed>>
+     */
+    private function webFontImports(string $css, array $cssSources): array
+    {
+        $sources = array();
+        foreach ( $cssSources as $source ) {
+            if ( is_array($source) && is_string($source['content'] ?? null) ) $sources[] = array('content' => $source['content'], 'source_path' => (string) ($source['path'] ?? 'css:input'), 'source_hash' => (string) ($source['source_hash'] ?? hash('sha256', $source['content'])));
+        }
+        if ( array() === $sources && '' !== trim($css) ) $sources[] = array('content' => $css, 'source_path' => 'css:input', 'source_hash' => hash('sha256', $css));
+
+        $imports = array();
+        $seen = array();
+        foreach ( $sources as $source ) {
+            $content = preg_replace('/\/\*.*?\*\//s', '', $source['content']) ?? $source['content'];
+            if ( ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER) ) continue;
+            foreach ( $matches as $index => $match ) {
+                $href = html_entity_decode((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), ENT_QUOTES | ENT_HTML5);
+                $dedupeKey = $source['source_hash'] . "\n" . $href;
+                if ( isset($seen[$dedupeKey]) ) continue;
+                $seen[$dedupeKey] = true;
+                $supported = 'fonts.googleapis.com' === strtolower((string) parse_url($href, PHP_URL_HOST));
+                $imports[] = array(
+                    'id' => 'webfont-import-' . substr(hash('sha256', $source['source_path'] . "\n" . ($index + 1) . "\n" . $href), 0, 20),
+                    'href' => $href,
+                    'href_hash' => hash('sha256', $href),
+                    'provider' => $supported ? 'google_fonts' : 'unsupported',
+                    'supported' => $supported,
+                    'font_usage' => $this->fontUsageFromFontHref($href),
+                    'faces' => $supported ? $this->fontFacesFromFontHref($href) : array(),
+                    'provenance' => array('source_kind' => 'css_import', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@import(' . ($index + 1) . ')'),
+                );
+            }
+        }
+        usort($imports, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
+        return $imports;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function fontFacesFromFontHref(string $href): array
+    {
+        $faces = array();
+        foreach ( explode('&', (string) (parse_url($href, PHP_URL_QUERY) ?: '')) as $param ) {
+            if ( ! preg_match('/^family=(.*)$/i', $param, $match) ) continue;
+            foreach ( explode('|', urldecode((string) $match[1])) as $spec ) {
+                [$familySpec, $axes] = array_pad(explode(':', trim($spec), 2), 2, '');
+                $family = $this->normalizeFamily($familySpec);
+                if ( '' === $family || $this->isWebSafeFontFamily($family) ) continue;
+                foreach ( $this->typedFaces($family, $axes) as $face ) $faces[] = $face;
+            }
+        }
+        usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
+        return $faces;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function typedFaces(string $family, string $axes): array
+    {
+        $declarations = array(array('style' => 'normal', 'weight' => array('kind' => 'static', 'value' => 400), 'axes' => array('wght' => array('kind' => 'static', 'value' => 400))));
+        if ( str_contains($axes, '@') ) {
+            [$names, $tuples] = explode('@', $axes, 2);
+            $names = array_map(static fn (string $name): string => strtolower(trim($name)), explode(',', $names));
+            $italIndex = array_search('ital', $names, true);
+            $weightIndex = array_search('wght', $names, true);
+            $declarations = array();
+            foreach ( explode(';', $tuples) as $tuple ) {
+                $values = explode(',', $tuple);
+                $axisValues = array();
+                foreach ( $names as $axisIndex => $name ) $axisValues[$name] = $this->typedWeight((string) ($values[$axisIndex] ?? ''));
+                $declarations[] = array('style' => '1' === trim((string) ($values[$italIndex] ?? '0')) ? 'italic' : 'normal', 'weight' => $axisValues['wght'] ?? $this->typedWeight((string) end($values)), 'axes' => $axisValues);
+            }
+        } elseif ( '' !== $axes ) $declarations = array_map(fn (string $weight): array => array('style' => 'normal', 'weight' => $this->typedWeight($weight), 'axes' => array('wght' => $this->typedWeight($weight))), explode(',', $axes));
+        $faces = array();
+        foreach ( $declarations as $declaration ) {
+            $style = $declaration['style'];
+            $weight = $declaration['weight'];
+            $weightKey = 'range' === $weight['kind'] ? $weight['min'] . '-' . $weight['max'] : (string) $weight['value'];
+            $faces[] = array('id' => 'webfont-face-' . substr(hash('sha256', $family . "\n" . $style . "\n" . $weightKey . "\n" . json_encode($declaration['axes'])), 0, 20), 'family' => $family, 'style' => $style, 'weight' => $weight, 'axes' => $declaration['axes']);
+        }
+        return array_values(array_unique($faces, SORT_REGULAR));
+    }
+
+    /** @return array<string,int|string> */
+    private function typedWeight(string $value): array
+    {
+        $value = trim($value);
+        if ( preg_match('/^(\d{2,4})\.\.(\d{2,4})$/', $value, $range) ) return array('kind' => 'range', 'min' => (int) $range[1], 'max' => (int) $range[2]);
+        return array('kind' => 'static', 'value' => is_numeric($value) ? (int) $value : 400);
     }
 
     /**

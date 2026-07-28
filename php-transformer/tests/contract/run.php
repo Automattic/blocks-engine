@@ -2632,6 +2632,35 @@ $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSour
 $assert(array('EB Garamond', 'Noto Sans JP') === array_column($importedWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection captures families declared only by a CSS import');
 $assert(array(400, 500, 600, 700) === ($importedWebFontPlan['fonts'][0]['weights'] ?? null), 'CSS-imported web-font detection preserves italic axis tuple weights');
 $assert(array(400, 500, 700) === ($importedWebFontPlan['fonts'][1]['weights'] ?? null), 'CSS-imported web-font detection preserves repeated family weights');
+$assert(str_contains((string) ($importedWebFontPlan['css'] ?? ''), 'family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600'), 'CSS-imported web-font materialization retains declared italic face tuples');
+
+$webFontProofPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '',
+    '@import url("https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap");@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");',
+    array(array('path' => 'styles/fonts.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap");@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('a', 64)))
+);
+$assert(2 === count($webFontProofPlan['imports'] ?? array()), 'web-font imports retain one deterministic provenance record per source import');
+$assert('styles/fonts.css' === ($webFontProofPlan['imports'][0]['provenance']['source_path'] ?? null), 'web-font import proof retains the source stylesheet path');
+$assert(str_repeat('a', 64) === ($webFontProofPlan['imports'][0]['provenance']['source_hash'] ?? null), 'web-font import proof retains the source stylesheet hash');
+$assert(4 === count($webFontProofPlan['face_records'] ?? array()), 'web-font imports resolve static and variable declared faces without Cartesian style expansion');
+$assert(2 === count(array_filter($webFontProofPlan['face_records'] ?? array(), static fn (array $face): bool => array('kind' => 'range', 'min' => 100, 'max' => 900) === ($face['weight'] ?? null))), 'variable web-font faces retain typed weight ranges');
+$assert(4 === count($webFontProofPlan['receipts'] ?? array()) && 4 === count($webFontProofPlan['browser_readiness']['receipt_refs'] ?? array()), 'web-font proof retains durable face receipt references for browser readiness');
+$assert(hash('sha256', (string) ($webFontProofPlan['stylesheets'][0]['content'] ?? '')) === ($webFontProofPlan['stylesheets'][0]['expected_content_hash'] ?? null), 'web-font stylesheet carries an expected content hash');
+$assert('blocks-engine/webfont-materialization/v1' === ($webFontProofPlan['webfont_contract']['schema'] ?? null), 'web-font materialization emits the shared versioned consumer contract');
+$firstWebFontSource = $webFontProofPlan['webfont_contract']['imports'][0]['source'] ?? array();
+$assert('css' === ($firstWebFontSource['format'] ?? null) && array_key_exists('expected_digest', $firstWebFontSource) && null === $firstWebFontSource['expected_digest'] && array_key_exists('observed_digest', $firstWebFontSource) && null === $firstWebFontSource['observed_digest'], 'web-font import contract declares downloadable CSS sources with consumer-owned observed digests');
+$assert(4 === count($webFontProofPlan['webfont_contract']['faces'] ?? array()) && 4 === count($webFontProofPlan['webfont_contract']['browser_readiness']['required_receipt_ids'] ?? array()), 'web-font contract binds typed faces and browser readiness to durable receipt IDs');
+$contractImportsById = array_column($webFontProofPlan['webfont_contract']['imports'] ?? array(), null, 'id');
+$assert(($webFontProofPlan['webfont_contract']['faces'][0]['import_id'] ?? null) === ($webFontProofPlan['face_records'][0]['import_ref'] ?? null) && ($webFontProofPlan['webfont_contract']['faces'][0]['sources'][0]['url'] ?? null) === ($contractImportsById[$webFontProofPlan['webfont_contract']['faces'][0]['import_id'] ?? '']['source']['url'] ?? null), 'legacy face records are an explicit contract projection with downloadable face sources');
+$assert(($webFontProofPlan['webfont_contract']['receipts'][0]['id'] ?? null) === ($webFontProofPlan['receipts'][0]['id'] ?? null) && ($webFontProofPlan['webfont_contract']['browser_readiness']['required_receipt_ids'] ?? null) === ($webFontProofPlan['browser_readiness']['receipt_refs'] ?? null), 'legacy receipts and readiness are equivalent compatibility projections of the shared contract');
+$deduplicatedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '', array(
+    array('path' => 'styles/a.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('b', 64)),
+    array('path' => 'styles/b.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('b', 64)),
+));
+$assert(1 === count($deduplicatedWebFontPlan['webfont_contract']['imports'] ?? array()) && 2 === count($deduplicatedWebFontPlan['webfont_contract']['faces'] ?? array()), 'repeated stylesheet references with the same source hash and href produce one deduplicated Inter import and face set');
+$unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
+$assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
+$assert('unsupported' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['state'] ?? null) && 'webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['diagnostics'][0]['code'] ?? null) && array() === ($unsupportedWebFontPlan['webfont_contract']['faces'] ?? null), 'zero-face web-font contracts retain required import diagnostics');
 
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
