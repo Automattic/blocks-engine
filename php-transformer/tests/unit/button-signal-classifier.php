@@ -50,39 +50,49 @@ $assert(! $classifier->hasTransformSignal($element('<a href="#">Buy now</a>')), 
 $assert($classifier->hasStyleSignal($element('<a style="padding:12px 18px;background:#135e96" href="#">Learn more</a>')), '7: padding plus filled background is a style signal');
 $assert($classifier->hasStyleSignal($element('<a style="padding:12px 18px;border-radius:999px" href="#">Learn more</a>')), '8: padding plus radius is a style signal');
 $assert(! $classifier->hasStyleSignal($element('<a style="padding:12px 18px;background:transparent" href="#">Learn more</a>')), '9: transparent background alone is not a style signal');
-$assert(! $classifier->hasTransformSignal($element('<a href="#">Learn more</a>')), '10: plain link has no transform signal');
+$assert(! $classifier->hasStyleSignal($element('<a style="padding-bottom:8px;border-bottom:1px solid currentColor" href="#">Learn more</a>')), '10: underline border and padding are not a button surface');
+$assert(! $classifier->hasTransformSignal($element('<a href="#">Learn more</a>')), '11: plain link has no transform signal');
 
 $result = ( new HtmlTransformer() )->transform('<a style="padding:12px 18px;background:#135e96;color:#fff" href="/buy">Buy tickets</a>', array())->toArray();
 $button = $result['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('core/buttons' === ($result['blocks'][0]['blockName'] ?? ''), '11: styled anchor is promoted to core/buttons', json_encode($result['blocks'] ?? array()));
-$assert('core/button' === ($button['blockName'] ?? ''), '12: styled anchor inner block is core/button', json_encode($button));
-$assert('/buy' === ($button['attrs']['url'] ?? ''), '13: styled anchor promotion preserves URL', json_encode($button['attrs'] ?? array()));
+$assert('core/buttons' === ($result['blocks'][0]['blockName'] ?? ''), '12: styled anchor is promoted to core/buttons', json_encode($result['blocks'] ?? array()));
+$assert('core/button' === ($button['blockName'] ?? ''), '13: styled anchor inner block is core/button', json_encode($button));
+$assert('/buy' === ($button['attrs']['url'] ?? ''), '14: styled anchor promotion preserves URL', json_encode($button['attrs'] ?? array()));
 
 $stylesheetButton = ( new HtmlTransformer() )->transform('<style>.primary-control{padding:12px 18px;border:2px solid #135e96;border-radius:6px;color:#135e96}</style><a class="primary-control" href="/buy">Buy tickets</a>', array())->toArray();
 $stylesheetButtonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stylesheetButton['assets'] ?? array()));
-$assert('core/button' === ($stylesheetButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '14: resolved author CSS with a visible surface promotes an anchor', json_encode($stylesheetButton['blocks'] ?? array()));
-$assert(str_contains($stylesheetButtonCss, '> :where(.wp-block-button__link){padding:12px 18px') && str_contains($stylesheetButtonCss, 'border:2px solid #135e96'), '15: true button author selectors style the rendered inner anchor', $stylesheetButtonCss);
-$assert('pass' === ($stylesheetButton['source_reports']['wp_block_validity']['status'] ?? ''), '16: true button conversion remains editor-valid', json_encode($stylesheetButton['source_reports']['wp_block_validity'] ?? array()));
+$assert('core/button' === ($stylesheetButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '15: resolved author CSS with a visible surface promotes an anchor', json_encode($stylesheetButton['blocks'] ?? array()));
+$assert(str_contains($stylesheetButtonCss, '> :where(.wp-block-button__link){padding:12px 18px') && str_contains($stylesheetButtonCss, 'border:2px solid #135e96'), '16: true button author selectors style the rendered inner anchor', $stylesheetButtonCss);
+$assert('pass' === ($stylesheetButton['source_reports']['wp_block_validity']['status'] ?? ''), '17: true button conversion remains editor-valid', json_encode($stylesheetButton['source_reports']['wp_block_validity'] ?? array()));
+
+$streamRow = ( new HtmlTransformer() )->transform('<style>.stream-btn{display:inline-flex;padding:10px 16px;background:#135e96;color:#fff;border-radius:4px}</style><div><a class="stream-btn" href="/listen">Listen live</a><a class="stream-btn" href="/schedule">View schedule</a></div>', array())->toArray();
+$streamRowCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $streamRow['assets'] ?? array()));
+$assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '18: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
+$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex;padding:10px 16px;background:#135e96'), '19: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
 
 $buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();
 $nativeButton = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('core/buttons' === ($buttonResult['blocks'][0]['blockName'] ?? ''), '17: native button is dispatched to core/buttons', json_encode($buttonResult['blocks'] ?? array()));
-$assert('core/button' === ($nativeButton['blockName'] ?? ''), '18: native button inner block is core/button', json_encode($nativeButton));
-$assert('button' === ($nativeButton['attrs']['tagName'] ?? ''), '19: native button keeps button tagName', json_encode($nativeButton['attrs'] ?? array()));
+$assert('core/buttons' === ($buttonResult['blocks'][0]['blockName'] ?? ''), '20: native button is dispatched to core/buttons', json_encode($buttonResult['blocks'] ?? array()));
+$assert('core/button' === ($nativeButton['blockName'] ?? ''), '21: native button inner block is core/button', json_encode($nativeButton));
+$assert('button' === ($nativeButton['attrs']['tagName'] ?? ''), '22: native button keeps button tagName', json_encode($nativeButton['attrs'] ?? array()));
+
+$roleButton = ( new HtmlTransformer() )->transform('<a role="button" aria-label="Open player" href="/player">Play</a>', array())->toArray();
+$roleButtonAttrs = $roleButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$assert('core/button' === ($roleButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? '') && '/player' === ($roleButtonAttrs['url'] ?? '') && 'Open player' === ($roleButtonAttrs['title'] ?? ''), '23: role=button maps to core/button and preserves its accessible label', json_encode($roleButton['blocks'] ?? array()));
 
 $plainLinkResult = ( new HtmlTransformer() )->transform('<a href="/about">About us</a>', array())->toArray();
 $plainLink = $plainLinkResult['blocks'][0] ?? array();
-$assert('core/paragraph' === ($plainLink['blockName'] ?? ''), '20: plain anchor stays paragraph rich text', json_encode($plainLinkResult['blocks'] ?? array()));
-$assert(str_contains((string) ($plainLink['innerHTML'] ?? ''), 'href="/about"'), '21: plain anchor preserves href in content', json_encode($plainLink ?? array()));
+$assert('core/paragraph' === ($plainLink['blockName'] ?? ''), '24: plain anchor stays paragraph rich text', json_encode($plainLinkResult['blocks'] ?? array()));
+$assert(str_contains((string) ($plainLink['innerHTML'] ?? ''), 'href="/about"'), '25: plain anchor preserves href in content', json_encode($plainLink ?? array()));
 
-$textualCta = ( new HtmlTransformer() )->transform('<style>.hero__cta{text-decoration:underline;color:#135e96}</style><section><a class="hero__cta" href="/explore">Explore the collection</a></section>', array())->toArray();
+$textualCta = ( new HtmlTransformer() )->transform('<style>.hero__cta{padding-bottom:8px;border-bottom:1px solid currentColor;color:#135e96}</style><section><a class="hero__cta" href="/explore">Explore the collection</a></section>', array())->toArray();
 $textualMarkup = (string) ($textualCta['serialized_blocks'] ?? '');
-$assert(! str_contains($textualMarkup, 'wp:button') && str_contains($textualMarkup, 'hero__cta') && str_contains($textualMarkup, 'href="/explore"'), '22: underlined hero CTA remains an authored text anchor', $textualMarkup);
-$assert(! str_contains($textualMarkup, 'wp-block-buttons'), '23: textual CTA has no synthetic buttons wrapper or wrapper layout drift', $textualMarkup);
+$assert(! str_contains($textualMarkup, 'wp:button') && str_contains($textualMarkup, 'hero__cta') && str_contains($textualMarkup, 'href="/explore"'), '26: fixture-37 underlined hero CTA remains an authored text anchor', $textualMarkup);
+$assert(! str_contains($textualMarkup, 'wp-block-buttons'), '27: fixture-37 textual CTA has no synthetic buttons wrapper or wrapper layout drift', $textualMarkup);
 
 $legalLinks = ( new HtmlTransformer() )->transform('<footer><a class="legal-link" href="/impressum">Impressum</a><a class="legal-link" href="/privacy">Datenschutz</a><a class="legal-link" href="/terms">AGB</a></footer>', array())->toArray();
 $legalMarkup = (string) ($legalLinks['serialized_blocks'] ?? '');
-$assert(! str_contains($legalMarkup, 'wp:button') && ! str_contains($legalMarkup, 'wp-block-buttons') && str_contains($legalMarkup, 'href="/impressum"') && str_contains($legalMarkup, 'href="/privacy"') && str_contains($legalMarkup, 'href="/terms"'), '24: legal link rows retain anchor semantics rather than becoming buttons', $legalMarkup);
+$assert(! str_contains($legalMarkup, 'wp:button') && ! str_contains($legalMarkup, 'wp-block-buttons') && str_contains($legalMarkup, 'href="/impressum"') && str_contains($legalMarkup, 'href="/privacy"') && str_contains($legalMarkup, 'href="/terms"'), '28: fixture-37 legal link rows retain anchor semantics rather than becoming buttons', $legalMarkup);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");

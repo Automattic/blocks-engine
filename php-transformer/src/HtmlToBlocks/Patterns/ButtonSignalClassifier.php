@@ -53,8 +53,10 @@ final class ButtonSignalClassifier
             return true;
         }
 
-        if ( preg_match('/(?:^|;)\s*border(?:-[a-z]+)?\s*:\s*[^;]+/', $style) === 1 ) {
-            return preg_match('/(?:^|;)\s*border(?:-[a-z]+)?\s*:\s*(?:0|none)\s*(?:;|$)/', $style) !== 1;
+        // A side-specific border with matching padding is commonly an underline.
+        // Only the box-wide shorthand establishes an outlined control surface.
+        if ( preg_match('/(?:^|;)\s*border\s*:\s*[^;]+/', $style) === 1 ) {
+            return preg_match('/(?:^|;)\s*border\s*:\s*(?:0|none)\s*(?:;|$)/', $style) !== 1;
         }
 
         return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1

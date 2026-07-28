@@ -165,9 +165,7 @@ final class ButtonsPattern
 
     private function buttonAccessibleTitle(DOMElement $element, string $text): string
     {
-        return '' === $this->plainText($text)
-            ? html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8')
-            : '';
+        return html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     private function plainText(string $html): string

@@ -21,6 +21,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $createBlock = $context->createBlockCallback();
         $isRuntimeDomTarget = $context->isRuntimeDomTargetCallback();
         $navigationUnderlineColor = $context->navigationUnderlineColorCallback();
+        $resolvedStyle = $context->resolvedStyleCallback();
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
@@ -36,7 +37,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // `links` looks navigational, but its anchors carry button signals and
         // belong to the buttons pattern, which preserves their pill geometry and
         // styling. Defer so navigation does not flatten them into menu items.
-        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasDirectListNavigationSignal($element) && $this->hasButtonStyledLinkChildren($element) ) {
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasDirectListNavigationSignal($element) && $this->hasButtonStyledLinkChildren($element, $resolvedStyle) ) {
             return null;
         }
 
@@ -862,7 +863,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * to carry a button signal so a genuine nav menu with one incidental
      * button-classed link is not misclassified.
      */
-    private function hasButtonStyledLinkChildren(DOMElement $element): bool
+    /** @param callable(DOMElement): string|null $resolvedStyle */
+    private function hasButtonStyledLinkChildren(DOMElement $element, ?callable $resolvedStyle): bool
     {
         $classifier = new ButtonSignalClassifier();
         $anchors = array();
@@ -876,7 +878,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         foreach ( $anchors as $anchor ) {
-            if ( ! $classifier->hasTransformSignal($anchor) ) {
+            if ( ! $classifier->hasTransformSignal($anchor, null !== $resolvedStyle ? $resolvedStyle($anchor) : '') ) {
                 return false;
             }
         }
