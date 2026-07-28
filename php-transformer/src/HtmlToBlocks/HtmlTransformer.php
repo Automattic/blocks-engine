@@ -4067,7 +4067,10 @@ final class HtmlTransformer
                 continue;
             }
 
-            $content = $this->innerHtml($child);
+            // The paragraph inherits a span's class for its layout role, but
+            // semantic inline elements (time, links, emphasis, etc.) must retain
+            // their source markup inside the editable RichText content.
+            $content = 'span' === strtolower($child->tagName) ? $this->innerHtml($child) : $this->outerHtml($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -7853,7 +7856,7 @@ final class HtmlTransformer
     private function namePriceRowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         $children = $this->namePriceChildren($element);
-        if ( null === $children ) {
+        if ( null === $children || ! $this->hasEqualWidthFlexColumnsGeometry($element, $children) ) {
             return null;
         }
 
@@ -7870,6 +7873,60 @@ final class HtmlTransformer
         array_push($fallbacks, ...$rowFallbacks);
 
         return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+    }
+
+    /**
+     * core/columns gives each child an equal share of its row. Name/price and
+     * label/value semantics alone say nothing about that geometry: ordinary
+     * block flow is stacked, and flex items retain their content-sized basis.
+     * Restrict this decomposition to the source layout signal that core/columns
+     * can reproduce: a horizontal, non-wrapping flex row with equal zero-basis
+     * flex items.
+     *
+     * @param array<int, DOMElement> $children
+     */
+    private function hasEqualWidthFlexColumnsGeometry(DOMElement $element, array $children): bool
+    {
+        $container = $this->structuralPresentationDeclarations($element);
+        if ( 'flex' !== strtolower(trim((string) ($container['display'] ?? ''))) ) {
+            return false;
+        }
+
+        $direction = strtolower(trim((string) ($container['flex-direction'] ?? 'row')));
+        $wrap = strtolower(trim((string) ($container['flex-wrap'] ?? 'nowrap')));
+        if ( ! in_array($direction, array( 'row', 'row-reverse' ), true) || 'nowrap' !== $wrap ) {
+            return false;
+        }
+
+        $flex = null;
+        foreach ( $children as $child ) {
+            $childFlex = $this->equalWidthFlexSignal($this->structuralPresentationDeclarations($child));
+            if ( null === $childFlex || ( null !== $flex && $flex !== $childFlex ) ) {
+                return false;
+            }
+            $flex = $childFlex;
+        }
+
+        return null !== $flex;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    private function equalWidthFlexSignal(array $declarations): ?string
+    {
+        $flex = preg_replace('/\s+/', ' ', strtolower(trim((string) ($declarations['flex'] ?? '')))) ?? '';
+        if ( preg_match('/^([1-9][0-9]*(?:\.[0-9]+)?)(?: [0-9]+(?:\.[0-9]+)? (?:0|0%|0px))?$/', $flex, $matches) ) {
+            return $matches[1];
+        }
+
+        $grow = trim((string) ($declarations['flex-grow'] ?? ''));
+        $basis = strtolower(trim((string) ($declarations['flex-basis'] ?? '')));
+        if ( is_numeric($grow) && 0 < (float) $grow && in_array($basis, array( '0', '0%', '0px' ), true) ) {
+            return $grow;
+        }
+
+        return null;
     }
 
     /**

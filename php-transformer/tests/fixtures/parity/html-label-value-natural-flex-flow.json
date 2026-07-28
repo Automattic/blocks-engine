@@ -1,0 +1,20 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-label-value-natural-flex-flow",
+  "description": "A flex label/value row with content-sized items remains a group so its justify-content, gap, sizing, and wrapping stay source-owned.",
+  "legacy_comparison": { "skip": true, "reason": "Regression coverage for source geometry preservation." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.proof-row{display:flex;justify-content:space-between;gap:16px}</style><div class=\"proof-row\"><p class=\"proof-label\">PHP + WordPress</p><p class=\"proof-value\">WebAssembly in the Worker</p></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "proof-row" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "proof-label", "content": "PHP + WordPress" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "proof-value", "content": "WebAssembly in the Worker" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 }
+  ]
+}
