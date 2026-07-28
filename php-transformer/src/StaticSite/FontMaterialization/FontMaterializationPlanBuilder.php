@@ -92,33 +92,39 @@ final class FontMaterializationPlanBuilder
             }
         }
         usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
-        if ( array() !== $imports ) $plan['imports'] = array_map(static fn (array $import): array => array('id' => $import['id'], 'href' => $import['href'], 'href_hash' => $import['href_hash'], 'provider' => $import['provider'], 'provenance' => $import['provenance']), $imports);
         $importCss = $this->cssFromImports($imports);
         if ( '' !== $importCss ) {
             $plan['css'] = $importCss;
             $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $importCss . "\n"));
         }
-        if ( array() !== $faces ) {
-            $plan['face_records'] = $faces;
-            $plan['receipts'] = array_map(static fn (array $face): array => array('id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'face_ref' => $face['id'], 'import_ref' => $face['import_ref'], 'status' => 'pending_browser_readiness'), $faces);
-            $plan['browser_readiness'] = array('schema' => 'blocks-engine/php-transformer/webfont-browser-readiness/v1', 'required' => true, 'face_records' => array_column($faces, 'id'), 'receipt_refs' => array_column($plan['receipts'], 'id'));
-        }
-        if ( array() !== $diagnostics ) $plan['diagnostics'] = $diagnostics;
         if ( isset($plan['stylesheets'][0]) ) {
             $plan['stylesheets'][0]['content_hash'] = hash('sha256', (string) $plan['stylesheets'][0]['content']);
             $plan['stylesheets'][0]['expected_content_hash'] = $plan['stylesheets'][0]['content_hash'];
         }
-        $plan['webfont_contract'] = $this->webFontContract($imports, $faces, $plan['receipts'] ?? array(), $diagnostics);
+        $plan['webfont_contract'] = $this->webFontContract($imports, $faces, $diagnostics);
+        $plan = array_merge($plan, $this->legacyWebFontProjection($plan['webfont_contract']));
         return $plan;
     }
 
-    /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $receipts @param array<int,array<string,mixed>> $diagnostics */
-    private function webFontContract(array $imports, array $faces, array $receipts, array $diagnostics): array
+    /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $diagnostics */
+    private function webFontContract(array $imports, array $faces, array $diagnostics): array
     {
-        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance']), $imports);
-        $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array()), $faces);
-        $contractReceipts = array_map(static fn (array $receipt): array => array('id' => $receipt['id'], 'face_id' => $receipt['face_ref'], 'import_id' => $receipt['import_ref'], 'state' => $receipt['status']), $receipts);
-        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'browser_readiness' => array('required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
+        $diagnosticsByImport = array();
+        foreach ( $diagnostics as $diagnostic ) $diagnosticsByImport[$diagnostic['import_ref'] ?? ''][] = $diagnostic;
+        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
+        $importsById = array_column($contractImports, null, 'id');
+        $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array(), 'sources' => array($importsById[$face['import_ref']]['source'])), $faces);
+        $contractReceipts = array_map(static fn (array $face): array => array('id' => $face['receipt_id'], 'face_id' => $face['id'], 'import_id' => $face['import_id'], 'required' => true, 'state' => 'pending_browser_readiness'), $contractFaces);
+        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'browser_readiness' => array('schema' => 'blocks-engine/webfont-browser-readiness/v1', 'required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
+    }
+
+    /** @param array<string,mixed> $contract @return array<string,mixed> */
+    private function legacyWebFontProjection(array $contract): array
+    {
+        $imports = array_map(static fn (array $import): array => array('id' => $import['id'], 'href' => $import['source']['url'], 'href_hash' => hash('sha256', $import['source']['url']), 'provider' => $import['provider'], 'provenance' => $import['provenance']), $contract['imports']);
+        $faces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_ref' => $face['import_id'], 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes']), $contract['faces']);
+        $receipts = array_map(static fn (array $receipt): array => array('id' => $receipt['id'], 'face_ref' => $receipt['face_id'], 'import_ref' => $receipt['import_id'], 'status' => $receipt['state']), $contract['receipts']);
+        return array('imports' => $imports, 'face_records' => $faces, 'receipts' => $receipts, 'browser_readiness' => array('schema' => $contract['browser_readiness']['schema'], 'required' => 'required' === $contract['browser_readiness']['state'], 'face_records' => array_column($faces, 'id'), 'receipt_refs' => $contract['browser_readiness']['required_receipt_ids']), 'diagnostics' => $contract['diagnostics'], 'compatibility_projection' => array('schema' => 'blocks-engine/webfont-materialization-legacy-projection/v1', 'source_schema' => $contract['schema']));
     }
 
     /** @param array<int,array<string,mixed>> $imports */

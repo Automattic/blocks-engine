@@ -21,7 +21,9 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.materialization_plan.theme.font_materialization.imports", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.schema", "assert": "equals", "value": "blocks-engine/webfont-materialization/v1" },
     { "path": "source_reports.materialization_plan.theme.font_materialization.diagnostics", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.imports.0.diagnostics", "assert": "count", "count": 1 },
     { "path": "source_reports.materialization_plan.theme.font_materialization.diagnostics.0.code", "assert": "equals", "value": "webfont_import_unsupported_provider" }
   ]
 }
