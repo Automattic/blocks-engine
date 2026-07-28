@@ -2633,6 +2633,7 @@ $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSour
 $assert(array('EB Garamond', 'Noto Sans JP') === array_column($importedWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection captures families declared only by a CSS import');
 $assert(array(400, 500, 600, 700) === ($importedWebFontPlan['fonts'][0]['weights'] ?? null), 'CSS-imported web-font detection preserves italic axis tuple weights');
 $assert(array(400, 500, 700) === ($importedWebFontPlan['fonts'][1]['weights'] ?? null), 'CSS-imported web-font detection preserves repeated family weights');
+$assert(str_contains((string) ($importedWebFontPlan['css'] ?? ''), 'family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600'), 'CSS-imported web-font materialization retains declared italic face tuples');
 
 $webFontProofPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '',

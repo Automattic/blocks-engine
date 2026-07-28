@@ -93,6 +93,11 @@ final class FontMaterializationPlanBuilder
         }
         usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
         if ( array() !== $imports ) $plan['imports'] = array_map(static fn (array $import): array => array('id' => $import['id'], 'href' => $import['href'], 'href_hash' => $import['href_hash'], 'provider' => $import['provider'], 'provenance' => $import['provenance']), $imports);
+        $importCss = $this->cssFromImports($imports);
+        if ( '' !== $importCss ) {
+            $plan['css'] = $importCss;
+            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $importCss . "\n"));
+        }
         if ( array() !== $faces ) {
             $plan['face_records'] = $faces;
             $plan['receipts'] = array_map(static fn (array $face): array => array('id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'face_ref' => $face['id'], 'import_ref' => $face['import_ref'], 'status' => 'pending_browser_readiness'), $faces);
@@ -104,6 +109,14 @@ final class FontMaterializationPlanBuilder
             $plan['stylesheets'][0]['expected_content_hash'] = $plan['stylesheets'][0]['content_hash'];
         }
         return $plan;
+    }
+
+    /** @param array<int,array<string,mixed>> $imports */
+    private function cssFromImports(array $imports): string
+    {
+        $urls = array();
+        foreach ( $imports as $import ) if ( $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
+        return implode("\n", $urls);
     }
 
     /**
