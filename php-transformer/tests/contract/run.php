@@ -2644,9 +2644,18 @@ $assert(2 === count($webFontProofPlan['imports'] ?? array()), 'web-font imports 
 $assert('styles/fonts.css' === ($webFontProofPlan['imports'][0]['provenance']['source_path'] ?? null), 'web-font import proof retains the source stylesheet path');
 $assert(str_repeat('a', 64) === ($webFontProofPlan['imports'][0]['provenance']['source_hash'] ?? null), 'web-font import proof retains the source stylesheet hash');
 $assert(4 === count($webFontProofPlan['face_records'] ?? array()), 'web-font imports resolve static and variable declared faces without Cartesian style expansion');
-$assert(array('kind' => 'range', 'min' => 100, 'max' => 900) === ($webFontProofPlan['face_records'][0]['weight'] ?? null) || array('kind' => 'range', 'min' => 100, 'max' => 900) === ($webFontProofPlan['face_records'][1]['weight'] ?? null), 'variable web-font faces retain typed weight ranges');
+$assert(2 === count(array_filter($webFontProofPlan['face_records'] ?? array(), static fn (array $face): bool => array('kind' => 'range', 'min' => 100, 'max' => 900) === ($face['weight'] ?? null))), 'variable web-font faces retain typed weight ranges');
 $assert(4 === count($webFontProofPlan['receipts'] ?? array()) && 4 === count($webFontProofPlan['browser_readiness']['receipt_refs'] ?? array()), 'web-font proof retains durable face receipt references for browser readiness');
 $assert(hash('sha256', (string) ($webFontProofPlan['stylesheets'][0]['content'] ?? '')) === ($webFontProofPlan['stylesheets'][0]['expected_content_hash'] ?? null), 'web-font stylesheet carries an expected content hash');
+$assert('blocks-engine/webfont-materialization/v1' === ($webFontProofPlan['webfont_contract']['schema'] ?? null), 'web-font materialization emits the shared versioned consumer contract');
+$firstWebFontSource = $webFontProofPlan['webfont_contract']['imports'][0]['source'] ?? array();
+$assert('css' === ($firstWebFontSource['format'] ?? null) && array_key_exists('expected_digest', $firstWebFontSource) && null === $firstWebFontSource['expected_digest'] && array_key_exists('observed_digest', $firstWebFontSource) && null === $firstWebFontSource['observed_digest'], 'web-font import contract declares downloadable CSS sources with consumer-owned observed digests');
+$assert(4 === count($webFontProofPlan['webfont_contract']['faces'] ?? array()) && 4 === count($webFontProofPlan['webfont_contract']['browser_readiness']['required_receipt_ids'] ?? array()), 'web-font contract binds typed faces and browser readiness to durable receipt IDs');
+$deduplicatedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '', array(
+    array('path' => 'styles/a.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('b', 64)),
+    array('path' => 'styles/b.css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");', 'source_hash' => str_repeat('b', 64)),
+));
+$assert(1 === count($deduplicatedWebFontPlan['webfont_contract']['imports'] ?? array()) && 2 === count($deduplicatedWebFontPlan['webfont_contract']['faces'] ?? array()), 'repeated stylesheet references with the same source hash and href produce one deduplicated Inter import and face set');
 $unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
 $assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
 

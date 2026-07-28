@@ -108,7 +108,17 @@ final class FontMaterializationPlanBuilder
             $plan['stylesheets'][0]['content_hash'] = hash('sha256', (string) $plan['stylesheets'][0]['content']);
             $plan['stylesheets'][0]['expected_content_hash'] = $plan['stylesheets'][0]['content_hash'];
         }
+        $plan['webfont_contract'] = $this->webFontContract($imports, $faces, $plan['receipts'] ?? array(), $diagnostics);
         return $plan;
+    }
+
+    /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $receipts @param array<int,array<string,mixed>> $diagnostics */
+    private function webFontContract(array $imports, array $faces, array $receipts, array $diagnostics): array
+    {
+        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance']), $imports);
+        $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array()), $faces);
+        $contractReceipts = array_map(static fn (array $receipt): array => array('id' => $receipt['id'], 'face_id' => $receipt['face_ref'], 'import_id' => $receipt['import_ref'], 'state' => $receipt['status']), $receipts);
+        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'browser_readiness' => array('required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
     }
 
     /** @param array<int,array<string,mixed>> $imports */
@@ -195,11 +205,15 @@ final class FontMaterializationPlanBuilder
         if ( array() === $sources && '' !== trim($css) ) $sources[] = array('content' => $css, 'source_path' => 'css:input', 'source_hash' => hash('sha256', $css));
 
         $imports = array();
+        $seen = array();
         foreach ( $sources as $source ) {
             $content = preg_replace('/\/\*.*?\*\//s', '', $source['content']) ?? $source['content'];
             if ( ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $content, $matches, PREG_SET_ORDER) ) continue;
             foreach ( $matches as $index => $match ) {
                 $href = html_entity_decode((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), ENT_QUOTES | ENT_HTML5);
+                $dedupeKey = $source['source_hash'] . "\n" . $href;
+                if ( isset($seen[$dedupeKey]) ) continue;
+                $seen[$dedupeKey] = true;
                 $supported = 'fonts.googleapis.com' === strtolower((string) parse_url($href, PHP_URL_HOST));
                 $imports[] = array(
                     'id' => 'webfont-import-' . substr(hash('sha256', $source['source_path'] . "\n" . ($index + 1) . "\n" . $href), 0, 20),
@@ -237,7 +251,7 @@ final class FontMaterializationPlanBuilder
     /** @return array<int,array<string,mixed>> */
     private function typedFaces(string $family, string $axes): array
     {
-        $declarations = array(array('style' => 'normal', 'weight' => array('kind' => 'static', 'value' => 400)));
+        $declarations = array(array('style' => 'normal', 'weight' => array('kind' => 'static', 'value' => 400), 'axes' => array('wght' => array('kind' => 'static', 'value' => 400))));
         if ( str_contains($axes, '@') ) {
             [$names, $tuples] = explode('@', $axes, 2);
             $names = array_map(static fn (string $name): string => strtolower(trim($name)), explode(',', $names));
@@ -246,15 +260,17 @@ final class FontMaterializationPlanBuilder
             $declarations = array();
             foreach ( explode(';', $tuples) as $tuple ) {
                 $values = explode(',', $tuple);
-                $declarations[] = array('style' => '1' === trim((string) ($values[$italIndex] ?? '0')) ? 'italic' : 'normal', 'weight' => $this->typedWeight((string) ($values[$weightIndex] ?? end($values))));
+                $axisValues = array();
+                foreach ( $names as $axisIndex => $name ) $axisValues[$name] = $this->typedWeight((string) ($values[$axisIndex] ?? ''));
+                $declarations[] = array('style' => '1' === trim((string) ($values[$italIndex] ?? '0')) ? 'italic' : 'normal', 'weight' => $axisValues['wght'] ?? $this->typedWeight((string) end($values)), 'axes' => $axisValues);
             }
-        } elseif ( '' !== $axes ) $declarations = array_map(fn (string $weight): array => array('style' => 'normal', 'weight' => $this->typedWeight($weight)), explode(',', $axes));
+        } elseif ( '' !== $axes ) $declarations = array_map(fn (string $weight): array => array('style' => 'normal', 'weight' => $this->typedWeight($weight), 'axes' => array('wght' => $this->typedWeight($weight))), explode(',', $axes));
         $faces = array();
         foreach ( $declarations as $declaration ) {
             $style = $declaration['style'];
             $weight = $declaration['weight'];
             $weightKey = 'range' === $weight['kind'] ? $weight['min'] . '-' . $weight['max'] : (string) $weight['value'];
-            $faces[] = array('id' => 'webfont-face-' . substr(hash('sha256', $family . "\n" . $style . "\n" . $weightKey), 0, 20), 'family' => $family, 'style' => $style, 'weight' => $weight);
+            $faces[] = array('id' => 'webfont-face-' . substr(hash('sha256', $family . "\n" . $style . "\n" . $weightKey . "\n" . json_encode($declaration['axes'])), 0, 20), 'family' => $family, 'style' => $style, 'weight' => $weight, 'axes' => $declaration['axes']);
         }
         return array_values(array_unique($faces, SORT_REGULAR));
     }
