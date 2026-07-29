@@ -972,7 +972,7 @@ final class HtmlTransformer
         return trim(implode("\n\n", $cssParts));
     }
 
-    /** @param array<string, mixed> $options @return list<array{path: string, content: string, source_hash: string}> */
+    /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
     private function authorStylesheetAssetsFromOptions(array $options): array
     {
         if ( ! is_array($options['author_stylesheet_assets'] ?? null) ) {
@@ -983,7 +983,7 @@ final class HtmlTransformer
             if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || '' === $asset['path'] || ! is_string($asset['content'] ?? null) ) {
                 continue;
             }
-            $assets[] = array( 'path' => $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']) );
+            $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
         }
         return $assets;
     }

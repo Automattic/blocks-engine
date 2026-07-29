@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
@@ -283,7 +284,7 @@ final class ArtifactCompiler
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
-                if ( is_array($fallback['layout_graph'] ?? null) ) $form['layout_graph'] = $fallback['layout_graph'];
+                if ( is_array($fallback['layout_graph'] ?? null) ) { FormLayoutGraphBuilder::assertValid($fallback['layout_graph']); $form['layout_graph'] = $fallback['layout_graph']; }
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
                 }
@@ -877,7 +878,7 @@ final class ArtifactCompiler
                     ++$inlineIndex;
                     $file = $inline[$inlineIndex] ?? null;
                     if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
-                        $assets[] = array( 'path' => $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                        $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
                         $seenPaths[$file['path']] = true;
                     }
                     continue;
@@ -890,7 +891,7 @@ final class ArtifactCompiler
                 $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
                 $file = $byPath[$path] ?? null;
                 if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                    $assets[] = array( 'path' => $path, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                    $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
                     $seenPaths[$path] = true;
                 }
             }
