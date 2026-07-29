@@ -31,6 +31,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTra
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -395,6 +396,8 @@ final class HtmlTransformer
     /** @var list<array{path: string, content: string, source_hash: string}> */
     private array $authorStylesheetAssets = array();
 
+    private string $formLayoutCss = '';
+
     /** A collision-checked custom element used solely to retain type specificity. */
     private string $authorSpecificityShim = '';
 
@@ -477,6 +480,7 @@ final class HtmlTransformer
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
         $this->authorStylesheetAssets = array();
+        $this->formLayoutCss = '';
         $this->authorSpecificityShim = '';
         $this->authorClassSpecificityShim = '';
         $this->authorIdSpecificityShim = '';
@@ -823,6 +827,7 @@ final class HtmlTransformer
         $this->combinedAuthorCss = array() === $this->authorStylesheetAssets
             ? $this->combinedAuthorStylesheet($html, $staticCss)
             : implode("\n\n", array_column($this->authorStylesheetAssets, 'content'));
+        $this->formLayoutCss = $this->combinedAuthorCss;
         // Ignore already-generated-looking markers when seeding so collision
         // avoidance remains deterministic even when source CSS contains one.
         $seedInput = preg_replace('/blocks-engine-(?:source-p|control|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
@@ -7269,6 +7274,7 @@ final class HtmlTransformer
     {
         $controls = $this->formControls($element);
         $controlTopology = $this->formControlTopology($element);
+        $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStylesheetAssets, $this->formLayoutCss);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
@@ -7294,6 +7300,7 @@ final class HtmlTransformer
             'binding'         => $this->blockBinding($bindingMarkup, 'form', $supersededRuntimeSelectors),
             'controls'        => $controls,
             'control_topology' => $controlTopology,
+            'layout_graph'     => $layoutGraph,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),

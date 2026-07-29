@@ -551,6 +551,18 @@ $assert(64 === ($overflowTopology['nodes'][127]['control'] ?? null), 'node-limit
 $presentationTopology = ( new HtmlTransformer() )->transform('<main><form><custom-element id="bad id" class="safe bad/token one two three four five six seven eight nine ' . str_repeat('x', 81) . '"><input name="safe"></custom-element><button type="submit">Send</button></form></main>')->toArray()['fallbacks'][0]['control_topology']['nodes'][0] ?? array();
 $assert(! isset($presentationTopology['tag']) && ! isset($presentationTopology['source_id']), 'form topology omits unsupported wrapper tags and malformed source IDs');
 $assert('safe one two three four five six seven' === ($presentationTopology['class'] ?? ''), 'form topology retains only the first eight bounded safe class tokens');
+$layoutGraphHtml = '<main><form class="form"><div class="row-2"><div class="field"><input name="first"></div><div class="field"><input name="last"></div></div><button type="submit">Send</button></form></main>';
+$layoutGraphCss = '.form{display:grid;grid-template-columns:1fr;gap:1rem}.form .row-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.field{display:flex;flex-direction:column;gap:.3rem}@media (max-width:640px){.form .row-2{grid-template-columns:1fr}}@container form-shell (max-width:30rem){.field{gap:.5rem}}@supports (display:grid){.form{align-content:start}}';
+$layoutGraphFallback = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => $layoutGraphCss))->toArray()['fallbacks'][0] ?? array();
+$layoutGraph = $layoutGraphFallback['layout_graph'] ?? array();
+$layoutNodes = array_column($layoutGraph['nodes'] ?? array(), null, 'id');
+$assert('generic/computed-layout-graph/v1' === ($layoutGraph['schema'] ?? null) && 'source_css_cascade' === ($layoutGraph['basis'] ?? null), 'form fallback emits the versioned declared-CSS layout graph contract');
+$assert('grid' === ($layoutNodes['form']['layout']['display'] ?? null) && '1fr 1fr' === ($layoutNodes['wrapper-0']['layout']['columns'] ?? null) && 'flex' === ($layoutNodes['wrapper-1']['layout']['display'] ?? null), 'layout graph preserves form, row, and field layout facts in source order');
+$assert('form' === ($layoutNodes['wrapper-0']['parent'] ?? null) && 'wrapper-0' === ($layoutNodes['wrapper-1']['parent'] ?? null), 'layout graph preserves deterministic source parentage without inferring Columns');
+$layoutVariantKinds = array_values(array_unique(array_column(array_column($layoutGraph['variants'] ?? array(), 'condition'), 'kind'))); sort($layoutVariantKinds, SORT_STRING);
+$assert(array('container', 'media', 'supports') === $layoutVariantKinds, 'layout graph preserves media, container, and supports declarations as conditional variants');
+$malformedLayoutGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => '.form{display:grid'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(in_array('malformed_stylesheet:inline-style', $malformedLayoutGraph['diagnostics'] ?? array(), true), 'layout graph reports malformed source stylesheets instead of guessing layout facts');
 
 $newsletterFallback = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
