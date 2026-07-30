@@ -371,6 +371,12 @@ final class HtmlTransformer
     /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
     private array $sourceTableMarkers = array();
 
+    /** @var array<int, bool> */
+    private array $sourceTableRepresentability = array();
+
+    /** @var array<int, array<int, string>> */
+    private array $sourceTableDescendantPaths = array();
+
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
     private array $sourceRichTextSemanticMarkers = array();
 
@@ -472,6 +478,8 @@ final class HtmlTransformer
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
         $this->sourceTableMarkers = array();
+        $this->sourceTableRepresentability = array();
+        $this->sourceTableDescendantPaths = array();
         $this->sourceRichTextSemanticMarkers = array();
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
@@ -969,7 +977,7 @@ final class HtmlTransformer
                         continue;
                     }
                     $table = $this->ancestorTable($element);
-                    if ( ! $table instanceof DOMElement || ! $this->tableClassificationPolicy->classify($table)['representable'] ) {
+                    if ( ! $table instanceof DOMElement || ! $this->isRepresentableTable($table) ) {
                         continue;
                     }
                     $path = $this->sourceElementIdentity($table);
@@ -1423,14 +1431,14 @@ final class HtmlTransformer
     /** @param array<string, mixed> $parsed */
     private function tableSelectorNeedsStructuralProjection(array $parsed, DOMElement $element): bool
     {
-        if ( in_array('>', $parsed['combinators'] ?? array(), true) ) {
-            return true;
-        }
-
         $classes = array();
         $ids = array();
         $attributes = array();
         foreach ( $parsed['compounds'] ?? array() as $compound ) {
+            if ( in_array(strtolower((string) ($compound['type'] ?? '')), array( 'thead', 'tbody', 'tfoot' ), true)
+                && ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) ) {
+                return true;
+            }
             foreach ( $compound['classes'] ?? array() as $className ) {
                 $classes[$className] = true;
             }
@@ -1463,50 +1471,42 @@ final class HtmlTransformer
 
     private function serializedTableDescendantPath(DOMElement $table, DOMElement $element): string
     {
-        $tagName = strtolower($element->tagName);
-        $section = in_array($tagName, array( 'thead', 'tfoot' ), true)
-            ? $tagName
-            : ('tbody' === $tagName ? 'tbody' : $this->serializedTableSection($element));
-        if ( '' === $section ) {
-            return '';
+        $tableId = spl_object_id($table);
+        if ( ! isset($this->sourceTableDescendantPaths[$tableId]) ) {
+            $paths = array();
+            foreach ( array( 'thead', 'tbody', 'tfoot' ) as $section ) {
+                $rowIndex = 0;
+                foreach ( $table->getElementsByTagName($section) as $sectionElement ) {
+                    if ( $sectionElement instanceof DOMElement && $this->belongsToTable($sectionElement, $table) ) {
+                        $paths[spl_object_id($sectionElement)] = $section;
+                    }
+                }
+                foreach ( $table->getElementsByTagName('tr') as $row ) {
+                    if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) || $section !== $this->serializedTableSection($row) ) {
+                        continue;
+                    }
+                    ++$rowIndex;
+                    $rowPath = $section . '>tr:nth-child(' . $rowIndex . ')';
+                    $paths[spl_object_id($row)] = $rowPath;
+                    $cellIndex = 0;
+                    foreach ( $row->childNodes as $cell ) {
+                        if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                            continue;
+                        }
+                        ++$cellIndex;
+                        $paths[spl_object_id($cell)] = $rowPath . '>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . ')';
+                    }
+                }
+            }
+            $this->sourceTableDescendantPaths[$tableId] = $paths;
         }
-        if ( in_array($tagName, array( 'thead', 'tbody', 'tfoot' ), true) ) {
-            return $section;
-        }
+        return $this->sourceTableDescendantPaths[$tableId][spl_object_id($element)] ?? '';
+    }
 
-        $row = 'tr' === $tagName ? $element : $this->ancestorElement($element, 'tr');
-        if ( ! $row instanceof DOMElement ) {
-            return '';
-        }
-        $rowIndex = 0;
-        foreach ( $table->getElementsByTagName('tr') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->belongsToTable($candidate, $table) || $section !== $this->serializedTableSection($candidate) ) {
-                continue;
-            }
-            ++$rowIndex;
-            if ( $candidate->isSameNode($row) ) {
-                break;
-            }
-        }
-        if ( 0 === $rowIndex ) {
-            return '';
-        }
-        $path = $section . '>tr:nth-child(' . $rowIndex . ')';
-        if ( 'tr' === $tagName ) {
-            return $path;
-        }
-
-        $cellIndex = 0;
-        foreach ( $row->childNodes as $cell ) {
-            if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
-                continue;
-            }
-            ++$cellIndex;
-            if ( $cell->isSameNode($element) ) {
-                return $path . '>' . $tagName . ':nth-child(' . $cellIndex . ')';
-            }
-        }
-        return '';
+    private function isRepresentableTable(DOMElement $table): bool
+    {
+        $id = spl_object_id($table);
+        return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
     }
 
     private function serializedTableSection(DOMElement $element): string
@@ -1590,9 +1590,6 @@ final class HtmlTransformer
             if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
                 $shims .= ':not(.' . $this->authorClassSpecificityShim . ')';
             }
-        }
-        if ( null !== $parsed['pseudo_state_suffix_span'] ) {
-            $shims .= ':not(.' . $this->authorClassSpecificityShim . ')';
         }
         return $shims;
     }
