@@ -2012,6 +2012,26 @@ $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navig
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
 
+$artifactNavContainerCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"><script src="startup.js"></script></head><body><header class="site-header"><nav class="desktop-nav"><a href="#one">One</a></nav><div class="collapsed-nav"><ul><li><a href="#one">One</a></li></ul></div></header></body></html>',
+            'styles.css' => '.collapsed-nav,.drawer-panel{display:none;position:absolute}.collapsed-nav.visible{display:block!important}.desktop-nav{display:block}body.fade-in-nav .site-header{opacity:1!important}.collapsed-nav>ul{padding:2rem}',
+            'startup.js' => '$("body").addClass("fade-in-nav");',
+        ),
+    )
+)->toArray();
+$artifactNavContainerStaticCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }'), 'artifact static CSS strengthens source navigation container state against core navigation display rules');
+$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.visible.wp-block-navigation { display:block!important }'), 'artifact static CSS preserves source navigation container visible state');
+$assert(str_contains($artifactNavContainerStaticCss, '.desktop-nav.wp-block-navigation { display:block }'), 'artifact static CSS strengthens desktop navigation container rules');
+$assert(! str_contains($artifactNavContainerStaticCss, '.drawer-panel.wp-block-navigation'), 'artifact navigation container replay does not rewrite unrelated drawer selectors');
+$assert(! str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation>ul'), 'artifact navigation container replay does not rewrite descendant targets as containers');
+$assert(str_contains($artifactNavContainerStaticCss, 'body .site-header { opacity:1!important }'), 'artifact static CSS materializes a stable root class added by source startup code');
+$artifactNavContainerRepairCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
+$assert(str_contains($artifactNavContainerRepairCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries navigation cascade and stable startup state projections');
+
 $artifactGeometry = $compiler->compile(
     array(
         'schema'         => ArtifactCompiler::INPUT_SCHEMA,

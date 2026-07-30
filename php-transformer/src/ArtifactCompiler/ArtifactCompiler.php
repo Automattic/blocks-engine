@@ -1124,7 +1124,14 @@ final class ArtifactCompiler
 
         $css = implode("\n", array_keys($blocks));
 
-        return $includeNavigationCompat ? $css . $this->navigationAnchorCompatCss($css) : $css;
+        if ( ! $includeNavigationCompat ) {
+            return $css;
+        }
+
+        return $css
+            . $this->navigationContainerCompatCss($css)
+            . $this->navigationAnchorCompatCss($css)
+            . $this->rootStartupClassCompatCss($css, $files);
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1169,6 +1176,131 @@ final class ArtifactCompiler
         }
 
         return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+    }
+
+    private function navigationContainerCompatCss(string $css): string
+    {
+        $rules = array();
+        if ( ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return '';
+        }
+
+        foreach ( $matches as $match ) {
+            $body = trim((string) ($match[2] ?? ''));
+            if ( '' === $body ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+                $mapped = $this->mapNavigationContainerSelector($selector);
+                if ( null !== $mapped ) {
+                    $mappedSelectors[$mapped] = true;
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: preserve source navigation container cascade against core/navigation */\n" . implode("\n", $rules);
+    }
+
+    private function mapNavigationContainerSelector(string $selector): ?string
+    {
+        if ( str_contains($selector, '.wp-block-navigation') || ! preg_match('/([^\s>+~]+)\s*$/', trim($selector), $match, PREG_OFFSET_CAPTURE) ) {
+            return null;
+        }
+
+        $compound = (string) ($match[1][0] ?? '');
+        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound) ) {
+            return null;
+        }
+
+        $pseudoOffset = false;
+        if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
+            $pseudoOffset = (int) $pseudoMatch[0][1];
+        }
+        $mappedCompound = false === $pseudoOffset
+            ? $compound . '.wp-block-navigation'
+            : substr($compound, 0, $pseudoOffset) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+
+        return substr($selector, 0, (int) $match[1][1]) . $mappedCompound;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function rootStartupClassCompatCss(string $css, array $files): string
+    {
+        $classes = $this->rootStartupClassNames($files);
+        if ( array() === $classes || ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return '';
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $body = trim((string) ($match[2] ?? ''));
+            if ( '' === $body ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+                foreach ( $classes as $class ) {
+                    $mapped = preg_replace('/\b(body|html)\.' . preg_quote($class, '/') . '\b/', '$1', $selector, 1, $count);
+                    if ( 1 === $count && is_string($mapped) ) {
+                        $mappedSelectors[trim($mapped)] = true;
+                    }
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: materialize stable source startup root classes */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function rootStartupClassNames(array $files): array
+    {
+        $added = array();
+        $removed = array();
+        foreach ( $this->allScriptContents($files) as $script ) {
+            if ( preg_match_all('/\$\(\s*(["\'])(?:body|html)\1\s*\)\s*\.\s*addClass\s*\(\s*(["\'])([^"\']+)\2\s*\)/', $script, $matches) ) {
+                foreach ( $matches[3] as $classList ) {
+                    foreach ( preg_split('/\s+/', trim((string) $classList)) ?: array() as $class ) {
+                        if ( preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/', $class) ) {
+                            $added[$class] = true;
+                        }
+                    }
+                }
+            }
+            if ( preg_match_all('/document\s*\.\s*(?:body|documentElement)\s*\.\s*classList\s*\.\s*add\s*\(\s*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+                foreach ( $matches[2] as $class ) {
+                    $added[(string) $class] = true;
+                }
+            }
+            if ( preg_match_all('/(?:removeClass|toggleClass|classList\s*\.\s*(?:remove|toggle))\s*\([^)]*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1/', $script, $matches) ) {
+                foreach ( $matches[2] as $class ) {
+                    $removed[(string) $class] = true;
+                }
+            }
+        }
+
+        return array_values(array_diff(array_keys($added), array_keys($removed)));
     }
 
     /**
@@ -2373,7 +2505,10 @@ final class ArtifactCompiler
                 $css .= ('' === $css ? '' : "\n") . $asset['content'];
             }
         }
-        $navigationCompatCss = $this->navigationAnchorCompatCss($this->themeStaticCss($files, false));
+        $staticCss = $this->themeStaticCss($files, false);
+        $navigationCompatCss = $this->navigationContainerCompatCss($staticCss)
+            . $this->navigationAnchorCompatCss($staticCss)
+            . $this->rootStartupClassCompatCss($staticCss, $files);
         if ( '' !== $navigationCompatCss ) {
             $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
