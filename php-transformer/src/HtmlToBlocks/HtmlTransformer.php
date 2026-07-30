@@ -2403,9 +2403,11 @@ final class HtmlTransformer
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
-            $backgroundImage = $this->backgroundImageBlockFromElement($element);
-            if ( null !== $backgroundImage && ! $this->hasDirectMediaChild($element) ) {
-                array_unshift($children, $backgroundImage);
+            if ( array() === $children && ! $this->hasDirectMediaChild($element) ) {
+                $backgroundImage = $this->backgroundImageBlockFromElement($element);
+                if ( null !== $backgroundImage ) {
+                    $children[] = $backgroundImage;
+                }
             }
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) ) {

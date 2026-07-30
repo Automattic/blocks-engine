@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-layered-background-top-image",
-  "description": "Converts a layered image background to editable media using the first URL, matching CSS top-layer paint order.",
+  "description": "Preserves layered image backgrounds as generated author CSS without introducing an in-flow media child.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-layered-background-top-image.json",
@@ -17,16 +17,15 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/top.png", "alt": "Featured story", "className": "blocks-engine-background-image", "width": "691px", "height": "345.5px", "scale": "cover" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Featured story", "level": 1 } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Featured story", "level": 1 } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero layered-image" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/top.png\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"object-fit:cover;width:691px;height:345.5px\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "src=\"assets/bottom.png\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-background-image" },
+    { "path": "assets.0.content", "assert": "contains", "value": "url('assets/top.png'),url('assets/bottom.png')" },
+    { "path": "assets.0.content", "assert": "contains", "value": "background-size:cover" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

@@ -1187,6 +1187,21 @@ $assert(str_contains($serializedInlineSvgVisualWrapper, 'visual-region'), 'HTML 
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-layer'), 'HTML transform preserves nested visual wrapper classes');
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are present');
 
+$backgroundContainer = ( new HtmlTransformer() )->transform(
+    '<main><section class="hero" style="height:640px;background-image:url(assets/hero.jpg)"><div class="content"><h1>Hero</h1><p>Body</p></div></section></main>'
+)->toArray();
+$serializedBackgroundContainer = (string) ($backgroundContainer['serialized_blocks'] ?? '');
+$backgroundContainerCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $backgroundContainer['assets'] ?? array()));
+$assert(! str_contains($serializedBackgroundContainer, 'blocks-engine-background-image'), 'background images on content containers do not become in-flow image children');
+$assert(str_contains($serializedBackgroundContainer, 'class="wp-block-group hero') && str_contains($serializedBackgroundContainer, 'class="wp-block-group content'), 'background content containers retain their CSS-addressable wrapper hierarchy');
+$assert(str_contains($backgroundContainerCss, 'background-image:url(assets/hero.jpg)'), 'inline background paint on content containers is retained by the generated author stylesheet');
+
+$emptyBackgroundVisual = ( new HtmlTransformer() )->transform(
+    '<main><div class="map-image" style="width:640px;height:320px;background-image:url(assets/map.png)" aria-label="Service area"></div></main>'
+)->toArray();
+$serializedEmptyBackgroundVisual = (string) ($emptyBackgroundVisual['serialized_blocks'] ?? '');
+$assert(str_contains($serializedEmptyBackgroundVisual, 'blocks-engine-background-image'), 'empty background visual elements remain editable image blocks');
+
 $flexIconRow = ( new HtmlTransformer() )->transform(
     '<main><div class="notice-row" style="display: flex; gap: 1rem;"><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle><path d="M2 5h6"></path></svg><div><strong>Venue address</strong><br>Asheville, NC</div></div></main>'
 )->toArray();
