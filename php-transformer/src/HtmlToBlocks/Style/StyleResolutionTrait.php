@@ -908,12 +908,12 @@ trait StyleResolutionTrait
 
     private function isSupportedCssSelector(string $selector): bool
     {
-        return (bool) (CssSelectorMatcher::parse($selector)['supported'] ?? false);
+        return (bool) ($this->parsedCssSelector($selector)['supported'] ?? false);
     }
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
+        $match = CssSelectorMatcher::matches($element, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 
