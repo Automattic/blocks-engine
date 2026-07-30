@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -1014,7 +1015,18 @@ final class ArtifactCompiler
             if ( array() === $authoritativeContent ) {
                 $authoritativeContent[] = (string) ($file['content'] ?? '');
             }
-            $content = implode("\n", array_merge(array_keys($pathProjections), $authoritativeContent));
+            $preambles = array();
+            $stylesheets = array();
+            foreach ( $authoritativeContent as $stylesheet ) {
+                $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($stylesheet);
+                if ( '' !== trim($split['preamble']) ) {
+                    $preambles[] = $split['preamble'];
+                }
+                if ( '' !== trim($split['stylesheet']) ) {
+                    $stylesheets[] = $split['stylesheet'];
+                }
+            }
+            $content = implode("\n", array_merge($preambles, array_keys($pathProjections), $stylesheets));
             $file['content'] = $content;
             // Projection rewrites the CSS text, so any base64 twin from the
             // source payload is stale. Drop it and let the rewritten text be the

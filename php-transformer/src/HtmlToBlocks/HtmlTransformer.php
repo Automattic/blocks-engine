@@ -766,6 +766,15 @@ final class HtmlTransformer
     private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
     {
         $cssParts = array();
+        $authorCss = '';
+        if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
+            $authorCss = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
+            $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
+            if ( '' !== trim($split['preamble']) ) {
+                $cssParts[] = $split['preamble'];
+            }
+            $authorCss = $split['stylesheet'];
+        }
         $geometryCss = $this->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
@@ -781,8 +790,8 @@ final class HtmlTransformer
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
-        if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
-            $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
+        if ( '' !== trim($authorCss) ) {
+            $cssParts[] = $authorCss;
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -996,7 +1005,8 @@ final class HtmlTransformer
         foreach ( $this->authorStylesheetAssets as $asset ) {
             $content = $this->rewriteAuthorStylesheet($asset['content']);
             if ( '' !== $markerReset ) {
-                $content = $markerReset . "\n" . $content;
+                $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($content);
+                $content = $split['preamble'] . $markerReset . "\n" . $split['stylesheet'];
                 $markerReset = '';
             }
             $hash = hash('sha256', $content);
