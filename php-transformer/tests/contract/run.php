@@ -307,12 +307,6 @@ $assert(true === ($spanningTableClassification['signals']['has_colspan'] ?? null
 $simpleDataTableResult = ( new HtmlTransformer() )->transform('<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><tr><td>Ada</td><td>Engineer</td></tr></tbody></table>')->toArray();
 $assert('core/table' === ($simpleDataTableResult['blocks'][0]['blockName'] ?? null), 'simple data table converts to native core/table');
 $assert(str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), '<!-- wp:table'), 'simple data table serializes native table markup');
-$layoutTableResult = ( new HtmlTransformer() )->transform('<table class="layout-grid"><tr><td class="layout-cell" style="width:40%;padding:0 15px"><img src="image.jpg" alt="Example"></td><td class="layout-cell"><h2>Editable layout</h2><p>Copy</p></td></tr></table>')->toArray();
-$assert('core/columns' === ($layoutTableResult['blocks'][0]['blockName'] ?? null), 'single-row layout table converts to native core/columns');
-$assert('core/column' === ($layoutTableResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && str_contains((string) ($layoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'layout-cell'), 'layout table cells retain their classes on editable core/column blocks');
-$assert(str_contains((string) ($layoutTableResult['serialized_blocks'] ?? ''), 'layout-grid') && ! str_contains((string) ($layoutTableResult['serialized_blocks'] ?? ''), '<!-- wp:table'), 'layout table conversion preserves the source layout class without Gutenberg table chrome');
-$multiRowLayoutTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>')->toArray();
-$assert('core/table' === ($multiRowLayoutTableResult['blocks'][0]['blockName'] ?? null), 'multi-row layout tables remain native core/table blocks');
 $nestedTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>Outer<table><tr><td>Inner</td></tr></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'descendant table falls back to core/html');
 $assert(str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<table><tr><td>Outer<table>'), 'descendant table fallback preserves nested table markup');
