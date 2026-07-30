@@ -298,6 +298,21 @@ $assert(array() !== $rootPlan && !isset($rootRelative['source_reports']['wordpre
 $rootPage = $rootPlan['pages'][0] ?? array();
 $rootCss = $writeMap($rootPlan['writes'])['assets/assets/site.css']['payload']['data'] ?? '';
 $assert(str_contains((string) $rootCss, WordPressSitePlan::TOKEN_PREFIX) && str_contains((string) $rootCss, '?version=3#import') && str_contains((string) $rootCss, '?font=1#face') && str_contains((string) $rootCss, '?background=1#image') && str_contains((string) $rootCss, '}}?quoted=1#image') && str_contains((string) $rootCss, '}}?unquoted=1#image') && str_contains((string) $rootCss, '}}?escaped=1#image') && str_contains((string) $rootCss, '/assets/logo(1).svg?broken=1#image'), 'Bounded CSS URL parsing canonicalizes quoted, unquoted, and escaped assets while preserving malformed calls and suffixes.');
+$base64Binary = "\xff\xd8binary\0image";
+$base64Artifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    array('path' => 'website/index.html', 'type' => 'text/html', 'content_base64' => base64_encode('<link rel="stylesheet" href="files/main.css"><main><div class="hero"><div class="content"><h1>Base64 fixture</h1><p>Body</p></div></div></main>')),
+    array('path' => 'website/files/main.css', 'type' => 'text/css', 'content_base64' => base64_encode('.hero{width:100%;height:640px;background:url(theme/images/default-bg.jpg) center/cover no-repeat}')),
+    array('path' => 'website/files/theme/images/default-bg.jpg', 'type' => 'image/jpeg', 'content_base64' => base64_encode($base64Binary)),
+    array('path' => 'website/files/app.js', 'type' => 'application/javascript', 'content_base64' => base64_encode('const replacement = "$1";')),
+    array('path' => 'website/files/plain.js', 'type' => 'application/javascript', 'content' => 'const template = \'<img src="\\/ajax\\/api\\/JsonRPC\\/">\';'),
+)))->toArray();
+$base64Plan = $base64Artifact['source_reports']['wordpress_site_plan'] ?? array();
+$base64Writes = $writeMap($base64Plan['writes'] ?? array());
+$assert(array() !== $base64Plan && 'utf8' === ($base64Writes['assets/website/files/main.css']['payload']['encoding'] ?? null) && str_contains((string) ($base64Writes['assets/website/files/main.css']['payload']['data'] ?? ''), WordPressSitePlan::TOKEN_PREFIX), 'Base64-transported text assets are decoded and canonicalized into self-contained UTF-8 writes.');
+$assert(str_contains((string) ($base64Plan['pages'][0]['canonical_block_markup'] ?? ''), WordPressSitePlan::TOKEN_PREFIX), 'Stylesheet-relative background images promoted into blocks retain their canonical artifact identity.');
+$assert('base64' === ($base64Writes['assets/website/files/theme/images/default-bg.jpg']['payload']['encoding'] ?? null) && $base64Binary === base64_decode((string) ($base64Writes['assets/website/files/theme/images/default-bg.jpg']['payload']['data'] ?? ''), true), 'Base64-transported binary assets remain byte-for-byte base64 writes.');
+$assert('base64' === ($base64Writes['assets/website/files/app.js']['payload']['encoding'] ?? null) && 'const replacement = "$1";' === base64_decode((string) ($base64Writes['assets/website/files/app.js']['payload']['data'] ?? ''), true), 'Base64-transported scripts retain their opaque transport and bytes.');
+$assert('utf8' === ($base64Writes['assets/website/files/plain.js']['payload']['encoding'] ?? null), 'UTF-8 scripts remain materializable without applying HTML and CSS reference parsing to JavaScript syntax.');
 $rootResolved = (new WordPressSitePlanResolver())->resolve($rootPlan, array('theme_uri' => 'https://example.test/wp-content/themes/root'));
 $assert(true === (static function () use ($rootResolved): bool { WordPressSitePlan::assertValid($rootResolved); return true; })(), 'Public validation accepts root-relative metadata resolutions with query and fragment suffixes.');
 $rootResolvedPage = $rootResolved['pages'][0] ?? array();

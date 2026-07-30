@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -823,7 +824,7 @@ final class ArtifactCompiler
 
             foreach ( $files as $file ) {
                 if ( $path === (string) ($file['path'] ?? '') && 'css' === ($file['kind'] ?? '') && is_string($file['content'] ?? null) ) {
-                    $css[] = (string) $file['content'];
+                    $css[] = $this->artifactRelativeStylesheetContent((string) $file['content'], $path, $files);
                     break;
                 }
             }
@@ -894,6 +895,20 @@ final class ArtifactCompiler
             }
         }
         return $assets;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
+    {
+        $paths = array_fill_keys(array_column($files, 'path'), true);
+        return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
+            if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
+            preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
+            $path = str_starts_with($parts[1] ?? '', '/')
+                ? ArtifactPath::safeRelativePath(ltrim((string) ($parts[1] ?? ''), '/'))
+                : ArtifactPath::resolveRelativePath((string) ($parts[1] ?? ''), $stylesheetPath);
+            return '' !== $path && isset($paths[$path]) ? $path . ($parts[2] ?? '') : $reference;
+        });
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<int, array<string, mixed>> */
