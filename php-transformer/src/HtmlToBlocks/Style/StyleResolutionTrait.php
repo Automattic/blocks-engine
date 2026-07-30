@@ -2,6 +2,7 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 
@@ -73,6 +74,24 @@ trait StyleResolutionTrait
             'flex-basis',
             'object-fit',
             'object-position',
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function inlineBackgroundCarrierProperties(): array
+    {
+        return array(
+            'background',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
         );
     }
 
@@ -270,7 +289,14 @@ trait StyleResolutionTrait
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
-        foreach (array_values(array_unique(array_merge($this->inlineGeometryProperties(), $forcedProperties))) as $property) {
+        $properties = $this->inlineGeometryProperties();
+        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
+        if ( preg_match('/\burl\s*\(/i', $inlineBackground)
+            && ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
+        ) {
+            $properties = array_merge($properties, $this->inlineBackgroundCarrierProperties());
+        }
+        foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
@@ -279,6 +305,9 @@ trait StyleResolutionTrait
                 continue;
             }
             $value = $rawValue;
+            if ( in_array($property, array( 'background', 'background-image' ), true) ) {
+                $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
+            }
             if ('' !== $value && ! preg_match('/[{}<>;]/', $value)) {
                 $geometry[$property] = $value;
             }
@@ -908,12 +937,12 @@ trait StyleResolutionTrait
 
     private function isSupportedCssSelector(string $selector): bool
     {
-        return (bool) (CssSelectorMatcher::parse($selector)['supported'] ?? false);
+        return (bool) ($this->parsedCssSelector($selector)['supported'] ?? false);
     }
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
+        $match = CssSelectorMatcher::matches($element, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -93,6 +94,10 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
+        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
+        if ( null !== $wordpressCompatAsset ) {
+            $assets[] = $wordpressCompatAsset;
+        }
         $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -823,7 +828,7 @@ final class ArtifactCompiler
 
             foreach ( $files as $file ) {
                 if ( $path === (string) ($file['path'] ?? '') && 'css' === ($file['kind'] ?? '') && is_string($file['content'] ?? null) ) {
-                    $css[] = (string) $file['content'];
+                    $css[] = $this->artifactRelativeStylesheetContent((string) $file['content'], $path, $files);
                     break;
                 }
             }
@@ -894,6 +899,20 @@ final class ArtifactCompiler
             }
         }
         return $assets;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
+    {
+        $paths = array_fill_keys(array_column($files, 'path'), true);
+        return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
+            if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
+            preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
+            $path = str_starts_with($parts[1] ?? '', '/')
+                ? ArtifactPath::safeRelativePath(ltrim((string) ($parts[1] ?? ''), '/'))
+                : ArtifactPath::resolveRelativePath((string) ($parts[1] ?? ''), $stylesheetPath);
+            return '' !== $path && isset($paths[$path]) ? $path . ($parts[2] ?? '') : $reference;
+        });
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<int, array<string, mixed>> */
@@ -1109,7 +1128,12 @@ final class ArtifactCompiler
 
         $css = implode("\n", array_keys($blocks));
 
-        return $includeNavigationCompat ? $css . $this->navigationAnchorCompatCss($css) : $css;
+        if ( ! $includeNavigationCompat ) {
+            return $css;
+        }
+
+        return $css
+            . $this->wordpressCompatCss($css, $files);
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1127,18 +1151,14 @@ final class ArtifactCompiler
     private function navigationAnchorCompatCss(string $css): string
     {
         $rules = array();
-        if ( ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return '';
-        }
-
-        foreach ( $matches as $match ) {
-            $body = trim((string) ($match[2] ?? ''));
-            if ( '' === $body ) {
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
+            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
                 foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
                     $mappedSelectors[$mappedSelector] = true;
                 }
@@ -1154,6 +1174,233 @@ final class ArtifactCompiler
         }
 
         return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+    }
+
+    private function navigationContainerCompatCss(string $css): string
+    {
+        $rules = array();
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
+            if ( '' === $body || str_contains(strtolower($body), 'url(') || ! preg_match('/(?:^|;)\s*display\s*:/i', $body) ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
+                $mapped = $this->mapNavigationContainerSelector($selector);
+                if ( null !== $mapped ) {
+                    $mappedSelectors[$mapped] = true;
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: preserve source navigation container cascade against core/navigation */\n" . implode("\n", $rules);
+    }
+
+    private function mapNavigationContainerSelector(string $selector): ?string
+    {
+        if ( str_contains($selector, '.wp-block-navigation') || ! preg_match('/([^\s>+~]+)\s*$/', trim($selector), $match, PREG_OFFSET_CAPTURE) ) {
+            return null;
+        }
+
+        $compound = (string) ($match[1][0] ?? '');
+        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound)
+            || ! preg_match('/(?:^|[.#_-])(?:collapsed|mobile|drawer|overlay|offcanvas|responsive)(?:$|[.#_:-])/i', $compound) ) {
+            return null;
+        }
+
+        $pseudoOffset = false;
+        if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
+            $pseudoOffset = (int) $pseudoMatch[0][1];
+        }
+        $mappedCompound = false === $pseudoOffset
+            ? $compound . '.wp-block-navigation'
+            : substr($compound, 0, $pseudoOffset) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+
+        return substr($selector, 0, (int) $match[1][1]) . $mappedCompound;
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function rootStartupClassCompatCss(string $css, array $files): string
+    {
+        $classes = $this->rootStartupClassNames($files);
+        if ( array() === $classes ) {
+            return '';
+        }
+
+        $rules = array();
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
+            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
+                foreach ( $classes as $class ) {
+                    $mapped = preg_replace('/\b(body|html)\.' . preg_quote($class, '/') . '\b/', '$1', $selector, 1, $count);
+                    if ( 1 === $count && is_string($mapped) ) {
+                        $mappedSelectors[trim($mapped)] = true;
+                    }
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: materialize stable source startup root classes */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function rootStartupClassNames(array $files): array
+    {
+        $added = array();
+        $removed = array();
+        foreach ( $this->allScriptContents($files) as $script ) {
+            if ( preg_match_all('/\$\(\s*(["\'])(?:body|html)\1\s*\)\s*\.\s*addClass\s*\(\s*(["\'])([^"\']+)\2\s*\)/', $script, $matches) ) {
+                foreach ( $matches[3] as $classList ) {
+                    foreach ( preg_split('/\s+/', trim((string) $classList)) ?: array() as $class ) {
+                        if ( preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/', $class) ) {
+                            $added[$class] = true;
+                        }
+                    }
+                }
+            }
+            if ( preg_match_all('/document\s*\.\s*(?:body|documentElement)\s*\.\s*classList\s*\.\s*add\s*\(\s*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+                foreach ( $matches[2] as $class ) {
+                    $added[(string) $class] = true;
+                }
+            }
+            if ( preg_match_all('/(?:removeClass|toggleClass|classList\s*\.\s*(?:remove|toggle))\s*\([^)]*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1/', $script, $matches) ) {
+                foreach ( $matches[2] as $class ) {
+                    $removed[(string) $class] = true;
+                }
+            }
+        }
+
+        return array_values(array_diff(array_keys($added), array_keys($removed)));
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function wordpressCompatCss(string $css, array $files): string
+    {
+        return $this->navigationContainerCompatCss($css)
+            . $this->navigationAnchorCompatCss($css)
+            . $this->rootStartupClassCompatCss($css, $files);
+    }
+
+    /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
+    private function wordpressCompatAsset(array $files): ?array
+    {
+        $css = trim($this->wordpressCompatCss($this->themeStaticCss($files, false), $files));
+        if ( '' === $css ) {
+            return null;
+        }
+
+        $hash = hash('sha256', $css);
+        $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';
+        return array(
+            'source'      => 'wordpress-compat',
+            'path'        => $path,
+            'target_path' => $path,
+            'kind'        => 'css',
+            'role'        => 'stylesheet',
+            'intent'      => 'style',
+            'media_type'  => 'text/css',
+            'mime_type'   => 'text/css',
+            'bytes'       => strlen($css),
+            'binary'      => false,
+            'content'     => $css,
+            'hash'        => $hash,
+        );
+    }
+
+    /** @return array<int, array{selector:string,body:string}> */
+    private function topLevelCssRules(string $css): array
+    {
+        $rules = array();
+        $length = strlen($css);
+        $start = 0;
+        for ( $index = 0; $index < $length; $index++ ) {
+            if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
+                $end = strpos($css, '*/', $index + 2);
+                $index = false === $end ? $length : $end + 1;
+                continue;
+            }
+            if ( in_array($css[$index], array('"', "'"), true) ) {
+                $quote = $css[$index];
+                while ( ++$index < $length ) {
+                    if ( '\\' === $css[$index] ) {
+                        $index++;
+                    } elseif ( $quote === $css[$index] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( ';' === $css[$index] ) {
+                $start = $index + 1;
+                continue;
+            }
+            if ( '{' !== $css[$index] ) {
+                continue;
+            }
+
+            $selector = trim(substr($css, $start, $index - $start));
+            $bodyStart = $index + 1;
+            $depth = 1;
+            while ( ++$index < $length && $depth > 0 ) {
+                if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
+                    $end = strpos($css, '*/', $index + 2);
+                    $index = false === $end ? $length : $end + 1;
+                    continue;
+                }
+                if ( in_array($css[$index], array('"', "'"), true) ) {
+                    $quote = $css[$index];
+                    while ( ++$index < $length ) {
+                        if ( '\\' === $css[$index] ) {
+                            $index++;
+                        } elseif ( $quote === $css[$index] ) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ( '{' === $css[$index] ) {
+                    $depth++;
+                } elseif ( '}' === $css[$index] ) {
+                    $depth--;
+                }
+            }
+            if ( '' !== $selector && ! str_starts_with($selector, '@') && 0 === $depth ) {
+                $closingBrace = $index - 1;
+                $rules[] = array(
+                    'selector' => $selector,
+                    'body'     => trim(substr($css, $bodyStart, $closingBrace - $bodyStart)),
+                );
+            }
+            $start = $index;
+            $index--;
+        }
+
+        return $rules;
     }
 
     /**
@@ -2358,7 +2605,8 @@ final class ArtifactCompiler
                 $css .= ('' === $css ? '' : "\n") . $asset['content'];
             }
         }
-        $navigationCompatCss = $this->navigationAnchorCompatCss($this->themeStaticCss($files, false));
+        $staticCss = $this->themeStaticCss($files, false);
+        $navigationCompatCss = $this->wordpressCompatCss($staticCss, $files);
         if ( '' !== $navigationCompatCss ) {
             $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
@@ -2379,6 +2627,7 @@ final class ArtifactCompiler
                     $stylesheets
                 )),
                 'css'         => $css,
+                'compat_css'  => $navigationCompatCss,
             ),
             static fn (mixed $value): bool => '' !== $value && array() !== $value
         );

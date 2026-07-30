@@ -1187,6 +1187,21 @@ $assert(str_contains($serializedInlineSvgVisualWrapper, 'visual-region'), 'HTML 
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-layer'), 'HTML transform preserves nested visual wrapper classes');
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are present');
 
+$backgroundContainer = ( new HtmlTransformer() )->transform(
+    '<main><section class="hero" style="height:640px;background-image:url(assets/hero.jpg)"><div class="content"><h1>Hero</h1><p>Body</p></div></section></main>'
+)->toArray();
+$serializedBackgroundContainer = (string) ($backgroundContainer['serialized_blocks'] ?? '');
+$backgroundContainerCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $backgroundContainer['assets'] ?? array()));
+$assert(! str_contains($serializedBackgroundContainer, 'blocks-engine-background-image'), 'background images on content containers do not become in-flow image children');
+$assert(str_contains($serializedBackgroundContainer, 'class="wp-block-group hero') && str_contains($serializedBackgroundContainer, 'class="wp-block-group content'), 'background content containers retain their CSS-addressable wrapper hierarchy');
+$assert(str_contains($backgroundContainerCss, 'background-image:url(assets/hero.jpg)'), 'inline background paint on content containers is retained by the generated author stylesheet');
+
+$emptyBackgroundVisual = ( new HtmlTransformer() )->transform(
+    '<main><div class="map-image" style="width:640px;height:320px;background-image:url(assets/map.png)" aria-label="Service area"></div></main>'
+)->toArray();
+$serializedEmptyBackgroundVisual = (string) ($emptyBackgroundVisual['serialized_blocks'] ?? '');
+$assert(str_contains($serializedEmptyBackgroundVisual, 'blocks-engine-background-image'), 'empty background visual elements remain editable image blocks');
+
 $flexIconRow = ( new HtmlTransformer() )->transform(
     '<main><div class="notice-row" style="display: flex; gap: 1rem;"><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle><path d="M2 5h6"></path></svg><div><strong>Venue address</strong><br>Asheville, NC</div></div></main>'
 )->toArray();
@@ -2011,6 +2026,30 @@ $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
+
+$artifactNavContainerCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"><script src="startup.js"></script></head><body><header class="site-header"><nav class="desktop-nav"><a href="#one">One</a></nav><div class="collapsed-nav"><ul><li><a href="#one">One</a></li></ul></div></header></body></html>',
+            'styles.css' => '.collapsed-nav,.drawer-panel{display:none;position:absolute}.collapsed-nav.visible{display:block!important}.desktop-nav{display:block}body.fade-in-nav .site-header{opacity:1!important}.collapsed-nav>ul{padding:2rem}@media(max-width:600px){.desktop-nav{display:none!important}}',
+            'startup.js' => '$("body").addClass("fade-in-nav");',
+        ),
+    )
+)->toArray();
+$artifactNavContainerStaticCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }'), 'artifact static CSS strengthens source navigation container state against core navigation display rules');
+$assert(str_contains($artifactNavContainerStaticCss, '.collapsed-nav.visible.wp-block-navigation { display:block!important }'), 'artifact static CSS preserves source navigation container visible state');
+$assert(! str_contains($artifactNavContainerStaticCss, '.desktop-nav.wp-block-navigation'), 'artifact static CSS leaves desktop navigation display rules under their authored responsive cascade');
+$assert(! str_contains($artifactNavContainerStaticCss, '.drawer-panel.wp-block-navigation'), 'artifact navigation container replay does not rewrite unrelated drawer selectors');
+$assert(! str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation>ul'), 'artifact navigation container replay does not rewrite descendant targets as containers');
+$assert(str_contains($artifactNavContainerStaticCss, 'body .site-header { opacity:1!important }'), 'artifact static CSS materializes a stable root class added by source startup code');
+$artifactNavContainerRepair = $artifactNavContainerCss['source_reports']['compiled_site']['visual_repair'] ?? array();
+$artifactNavContainerRepairCss = (string) ($artifactNavContainerRepair['css'] ?? '');
+$assert(str_contains($artifactNavContainerRepairCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries navigation cascade and stable startup state projections');
+$assert(str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
+$artifactNavContainerCompatAssets = array_values(array_filter($artifactNavContainerCss['source_reports']['compiled_site']['assets'] ?? array(), static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')));
+$assert(1 === count($artifactNavContainerCompatAssets) && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerCompatAssets[0]['content'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact compiler emits self-contained WordPress compatibility CSS as an enqueued stylesheet asset');
 
 $artifactGeometry = $compiler->compile(
     array(

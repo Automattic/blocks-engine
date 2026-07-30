@@ -375,6 +375,15 @@ final class HtmlTransformer
 
     private ?DOMElement $authorStyleSourceBody = null;
 
+    /** @var list<DOMElement> */
+    private array $authorStyleSourceElements = array();
+
+    /** @var array<string, list<DOMElement>> */
+    private array $authorSourceSelectorMatches = array();
+
+    /** @var array<string, array<string, mixed>> */
+    private array $parsedCssSelectors = array();
+
     private string $authorMarkerSeed = '';
 
     private int $authorMarkerCounter = 0;
@@ -462,6 +471,9 @@ final class HtmlTransformer
         $this->sourceRichTextSemanticMarkers = array();
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
+        $this->authorStyleSourceElements = array();
+        $this->authorSourceSelectorMatches = array();
+        $this->parsedCssSelectors = array();
         $this->authorMarkerSeed = '';
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
@@ -831,11 +843,16 @@ final class HtmlTransformer
         }
 
         $this->authorStyleSourceBody = $sourceBody;
+        foreach ( $sourceBody->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement ) {
+                $this->authorStyleSourceElements[] = $element;
+            }
+        }
 
         $sourceTagSelectorNames = array();
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, static function (string $prelude) use (&$sourceTagSelectorNames): string {
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames): string {
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = CssSelectorMatcher::parse($selector);
+                $parsed = $this->parsedCssSelector($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
                     if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
@@ -857,11 +874,11 @@ final class HtmlTransformer
     {
         ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = CssSelectorMatcher::parse($selector);
+                $parsed = $this->parsedCssSelector($selector);
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
-                $matches = $this->matchingAuthorSourceElements($parsed);
+                $matches = $this->matchingAuthorSourceElements($selector, $parsed);
                 $controls = array_filter($matches, static fn (DOMElement $element): bool => in_array(strtolower($element->tagName), array( 'a', 'button' ), true));
                 if ( array() === $controls ) {
                     continue;
@@ -881,11 +898,11 @@ final class HtmlTransformer
     {
         ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = CssSelectorMatcher::parse($selector);
+                $parsed = $this->parsedCssSelector($selector);
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
-                foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
                     if ( 'span' !== strtolower($element->tagName) ) {
                         continue;
                     }
@@ -913,11 +930,11 @@ final class HtmlTransformer
     {
         ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = CssSelectorMatcher::parse($selector);
+                $parsed = $this->parsedCssSelector($selector);
                 if ( ! $parsed['supported'] || ! $this->isRootChildSelector($parsed) ) {
                     continue;
                 }
-                foreach ( $this->matchingAuthorSourceElements($parsed) as $element ) {
+                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
                     if ( in_array(strtolower($element->tagName), array( 'link', 'meta', 'script', 'style', 'template', 'title' ), true) ) {
                         continue;
                     }
@@ -1057,11 +1074,11 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $parsed = CssSelectorMatcher::parse($selector);
+            $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
-            $matches = $this->matchingAuthorSourceElements($parsed);
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
             if ( array() === $matches ) {
                 continue;
             }
@@ -1125,12 +1142,12 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $parsed = CssSelectorMatcher::parse($selector);
+            $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $rewritten[] = $selector;
                 continue;
             }
-            $matches = $this->matchingAuthorSourceElements($parsed);
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
             if ( array() === $matches ) {
                 // A type selector (e.g. `.page-header p`) that matches no source
                 // element must still be projected through its source-tag marker
@@ -1226,11 +1243,11 @@ final class HtmlTransformer
 
         $projected = array();
         foreach ( $selectors as $selector ) {
-            $parsed = CssSelectorMatcher::parse($selector);
+            $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
                 continue;
             }
-            $matches = $this->matchingAuthorSourceElements($parsed);
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
             $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName)));
             if ( array() === $imageMatches ) {
                 continue;
@@ -1271,16 +1288,25 @@ final class HtmlTransformer
         return implode(';', $bridge);
     }
 
-    /** @param array<string, mixed> $parsed @return list<DOMElement> */
-    private function matchingAuthorSourceElements(array $parsed): array
+    /** @return array<string, mixed> */
+    private function parsedCssSelector(string $selector): array
     {
+        return $this->parsedCssSelectors[$selector] ??= CssSelectorMatcher::parse($selector);
+    }
+
+    /** @param array<string, mixed> $parsed @return list<DOMElement> */
+    private function matchingAuthorSourceElements(string $selector, array $parsed): array
+    {
+        if ( array_key_exists($selector, $this->authorSourceSelectorMatches) ) {
+            return $this->authorSourceSelectorMatches[$selector];
+        }
         $matches = array();
-        foreach ($this->authorStyleSourceBody?->getElementsByTagName('*') ?? array() as $element) {
-            if ( $element instanceof DOMElement && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+        foreach ( $this->authorStyleSourceElements as $element ) {
+            if ( CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
                 $matches[] = $element;
             }
         }
-        return $matches;
+        return $this->authorSourceSelectorMatches[$selector] = $matches;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2377,9 +2403,11 @@ final class HtmlTransformer
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
-            $backgroundImage = $this->backgroundImageBlockFromElement($element);
-            if ( null !== $backgroundImage && ! $this->hasDirectMediaChild($element) ) {
-                array_unshift($children, $backgroundImage);
+            if ( array() === $children && ! $this->hasDirectMediaChild($element) ) {
+                $backgroundImage = $this->backgroundImageBlockFromElement($element);
+                if ( null !== $backgroundImage ) {
+                    $children[] = $backgroundImage;
+                }
             }
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) ) {
@@ -2695,7 +2723,7 @@ final class HtmlTransformer
     {
         $declarations = array();
         foreach ( $this->staticStyleRules as $rule ) {
-            $parsed = CssSelectorMatcher::parse($rule['selector']);
+            $parsed = $this->parsedCssSelector($rule['selector']);
             if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
                 $declarations = array_merge($declarations, $rule['declarations']);
             }
