@@ -39,7 +39,7 @@ $assert(WordPressSitePlan::SCHEMA === ($plan['schema'] ?? null), 'Compiler proje
 $assert(isset($writes['style.css'], $writes['theme.json'], $writes['functions.php'], $writes['templates/index.html'], $writes['templates/page.html'], $writes['templates/front-page.html'], $writes['parts/header.html'], $writes['parts/footer.html'], $writes['parts/sidebar.html']), 'Plan declares the complete block-theme scaffold.');
 $assert(str_contains((string) $writes['style.css']['payload']['data'], 'Theme Name:'), 'Theme stylesheet has a recognition header.');
 $repairResult = $first;
-$repairResult['source_reports']['compiled_site']['visual_repair'] = array( 'css' => '.converted-navigation{display:none}' );
+$repairResult['source_reports']['compiled_site']['visual_repair'] = array( 'css' => '.legacy-repair{display:block}', 'compat_css' => '.converted-navigation{display:none}' );
 $repairPlan = (new WordPressSitePlan())->fromResult($repairResult);
 $repairWrites = $writeMap($repairPlan['writes']);
 $assert(str_contains((string) ($repairWrites['style.css']['payload']['data'] ?? ''), '.converted-navigation{display:none}'), 'Theme stylesheet materializes compiled visual repair CSS.');

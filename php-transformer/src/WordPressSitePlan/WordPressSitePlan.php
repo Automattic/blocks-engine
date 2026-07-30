@@ -608,7 +608,7 @@ final class WordPressSitePlan
     private static function styleCss(array $visualRepair): string
     {
         $header = "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n";
-        $css = is_string($visualRepair['css'] ?? null) ? trim($visualRepair['css']) : '';
+        $css = is_string($visualRepair['compat_css'] ?? null) ? trim($visualRepair['compat_css']) : '';
         return '' === $css ? $header : $header . "\n" . $css . "\n";
     }
 

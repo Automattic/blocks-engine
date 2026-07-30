@@ -1129,9 +1129,7 @@ final class ArtifactCompiler
         }
 
         return $css
-            . $this->navigationContainerCompatCss($css)
-            . $this->navigationAnchorCompatCss($css)
-            . $this->rootStartupClassCompatCss($css, $files);
+            . $this->wordpressCompatCss($css, $files);
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1155,7 +1153,7 @@ final class ArtifactCompiler
 
         foreach ( $matches as $match ) {
             $body = trim((string) ($match[2] ?? ''));
-            if ( '' === $body ) {
+            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
@@ -1187,7 +1185,7 @@ final class ArtifactCompiler
 
         foreach ( $matches as $match ) {
             $body = trim((string) ($match[2] ?? ''));
-            if ( '' === $body ) {
+            if ( '' === $body || str_contains(strtolower($body), 'url(') || ! preg_match('/(?:^|;)\s*display\s*:/i', $body) ) {
                 continue;
             }
 
@@ -1244,7 +1242,7 @@ final class ArtifactCompiler
         $rules = array();
         foreach ( $matches as $match ) {
             $body = trim((string) ($match[2] ?? ''));
-            if ( '' === $body ) {
+            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
@@ -1301,6 +1299,14 @@ final class ArtifactCompiler
         }
 
         return array_values(array_diff(array_keys($added), array_keys($removed)));
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function wordpressCompatCss(string $css, array $files): string
+    {
+        return $this->navigationContainerCompatCss($css)
+            . $this->navigationAnchorCompatCss($css)
+            . $this->rootStartupClassCompatCss($css, $files);
     }
 
     /**
@@ -2506,9 +2512,7 @@ final class ArtifactCompiler
             }
         }
         $staticCss = $this->themeStaticCss($files, false);
-        $navigationCompatCss = $this->navigationContainerCompatCss($staticCss)
-            . $this->navigationAnchorCompatCss($staticCss)
-            . $this->rootStartupClassCompatCss($staticCss, $files);
+        $navigationCompatCss = $this->wordpressCompatCss($staticCss, $files);
         if ( '' !== $navigationCompatCss ) {
             $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
@@ -2529,6 +2533,7 @@ final class ArtifactCompiler
                     $stylesheets
                 )),
                 'css'         => $css,
+                'compat_css'  => $navigationCompatCss,
             ),
             static fn (mixed $value): bool => '' !== $value && array() !== $value
         );

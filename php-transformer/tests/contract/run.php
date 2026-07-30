@@ -2029,8 +2029,10 @@ $assert(str_contains($artifactNavContainerStaticCss, '.desktop-nav.wp-block-navi
 $assert(! str_contains($artifactNavContainerStaticCss, '.drawer-panel.wp-block-navigation'), 'artifact navigation container replay does not rewrite unrelated drawer selectors');
 $assert(! str_contains($artifactNavContainerStaticCss, '.collapsed-nav.wp-block-navigation>ul'), 'artifact navigation container replay does not rewrite descendant targets as containers');
 $assert(str_contains($artifactNavContainerStaticCss, 'body .site-header { opacity:1!important }'), 'artifact static CSS materializes a stable root class added by source startup code');
-$artifactNavContainerRepairCss = (string) ($artifactNavContainerCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
+$artifactNavContainerRepair = $artifactNavContainerCss['source_reports']['compiled_site']['visual_repair'] ?? array();
+$artifactNavContainerRepairCss = (string) ($artifactNavContainerRepair['css'] ?? '');
 $assert(str_contains($artifactNavContainerRepairCss, '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains($artifactNavContainerRepairCss, 'body .site-header { opacity:1!important }'), 'artifact visual repair carries navigation cascade and stable startup state projections');
+$assert(str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), '.collapsed-nav.wp-block-navigation { display:none;position:absolute }') && str_contains((string) ($artifactNavContainerRepair['compat_css'] ?? ''), 'body .site-header { opacity:1!important }'), 'artifact visual repair exposes self-contained WordPress compatibility CSS separately from legacy repair aggregation');
 
 $artifactGeometry = $compiler->compile(
     array(
