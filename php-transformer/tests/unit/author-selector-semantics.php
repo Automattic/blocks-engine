@@ -195,7 +195,7 @@ $ordinaryInline = $transform('<style>span{color:red}</style><p>Read <span>this</
 $ordinaryInlineMarkup = (string) ($ordinaryInline['serialized_blocks'] ?? '');
 $assert(! str_contains($ordinaryInlineMarkup, 'blocks-engine-semantic-') && 'core/paragraph' === ($ordinaryInline['blocks'][0]['blockName'] ?? '') && 'pass' === ($ordinaryInline['source_reports']['wp_block_validity']['status'] ?? ''), 'ordinary inline span styling remains RichText flow rather than becoming a group wrapper');
 
-$semanticInline = $transform('<style>em,i{font-style:italic;font-weight:inherit}</style><p>Read <em>this</em> now.</p>');
+$semanticInline = $transform('<style>*{margin:0;padding:0}em,i{font-style:italic;font-weight:inherit}</style><p>Read <em>this</em> now.</p>');
 $semanticInlineMarkup = (string) ($semanticInline['serialized_blocks'] ?? '');
 $assert(str_contains($semanticInlineMarkup, '<em>this</em>') && ! str_contains($semanticInlineMarkup, '<mark') && str_contains($css($semanticInline), 'em,i{font-style:italic;font-weight:inherit}') && 'pass' === ($semanticInline['source_reports']['wp_block_validity']['status'] ?? ''), 'attribute-free semantic RichText keeps its native tag and author selector without a redundant mark wrapper');
 

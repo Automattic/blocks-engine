@@ -3133,6 +3133,11 @@ final class HtmlTransformer
             if ( 'inherit' === strtolower((string) ($declarations['font-weight'] ?? '')) ) {
                 unset($declarations['font-weight']);
             }
+            foreach ( array( 'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top', 'padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top' ) as $property ) {
+                if ( isset($declarations[$property]) && ! $this->cssValueIsNonZero($declarations[$property]) ) {
+                    unset($declarations[$property]);
+                }
+            }
         }
 
         return $declarations;
