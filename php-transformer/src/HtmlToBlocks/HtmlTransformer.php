@@ -3125,7 +3125,17 @@ final class HtmlTransformer
             $declarations['color'] = 'transparent';
         }
 
-        return array_intersect_key($declarations, $allowed);
+        $declarations = array_intersect_key($declarations, $allowed);
+        if ( in_array(strtolower($element->tagName), array( 'em', 'i' ), true) ) {
+            if ( 'italic' === strtolower((string) ($declarations['font-style'] ?? '')) ) {
+                unset($declarations['font-style']);
+            }
+            if ( 'inherit' === strtolower((string) ($declarations['font-weight'] ?? '')) ) {
+                unset($declarations['font-weight']);
+            }
+        }
+
+        return $declarations;
     }
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
