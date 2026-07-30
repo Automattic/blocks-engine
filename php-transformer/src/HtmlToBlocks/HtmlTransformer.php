@@ -368,6 +368,15 @@ final class HtmlTransformer
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
     private array $sourceRootChildMarkers = array();
 
+    /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
+    private array $sourceTableMarkers = array();
+
+    /** @var array<int, bool> */
+    private array $sourceTableRepresentability = array();
+
+    /** @var array<int, array<int, string>> */
+    private array $sourceTableDescendantPaths = array();
+
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
     private array $sourceRichTextSemanticMarkers = array();
 
@@ -468,6 +477,9 @@ final class HtmlTransformer
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
+        $this->sourceTableMarkers = array();
+        $this->sourceTableRepresentability = array();
+        $this->sourceTableDescendantPaths = array();
         $this->sourceRichTextSemanticMarkers = array();
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
@@ -831,7 +843,7 @@ final class HtmlTransformer
             : implode("\n\n", array_column($this->authorStylesheetAssets, 'content'));
         // Ignore already-generated-looking markers when seeding so collision
         // avoidance remains deterministic even when source CSS contains one.
-        $seedInput = preg_replace('/blocks-engine-(?:source-p|control|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
+        $seedInput = preg_replace('/blocks-engine-(?:source-p|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
         $this->authorMarkerSeed = substr(hash('sha256', $seedInput), 0, 12);
         $this->authorMarkerCollisionText = $html . "\0" . $this->combinedAuthorCss;
         $this->authorSpecificityShim = $this->allocateAuthorMarker('specificity');
@@ -868,6 +880,7 @@ final class HtmlTransformer
         $this->discoverAuthorControlPaths();
         $this->discoverAuthorInlineSemanticPaths();
         $this->discoverAuthorRootChildPaths();
+        $this->discoverAuthorTablePaths();
     }
 
     private function discoverAuthorControlPaths(): void
@@ -941,6 +954,35 @@ final class HtmlTransformer
                     $path = $this->sourceElementIdentity($element);
                     if ( '' !== $path ) {
                         $this->sourceRootChildMarkers[$path] ??= $this->allocateAuthorMarker('root-child');
+                    }
+                }
+            }
+            return $prelude;
+        });
+    }
+
+    private function discoverAuthorTablePaths(): void
+    {
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $this->parsedCssSelector($selector);
+                if ( ! $parsed['supported'] ) {
+                    continue;
+                }
+                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
+                    if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
+                        continue;
+                    }
+                    if ( ! $this->tableSelectorNeedsStructuralProjection($parsed, $element) ) {
+                        continue;
+                    }
+                    $table = $this->ancestorTable($element);
+                    if ( ! $table instanceof DOMElement || ! $this->isRepresentableTable($table) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($table);
+                    if ( '' !== $path ) {
+                        $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
                     }
                 }
             }
@@ -1193,6 +1235,24 @@ final class HtmlTransformer
                 continue;
             }
 
+            $tableDescendants = array();
+            $nonTableMatches = array();
+            foreach ( $matches as $element ) {
+                $projected = $this->projectTableDescendantSelector($selector, $parsed, $element);
+                if ( null === $projected ) {
+                    $nonTableMatches[] = $element;
+                } else {
+                    $tableDescendants[] = $projected;
+                }
+            }
+            foreach ( array_values(array_unique($tableDescendants)) as $projected ) {
+                $rewritten[] = $projected;
+            }
+            if ( array() === $nonTableMatches ) {
+                continue;
+            }
+            $matches = $nonTableMatches;
+
             $controls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
@@ -1349,6 +1409,130 @@ final class HtmlTransformer
     }
 
     /** @param array<string, mixed> $parsed */
+    private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element): ?string
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
+            return null;
+        }
+        if ( ! $this->tableSelectorNeedsStructuralProjection($parsed, $element) ) {
+            return null;
+        }
+        $table = $this->ancestorTable($element);
+        $marker = $table instanceof DOMElement ? ($this->sourceTableMarkers[$this->sourceElementIdentity($table)] ?? '') : '';
+        $path = $table instanceof DOMElement ? $this->serializedTableDescendantPath($table, $element) : '';
+        if ( '' === $marker || '' === $path ) {
+            return null;
+        }
+
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return ':where(.' . $marker . '>table>' . $path . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function tableSelectorNeedsStructuralProjection(array $parsed, DOMElement $element): bool
+    {
+        $classes = array();
+        $ids = array();
+        $attributes = array();
+        foreach ( $parsed['compounds'] ?? array() as $compound ) {
+            if ( in_array(strtolower((string) ($compound['type'] ?? '')), array( 'thead', 'tbody', 'tfoot' ), true)
+                && ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) ) {
+                return true;
+            }
+            foreach ( $compound['classes'] ?? array() as $className ) {
+                $classes[$className] = true;
+            }
+            foreach ( $compound['ids'] ?? array() as $id ) {
+                $ids[$id] = true;
+            }
+            foreach ( $compound['attributes'] ?? array() as $attribute ) {
+                if ( is_string($attribute['name'] ?? null) && ! in_array($attribute['name'], array( 'class', 'id' ), true) ) {
+                    $attributes[$attribute['name']] = true;
+                }
+            }
+        }
+
+        for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            $nodeClasses = preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array();
+            if ( array_intersect(array_keys($classes), $nodeClasses) ) {
+                return true;
+            }
+            if ( isset($ids[$this->attr($node, 'id')]) ) {
+                return true;
+            }
+            foreach ( array_keys($attributes) as $attributeName ) {
+                if ( $node->hasAttribute($attributeName) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function serializedTableDescendantPath(DOMElement $table, DOMElement $element): string
+    {
+        $tableId = spl_object_id($table);
+        if ( ! isset($this->sourceTableDescendantPaths[$tableId]) ) {
+            $paths = array();
+            foreach ( array( 'thead', 'tbody', 'tfoot' ) as $section ) {
+                $rowIndex = 0;
+                foreach ( $table->getElementsByTagName($section) as $sectionElement ) {
+                    if ( $sectionElement instanceof DOMElement && $this->belongsToTable($sectionElement, $table) ) {
+                        $paths[spl_object_id($sectionElement)] = $section;
+                    }
+                }
+                foreach ( $table->getElementsByTagName('tr') as $row ) {
+                    if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) || $section !== $this->serializedTableSection($row) ) {
+                        continue;
+                    }
+                    ++$rowIndex;
+                    $rowPath = $section . '>tr:nth-child(' . $rowIndex . ')';
+                    $paths[spl_object_id($row)] = $rowPath;
+                    $cellIndex = 0;
+                    foreach ( $row->childNodes as $cell ) {
+                        if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                            continue;
+                        }
+                        ++$cellIndex;
+                        $paths[spl_object_id($cell)] = $rowPath . '>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . ')';
+                    }
+                }
+            }
+            $this->sourceTableDescendantPaths[$tableId] = $paths;
+        }
+        return $this->sourceTableDescendantPaths[$tableId][spl_object_id($element)] ?? '';
+    }
+
+    private function isRepresentableTable(DOMElement $table): bool
+    {
+        $id = spl_object_id($table);
+        return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
+    }
+
+    private function serializedTableSection(DOMElement $element): string
+    {
+        $section = $this->ancestorElement($element, 'thead') instanceof DOMElement
+            ? 'thead'
+            : ($this->ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
+        return $section;
+    }
+
+    private function ancestorTable(DOMElement $element): ?DOMElement
+    {
+        return $this->ancestorElement($element, 'table');
+    }
+
+    private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( $tagName === strtolower($parent->tagName) ) {
+                return $parent;
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $parsed */
     private function projectImageSelector(string $selector, array $parsed): string
     {
         $replacements = array(
@@ -1402,6 +1586,9 @@ final class HtmlTransformer
             }
             foreach ( $compound['ids'] as $_id ) {
                 $shims .= ':not(#' . $this->authorIdSpecificityShim . ')';
+            }
+            if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
+                $shims .= ':not(.' . $this->authorClassSpecificityShim . ')';
             }
         }
         return $shims;
@@ -2608,6 +2795,9 @@ final class HtmlTransformer
             }
             if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
+            }
+            if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
             }
             $semanticMarkers = $this->authorSemanticMarkersForElement($sourceElement);
             if ( array() !== $semanticMarkers ) {
