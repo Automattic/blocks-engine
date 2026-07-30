@@ -94,6 +94,10 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
+        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
+        if ( null !== $wordpressCompatAsset ) {
+            $assets[] = $wordpressCompatAsset;
+        }
         $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -1307,6 +1311,32 @@ final class ArtifactCompiler
         return $this->navigationContainerCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
             . $this->rootStartupClassCompatCss($css, $files);
+    }
+
+    /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
+    private function wordpressCompatAsset(array $files): ?array
+    {
+        $css = trim($this->wordpressCompatCss($this->themeStaticCss($files, false), $files));
+        if ( '' === $css ) {
+            return null;
+        }
+
+        $hash = hash('sha256', $css);
+        $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';
+        return array(
+            'source'      => 'wordpress-compat',
+            'path'        => $path,
+            'target_path' => $path,
+            'kind'        => 'css',
+            'role'        => 'stylesheet',
+            'intent'      => 'style',
+            'media_type'  => 'text/css',
+            'mime_type'   => 'text/css',
+            'bytes'       => strlen($css),
+            'binary'      => false,
+            'content'     => $css,
+            'hash'        => $hash,
+        );
     }
 
     /**
