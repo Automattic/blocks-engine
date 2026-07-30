@@ -2240,6 +2240,11 @@ final class HtmlTransformer
             if ( null !== $navigation ) {
                 return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
+
+            $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
+            if ( null !== $inlineNavigation ) {
+                return $inlineNavigation;
+            }
         }
 
         if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
@@ -3977,6 +3982,25 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+            return null;
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
+        if ( null !== $inlineSvgContent ) {
+            $content = $inlineSvgContent;
+        }
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+            return null;
+        }
+
+        $paragraph = $this->createBlock('core/paragraph', array( 'content' => $content ));
+        return $this->createBlock('core/group', $this->presentationAttributes($element), array( $paragraph ), $element);
     }
 
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool

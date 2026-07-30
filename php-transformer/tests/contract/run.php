@@ -729,6 +729,15 @@ $classOwnedFlexMarkup = (string) ($classOwnedFlex['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps the source class');
 $assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
 
+$inlineBreadcrumb = ( new HtmlTransformer() )->transform(
+    '<style>.crumb{padding:20px 0 0}.crumb .sep{margin:0 .6rem}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
+)->toArray();
+$inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? '');
+$inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
+$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb"'), 'inline-only semantic navigation retains its nav group wrapper');
+$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<!-- wp:paragraph'), 'inline-only semantic navigation keeps one RichText flow instead of stacking each token');
+$assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
+
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
 )->toArray();
