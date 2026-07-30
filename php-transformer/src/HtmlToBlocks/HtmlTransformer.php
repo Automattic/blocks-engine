@@ -2114,6 +2114,12 @@ final class HtmlTransformer
             if ( ! $classification['representable'] ) {
                 return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
+            if ( TableClassificationPolicy::LAYOUT_SIMPLE === $classification['classification'] ) {
+                $layoutTable = $this->layoutTableBlockFromElement($element, $fallbacks);
+                if ( null !== $layoutTable ) {
+                    return $layoutTable;
+                }
+            }
 
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
@@ -5525,6 +5531,46 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    /**
+     * Convert a single-row presentational table into editable layout blocks.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function layoutTableBlockFromElement(DOMElement $table, array &$fallbacks): ?array
+    {
+        $rows = array();
+        foreach ( $table->getElementsByTagName('tr') as $row ) {
+            if ( $row instanceof DOMElement && $this->belongsToTable($row, $table) ) {
+                $rows[] = $row;
+            }
+        }
+        if ( 1 !== count($rows) ) {
+            return null;
+        }
+
+        $cells = array();
+        foreach ( $rows[0]->childNodes as $cell ) {
+            if ( $cell instanceof DOMElement && in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                $cells[] = $cell;
+            }
+        }
+        if ( 2 > count($cells) ) {
+            return null;
+        }
+
+        $columns = array();
+        foreach ( $cells as $cell ) {
+            $children = $this->convertChildren($cell, $fallbacks, true);
+            if ( array() === $children ) {
+                return null;
+            }
+            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($cell), $children, $cell);
+        }
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool
