@@ -1151,18 +1151,14 @@ final class ArtifactCompiler
     private function navigationAnchorCompatCss(string $css): string
     {
         $rules = array();
-        if ( ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return '';
-        }
-
-        foreach ( $matches as $match ) {
-            $body = trim((string) ($match[2] ?? ''));
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
             if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
                 foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
                     $mappedSelectors[$mappedSelector] = true;
                 }
@@ -1183,18 +1179,14 @@ final class ArtifactCompiler
     private function navigationContainerCompatCss(string $css): string
     {
         $rules = array();
-        if ( ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return '';
-        }
-
-        foreach ( $matches as $match ) {
-            $body = trim((string) ($match[2] ?? ''));
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
             if ( '' === $body || str_contains(strtolower($body), 'url(') || ! preg_match('/(?:^|;)\s*display\s*:/i', $body) ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
                 $mapped = $this->mapNavigationContainerSelector($selector);
                 if ( null !== $mapped ) {
                     $mappedSelectors[$mapped] = true;
@@ -1220,7 +1212,8 @@ final class ArtifactCompiler
         }
 
         $compound = (string) ($match[1][0] ?? '');
-        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound) ) {
+        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound)
+            || ! preg_match('/(?:^|[.#_-])(?:collapsed|mobile|drawer|overlay|offcanvas|responsive)(?:$|[.#_:-])/i', $compound) ) {
             return null;
         }
 
@@ -1239,19 +1232,19 @@ final class ArtifactCompiler
     private function rootStartupClassCompatCss(string $css, array $files): string
     {
         $classes = $this->rootStartupClassNames($files);
-        if ( array() === $classes || ! preg_match_all('/([^{}@][^{}]*)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) ) {
+        if ( array() === $classes ) {
             return '';
         }
 
         $rules = array();
-        foreach ( $matches as $match ) {
-            $body = trim((string) ($match[2] ?? ''));
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            $body = $rule['body'];
             if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList((string) ($match[1] ?? '')) as $selector ) {
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
                 foreach ( $classes as $class ) {
                     $mapped = preg_replace('/\b(body|html)\.' . preg_quote($class, '/') . '\b/', '$1', $selector, 1, $count);
                     if ( 1 === $count && is_string($mapped) ) {
@@ -1337,6 +1330,77 @@ final class ArtifactCompiler
             'content'     => $css,
             'hash'        => $hash,
         );
+    }
+
+    /** @return array<int, array{selector:string,body:string}> */
+    private function topLevelCssRules(string $css): array
+    {
+        $rules = array();
+        $length = strlen($css);
+        $start = 0;
+        for ( $index = 0; $index < $length; $index++ ) {
+            if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
+                $end = strpos($css, '*/', $index + 2);
+                $index = false === $end ? $length : $end + 1;
+                continue;
+            }
+            if ( in_array($css[$index], array('"', "'"), true) ) {
+                $quote = $css[$index];
+                while ( ++$index < $length ) {
+                    if ( '\\' === $css[$index] ) {
+                        $index++;
+                    } elseif ( $quote === $css[$index] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( ';' === $css[$index] ) {
+                $start = $index + 1;
+                continue;
+            }
+            if ( '{' !== $css[$index] ) {
+                continue;
+            }
+
+            $selector = trim(substr($css, $start, $index - $start));
+            $bodyStart = $index + 1;
+            $depth = 1;
+            while ( ++$index < $length && $depth > 0 ) {
+                if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
+                    $end = strpos($css, '*/', $index + 2);
+                    $index = false === $end ? $length : $end + 1;
+                    continue;
+                }
+                if ( in_array($css[$index], array('"', "'"), true) ) {
+                    $quote = $css[$index];
+                    while ( ++$index < $length ) {
+                        if ( '\\' === $css[$index] ) {
+                            $index++;
+                        } elseif ( $quote === $css[$index] ) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ( '{' === $css[$index] ) {
+                    $depth++;
+                } elseif ( '}' === $css[$index] ) {
+                    $depth--;
+                }
+            }
+            if ( '' !== $selector && ! str_starts_with($selector, '@') && 0 === $depth ) {
+                $closingBrace = $index - 1;
+                $rules[] = array(
+                    'selector' => $selector,
+                    'body'     => trim(substr($css, $bodyStart, $closingBrace - $bodyStart)),
+                );
+            }
+            $start = $index;
+            $index--;
+        }
+
+        return $rules;
     }
 
     /**
