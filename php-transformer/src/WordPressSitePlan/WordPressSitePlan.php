@@ -49,7 +49,8 @@ final class WordPressSitePlan
         $templates = $this->templates($pages, $parts);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts']), $this->assetWrites($assets, $references));
+        $visualRepair = is_array($compiled['visual_repair'] ?? null) ? $compiled['visual_repair'] : array();
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $visualRepair), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance']),
@@ -65,7 +66,7 @@ final class WordPressSitePlan
             'navigation_links' => $materialization['navigation_links'] ?? null,
             'menus' => $materialization['menus'] ?? null,
             'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts']) ? 'functions.php' : null),
-            'visual_repair' => $compiled['visual_repair'] ?? array(),
+            'visual_repair' => $visualRepair,
             'runtime_declarations' => $runtimeDeclarations,
             'diagnostics' => array_merge($data['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks']),
@@ -593,14 +594,22 @@ final class WordPressSitePlan
     private static function routeAncestors(string $path): array { $ancestors = array(); for ($parent = self::parentRoutePath($path); '/' !== $parent; $parent = self::parentRoutePath($parent)) $ancestors[] = $parent; return array_reverse($ancestors); }
     private static function routeSlug(string $path): string { return trim((string) basename($path), '/'); }
 
-    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts): array
+    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<string,mixed> $visualRepair @return array<int,array<string,mixed>> */
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $visualRepair): array
     {
-        $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', "{\"version\":3,\"settings\":{},\"styles\":{}}\n"));
+        $writes = array($this->write('theme_scaffold', 'style.css', self::styleCss($visualRepair)), $this->write('theme_scaffold', 'theme.json', "{\"version\":3,\"settings\":{},\"styles\":{}}\n"));
         if ( self::needsBootstrap($assets, $scripts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
+    }
+
+    /** @param array<string,mixed> $visualRepair */
+    private static function styleCss(array $visualRepair): string
+    {
+        $header = "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n";
+        $css = is_string($visualRepair['css'] ?? null) ? trim($visualRepair['css']) : '';
+        return '' === $css ? $header : $header . "\n" . $css . "\n";
     }
 
     /** @param array<int,array<string,mixed>> $assets */
@@ -723,7 +732,7 @@ final class WordPressSitePlan
     {
         $style = $writes['style.css'] ?? null;
         $themeJson = $writes['theme.json'] ?? null;
-        if (!is_array($style) || 'theme_scaffold' !== ($style['kind'] ?? null) || 'wordpress-site-plan/style.css' !== ($style['source_path'] ?? null) || !preg_match('/^\/\*\nTheme Name:\s+[^\n]+\nText Domain:\s+[a-z0-9-]+\n\*\/\n$/', (string) ($style['payload']['data'] ?? ''))) throw new InvalidArgumentException('WordPress site plan style.css scaffold is invalid.');
+        if (!is_array($style) || 'theme_scaffold' !== ($style['kind'] ?? null) || 'wordpress-site-plan/style.css' !== ($style['source_path'] ?? null) || self::styleCss($plan['visual_repair']) !== ($style['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan style.css scaffold is invalid.');
         if (!is_array($themeJson) || 'theme_scaffold' !== ($themeJson['kind'] ?? null) || 'wordpress-site-plan/theme.json' !== ($themeJson['source_path'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json scaffold is invalid.');
         try { $theme = json_decode((string) $themeJson['payload']['data'], true, 512, JSON_THROW_ON_ERROR); } catch (\JsonException) { throw new InvalidArgumentException('WordPress site plan theme.json is not valid JSON.'); }
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
