@@ -2325,7 +2325,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $columns ) {

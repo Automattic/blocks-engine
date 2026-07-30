@@ -724,6 +724,11 @@ $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
 $assert(! str_contains($classOwnedGridMarkup, 'is-layout-grid'), 'class-owned CSS grid avoids WP layout classes that override exact source tracks');
 
+$explicitGridPlacement = ( new HtmlTransformer() )->transform('<style>.essay{display:grid;grid-template-columns:1fr minmax(0,900px) 320px;gap:3rem}.essay__body{grid-column:2}.essay__side{grid-column:3}</style><main><div class="essay"><article class="essay__body">Body</article><aside class="essay__side">Sidebar</aside></div></main>')->toArray();
+$explicitGridPlacementMarkup = (string) ($explicitGridPlacement['serialized_blocks'] ?? '');
+$assert(str_contains($explicitGridPlacementMarkup, '<div class="wp-block-group essay"'), 'explicitly positioned grid children retain their native group track container');
+$assert(! str_contains($explicitGridPlacementMarkup, '<!-- wp:columns'), 'explicitly positioned grid children do not become flex-based core columns');
+
 $classOwnedFlex = ( new HtmlTransformer() )->transform('<style>.hero{display:flex;align-items:center;min-height:100vh}</style><main><section class="hero"><div>Text</div></section></main>')->toArray();
 $classOwnedFlexMarkup = (string) ($classOwnedFlex['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps the source class');
