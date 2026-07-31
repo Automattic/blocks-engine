@@ -66,7 +66,7 @@ final class BlockFactory
 
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
-        if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/image', 'core/list-item', 'core/paragraph', 'core/separator' ), true) ) {
+        if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/image', 'core/list-item', 'core/media-text', 'core/paragraph', 'core/separator' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);
@@ -143,6 +143,9 @@ final class BlockFactory
             unset($attrs['minHeightUnit']);
         }
         if ( 'core/media-text' === $name ) {
+            if ( '' === ($attrs['mediaAlt'] ?? null) ) {
+                unset($attrs['mediaAlt']);
+            }
             if ( 'left' === ($attrs['mediaPosition'] ?? null) ) {
                 unset($attrs['mediaPosition']);
             }
@@ -466,20 +469,18 @@ final class BlockFactory
         }
 
         $wrapperAttrs = $attrs;
+        $wrapperStyle = '';
         if ( is_numeric($attrs['mediaWidth'] ?? null) ) {
             $mediaWidth = (int) round((float) $attrs['mediaWidth']);
             if ( 50 !== $mediaWidth ) {
                 $gridTemplateColumns = $mediaOnRight
                     ? 'auto ' . (string) $mediaWidth . '%'
                     : (string) $mediaWidth . '% auto';
-                $wrapperAttrs['inlineGeometryStyle'] = trim(
-                    (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';grid-template-columns:' . $gridTemplateColumns,
-                    ';'
-                );
+                $wrapperStyle = 'grid-template-columns:' . $gridTemplateColumns;
             }
         }
 
-        $wrapperOpening = '<div' . $this->blockSupportAttrs($wrapperAttrs, implode(' ', $wrapperClasses)) . '>';
+        $wrapperOpening = '<div' . $this->blockSupportAttrs($wrapperAttrs, implode(' ', $wrapperClasses), $wrapperStyle) . '>';
         $contentOpening = '<div class="wp-block-media-text__content">';
         $figure = '<figure class="wp-block-media-text__media">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
 
@@ -910,14 +911,16 @@ final class BlockFactory
     /**
      * @param array<string, mixed> $attrs
      */
-    private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
+    private function blockSupportAttrs(array $attrs, string $baseClass = '', ?string $styleOverride = null): string
     {
         $support = $this->styleSupport($attrs['style'] ?? null);
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $alignmentClasses = $this->textAlignmentClasses($attrs);
         $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
-        $style = trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';');
+        $style = null === $styleOverride
+            ? trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';')
+            : trim($styleOverride, ';');
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,

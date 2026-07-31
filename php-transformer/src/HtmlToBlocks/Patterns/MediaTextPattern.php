@@ -73,14 +73,8 @@ final class MediaTextPattern
             return null;
         }
 
-        $localFallbacks = array();
-        try {
-            $innerBlocks = $convertChildren($elementChildren[ $textIndex ], $localFallbacks, true);
-        } catch ( \Throwable ) {
-            return null;
-        }
-
-        if ( array() === $innerBlocks || ! $this->containsTextBearingBlock($innerBlocks) ) {
+        $mediaType = strtolower($resolution['media']->tagName);
+        if ( 'video' === $mediaType && $resolution['anchor'] instanceof DOMElement ) {
             return null;
         }
 
@@ -90,7 +84,24 @@ final class MediaTextPattern
             return null;
         }
 
-        if ( $this->isVerticalFlexContainer(strtolower($containerStyle)) ) {
+        $displayType = $this->containerDisplayType($containerStyle);
+        if (
+            $this->isVerticalFlexContainer(strtolower($containerStyle))
+            || ( 'flex' === $displayType && $this->styleValueEquals($containerStyle, 'flex-direction', 'row-reverse') )
+            || $this->styleValueEquals($containerStyle, 'direction', 'rtl')
+        ) {
+            return null;
+        }
+
+        $childStyles = array();
+        try {
+            foreach ( $elementChildren as $index => $child ) {
+                $childStyles[ $index ] = $mergedPresentationStyle($child);
+                if ( array_key_exists('order', $this->styleDeclarations($childStyles[ $index ])) ) {
+                    return null;
+                }
+            }
+        } catch ( \Throwable ) {
             return null;
         }
 
@@ -101,10 +112,30 @@ final class MediaTextPattern
                 return null;
             }
             $mediaUrl = trim($resolveAssetUrl($sourceUrl));
-            if ( '' === $mediaUrl ) {
+            if ( '' === $this->safeMediaUrl($mediaUrl) ) {
                 return null;
             }
         } catch ( \Throwable ) {
+            return null;
+        }
+
+        $localFallbacks = array();
+        try {
+            $textBlock = $convertElement($elementChildren[ $textIndex ], $localFallbacks, true);
+        } catch ( \Throwable ) {
+            return null;
+        }
+
+        $innerBlocks = null === $textBlock ? array() : array( $textBlock );
+        if (
+            'core/group' === ($textBlock['blockName'] ?? null)
+            && array() === ($textBlock['attrs'] ?? array())
+            && is_array($textBlock['innerBlocks'] ?? null)
+        ) {
+            $innerBlocks = $textBlock['innerBlocks'];
+        }
+
+        if ( array() === $innerBlocks || ! $this->containsTextBearingBlock($innerBlocks) ) {
             return null;
         }
 
@@ -118,31 +149,29 @@ final class MediaTextPattern
         }
         unset($attrs['layout']);
 
-        $mediaType = strtolower($resolution['media']->tagName);
         $attrs['mediaType'] = 'img' === $mediaType ? 'image' : 'video';
         $attrs['mediaUrl']  = $mediaUrl;
 
-        if ( 'img' === $mediaType ) {
-            $attrs['mediaAlt'] = (string) ($mediaAttributes['alt'] ?? '');
+        if ( 'img' === $mediaType && '' !== (string) ($mediaAttributes['alt'] ?? '') ) {
+            $attrs['mediaAlt'] = (string) $mediaAttributes['alt'];
         }
         if ( 1 === $mediaIndex ) {
             $attrs['mediaPosition'] = 'right';
         }
 
-        $mediaWidth = $this->mediaWidthFromContainerStyle($containerStyle, $mediaIndex);
-        if ( null === $mediaWidth && ! $this->hasGridTemplateColumns($containerStyle) ) {
-            try {
-                $mediaStyle = $mergedPresentationStyle($elementChildren[ $mediaIndex ]);
-                $mediaWidth = $this->mediaWidthFromMediaStyle($mediaStyle);
-            } catch ( \Throwable ) {
-                return null;
-            }
+        $mediaWidth = 'grid' === $displayType
+            ? $this->mediaWidthFromContainerStyle($containerStyle, $mediaIndex)
+            : null;
+        if ( null === $mediaWidth && ( 'grid' !== $displayType || ! $this->hasGridTemplateColumns($containerStyle) ) ) {
+            $mediaWidth = $this->mediaWidthFromMediaStyle($childStyles[ $mediaIndex ]);
         }
-        if ( null !== $mediaWidth && 50 !== $mediaWidth ) {
+        if ( null !== $mediaWidth && 15 <= $mediaWidth && 85 >= $mediaWidth && 50 !== $mediaWidth ) {
             $attrs['mediaWidth'] = $mediaWidth;
         }
 
-        $verticalAlignment = $this->verticalAlignmentFromStyle($containerStyle);
+        $verticalAlignment = in_array($displayType, array( 'flex', 'grid' ), true)
+            ? $this->verticalAlignmentFromStyle($containerStyle)
+            : null;
         if ( null !== $verticalAlignment ) {
             $attrs['verticalAlignment'] = $verticalAlignment;
         }
@@ -209,12 +238,42 @@ final class MediaTextPattern
 
     private function safeLinkUrl(string $url): string
     {
+        return $this->safeUrlWithSchemes($url, array( 'http', 'https', 'mailto', 'tel' ), false);
+    }
+
+    private function safeMediaUrl(string $url): string
+    {
+        return $this->safeUrlWithSchemes($url, array( 'http', 'https' ), true);
+    }
+
+    /**
+     * @param array<int, string> $allowedSchemes
+     */
+    private function safeUrlWithSchemes(string $url, array $allowedSchemes, bool $allowImageData): string
+    {
         $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]/', $url) ) {
             return '';
         }
 
-        return $url;
+        if ( str_starts_with($url, '//') ) {
+            return $url;
+        }
+
+        if ( ! preg_match('/^([a-z][a-z0-9+.-]*)\s*:/i', $url, $matches) ) {
+            return $url;
+        }
+
+        $scheme = strtolower($matches[1]);
+        if ( in_array($scheme, $allowedSchemes, true) && preg_match('/^' . preg_quote($scheme, '/') . ':/i', $url) ) {
+            return $url;
+        }
+
+        if ( $allowImageData && 'data' === $scheme && preg_match('/^data:image\/[a-z0-9.+-]+(?:[;,])/i', $url) ) {
+            return $url;
+        }
+
+        return '';
     }
 
     private function containsMediaElement(DOMElement $element): bool
@@ -400,10 +459,7 @@ final class MediaTextPattern
 
         $mediaPercentage = $this->percentageValue($tracks[ $mediaIndex ]);
         if ( null !== $mediaPercentage ) {
-            $otherTrack = $tracks[ 0 === $mediaIndex ? 1 : 0 ];
-            if ( 'auto' === strtolower($otherTrack) || null !== $this->percentageValue($otherTrack) ) {
-                return $mediaPercentage;
-            }
+            return $mediaPercentage;
         }
 
         $firstFr  = $this->frValue($tracks[0]);
@@ -428,6 +484,18 @@ final class MediaTextPattern
         return null;
     }
 
+    private function containerDisplayType(string $style): ?string
+    {
+        $display = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($style)['display'] ?? '')));
+        return in_array($display, array( 'flex', 'grid' ), true) ? $display : null;
+    }
+
+    private function styleValueEquals(string $style, string $property, string $expected): bool
+    {
+        $value = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($style)[ $property ] ?? '')));
+        return $expected === $value;
+    }
+
     private function verticalAlignmentFromStyle(string $style): ?string
     {
         $declarations = $this->styleDeclarations($style);
@@ -435,8 +503,10 @@ final class MediaTextPattern
 
         return array(
             'flex-start' => 'top',
+            'start'      => 'top',
             'center'     => 'center',
             'flex-end'   => 'bottom',
+            'end'        => 'bottom',
         )[ $alignItems ] ?? null;
     }
 

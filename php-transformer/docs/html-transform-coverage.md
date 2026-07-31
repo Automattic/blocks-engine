@@ -15,7 +15,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | Code | `html-core-text-structure.json` | `core/code`, `core/preformatted` |
 | Tables | `html-core-media-actions.json` | `core/table` with head/body/caption attrs |
 | Images | `html-core-media-actions.json`, `html-figure-quote-media.json` | `core/image` with URL, alt, dimensions, caption, identity, size, and class attrs |
-| Media and text | `html-media-text.json` | `core/media-text` for strict two-pane image/video and text layouts; ambiguous or impure media layouts continue through existing columns/group handling |
+| Media and text | `html-media-text.json` | `core/media-text` for strict two-pane image/video and text layouts; matched `section`/`article` containers emit the block's canonical `div` wrapper; ambiguous or impure media layouts continue through existing columns/group handling |
 | Buttons | `html-core-media-actions.json` | `core/buttons` containing `core/button` children |
 | Shortcodes | `html-core-media-actions.json` | `core/shortcode` for standalone shortcode text |
 | Wrapper provenance and safety | `html-provenance-wrapper-safety.json` | Presentational semantic wrappers are preserved as `core/group`; unsupported fallback records include selector/source metadata and sanitized fallback HTML |

@@ -52,9 +52,9 @@ $assertSame(
 $assertSame(null, $left['innerContent'][1], 'Media-left innerContent reserves child slot inside content wrapper.');
 $assertSame('</div></div>', $left['innerContent'][2], 'Media-left closes content then wrapper.');
 $assertSame(
-    array( 'mediaType', 'mediaUrl', 'mediaAlt' ),
+    array( 'mediaType', 'mediaUrl' ),
     array_keys($left['attrs']),
-    'Core defaults stay omitted from comment attrs.'
+    'Core defaults and empty mediaAlt stay omitted from comment attrs.'
 );
 $assertNotContains('grid-template-columns', $left['innerHTML'], 'Default 50 percent width emits no inline grid style.');
 $assertNotContains('wp-image-', $left['innerHTML'], 'Image without mediaId emits no wp-image class.');
@@ -73,12 +73,17 @@ $right = $factory->create('core/media-text', array(
     'linkClass'         => 'media-link',
     'anchor'            => 'feature',
     'className'         => 'promo',
-    'style'             => array( 'spacing' => array( 'blockGap' => '2rem', 'padding' => array( 'top' => '2rem' ) ) ),
+    'style'             => array(
+        'color'      => array( 'text' => '#123456' ),
+        'dimensions' => array( 'maxWidth' => '900px' ),
+        'spacing'    => array( 'blockGap' => '2rem', 'padding' => array( 'top' => '2rem' ) ),
+    ),
+    'inlineGeometryStyle' => 'min-height:30rem;aspect-ratio:16/9;max-width:900px;--media-ratio:1',
 ), array( $paragraph ));
 $assertSame(
-    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center promo" style="padding-top:2rem;grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
+    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center has-text-color promo" style="grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
     $right['innerContent'][0],
-    'Media-right opening carries position, stack, vertical, support, and width attributes.'
+    'Media-right opening carries position, stack, vertical, and width attributes.'
 );
 $assertSame(
     '</div><figure class="wp-block-media-text__media"><a class="media-link" href="https://example.com/full?a=1&amp;b=2" target="_blank" rel="noopener noreferrer"><img src="https://example.com/photo?a=1&amp;b=2" alt="A &quot;quoted&quot; alt"/></a></figure></div>',
@@ -87,8 +92,16 @@ $assertSame(
 );
 $assertContains('grid-template-columns:auto 35%', $right['innerHTML'], 'Right media width targets second grid track.');
 $assertContains('is-vertically-aligned-center', $right['innerHTML'], 'Vertical alignment class matches core save shape.');
+$assertContains('has-text-color', $right['innerHTML'], 'Style-derived support class survives wrapper style filtering.');
 $assertSame(array( 'padding' => array( 'top' => '2rem' ) ), $right['attrs']['style']['spacing'] ?? null, 'Unsupported blockGap is removed while supported spacing remains.');
+$assertSame(null, $right['attrs']['style']['dimensions']['maxWidth'] ?? null, 'Media-text comment attrs omit unsupported maxWidth.');
 $assertNotContains('gap:', $right['innerHTML'], 'Unsupported blockGap emits no wrapper CSS.');
+$assertNotContains('padding-top:', $right['innerHTML'], 'Supported comment attrs do not leak into media-text wrapper style.');
+$assertNotContains('min-height:', $right['innerHTML'], 'Source min-height does not leak into media-text wrapper style.');
+$assertNotContains('aspect-ratio:', $right['innerHTML'], 'Source aspect-ratio does not leak into media-text wrapper style.');
+$assertNotContains('max-width:', $right['innerHTML'], 'Source max-width does not leak into media-text wrapper style.');
+$assertNotContains('--media-ratio:', $right['innerHTML'], 'Source custom property does not leak into media-text wrapper style.');
+$assertNotContains('color:#123456', $right['innerHTML'], 'Style-derived support declaration does not leak into media-text wrapper style.');
 
 $leftNarrow = $factory->create('core/media-text', array(
     'mediaType'  => 'image',
