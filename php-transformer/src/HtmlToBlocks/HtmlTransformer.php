@@ -362,6 +362,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
+    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
@@ -811,6 +813,9 @@ final class HtmlTransformer
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
+        }
+        if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
+            $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation,.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{gap:0!important}'
@@ -2187,7 +2192,7 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
                 }
 
                 return null;
@@ -2748,7 +2753,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
             }
             return null;
         }
@@ -3805,6 +3810,36 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyVisualElementAttributes(DOMElement $element): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $parentDisplay = strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')));
+        if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+            return $attrs;
+        }
+
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
+                return $attrs;
+            }
+        }
+        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+                return $attrs;
+            }
+        }
+
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        return $attrs;
     }
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool

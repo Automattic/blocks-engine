@@ -1720,6 +1720,14 @@ $cssSizedHeaderSearch = ( new HtmlTransformer() )->transform(
 $cssSizedHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedHeaderSearch['assets'] ?? array()));
 $assert(str_contains($cssSizedHeaderSearchCss, 'width:48px!important;height:32px!important') && str_contains($cssSizedHeaderSearchCss, 'width:20px;height:21px'), 'native icon search honors authored trigger and SVG dimensions before intrinsic dimensions');
 
+$emptyFlexUtility = ( new HtmlTransformer() )->transform(
+    '<style>.utils{display:flex}.placeholder{visibility:hidden;height:80px}</style><div class="utils"><span>Action</span><div class="placeholder"></div></div>'
+)->toArray();
+$emptyFlexUtilitySerialized = (string) ($emptyFlexUtility['serialized_blocks'] ?? '');
+$emptyFlexUtilityCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyFlexUtility['assets'] ?? array()));
+$assert(str_contains($emptyFlexUtilitySerialized, 'placeholder blocks-engine-empty-flex-item'), 'preserved empty flex children carry a zero-intrinsic-size compatibility marker');
+$assert(str_contains($emptyFlexUtilityCss, 'flex:0 0 0!important;width:0!important;min-width:0!important'), 'empty flex compatibility CSS prevents core group chrome from adding source-absent width');
+
 $boundedHeaderSearch = ( new HtmlTransformer() )->transform(
     '<header><div class="site-utils"><div class="search-shell">Search our catalog<form role="search"><input type="search" name="s"></form></div><button class="search-help" aria-label="Search help"><svg viewBox="0 0 10 10"><path d="M1 1"></path></svg></button></div></header>'
 )->toArray();
