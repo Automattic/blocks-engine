@@ -40,8 +40,11 @@ final class CoverStyleResolver
 
             $name  = strtolower(trim((string) array_shift($parts)));
             $value = trim(implode(':', $parts));
-            $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value, 1));
+            $value = trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value, 1));
             if ( '' !== $name && '' !== $value ) {
+                if ( array_key_exists($name, $declarations) ) {
+                    unset($declarations[ $name ]);
+                }
                 $declarations[ $name ] = $value;
             }
         }
@@ -68,54 +71,59 @@ final class CoverStyleResolver
         );
 
         $declarations = $this->declarations($style);
-        foreach ( array( 'background-image', 'background' ) as $property ) {
-            $value = (string) ($declarations[ $property ] ?? '');
-            if ( '' === $value ) {
+        $property     = null;
+        foreach ( array_reverse(array_keys($declarations)) as $name ) {
+            if ( in_array($name, array( 'background', 'background-image' ), true) ) {
+                $property = $name;
+                break;
+            }
+        }
+        if ( null === $property ) {
+            return $default;
+        }
+
+        $value    = (string) $declarations[ $property ];
+        $layers   = $this->splitTopLevel($value, array( ',' ));
+        $urlIndex = null;
+        foreach ( $layers as $index => $layer ) {
+            if ( preg_match('/\burl\s*\(/i', $layer) ) {
+                $urlIndex = $index;
+                break;
+            }
+        }
+
+        if ( null === $urlIndex ) {
+            return $default;
+        }
+
+        for ( $index = 0; $index < $urlIndex; ++$index ) {
+            if ( ! preg_match('/^linear-gradient\s*\((.*)\)$/is', trim($layers[ $index ]), $matches) ) {
                 continue;
             }
 
-            $layers   = $this->splitTopLevel($value, array( ',' ));
-            $urlIndex = null;
-            foreach ( $layers as $index => $layer ) {
-                if ( preg_match('/\burl\s*\(/i', $layer) ) {
-                    $urlIndex = $index;
-                    break;
-                }
+            $stops = $this->splitTopLevel($matches[1], array( ',' ));
+            if ( 3 === count($stops) && $this->isVerticalGradientDirection($stops[0]) ) {
+                array_shift($stops);
             }
-
-            if ( null === $urlIndex ) {
+            if ( 2 !== count($stops) ) {
                 continue;
             }
 
-            for ( $index = 0; $index < $urlIndex; ++$index ) {
-                if ( ! preg_match('/^linear-gradient\s*\((.*)\)$/is', trim($layers[ $index ]), $matches) ) {
-                    continue;
-                }
-
-                $stops = $this->splitTopLevel($matches[1], array( ',' ));
-                if ( 3 === count($stops) && $this->isVerticalGradientDirection($stops[0]) ) {
-                    array_shift($stops);
-                }
-                if ( 2 !== count($stops) ) {
-                    continue;
-                }
-
-                $first  = $this->overlayColor($stops[0]);
-                $second = $this->overlayColor($stops[1]);
-                if ( null === $first || $first !== $second ) {
-                    continue;
-                }
-
-                $dimRatio = ( (int) round($first['alpha'] * 10) ) * 10;
-                if ( 0 === $dimRatio || 100 === $dimRatio ) {
-                    return $default;
-                }
-
-                return array(
-                    'dimRatio'           => $dimRatio,
-                    'customOverlayColor' => sprintf('#%02x%02x%02x', $first['red'], $first['green'], $first['blue']),
-                );
+            $first  = $this->overlayColor($stops[0]);
+            $second = $this->overlayColor($stops[1]);
+            if ( null === $first || $first !== $second ) {
+                continue;
             }
+
+            $dimRatio = ( (int) round($first['alpha'] * 10) ) * 10;
+            if ( 0 === $dimRatio || 100 === $dimRatio ) {
+                return $default;
+            }
+
+            return array(
+                'dimRatio'           => $dimRatio,
+                'customOverlayColor' => sprintf('#%02x%02x%02x', $first['red'], $first['green'], $first['blue']),
+            );
         }
 
         return $default;
@@ -237,11 +245,16 @@ final class CoverStyleResolver
     {
         $declarations = $this->declarations($style);
         foreach ( array( 'background-repeat', 'background' ) as $property ) {
-            $value = strtolower(trim((string) ($declarations[ $property ] ?? '')));
+            $value           = strtolower(trim((string) ($declarations[ $property ] ?? '')));
+            $repeatingTokens = array( 'repeat', 'repeat-x', 'repeat-y' );
+            if ( 'background' === $property ) {
+                $repeatingTokens[] = 'round';
+                $repeatingTokens[] = 'space';
+            }
             foreach ( $this->splitTopLevel($value, array( ',' )) as $layer ) {
                 $tokens = $this->splitTopLevelWhitespace($layer);
                 foreach ( $tokens as $token ) {
-                    if ( in_array($token, array( 'repeat', 'repeat-x', 'repeat-y' ), true) ) {
+                    if ( in_array($token, $repeatingTokens, true) ) {
                         return true;
                     }
                 }
@@ -297,7 +310,7 @@ final class CoverStyleResolver
 
         if (
             ! preg_match('/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $color, $matches)
-            && ! preg_match('/^rgb\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*\/\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $color, $matches)
+            && ! preg_match('/^rgba?\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*\/\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $color, $matches)
         ) {
             return null;
         }

@@ -140,6 +140,31 @@ $assertTrue($resolver->meetsHeroSizeGate('background-image:url(h.jpg);min-height
 // Required change 9: Oversized scraped style strings are rejected without parsing.
 $assertSameArray(array(), $resolver->declarations('color:red;' . str_repeat(' ', 65527)), 'Styles over 65536 bytes are rejected.');
 
+// J5: Residual shorthand, cascade, color-syntax, and important-spacing edges.
+$assertTrue($resolver->hasRepeatingBackground('background:url(x.jpg) round'), 'Shorthand round disqualifies.');
+$assertTrue($resolver->hasRepeatingBackground('background:url(x.jpg) space'), 'Shorthand space disqualifies.');
+$assertFalse($resolver->hasRepeatingBackground('background-repeat:no-repeat'), 'Longhand no-repeat remains non-repeating.');
+$assertSameArray(
+    array( 'dimRatio' => 0, 'customOverlayColor' => '' ),
+    $resolver->dimFromStyle('background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url(b.jpg);background:red'),
+    'Later background shorthand resets an earlier background-image overlay.'
+);
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:red;background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url(b.jpg)'),
+    'Later background-image overlay wins over an earlier background shorthand.'
+);
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:linear-gradient(rgba(0 0 0 / 0.5),rgba(0 0 0 / 0.5)),url(h.jpg)'),
+    'Modern rgba slash syntax maps to dimRatio and overlay color.'
+);
+$assertSameArray(
+    array( 'minHeight' => 480, 'minHeightUnit' => 'px' ),
+    $resolver->minHeightFromStyle('min-height:480px ! important'),
+    'Spaced important min-height values parse.'
+);
+
 echo "cover style resolver ok\n";
 
 exit(0 === $failures ? 0 : 1);
