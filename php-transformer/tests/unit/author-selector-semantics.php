@@ -102,7 +102,7 @@ $directControl = $transform('<style>.control-cluster{display:flex;gap:8px}.actio
 $directControlMarkup = (string) ($directControl['serialized_blocks'] ?? '');
 $directControlCss = $css($directControl);
 preg_match('/(blocks-engine-control-[a-f0-9]+-\d+)/', $directControlMarkup, $directControlMarker);
-$assert(! str_contains($directControlMarkup, 'wp-block-button action-control') && str_contains($directControlMarkup, 'wp-block-button blocks-engine-control-') && str_contains($directControlMarkup, 'control-cluster') && isset($directControlMarker[1]) && str_contains($directControlCss, ':where(.' . $directControlMarker[1] . '):not(.blocks-engine-specificity-class-') && str_contains($directControlCss, '> :where(.wp-block-button__link){display:inline-flex;align-items:center;gap:8px;padding:12px 20px;min-width:14rem;border:2px solid #123456;border-radius:999px;background:#123456;color:#fff;font-weight:700}') && 3 === substr_count($directControlCss, '> :where(.wp-block-button__link)') && str_contains($directControlCss, ':hover{background:#234567}') && str_contains($directControlCss, ':focus{outline:2px solid #fff}') && 'pass' === ($directControl['source_reports']['wp_block_validity']['status'] ?? ''), 'direct source controls retain marker specificity over later core/button defaults while preserving projected chrome, states, and valid blocks');
+$assert(str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout control-cluster') && str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout action-control') && str_contains($directControlMarkup, '<a href="/go"') && ! str_contains($directControlMarkup, 'wp-block-button__link'), 'direct source controls remain direct author-layout anchors rather than core/button wrappers');
 
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
@@ -137,7 +137,7 @@ $labeledIconButtonMarkup = (string) ($labeledIconButton['serialized_blocks'] ?? 
 $assert(str_contains($labeledIconButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($labeledIconButtonMarkup, 'font-size:.68rem') && str_contains($labeledIconButtonMarkup, 'font-weight:600') && str_contains($labeledIconButtonMarkup, '>Paragraph</span>') && 1 === count(array_filter($labeledIconButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($labeledIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'labeled controls preserve passive inline SVG artwork and descendant typography beside their visible RichText label');
 
 $gridButton = $transform('<style>.controls{display:grid;grid-template-columns:repeat(3,1fr)}</style><div class="controls"><button>One</button><button>Two</button></div>');
-$assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 'has-custom-width wp-block-button__width-100'), 'native buttons that were direct grid items stretch through their structural wrappers');
+$assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 'tagName":"button"'), 'direct grid buttons retain direct editable button representation');
 
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
@@ -202,6 +202,43 @@ $assert(str_contains($semanticInlineMarkup, '<em>this</em>') && ! str_contains($
 $structural = $transform('<style>.product-layout{display:grid;grid-template-columns:1fr 20rem;gap:3rem}.product-layout > .detail-pane{min-width:0}</style><div class="product-layout"><div>Primary</div><aside class="detail-pane">Secondary</aside></div>');
 $structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
 $assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($css($structural), '.product-layout > .detail-pane') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group and child classes survive native grid materialization');
+
+$authorGrid = $transform('<style>.ex-row{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}@media (max-width:600px){.ex-row{grid-template-columns:1fr}}</style><section id="gallery" class="ex-row" aria-label="Gallery" data-kind="exhibition"><div>One</div><div>Two</div><div>Three</div><div>Four</div><div>Five</div></section>');
+$authorGridMarkup = (string) ($authorGrid['serialized_blocks'] ?? '');
+$authorGridBlock = $authorGrid['blocks'][0] ?? array();
+$authorDefinition = $authorGrid['source_reports']['generated_blocks'][0] ?? array();
+$assert('blocks-engine/author-layout' === ($authorGridBlock['blockName'] ?? '') && 5 === count($authorGridBlock['innerBlocks'] ?? array()) && str_contains($authorGridMarkup, '<section id="gallery" class="wp-block-blocks-engine-author-layout ex-row" aria-label="Gallery" data-kind="exhibition">') && ! str_contains((string) ($authorGridBlock['innerHTML'] ?? ''), 'wp-block-group') && ! str_contains($css($authorGrid), '--wp--style--block-gap'), 'author grids use one semantic editable companion wrapper with source CSS as layout authority');
+$assert('blocks-engine/author-layout' === ($authorDefinition['block_json']['name'] ?? '') && false === ($authorDefinition['block_json']['supports']['layout'] ?? true) && false === ($authorDefinition['block_json']['supports']['spacing']['blockGap'] ?? true) && str_contains((string) ($authorDefinition['assets']['index.js'] ?? ''), 'InnerBlocks.Content'), 'author layout companion payload declares editable InnerBlocks and no core layout support');
+
+$mediaLayout = $transform('<style>@media (min-width:700px){@supports (display:grid){.responsive-row{display:grid;gap:2rem}}}</style><div class="responsive-row"><div>One</div><div>Two</div></div>');
+$flowLayout = $transform('<style>.flow-row{display:flex}@media (max-width:700px){.flow-row{display:block}}</style><div class="flow-row"><div>One</div><div>Two</div></div>');
+$assert('blocks-engine/author-layout' === ($mediaLayout['blocks'][0]['blockName'] ?? '') && 'blocks-engine/author-layout' === ($flowLayout['blocks'][0]['blockName'] ?? ''), 'media-only, nested-condition, and flow-reverting CSS layouts retain the same author layout island');
+
+$articleLayout = $transform('<style>.article-row{display:flex}</style><div class="article-row"><article>One</article><article>Two</article></div>');
+$assert('blocks-engine/author-layout' === ($articleLayout['blocks'][0]['blockName'] ?? '') && 2 === substr_count((string) ($articleLayout['serialized_blocks'] ?? ''), '<article '), 'author layout islands preserve div to article direct-child topology');
+
+$ordinaryFlow = $transform('<div><p>One</p><p>Two</p></div>');
+$assert('core/group' === ($ordinaryFlow['blocks'][0]['blockName'] ?? '') && array() === ($ordinaryFlow['source_reports']['generated_blocks'] ?? array()), 'ordinary flow containers remain core blocks without companion generation');
+
+$directControls = $transform('<style>.row{display:flex}</style><div class="row" role="list"><a class="item" href="/one" target="_blank" rel="noopener" role="listitem" data-key="one">One</a><button class="item" type="button" role="listitem" aria-label="Two">Two</button></div>');
+$directControlsMarkup = (string) ($directControls['serialized_blocks'] ?? '');
+$assert(str_contains($directControlsMarkup, '<div class="wp-block-blocks-engine-author-layout row" role="list">') && str_contains($directControlsMarkup, 'wp-block-blocks-engine-author-layout item') && str_contains($directControlsMarkup, 'href="/one"') && str_contains($directControlsMarkup, 'type="button"') && str_contains($directControlsMarkup, 'role="listitem"') && ! str_contains($directControlsMarkup, 'wp-block-buttons'), 'author layout controls retain direct anchor and button topology with safe attributes');
+$authorLayoutScript = (string) ($directControls['source_reports']['generated_blocks'][0]['assets']['index.js'] ?? '');
+$assert(str_contains($authorLayoutScript, "attributes.contentMode === 'rich-text'") && str_contains($authorLayoutScript, 'RichText.Content') && str_contains($authorLayoutScript, 'InnerBlocks.Content'), 'companion JS save contract selects direct RichText leaves and editable structural InnerBlocks by content mode');
+$assert('rich-text' === ($directControls['blocks'][0]['innerBlocks'][0]['attrs']['contentMode'] ?? '') && array() === ($directControls['blocks'][0]['innerBlocks'][0]['innerBlocks'] ?? array()), 'simple direct controls persist rich-text mode without child blocks');
+
+$logoControl = $transform('<style>.logo-row{display:flex}.logo > svg{width:24px;height:18px}</style><div class="logo-row"><a class="logo" href="/"><svg viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4"/></svg><span>Logo</span></a></div>');
+$logoBlock = $logoControl['blocks'][0]['innerBlocks'][0] ?? array();
+$logoMarkup = (string) ($logoControl['serialized_blocks'] ?? '');
+$logoContent = (string) ($logoBlock['attrs']['content'] ?? '');
+$logoAssetCount = count(array_filter($logoControl['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? '')));
+$logoDirectSave = 1 === preg_match('~<a href="/" class="wp-block-blocks-engine-author-layout logo"><img[^>]+><span>Logo</span></a>~', $logoMarkup);
+$assert('rich-text' === ($logoBlock['attrs']['contentMode'] ?? '') && array() === ($logoBlock['innerBlocks'] ?? array()) && str_contains($logoContent, '<img src="assets/materialized-svg/') && str_contains($logoContent, 'style="width:24px;height:18px"') && 1 === $logoAssetCount && $logoDirectSave && ! str_contains($logoMarkup, '<svg') && ! str_contains($logoMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout logo"><!-- wp:paragraph'), 'passive SVG logo controls save direct materialized images and phrasing content through RichText without synthetic wrappers');
+$assert(array() === ($logoControl['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()), 'SVG-to-image materialization preserves author-layout topology without a false wrapper-change diagnostic');
+
+$structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
+$structuredAnchorBlock = $structuredAnchor['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('inner-blocks' === ($structuredAnchorBlock['attrs']['contentMode'] ?? '') && 0 < count($structuredAnchorBlock['innerBlocks'] ?? array()) && str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), '<a href="/" class="wp-block-blocks-engine-author-layout card"><!-- wp:paragraph'), 'block-structured anchor descendants retain the PHP InnerBlocks save contract');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();

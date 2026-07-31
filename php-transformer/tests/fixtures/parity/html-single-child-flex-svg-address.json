@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "illustration-frame", "layout": { "type": "flex", "justifyContent": "center" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "illustration-frame", "tagName": "div" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a>" } }
   ],

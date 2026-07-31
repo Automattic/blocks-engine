@@ -16,7 +16,7 @@
     "content": "<div style=\"display:flex;gap:2rem;align-items:flex-start\"><svg viewBox=\"0 0 20 20\" aria-label=\"Paw width diagram\"><rect x=\"1\" y=\"1\" width=\"18\" height=\"18\" fill=\"#eee\" /><text x=\"10\" y=\"12\" text-anchor=\"middle\" font-family=\"monospace\" font-size=\"6\">WIDTH</text></svg><div><h3>Paw Width</h3><p>Measure the widest point while standing.</p></div></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex" } } },
+    { "path": "blocks.0", "name": "blocks-engine/author-layout" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Paw Width", "level": 3 } },

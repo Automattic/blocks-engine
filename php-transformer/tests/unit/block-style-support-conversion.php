@@ -69,14 +69,14 @@ $group = $groupResult['blocks'][0] ?? array();
 $groupAttrs = is_array($group['attrs'] ?? null) ? $group['attrs'] : array();
 $groupInnerHtml = (string) ($group['innerHTML'] ?? '');
 
-$assert('core/columns' === ($group['blockName'] ?? ''), '9: horizontal flex content wrapper becomes columns', (string) ($group['blockName'] ?? '(none)'));
-$assert('center' === ($groupAttrs['layout']['justifyContent'] ?? ''), '10: group flex justify-content is normalized to layout attr', json_encode($groupAttrs['layout'] ?? array()));
-$assert(str_contains($groupInnerHtml, 'has-base-background-color has-background'), '11: rendered wrapper uses preset color classes', $groupInnerHtml);
-$assert(str_contains($groupInnerHtml, 'is-layout-flex wp-block-columns-is-layout-flex'), '12: rendered wrapper uses layout support classes', $groupInnerHtml);
-$assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: rendered wrapper omits blockGap when the core save shape does not reproduce it', $groupInnerHtml);
-$assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: rendered wrapper does not carry raw flex declarations', $groupInnerHtml);
-$assert('100svh' === ($groupAttrs['style']['dimensions']['minHeight'] ?? ''), '15: min-height maps to Gutenberg dimensions support', json_encode($groupAttrs['style']['dimensions'] ?? array()));
-$assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: rendered wrapper preserves section min-height geometry', $groupInnerHtml);
+$assert('blocks-engine/author-layout' === ($group['blockName'] ?? ''), '9: horizontal flex rows use the editable author-layout companion', (string) ($group['blockName'] ?? '(none)'));
+$assert(! isset($groupAttrs['layout']), '10: author-layout declares no Gutenberg layout attribute', json_encode($groupAttrs));
+$assert(str_contains($groupInnerHtml, 'wp-block-blocks-engine-author-layout hero-row'), '11: rendered wrapper uses the companion block class and source class', $groupInnerHtml);
+$assert(! str_contains($groupInnerHtml, 'is-layout-flex') && ! str_contains($groupInnerHtml, 'wp-block-group'), '12: author layout wrapper does not opt into core Group layout CSS', $groupInnerHtml);
+$assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: author layout wrapper stores no blockGap', $groupInnerHtml);
+$assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: source CSS remains the layout authority', $groupInnerHtml);
+$assert(! isset($groupAttrs['style']), '15: author layout wrapper carries no core style support object', json_encode($groupAttrs));
+$assert(! str_contains($groupInnerHtml, 'min-height:100svh'), '16: author layout wrapper does not serialize core dimensions support', $groupInnerHtml);
 
 $cardHtml = '<section class="pricing-shell" style="max-width:1120px;margin:0 auto;padding:5rem 2rem"><article class="pricing-card" style="max-width:360px;padding:2rem;background:#fff"><h2>Team</h2><p>Scale every launch.</p></article></section>';
 $cardResult = ( new HtmlTransformer() )->transform($cardHtml, array())->toArray();
@@ -196,9 +196,9 @@ $columnsMaxWidthBlock = $columnsMaxWidthResult['blocks'][0] ?? array();
 $columnsMaxWidthAttrs = is_array($columnsMaxWidthBlock['attrs'] ?? null) ? $columnsMaxWidthBlock['attrs'] : array();
 $columnsMaxWidthMarkup = (string) ($columnsMaxWidthResult['serialized_blocks'] ?? '');
 
-$assert('core/columns' === ($columnsMaxWidthBlock['blockName'] ?? ''), '24: horizontal flex wrapper still becomes columns', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
-$assert(! isset($columnsMaxWidthAttrs['style']['dimensions']['maxWidth']), '25: core/columns omits max-width attr that Gutenberg save does not reproduce', json_encode($columnsMaxWidthAttrs['style']['dimensions'] ?? array()));
-$assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: rendered core/columns wrapper omits unsupported max-width style', $columnsMaxWidthMarkup);
+$assert('blocks-engine/author-layout' === ($columnsMaxWidthBlock['blockName'] ?? ''), '24: horizontal flex wrapper uses the author-layout companion', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
+$assert(! isset($columnsMaxWidthAttrs['style']), '25: author layout omits core dimensions support', json_encode($columnsMaxWidthAttrs));
+$assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: author layout leaves unsupported geometry to source CSS', $columnsMaxWidthMarkup);
 
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
@@ -207,7 +207,7 @@ $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price'), '27: box-model card price row stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-blocks-engine-author-layout tier-price'), '27: CSS-owned card price row uses the editable author layout wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 

@@ -548,7 +548,7 @@ trait StyleResolutionTrait
     }
 
     /**
-     * @return array<int, array{selector: string, declarations: array<string, string>}>
+     * @return array<int, array{selector: string, declarations: array<string, string>, condition: string}>
      */
     private function staticStyleRules(string $html, string $linkedCss): array
     {
@@ -605,7 +605,20 @@ trait StyleResolutionTrait
         }
 
         $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $conditionalCss = '';
+        $rules = array();
+        $this->collectConditionalStyleRules($css, array(), $rules);
+
+        return $rules;
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @param array<int, array{selector: string, declarations: array<string, string>}> $rules
+     */
+    private function collectConditionalStyleRules(string $css, array $conditions, array &$rules): void
+    {
+        $directCss = $css;
+        $events = array();
         $length = strlen($css);
         for ($offset = 0; $offset < $length; ++$offset) {
             if ('@' !== $css[$offset]) {
@@ -614,62 +627,81 @@ trait StyleResolutionTrait
             $blockStart = $this->findCssToken($css, '{', $offset);
             $statementEnd = $this->findCssToken($css, ';', $offset);
             if (null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart)) {
-                if (null !== $statementEnd) {
-                    $offset = $statementEnd;
-                }
+                continue;
+            }
+            $end = $this->findMatchingCssBrace($css, $blockStart);
+            if (null === $end) {
+                continue;
+            }
+            $prelude = trim(substr($css, $offset, $blockStart - $offset));
+            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
+            if (preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude)) {
+                $events[] = array(
+                    'offset' => $offset,
+                    'kind' => 'conditional',
+                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
+                    'conditions' => array_merge($conditions, array($prelude)),
+                );
+            }
+            $offset = $end;
+        }
+
+        if (array() !== $conditions && preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            foreach ($matches as $match) {
+                $events[] = array(
+                    'offset' => $match[0][1],
+                    'kind' => 'style',
+                    'prelude' => $match[1][0],
+                    'body' => $match[2][0],
+                    'conditions' => $conditions,
+                );
+            }
+        }
+
+        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ($events as $event) {
+            if ('conditional' === $event['kind']) {
+                $this->collectConditionalStyleRules($event['css'], $event['conditions'], $rules);
                 continue;
             }
 
-            $prelude = strtolower(trim(substr($css, $offset, $blockStart - $offset)));
-            $depth = 1;
-            for ($end = $blockStart + 1; $end < $length; ++$end) {
-                if ('"' === $css[$end] || "'" === $css[$end]) {
-                    $quote = $css[$end];
-                    for (++$end; $end < $length; ++$end) {
-                        if ('\\' === $css[$end]) {
-                            ++$end;
-                            continue;
-                        }
-                        if ($quote === $css[$end]) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if ('{' === $css[$end]) {
-                    ++$depth;
-                } elseif ('}' === $css[$end] && 0 === --$depth) {
-                    if (preg_match('/^@(media|container|supports)\b/', $prelude)) {
-                        $conditionalCss .= "\n" . substr($css, $blockStart + 1, $end - $blockStart - 1);
-                    }
-                    $offset = $end;
-                    continue 2;
-                }
-            }
-            break;
-        }
-
-        $rules = array();
-        if (! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $conditionalCss, $matches, PREG_SET_ORDER)) {
-            return $rules;
-        }
-        foreach ($matches as $match) {
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $event['body']));
             if (array() === $declarations) {
                 continue;
             }
-            foreach (explode(',', (string) $match[1]) as $selector) {
+            foreach (explode(',', (string) $event['prelude']) as $selector) {
                 $selector = trim($selector);
                 if ('' !== $selector && ! str_starts_with($selector, '@') && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
-                    $rules[] = array(
-                        'selector' => $selector,
-                        'declarations' => $declarations,
-                    );
+                    $rules[] = array('selector' => $selector, 'declarations' => $declarations);
                 }
             }
         }
+    }
 
-        return $rules;
+    private function findMatchingCssBrace(string $css, int $openingBrace): ?int
+    {
+        $depth = 1;
+        $length = strlen($css);
+        for ($offset = $openingBrace + 1; $offset < $length; ++$offset) {
+            if ('"' === $css[$offset] || "'" === $css[$offset]) {
+                $quote = $css[$offset];
+                for (++$offset; $offset < $length; ++$offset) {
+                    if ('\\' === $css[$offset]) {
+                        ++$offset;
+                    } elseif ($quote === $css[$offset]) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ('{' === $css[$offset]) {
+                ++$depth;
+            } elseif ('}' === $css[$offset] && 0 === --$depth) {
+                return $offset;
+            }
+        }
+
+        return null;
     }
 
     /**
