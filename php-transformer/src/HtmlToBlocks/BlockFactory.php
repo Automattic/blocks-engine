@@ -77,7 +77,20 @@ final class BlockFactory
         }
 
         if ( 'core/media-text' === $name ) {
-            unset($attrs['style']);
+            $supportedStyleGroups = array( 'border', 'color', 'elements', 'spacing', 'typography' );
+            if ( is_array($attrs['style'] ?? null) ) {
+                foreach ( array_keys($attrs['style']) as $styleGroup ) {
+                    if ( ! in_array($styleGroup, $supportedStyleGroups, true) ) {
+                        unset($attrs['style'][ $styleGroup ]);
+                    }
+                }
+                if ( empty($attrs['style']) ) {
+                    unset($attrs['style']);
+                }
+            } else {
+                unset($attrs['style']);
+            }
+            unset($attrs['inlineGeometryStyle']);
         }
 
         if ( 'core/separator' === $name ) {
@@ -470,6 +483,9 @@ final class BlockFactory
         }
         if ( '' !== $verticalAlignment ) {
             $wrapperClasses[] = 'is-vertically-aligned-' . $verticalAlignment;
+        }
+        if ( ! empty($attrs['style']['elements']['link']['color']) ) {
+            $wrapperClasses[] = 'has-link-color';
         }
 
         $wrapperAttrs = $attrs;
@@ -922,9 +938,12 @@ final class BlockFactory
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $alignmentClasses = $this->textAlignmentClasses($attrs);
         $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
-        $style = null === $styleOverride
-            ? trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';')
-            : trim($styleOverride, ';');
+        $style = trim(
+            (string) $support['style'] . ';' . (null === $styleOverride
+                ? (string) ($attrs['inlineGeometryStyle'] ?? '')
+                : $styleOverride),
+            ';'
+        );
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,

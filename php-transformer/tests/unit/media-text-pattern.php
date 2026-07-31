@@ -634,12 +634,17 @@ $geometryBlock = $geometryResult['blocks'][0] ?? array();
 $geometryOpening = (string) ($geometryBlock['innerContent'][0] ?? '');
 $geometryAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $geometryResult['assets'] ?? array()));
 $assertSame('core/media-text', $geometryBlock['blockName'] ?? null, 'Grid geometry case emits media-text.');
-$assertTrue(! isset($geometryBlock['attrs']['style']), 'Media-text attrs omit suppressed style object.');
+$assertSame(
+    array( 'top' => '1rem', 'right' => '1rem', 'bottom' => '1rem', 'left' => '1rem' ),
+    $geometryBlock['attrs']['style']['spacing']['padding'] ?? null,
+    'Media-text attrs preserve supported padding.'
+);
+$assertTrue(! isset($geometryBlock['attrs']['style']['dimensions']), 'Media-text attrs omit unsupported dimensions.');
 $assertSame('accent', $geometryBlock['attrs']['backgroundColor'] ?? null, 'Media-text preserves top-level preset attr.');
 $assertContains('has-accent-background-color has-background', $geometryOpening, 'Media-text preserves top-level preset classes.');
 $assertContains('be-inline-geometry-', (string) ($geometryBlock['attrs']['className'] ?? ''), 'Media-text preserves generated geometry carrier class.');
-$assertContains('style="grid-template-columns:30% auto"', $geometryOpening, 'Media-text wrapper style contains grid tracks.');
-foreach ( array( 'max-width', 'min-height', 'aspect-ratio', '--media-gap', 'padding-' ) as $leakedProperty ) {
+$assertContains('padding-top:1rem;padding-right:1rem;padding-bottom:1rem;padding-left:1rem;grid-template-columns:30% auto', $geometryOpening, 'Media-text wrapper merges support styles with grid tracks.');
+foreach ( array( 'max-width', 'min-height', 'aspect-ratio', '--media-gap' ) as $leakedProperty ) {
     $assertTrue(! str_contains($geometryOpening, $leakedProperty), 'Media-text wrapper style omits source property: ' . $leakedProperty);
 }
 $assertContains('max-width:900px !important', $geometryAssets, 'Carrier stylesheet preserves source max-width.');

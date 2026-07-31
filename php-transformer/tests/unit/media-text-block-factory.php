@@ -76,13 +76,18 @@ $right = $factory->create('core/media-text', array(
     'backgroundColor'   => 'accent',
     'style'             => array(
         'color'      => array( 'text' => '#123456' ),
-        'dimensions' => array( 'maxWidth' => '900px' ),
+        'border'     => array( 'radius' => '8px' ),
+        'dimensions' => array( 'maxWidth' => '900px', 'minHeight' => '30rem' ),
+        'elements'   => array( 'link' => array( 'color' => array( 'text' => '#654321' ) ) ),
+        'position'   => array( 'type' => 'sticky', 'top' => '0px' ),
         'spacing'    => array( 'blockGap' => '2rem', 'padding' => array( 'top' => '2rem' ) ),
+        'typography' => array( 'lineHeight' => '1.4' ),
+        '--media-ratio' => '1',
     ),
     'inlineGeometryStyle' => 'min-height:30rem;aspect-ratio:16/9;max-width:900px;--media-ratio:1',
 ), array( $paragraph ));
 $assertSame(
-    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center has-accent-background-color has-background promo" style="grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
+    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center has-link-color has-accent-background-color has-background has-text-color promo" style="color:#123456;border-radius:8px;padding-top:2rem;line-height:1.4;grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
     $right['innerContent'][0],
     'Media-right opening carries position, stack, vertical, and width attributes.'
 );
@@ -93,17 +98,30 @@ $assertSame(
 );
 $assertContains('grid-template-columns:auto 35%', $right['innerHTML'], 'Right media width targets second grid track.');
 $assertContains('is-vertically-aligned-center', $right['innerHTML'], 'Vertical alignment class matches core save shape.');
-$assertContains('has-accent-background-color has-background', $right['innerHTML'], 'Top-level preset support classes survive media-text style suppression.');
-$assertNotContains('has-text-color', $right['innerHTML'], 'Suppressed style attrs emit no ghost support class.');
-$assertSame('accent', $right['attrs']['backgroundColor'] ?? null, 'Top-level preset attr survives media-text style suppression.');
-$assertSame(null, $right['attrs']['style'] ?? null, 'Media-text comment attrs omit suppressed style object entirely.');
+$assertContains('has-accent-background-color has-background', $right['innerHTML'], 'Top-level preset support classes survive media-text style filtering.');
+$assertContains('has-text-color', $right['innerHTML'], 'Supported style-derived class survives media-text style filtering.');
+$assertContains('has-link-color', $right['innerHTML'], 'Supported link-element class survives media-text style filtering.');
+$assertSame('accent', $right['attrs']['backgroundColor'] ?? null, 'Top-level preset attr survives media-text style filtering.');
+$assertSame(
+    array(
+        'color'      => array( 'text' => '#123456' ),
+        'border'     => array( 'radius' => '8px' ),
+        'elements'   => array( 'link' => array( 'color' => array( 'text' => '#654321' ) ) ),
+        'spacing'    => array( 'padding' => array( 'top' => '2rem' ) ),
+        'typography' => array( 'lineHeight' => '1.4' ),
+    ),
+    $right['attrs']['style'] ?? null,
+    'Media-text comment attrs keep only supported style groups.'
+);
 $assertNotContains('gap:', $right['innerHTML'], 'Unsupported blockGap emits no wrapper CSS.');
-$assertNotContains('padding-top:', $right['innerHTML'], 'Supported comment attrs do not leak into media-text wrapper style.');
+$assertContains('padding-top:2rem', $right['innerHTML'], 'Supported spacing regenerates in media-text wrapper style.');
+$assertContains('border-radius:8px', $right['innerHTML'], 'Supported border regenerates in media-text wrapper style.');
+$assertContains('line-height:1.4', $right['innerHTML'], 'Supported typography regenerates in media-text wrapper style.');
 $assertNotContains('min-height:', $right['innerHTML'], 'Source min-height does not leak into media-text wrapper style.');
 $assertNotContains('aspect-ratio:', $right['innerHTML'], 'Source aspect-ratio does not leak into media-text wrapper style.');
 $assertNotContains('max-width:', $right['innerHTML'], 'Source max-width does not leak into media-text wrapper style.');
 $assertNotContains('--media-ratio:', $right['innerHTML'], 'Source custom property does not leak into media-text wrapper style.');
-$assertNotContains('color:#123456', $right['innerHTML'], 'Style-derived support declaration does not leak into media-text wrapper style.');
+$assertContains('color:#123456', $right['innerHTML'], 'Supported color regenerates in media-text wrapper style.');
 
 $leftNarrow = $factory->create('core/media-text', array(
     'mediaType'  => 'image',
