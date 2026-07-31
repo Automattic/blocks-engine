@@ -321,7 +321,7 @@ $navigation = array(
 $assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive core/navigation child rejects cover.');
 $assertSame(array( array( 'blockName' => 'existing/fallback' ) ), $fallbacks, 'K5: Navigation rejection discards local fallbacks.');
 
-// K6/N3: Design gradients become core customGradient attrs and render only on the overlay span.
+// K6/N3/P3: Design gradients become visible core customGradient attrs on the overlay span.
 $gradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,#ff0000,#0000ff),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $designGradientCover = $gradientResult['blocks'][0] ?? array();
 $designGradientOpening = (string) ($designGradientCover['innerContent'][0] ?? '');
@@ -330,8 +330,13 @@ $assertSame('core/cover', $designGradientCover['blockName'] ?? null, 'K6: Design
 $assertTrue(! str_contains((string) json_encode($designGradientCover['attrs'] ?? array()), 'url('), 'K6: Cover attrs contain no URL layer.');
 $assertTrue(! str_contains($designGradientOpening, 'url('), 'K6: Cover opening markup contains no CSS URL layer.');
 $assertSame('linear-gradient(90deg,#ff0000,#0000ff)', $designGradientCover['attrs']['customGradient'] ?? null, 'N3: Design gradient lands in customGradient.');
+$assertSame(100, $designGradientCover['attrs']['dimRatio'] ?? null, 'P3: Design gradient uses full overlay opacity.');
+$assertTrue(! isset($designGradientCover['attrs']['customOverlayColor']), 'P3: Design gradient emits no customOverlayColor.');
 $assertTrue(! isset($designGradientCover['attrs']['style']['color']['gradient']), 'N3: Design gradient leaves no style.color.gradient attr.');
-$assertTrue(str_contains($designGradientOpening, 'has-background-gradient'), 'N3: Overlay span carries has-background-gradient.');
+$assertTrue(
+    str_contains($designGradientOpening, 'class="wp-block-cover__background has-background-dim-100 has-background-dim wp-block-cover__gradient-background has-background-gradient"'),
+    'P3: Design gradient span carries full-opacity core classes.'
+);
 $assertTrue(str_contains($designGradientOpening, 'style="background:linear-gradient(90deg,#ff0000,#0000ff)"'), 'N3: Overlay span paints customGradient.');
 $assertTrue(! str_contains($designGradientWrapper, 'linear-gradient'), 'N3: Wrapper opening carries no design gradient.');
 
@@ -343,7 +348,7 @@ $assertSame(
     'N3: Multiple surviving gradient layers remain joined by a top-level comma.'
 );
 
-// N4: Uniform overlays remain dim/color attrs and never become customGradient.
+// N4/P5: Uniform overlays remain dim/color attrs and never become customGradient.
 $uniformGradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(0deg, rgba(0,0,0,.5), rgba(0,0,0,.5)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $uniformGradientCover = $uniformGradientResult['blocks'][0] ?? array();
 $uniformGradientOpening = (string) ($uniformGradientCover['innerContent'][0] ?? '');
@@ -352,17 +357,48 @@ $assertSame('#000000', $uniformGradientCover['attrs']['customOverlayColor'] ?? n
 $assertTrue(! isset($uniformGradientCover['attrs']['customGradient']), 'N4: Uniform overlay emits no customGradient.');
 $assertTrue(! isset($uniformGradientCover['attrs']['style']['color']['gradient']), 'N4: Uniform overlay leaves no style.color.gradient attr.');
 $assertTrue(str_contains($uniformGradientOpening, 'has-background-dim'), 'N4: Uniform overlay span carries has-background-dim.');
+$assertTrue(! str_contains($uniformGradientOpening, 'has-background-dim-50'), 'P5: Uniform overlay omits the ratio-50 step class.');
 $assertTrue(! str_contains($uniformGradientOpening, 'has-background-gradient'), 'N4: Uniform overlay span omits has-background-gradient.');
 
-$mixedGradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(0deg, rgba(0,0,0,.5), rgba(0,0,0,.5)),radial-gradient(circle,#ffffff,#000000),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$degenerateUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(rgba(0,0,0,.04),rgba(0,0,0,0.04)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$degenerateUniformCover = $degenerateUniformResult['blocks'][0] ?? array();
+$assertSame(0, $degenerateUniformCover['attrs']['dimRatio'] ?? null, 'P5: Semantically equal degenerate uniform stops keep dimRatio 0.');
+$assertTrue(! isset($degenerateUniformCover['attrs']['customOverlayColor']), 'P5: Degenerate uniform overlay emits no customOverlayColor.');
+
+$sidewaysUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,.5)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$sidewaysUniformCover = $sidewaysUniformResult['blocks'][0] ?? array();
+$assertSame(0, $sidewaysUniformCover['attrs']['dimRatio'] ?? null, 'P5: Uniform-only 90deg gradient keeps existing dimRatio 0 derivation.');
+$assertTrue(! isset($sidewaysUniformCover['attrs']['customOverlayColor']), 'P5: Uniform-only 90deg gradient emits no customOverlayColor.');
+
+$crossSyntaxUniformResult = $transformHtml('<section class="hero" style="background:linear-gradient(#000,rgb(0,0,0)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$crossSyntaxUniformCover = $crossSyntaxUniformResult['blocks'][0] ?? array();
+$assertSame(0, $crossSyntaxUniformCover['attrs']['dimRatio'] ?? null, 'P5: Cross-syntax uniform stops keep existing dimRatio 0 derivation.');
+$assertTrue(! isset($crossSyntaxUniformCover['attrs']['customOverlayColor']), 'P5: Cross-syntax uniform gradient emits no customOverlayColor.');
+
+$radialUniformResult = $transformHtml('<section class="hero" style="background:radial-gradient(circle,rgba(0,0,0,.04),rgba(0,0,0,0.04)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$radialUniformCover = $radialUniformResult['blocks'][0] ?? array();
+$assertSame(0, $radialUniformCover['attrs']['dimRatio'] ?? null, 'P5: Uniform-only radial gradient keeps existing dimRatio 0 derivation.');
+$assertTrue(! isset($radialUniformCover['attrs']['customOverlayColor']), 'P5: Uniform-only radial gradient emits no customOverlayColor.');
+
+$conicUniformResult = $transformHtml('<section class="hero" style="background:conic-gradient(from 45deg,rgba(0,0,0,.04),rgba(0,0,0,0.04)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$conicUniformCover = $conicUniformResult['blocks'][0] ?? array();
+$assertSame(0, $conicUniformCover['attrs']['dimRatio'] ?? null, 'P5: Uniform-only conic gradient keeps existing dimRatio 0 derivation.');
+$assertTrue(! isset($conicUniformCover['attrs']['customOverlayColor']), 'P5: Uniform-only conic gradient emits no customOverlayColor.');
+
+// P4: Mixed uniform and design gradients all remain in customGradient, in source order.
+$mixedGradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),linear-gradient(90deg,rgba(255,0,0,.55),rgba(0,0,255,.55)),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
 $mixedGradientCover = $mixedGradientResult['blocks'][0] ?? array();
 $mixedGradientOpening = (string) ($mixedGradientCover['innerContent'][0] ?? '');
-$assertSame(50, $mixedGradientCover['attrs']['dimRatio'] ?? null, 'N3/N4: Mixed gradient keeps uniform overlay dimRatio.');
-$assertSame('#000000', $mixedGradientCover['attrs']['customOverlayColor'] ?? null, 'N3/N4: Mixed gradient keeps uniform overlay color.');
-$assertSame('radial-gradient(circle,#ffffff,#000000)', $mixedGradientCover['attrs']['customGradient'] ?? null, 'N3/N4: Mixed gradient promotes only surviving design layer.');
+$assertSame(100, $mixedGradientCover['attrs']['dimRatio'] ?? null, 'P4: Mixed gradient uses full overlay opacity.');
+$assertTrue(! isset($mixedGradientCover['attrs']['customOverlayColor']), 'P4: Mixed gradient emits no customOverlayColor.');
+$assertSame(
+    'linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),linear-gradient(90deg,rgba(255,0,0,.55),rgba(0,0,255,.55))',
+    $mixedGradientCover['attrs']['customGradient'] ?? null,
+    'P4: Mixed gradient keeps every gradient layer in source order.'
+);
 $assertTrue(
-    str_contains($mixedGradientOpening, 'class="wp-block-cover__background has-background-dim wp-block-cover__gradient-background has-background-gradient" style="background-color:#000000;background:radial-gradient(circle,#ffffff,#000000)"'),
-    'N3/N4: Mixed overlay span uses core class and bgStyle order.'
+    str_contains($mixedGradientOpening, 'class="wp-block-cover__background has-background-dim-100 has-background-dim wp-block-cover__gradient-background has-background-gradient" style="background:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),linear-gradient(90deg,rgba(255,0,0,.55),rgba(0,0,255,.55))"'),
+    'P4: Mixed overlay span carries full-opacity core classes and source-order gradient style.'
 );
 
 $duplicateUniformGradient = 'linear-gradient(0deg, rgba(0,0,0,.5), rgba(0,0,0,.5))';

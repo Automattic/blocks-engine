@@ -69,17 +69,17 @@ $assertContains('style="object-position:25% 75%" data-object-fit="cover" data-ob
 $designGradient = $factory->create('core/cover', array(
     'url'            => 'https://example.com/hero.jpg',
     'alt'            => '',
-    'dimRatio'       => 0,
+    'dimRatio'       => 100,
     'customGradient' => 'linear-gradient(90deg,#ff0000,#0000ff)',
 ), array());
 $assertContains(
-    'class="wp-block-cover__background has-background-dim-0 has-background-dim has-background-gradient"',
+    'class="wp-block-cover__background has-background-dim-100 has-background-dim wp-block-cover__gradient-background has-background-gradient"',
     $designGradient['innerHTML'],
-    'N3: Design gradient uses core class order without the dim compatibility class at dimRatio 0.'
+    'P3: Design gradient uses full-opacity core class order with the compatibility class.'
 );
-$assertNotContains('wp-block-cover__gradient-background', $designGradient['innerHTML'], 'N3: dimRatio 0 omits the gradient compatibility class.');
 $assertContains('style="background:linear-gradient(90deg,#ff0000,#0000ff)"', $designGradient['innerHTML'], 'N3: customGradient paints the overlay span.');
 $assertSame('linear-gradient(90deg,#ff0000,#0000ff)', $designGradient['attrs']['customGradient'] ?? null, 'N3: customGradient rides comment attrs.');
+$assertSame(100, $designGradient['attrs']['dimRatio'] ?? null, 'P3: dimRatio 100 rides comment attrs.');
 
 $gradientWithDim = $factory->create('core/cover', array(
     'url'                => 'https://example.com/hero.jpg',

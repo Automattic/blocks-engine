@@ -361,13 +361,29 @@ final class CoverPattern
             return;
         }
 
-        $layers = $this->splitTopLevel($gradient, array( ',' ));
-        $kept   = array();
-        $consumedOverlay = false;
+        $layers         = $this->splitTopLevel($gradient, array( ',' ));
+        $gradientLayers = array();
+        $hasDesignLayer = false;
         foreach ( $layers as $layer ) {
             if ( preg_match('/\burl\s*\(/i', $layer) ) {
                 continue;
             }
+            $gradientLayers[] = $layer;
+            if ( ! $this->isUniformOverlayGradient($layer) ) {
+                $hasDesignLayer = true;
+            }
+        }
+
+        if ( $hasDesignLayer ) {
+            $attrs['dimRatio'] = 100;
+            $attrs['customGradient'] = implode(',', $gradientLayers);
+            unset($attrs['customOverlayColor']);
+            return;
+        }
+
+        $kept           = array();
+        $consumedOverlay = false;
+        foreach ( $gradientLayers as $layer ) {
             if ( ! $consumedOverlay && $this->isConsumedOverlayGradient($layer, $dim) ) {
                 $consumedOverlay = true;
                 continue;
@@ -377,6 +393,124 @@ final class CoverPattern
         if ( array() !== $kept ) {
             $attrs['customGradient'] = implode(',', $kept);
         }
+    }
+
+    private function isUniformOverlayGradient(string $layer): bool
+    {
+        try {
+            $candidate = $this->styleResolver->dimFromStyle('background:' . $layer . ',url(cover-gradient-probe)');
+        } catch ( Throwable ) {
+            return false;
+        }
+
+        if (
+            0 !== (int) ($candidate['dimRatio'] ?? 0)
+            && preg_match('/^#[0-9a-f]{6}$/', (string) ($candidate['customOverlayColor'] ?? ''))
+        ) {
+            return true;
+        }
+
+        if ( ! preg_match('/^((?:repeating-)?(linear|radial|conic))-gradient\s*\((.*)\)$/is', trim($layer), $matches) ) {
+            return false;
+        }
+
+        $type  = strtolower($matches[2]);
+        $stops = $this->splitTopLevel($matches[3], array( ',' ));
+        if ( count($stops) >= 3 && $this->isGradientPrelude($type, $stops[0]) ) {
+            array_shift($stops);
+        }
+        if ( count($stops) < 2 ) {
+            return false;
+        }
+
+        $first = $this->normalizedGradientStopColor((string) array_shift($stops));
+        if ( null === $first ) {
+            return false;
+        }
+        foreach ( $stops as $stop ) {
+            if ( $first !== $this->normalizedGradientStopColor($stop) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isGradientPrelude(string $type, string $value): bool
+    {
+        $value = trim($value);
+        if ( 'linear' === $type ) {
+            return $this->isGradientDirection($value);
+        }
+        if ( 'conic' === $type ) {
+            return (bool) preg_match('/^(?:from|at)\b/i', $value);
+        }
+
+        return (bool) preg_match(
+            '/^(?:circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner)(?:\s|$)|\bat\b|^(?:calc|min|max|clamp)\(|^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)/i',
+            $value
+        );
+    }
+
+    private function isGradientDirection(string $value): bool
+    {
+        return (bool) preg_match(
+            '/^(?:[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:deg|grad|rad|turn)|to\s+[a-z]+(?:\s+[a-z]+)?)$/i',
+            trim($value)
+        );
+    }
+
+    private function normalizedGradientStopColor(string $stop): ?string
+    {
+        $stop = strtolower(trim($stop));
+        if ( preg_match('/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})(?:\s|$)/', $stop, $matches) ) {
+            $hex = $matches[1];
+            if ( strlen($hex) <= 4 ) {
+                $hex = implode('', array_map(static fn (string $digit): string => $digit . $digit, str_split($hex)));
+            }
+            if ( 6 === strlen($hex) ) {
+                $hex .= 'ff';
+            }
+
+            return sprintf(
+                '%d,%d,%d,%.6F',
+                hexdec(substr($hex, 0, 2)),
+                hexdec(substr($hex, 2, 2)),
+                hexdec(substr($hex, 4, 2)),
+                hexdec(substr($hex, 6, 2)) / 255
+            );
+        }
+
+        $alpha = '(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)';
+        if ( preg_match('/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*' . $alpha . ')?\s*\)/', $stop, $matches) ) {
+            $red       = (int) $matches[1];
+            $green     = (int) $matches[2];
+            $blue      = (int) $matches[3];
+            $alphaValue = isset($matches[4]) && '' !== $matches[4] ? (float) $matches[4] : 1.0;
+            if ( $red > 255 || $green > 255 || $blue > 255 ) {
+                return null;
+            }
+
+            return sprintf('%d,%d,%d,%.6F', $red, $green, $blue, $alphaValue);
+        }
+
+        if ( preg_match('/^rgba?\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})(?:\s*\/\s*' . $alpha . ')?\s*\)/', $stop, $matches) ) {
+            $red       = (int) $matches[1];
+            $green     = (int) $matches[2];
+            $blue      = (int) $matches[3];
+            $alphaValue = isset($matches[4]) && '' !== $matches[4] ? (float) $matches[4] : 1.0;
+            if ( $red > 255 || $green > 255 || $blue > 255 ) {
+                return null;
+            }
+
+            return sprintf('%d,%d,%d,%.6F', $red, $green, $blue, $alphaValue);
+        }
+
+        if ( ! preg_match('/^([a-z][a-z0-9-]*(?:\([^)]*\))?)(?:\s|$)/', $stop, $matches) ) {
+            return null;
+        }
+
+        return 'literal:' . (string) preg_replace('/\s+/', '', $matches[1]);
     }
 
     /**
