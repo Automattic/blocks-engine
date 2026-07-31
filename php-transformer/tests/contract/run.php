@@ -732,6 +732,11 @@ $declarativeCounter = ( new HtmlTransformer() )->transform(
     '<div id="element-counter-one"><div class="counter-number"><div class="content-number-bold"></div></div><div>YEARS</div></div><script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":1350,"duration":2}); _Element.prototype.element_id = "counter-one";</script>'
 )->toArray();
 $assert(str_contains((string) ($declarativeCounter['serialized_blocks'] ?? ''), '>1350<'), 'bounded declarative counter settings materialize their final numeric state as editable content');
+$externalDeclarativeCounter = ( new HtmlTransformer() )->transform(
+    '<div id="element-counter-two"><div class="content-number-bold"></div><div>CLIENTS</div></div>',
+    array( 'declarative_state_html' => '<script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":27000}); _Element.prototype.element_id = "counter-two";</script>' )
+)->toArray();
+$assert(str_contains((string) ($externalDeclarativeCounter['serialized_blocks'] ?? ''), '>27000<'), 'declarative counter state materializes when artifact safety removes executable scripts before conversion');
 
 $unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"><a><img src="testimonial.jpg" alt="Clients"></a><div class="caption"></div></div>')->toArray();
 $unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');

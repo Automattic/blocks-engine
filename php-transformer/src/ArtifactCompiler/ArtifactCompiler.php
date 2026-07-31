@@ -453,6 +453,7 @@ final class ArtifactCompiler
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
+            'declarative_state_html'    => $html,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,

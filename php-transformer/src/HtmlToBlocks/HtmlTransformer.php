@@ -590,7 +590,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
-        $this->materializeDeclarativeCounters($body);
+        $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
@@ -5962,18 +5962,24 @@ final class HtmlTransformer
         $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
     }
 
-    private function materializeDeclarativeCounters(DOMElement $body): void
+    private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
     {
         $document = $body->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
             return;
         }
 
+        $scriptSources = array();
         foreach ( $body->getElementsByTagName('script') as $script ) {
-            if ( ! $script instanceof DOMElement ) {
-                continue;
+            if ( $script instanceof DOMElement ) {
+                $scriptSources[] = (string) $script->textContent;
             }
-            $source = (string) $script->textContent;
+        }
+        if ( '' !== $declarativeStateHtml && preg_match_all('@<script\b[^>]*>(.*?)</script>@is', $declarativeStateHtml, $scriptMatches) ) {
+            $scriptSources = array_merge($scriptSources, $scriptMatches[1]);
+        }
+
+        foreach ( array_unique($scriptSources) as $source ) {
             if ( ! str_contains($source, 'PlatformElementSettings')
                 || ! preg_match('/\.prototype\.element_id\s*=\s*(["\'])([a-z0-9-]+)\1/i', $source, $elementMatch)
             ) {
