@@ -1378,11 +1378,11 @@ $assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'ic
 $assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
 
 $visibleVariantNavigation = ( new HtmlTransformer() )->transform(
-    '<header><nav class="placeholder" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav><nav class="primary"><a href="/">Home</a><a href="/about">About</a></nav><label><span><div></div><div></div><div></div></span><span>menu</span><span>close</span></label></header>'
+    '<header><nav class="placeholder" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav><nav class="primary"><a href="/">Home</a><a href="/about">About</a></nav><label><span><div></div><div></div><div></div></span><span>menu</span><span>close</span></label></header><nav class="collapsed-nav" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav>'
 )->toArray();
 $visibleVariantSerialized = (string) ($visibleVariantNavigation['serialized_blocks'] ?? '');
 $assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), 'equivalent sibling navigation variants retain only the visible source variant');
-$assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder'), 'navigation deduplication prefers the visible source variant over a hidden placeholder');
+$assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder') && ! str_contains($visibleVariantSerialized, 'collapsed-nav'), 'navigation deduplication prefers the visible source variant over hidden placeholder and collapsed variants');
 $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
 
 $bodyStateProjection = ( new HtmlTransformer() )->transform(

@@ -1773,7 +1773,7 @@ final class HtmlTransformer
             $classNames,
         ))));
 
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
     }
 
     /**
