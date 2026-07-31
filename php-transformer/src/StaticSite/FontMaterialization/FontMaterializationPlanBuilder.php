@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
+use InvalidArgumentException;
+
 final class FontMaterializationPlanBuilder
 {
     public const SCHEMA = 'blocks-engine/php-transformer/font-materialization-plan/v1';
@@ -106,6 +108,68 @@ final class FontMaterializationPlanBuilder
         return $plan;
     }
 
+    /**
+     * Bind generated SVG text assets to the typed faces required to render them.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<string,mixed>
+     */
+    public function withSvgConsumers(array $plan, array $assets): array
+    {
+        $contract = $plan['webfont_contract'] ?? null;
+        if (!is_array($contract)) return $plan;
+        $faces = array_column($contract['faces'] ?? array(), null, 'id');
+        $receipts = array_column($contract['receipts'] ?? array(), null, 'face_id');
+        $consumers = array();
+        foreach ($assets as $asset) {
+            $content = $asset['content'] ?? null;
+            if ('inline-svg' !== ($asset['source'] ?? null) || 'image/svg+xml' !== ($asset['mime_type'] ?? null) || !is_string($content) || !preg_match('/<text\b/i', $content)) continue;
+            $families = $this->svgFontFamilies($content);
+            $faceIds = array();
+            foreach ($families as $family) foreach ($faces as $face) if (0 === strcasecmp($family, (string) ($face['family'] ?? ''))) $faceIds[] = (string) $face['id'];
+            $faceIds = array_values(array_unique($faceIds)); sort($faceIds, SORT_STRING);
+            if (array() === $faceIds) continue;
+            $pairs = array(); foreach ($faceIds as $faceId) $pairs[] = array('face_id' => $faceId, 'receipt_id' => (string) ($receipts[$faceId]['id'] ?? ''));
+            usort($pairs, static fn(array $left, array $right): int => strcmp($left['face_id'], $right['face_id']));
+            $faceIds = array_column($pairs, 'face_id');
+            $receiptIds = array_column($pairs, 'receipt_id');
+            $sourcePath = (string) ($asset['path'] ?? '');
+            // This is the producer's materialization intent, before a downstream
+            // resolver projects it into a platform-specific destination.
+            $writePath = (string) ($asset['target_path'] ?? $sourcePath);
+            $payloadHash = hash('sha256', $content);
+            $consumers[] = array('id' => 'svg-webfont-consumer-' . substr(hash('sha256', $sourcePath . "\n" . $writePath . "\n" . $payloadHash . "\n" . implode("\n", $faceIds)), 0, 20), 'source_path' => $sourcePath, 'write_path' => $writePath, 'pre_transform_payload_hash' => $payloadHash, 'face_ids' => $faceIds, 'receipt_ids' => $receiptIds, 'required' => true);
+        }
+        usort($consumers, static fn(array $left, array $right): int => strcmp($left['id'], $right['id']));
+        $contract['svg_consumers'] = $consumers;
+        self::assertWebFontContract($contract, $assets);
+        $plan['webfont_contract'] = $contract;
+        return $plan;
+    }
+
+    /** @param array<string,mixed> $contract @param array<int,array<string,mixed>> $assets */
+    public static function assertWebFontContract(array $contract, array $assets): void
+    {
+        if ('blocks-engine/webfont-materialization/v1' !== ($contract['schema'] ?? null) || !is_array($contract['svg_consumers'] ?? null) || !array_is_list($contract['svg_consumers'])) throw new InvalidArgumentException('Webfont contract SVG consumers are malformed.');
+        $faces = array_column($contract['faces'] ?? array(), null, 'id');
+        $receipts = array_column($contract['receipts'] ?? array(), null, 'id');
+        $assetsByPath = array_column($assets, null, 'path');
+        $ids = array();
+        foreach ($contract['svg_consumers'] as $consumer) {
+            if (!is_array($consumer) || array('id', 'source_path', 'write_path', 'pre_transform_payload_hash', 'face_ids', 'receipt_ids', 'required') !== array_keys($consumer) || !is_string($consumer['id']) || !is_string($consumer['source_path']) || !is_string($consumer['write_path']) || !preg_match('/^[a-f0-9]{64}$/', $consumer['pre_transform_payload_hash']) || true !== $consumer['required'] || !is_array($consumer['face_ids']) || !is_array($consumer['receipt_ids']) || !array_is_list($consumer['face_ids']) || !array_is_list($consumer['receipt_ids'])) throw new InvalidArgumentException('Webfont SVG consumer is malformed.');
+            $asset = $assetsByPath[$consumer['source_path']] ?? null;
+            if (!is_array($asset) || ($asset['target_path'] ?? $consumer['source_path']) !== $consumer['write_path'] || !is_string($asset['content'] ?? null) || hash('sha256', $asset['content']) !== $consumer['pre_transform_payload_hash'] || $consumer['face_ids'] !== array_values(array_unique($consumer['face_ids'])) || $consumer['receipt_ids'] !== array_values(array_unique($consumer['receipt_ids']))) throw new InvalidArgumentException('Webfont SVG consumer has stale payload or noncanonical references.');
+            $faceIds = $consumer['face_ids']; $receiptIds = $consumer['receipt_ids']; $sortedFaces = $faceIds; sort($sortedFaces, SORT_STRING);
+            if (array() === $faceIds || $faceIds !== $sortedFaces || count($faceIds) !== count($receiptIds)) throw new InvalidArgumentException('Webfont SVG consumer references are noncanonical.');
+            foreach ($faceIds as $index => $faceId) if (!is_string($faceId) || !isset($faces[$faceId]) || !is_string($receiptIds[$index] ?? null) || ($receipts[$receiptIds[$index]]['face_id'] ?? null) !== $faceId) throw new InvalidArgumentException('Webfont SVG consumer references an unknown face or receipt.');
+            $expectedId = 'svg-webfont-consumer-' . substr(hash('sha256', $consumer['source_path'] . "\n" . $consumer['write_path'] . "\n" . $consumer['pre_transform_payload_hash'] . "\n" . implode("\n", $faceIds)), 0, 20);
+            if ($consumer['id'] !== $expectedId || isset($ids[$consumer['id']])) throw new InvalidArgumentException('Webfont SVG consumer identity is invalid or duplicated.');
+            $ids[$consumer['id']] = true;
+        }
+        $sorted = $contract['svg_consumers']; usort($sorted, static fn(array $left, array $right): int => strcmp($left['id'], $right['id'])); if ($sorted !== $contract['svg_consumers']) throw new InvalidArgumentException('Webfont SVG consumers are not canonically sorted.');
+    }
+
     /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $diagnostics */
     private function webFontContract(array $imports, array $faces, array $diagnostics): array
     {
@@ -115,7 +179,7 @@ final class FontMaterializationPlanBuilder
         $importsById = array_column($contractImports, null, 'id');
         $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array(), 'sources' => array($importsById[$face['import_ref']]['source'])), $faces);
         $contractReceipts = array_map(static fn (array $face): array => array('id' => $face['receipt_id'], 'face_id' => $face['id'], 'import_id' => $face['import_id'], 'required' => true, 'state' => 'pending_browser_readiness'), $contractFaces);
-        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'browser_readiness' => array('schema' => 'blocks-engine/webfont-browser-readiness/v1', 'required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
+        return array('schema' => 'blocks-engine/webfont-materialization/v1', 'imports' => $contractImports, 'faces' => $contractFaces, 'receipts' => $contractReceipts, 'svg_consumers' => array(), 'browser_readiness' => array('schema' => 'blocks-engine/webfont-browser-readiness/v1', 'required_receipt_ids' => array_column($contractReceipts, 'id'), 'state' => array() === $contractReceipts ? 'not_required' : 'required'), 'diagnostics' => $diagnostics);
     }
 
     /** @param array<string,mixed> $contract @return array<string,mixed> */
@@ -630,6 +694,33 @@ final class FontMaterializationPlanBuilder
         }
 
         return '';
+    }
+
+    /** @return array<int,string> */
+    private function svgFontFamilies(string $svg): array
+    {
+        preg_match_all('/<text\b[^>]*>/i', $svg, $texts);
+        $families = array();
+        foreach ($texts[0] as $text) {
+            $value = $this->htmlAttributeValue($text, 'font-family');
+            if ('' === $value && preg_match('/\bfont-family\s*:\s*([^;}]+)/i', $text, $match)) $value = $match[1];
+            foreach ($this->fontFamilyList($value) as $family) $families[strtolower($family)] = $family;
+        }
+        return array_values($families);
+    }
+
+    /** @return array<int,string> */
+    private function fontFamilyList(string $value): array
+    {
+        $families = array(); $current = ''; $quote = '';
+        foreach (str_split($value) as $character) {
+            if ('' !== $quote) { if ($character === $quote) $quote = ''; else $current .= $character; continue; }
+            if ('"' === $character || "'" === $character) { $quote = $character; continue; }
+            if (',' === $character) { $family = trim($current); if ('' !== $family) $families[] = $family; $current = ''; continue; }
+            $current .= $character;
+        }
+        $family = trim($current); if ('' !== $family) $families[] = $family;
+        return $families;
     }
 
     private function normalizeFamily(string $family): string

@@ -327,6 +327,9 @@ final class MaterializationPlanBuilder
                 $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss, is_array($theme['font_css_sources'] ?? null) ? $theme['font_css_sources'] : array());
             }
         }
+        if ( isset($fontMaterialization['webfont_contract']) ) {
+            $fontMaterialization = ( new FontMaterializationPlanBuilder() )->withSvgConsumers($fontMaterialization, $assets);
+        }
 
         return array_filter(array(
             'stylesheets' => $theme['stylesheets'] ?? $this->assetPathsByRole($assets, 'stylesheet'),

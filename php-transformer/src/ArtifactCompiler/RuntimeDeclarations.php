@@ -120,11 +120,7 @@ final class RuntimeDeclarations
             $seen = array(); $values = array(); foreach ($transformation[$field] as $path) { if (!is_string($path) || '' === ArtifactPath::safeRelativePath($path) || ArtifactPath::safeRelativePath($path) !== $path || isset($seen[strtolower($path)])) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation has an unsafe input path."); $seen[strtolower($path)] = true; $values[] = $path; } sort($values, SORT_STRING); $paths[$field] = $values;
         }
         if (array_key_exists('font_faces', $transformation) || array() === $paths['css_source_paths'] || array() === $paths['font_source_paths']) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation requires declared local CSS and font inputs.");
-        $hasFamilies = array_key_exists('font_families', $transformation);
-        $families = $transformation['font_families'] ?? array();
-        if (!is_array($families) || !array_is_list($families) || array_filter($families, static fn(mixed $family): bool => !is_string($family) || '' === trim($family))) throw new InvalidArgumentException("Runtime declaration {$index} asset transformation has invalid font families.");
-        $families = array_values(array_unique(array_map(static fn(string $family): string => trim($family), $families))); sort($families, SORT_STRING);
-        return array_merge(array_filter(array('kind' => 'svg_font_enrichment', 'input_hash' => $transformation['input_hash'], 'expected_content_hash' => $transformation['expected_content_hash'], 'font_families' => $hasFamilies ? $families : null), static fn(mixed $value): bool => null !== $value), $paths);
+        return array_merge(array('kind' => 'svg_font_enrichment', 'input_hash' => $transformation['input_hash'], 'expected_content_hash' => $transformation['expected_content_hash']), $paths);
     }
 
     private static function isHash(mixed $value): bool { return is_string($value) && 1 === preg_match('/^[a-f0-9]{64}$/', $value); }
