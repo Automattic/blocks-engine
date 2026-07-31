@@ -1726,7 +1726,7 @@ $emptyFlexUtility = ( new HtmlTransformer() )->transform(
 $emptyFlexUtilitySerialized = (string) ($emptyFlexUtility['serialized_blocks'] ?? '');
 $emptyFlexUtilityCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyFlexUtility['assets'] ?? array()));
 $assert(str_contains($emptyFlexUtilitySerialized, 'placeholder blocks-engine-empty-flex-item'), 'preserved empty flex children carry a zero-intrinsic-size compatibility marker');
-$assert(str_contains($emptyFlexUtilityCss, 'flex:0 0 0!important;width:0!important;min-width:0!important'), 'empty flex compatibility CSS prevents core group chrome from adding source-absent width');
+$assert(str_contains($emptyFlexUtilityCss, 'flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important'), 'empty flex compatibility CSS prevents core group chrome and margins from adding a source-absent footprint');
 
 $boundedHeaderSearch = ( new HtmlTransformer() )->transform(
     '<header><div class="site-utils"><div class="search-shell">Search our catalog<form role="search"><input type="search" name="s"></form></div><button class="search-help" aria-label="Search help"><svg viewBox="0 0 10 10"><path d="M1 1"></path></svg></button></div></header>'
