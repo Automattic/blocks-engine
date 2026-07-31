@@ -1203,8 +1203,8 @@ $backgroundContainer = ( new HtmlTransformer() )->transform(
 $serializedBackgroundContainer = (string) ($backgroundContainer['serialized_blocks'] ?? '');
 $backgroundContainerCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $backgroundContainer['assets'] ?? array()));
 $assert(! str_contains($serializedBackgroundContainer, 'blocks-engine-background-image'), 'background images on content containers do not become in-flow image children');
-$assert(str_contains($serializedBackgroundContainer, 'class="wp-block-group hero') && str_contains($serializedBackgroundContainer, 'class="wp-block-group content'), 'background content containers retain their CSS-addressable wrapper hierarchy');
-$assert(str_contains($backgroundContainerCss, 'background-image:url(assets/hero.jpg)'), 'inline background paint on content containers is retained by the generated author stylesheet');
+$assert(str_contains($serializedBackgroundContainer, 'class="wp-block-cover hero') && str_contains($serializedBackgroundContainer, 'class="wp-block-group content'), 'gated background heroes emit core/cover while retaining their CSS-addressable content wrapper');
+$assert(! str_contains($backgroundContainerCss, 'background-image:url(assets/hero.jpg)'), 'cover-consumed background paint is not duplicated in the generated author stylesheet');
 
 $emptyBackgroundVisual = ( new HtmlTransformer() )->transform(
     '<main><div class="map-image" style="width:640px;height:320px;background-image:url(assets/map.png)" aria-label="Service area"></div></main>'
