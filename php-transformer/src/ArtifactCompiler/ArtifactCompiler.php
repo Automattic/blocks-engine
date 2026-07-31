@@ -1215,7 +1215,7 @@ final class ArtifactCompiler
 
             $mappedSelectors = array();
             foreach ( $this->splitSelectorList($selectorList) as $selector ) {
-                foreach ( $this->mapNavigationStructureSelector($selector) as $mappedSelector ) {
+                foreach ( $this->mapNavigationStructureSelector($selector, $body) as $mappedSelector ) {
                     $mappedSelectors[$mappedSelector] = true;
                 }
             }
@@ -1560,7 +1560,7 @@ final class ArtifactCompiler
     /**
      * @return array<int, string>
      */
-    private function mapNavigationStructureSelector(string $selector): array
+    private function mapNavigationStructureSelector(string $selector, string $body): array
     {
         $selector = $this->selectorWithoutComments($selector);
         if ( str_contains($selector, '.wp-block-navigation')
@@ -1578,7 +1578,15 @@ final class ArtifactCompiler
         $prefix = rtrim(substr($selector, 0, $matchStart));
         $tail = substr($selector, $matchStart + $matchLength);
         if ( '' === trim($tail) ) {
-            return array();
+            if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
+                || ! preg_match('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', $listClasses) ) {
+                return array();
+            }
+            $stableListClasses = preg_replace('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', '', $listClasses);
+            if ( ! is_string($stableListClasses) || $stableListClasses === $listClasses || ! preg_match('/(?:nav|menu)/i', $stableListClasses) ) {
+                return array();
+            }
+            $listClasses = $stableListClasses;
         }
         $tail = preg_replace(
             '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
