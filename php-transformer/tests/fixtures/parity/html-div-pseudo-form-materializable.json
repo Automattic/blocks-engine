@@ -35,6 +35,10 @@
     { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
     { "path": "fallbacks.0.controls.1.tag", "assert": "equals", "value": "button" },
     { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "submit" },
+    { "path": "fallbacks.0.control_topology.schema", "assert": "equals", "value": "generic/form-control-topology/v1" },
+    { "path": "fallbacks.0.control_topology.nodes", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.control_topology.nodes.0.control", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.control_topology.nodes.1.control", "assert": "equals", "value": 1 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Email address: you@example.com (required)" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" }
   ]

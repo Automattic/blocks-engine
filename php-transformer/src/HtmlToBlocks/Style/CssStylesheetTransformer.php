@@ -39,6 +39,32 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * @return array{preamble: string, stylesheet: string}
+     */
+    public function splitLeadingAtRulePreamble(string $stylesheet): array
+    {
+        $offset = 0;
+        $length = strlen($stylesheet);
+        while ( $offset < $length ) {
+            $boundary = $this->nextRuleBoundary($stylesheet, $offset);
+            if ( null === $boundary || ';' !== $stylesheet[ $boundary ] ) {
+                break;
+            }
+
+            $statement = substr($stylesheet, $offset, $boundary - $offset + 1);
+            if ( ! in_array(self::atRuleName($statement), array( 'charset', 'import', 'namespace' ), true) ) {
+                break;
+            }
+            $offset = $boundary + 1;
+        }
+
+        return array(
+            'preamble'   => substr($stylesheet, 0, $offset),
+            'stylesheet' => substr($stylesheet, $offset),
+        );
+    }
+
+    /**
      * Split a selector list only at top-level commas. Null indicates malformed CSS.
      *
      * @return list<string>|null
