@@ -1207,7 +1207,6 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $rewritten[] = $selector;
@@ -1316,17 +1315,6 @@ final class HtmlTransformer
             }
         }
         return implode(',', $rewritten);
-    }
-
-    private function projectSourceBodyStateSelector(string $selector): string
-    {
-        if ( array() === $this->sourceBodyProjectionClasses ) {
-            return $selector;
-        }
-
-        $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $this->sourceBodyProjectionClasses));
-        $selector = preg_replace('/^\s*body((?:\.(?:' . $classes . '))+)(?:\s*>?\s*)/', '$1', $selector, 1) ?? $selector;
-        return preg_replace('/^\s*((?:\.(?:' . $classes . '))+)(?:\s*>\s*|\s+)/', '$1', $selector, 1) ?? $selector;
     }
 
     private function projectAuthorImageSelectorPrelude(string $prelude): string
@@ -2571,7 +2559,7 @@ final class HtmlTransformer
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -2962,9 +2950,17 @@ final class HtmlTransformer
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
         $declarations = $this->structuralPresentationDeclarations($element);
-        return 'none' === strtolower(trim((string) ($declarations['display'] ?? '')))
-            || in_array(strtolower(trim((string) ($declarations['visibility'] ?? ''))), array( 'hidden', 'collapse' ), true)
-            || (is_numeric(trim((string) ($declarations['opacity'] ?? ''))) && 0.0 === (float) trim((string) $declarations['opacity']));
+        $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
+        $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
+        $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
+        return 'none' === $display
+            || in_array($visibility, array( 'hidden', 'collapse' ), true)
+            || (is_numeric($opacity) && 0.0 === (float) $opacity);
+    }
+
+    private function cssComparableValue(string $value): string
+    {
+        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
     }
 
     private function hasAuthorSemanticMarker(DOMElement $element): bool

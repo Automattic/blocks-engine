@@ -101,7 +101,13 @@ final class LogoPattern
             return '';
         }
 
-        if ( preg_match('/<\/?(?!em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i', $html) ) {
+        $unsupported = '/<\/?(?!a\b|em\b|i\b|strong\b|b\b|mark\b|small\b|sub\b|sup\b|br\b)[a-z][a-z0-9]*\b[^>]*>/i';
+        if ( preg_match($unsupported, $html) ) {
+            $unwrapped = trim(preg_replace_callback($unsupported, static fn (array $match): string => str_starts_with($match[0], '</') ? '' : ' ', $html) ?? $html);
+            if ( '' !== $unwrapped && ! preg_match($unsupported, $unwrapped) ) {
+                return $unwrapped;
+            }
+
             $flattened = $this->plainText(preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $html) ?? $html);
             return htmlspecialchars('' !== $flattened ? $flattened : $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
