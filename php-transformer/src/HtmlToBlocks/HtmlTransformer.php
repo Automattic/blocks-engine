@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
@@ -165,6 +166,8 @@ final class HtmlTransformer
     private readonly ColumnsPattern $columnsPattern;
 
     private readonly CoverPattern $coverPattern;
+
+    private readonly MediaTextPattern $mediaTextPattern;
 
     private readonly DetailsPattern $detailsPattern;
 
@@ -490,6 +493,7 @@ final class HtmlTransformer
         $this->codeWindowPattern = new CodeWindowPattern();
         $this->columnsPattern    = new ColumnsPattern();
         $this->coverPattern      = new CoverPattern();
+        $this->mediaTextPattern  = new MediaTextPattern();
         $this->detailsPattern    = new DetailsPattern();
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
@@ -2973,6 +2977,20 @@ final class HtmlTransformer
                 );
                 if ( null !== $cover ) {
                     return $cover;
+                }
+
+                $mediaText = $this->mediaTextPattern->match(
+                    $element,
+                    $fallbacks,
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+                    fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
+                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $mediaText ) {
+                    return $mediaText;
                 }
             }
 
