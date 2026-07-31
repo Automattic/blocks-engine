@@ -725,8 +725,10 @@ $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
 $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
 $assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
 $assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
+$assert(str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important') && str_contains($contextualSurfaceButtonCss, 'color:#000!important'), 'native button control rule protects resolved source paint from theme defaults');
 
 $declarativeCounter = ( new HtmlTransformer() )->transform(
     '<div id="element-counter-one"><div class="counter-number"><div class="content-number-bold"></div></div><div>YEARS</div></div><script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":1350,"duration":2}); _Element.prototype.element_id = "counter-one";</script>'

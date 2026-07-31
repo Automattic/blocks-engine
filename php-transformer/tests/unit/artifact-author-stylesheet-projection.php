@@ -22,7 +22,9 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
     }
 };
 $assets = $result['assets'] ?? array();
-$assert(array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_column($assets, 'path'), 'allocated repeated-link alias avoids authored path collisions while preserving source occurrence order');
+$assetPaths = array_column($assets, 'path');
+$assert(array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 0, 6)
+    && 1 === preg_match('#^assets/css/source-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'allocated repeated-link alias avoids authored path collisions while preserving source occurrence order');
 foreach ( $assets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
     $hash = hash('sha256', $content);

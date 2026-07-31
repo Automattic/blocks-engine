@@ -302,6 +302,9 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $nativeSearchTriggerCssRules = array();
 
+    /** @var array<string, string> */
+    private array $nativeButtonStyleRules = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -487,6 +490,7 @@ final class HtmlTransformer
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
         $this->nativeSearchTriggerCssRules = array();
+        $this->nativeButtonStyleRules = array();
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
@@ -829,13 +833,17 @@ final class HtmlTransformer
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
         }
+        if ( array() !== $this->nativeButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
+        }
 
         $css = trim(implode("\n\n", $cssParts));
         if ( '' === $css ) {
             return;
         }
 
-        $hash = hash('sha256', $css);
+        $content = $css . "\n";
+        $hash = hash('sha256', $content);
         $path = 'assets/css/source-author-' . substr($hash, 0, 16) . '.css';
 
         $this->generatedAssets[$path] = array(
@@ -847,8 +855,8 @@ final class HtmlTransformer
             'role'        => 'stylesheet',
             'mime_type'   => 'text/css',
             'media_type'  => 'text/css',
-            'content'     => $css . "\n",
-            'bytes'       => strlen($css) + 1,
+            'content'     => $content,
+            'bytes'       => strlen($content),
             'encoding'    => 'utf-8',
             'binary'      => false,
             'hash'        => $hash,
@@ -2964,6 +2972,9 @@ final class HtmlTransformer
                 }
                 if ( isset($this->sourceControlMarkers[$path]) ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                    if ( 'core/button' === $name ) {
+                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$path], $attrs);
+                    }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
                 if ( '' !== $presentationPath && $presentationPath !== $path ) {
@@ -2997,6 +3008,40 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function registerNativeButtonStyleRule(string $marker, array $attrs): void
+    {
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $declarations = array();
+        foreach ( array(
+            'background-color' => $style['color']['background'] ?? '',
+            'color'            => $style['color']['text'] ?? '',
+            'border-color'     => $style['border']['color'] ?? '',
+            'border-style'     => $style['border']['style'] ?? '',
+            'border-width'     => $style['border']['width'] ?? '',
+            'border-radius'    => $style['border']['radius'] ?? '',
+            'font-size'        => $style['typography']['fontSize'] ?? '',
+            'font-weight'      => $style['typography']['fontWeight'] ?? '',
+            'letter-spacing'   => $style['typography']['letterSpacing'] ?? '',
+            'line-height'      => $style['typography']['lineHeight'] ?? '',
+            'text-transform'   => $style['typography']['textTransform'] ?? '',
+            'padding-top'      => $style['spacing']['padding']['top'] ?? '',
+            'padding-right'    => $style['spacing']['padding']['right'] ?? '',
+            'padding-bottom'   => $style['spacing']['padding']['bottom'] ?? '',
+            'padding-left'     => $style['spacing']['padding']['left'] ?? '',
+        ) as $property => $value ) {
+            $value = trim((string) $value);
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $property . ':' . $value . '!important';
+            }
+        }
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $this->nativeButtonStyleRules[$marker] = '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
