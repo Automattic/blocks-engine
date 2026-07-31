@@ -3505,6 +3505,24 @@ $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are re
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
 $assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
 
+$negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
+    'compiler_limits' => array(
+        'max_files' => PHP_INT_MAX,
+        'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+        'max_total_bytes' => PHP_INT_MAX,
+    ),
+    'files' => array(
+        'index.html' => '<main>OK</main>',
+        'large.txt' => str_repeat('x', ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1),
+    ),
+));
+$assert(2 === count($negotiatedLimits['files']), 'artifact compiler accepts files within explicitly negotiated limits');
+$assert(array(
+    'max_files' => ArtifactNormalizer::MAX_FILES,
+    'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+    'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
+) === ($negotiatedLimits['limits'] ?? null), 'artifact compiler clamps negotiated limits to hard resource ceilings');
+
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
 assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 level should be preserved.');

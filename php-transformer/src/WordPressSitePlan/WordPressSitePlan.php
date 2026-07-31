@@ -791,7 +791,7 @@ final class WordPressSitePlan
         $patterns = array(
             array('/\b(?:src|href|poster|action)\s*=\s*["\']([^"\']+)["\']/i', false),
             array('/\bsrcset\s*=\s*["\']([^"\']+)["\']/i', true),
-            array('/["\'](?:url|src|href|poster|action)["\']\s*:\s*["\']([^"\']+)["\']/i', false),
+            array('/["\'](?:url|src|href|poster)["\']\s*:\s*["\']([^"\']+)["\']/i', false),
             array('/["\']srcset["\']\s*:\s*["\']([^"\']+)["\']/i', true),
         );
         foreach ($patterns as [$pattern, $commaSeparated]) if (preg_match_all($pattern, $content, $matches)) foreach ($matches[1] as $value) foreach ($commaSeparated ? explode(',', (string) $value) : array((string) $value) as $candidate) {

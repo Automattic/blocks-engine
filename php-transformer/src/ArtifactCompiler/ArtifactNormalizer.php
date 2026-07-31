@@ -15,10 +15,13 @@ final class ArtifactNormalizer
     public const DEFAULT_MAX_FILES = 500;
     public const DEFAULT_MAX_FILE_BYTES = 5242880;
     public const DEFAULT_MAX_TOTAL_BYTES = 52428800;
+    public const MAX_FILES = 5000;
+    public const MAX_FILE_BYTES = 10485760;
+    public const MAX_TOTAL_BYTES = 335544320;
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
      */
     public function normalize(array $artifact): array
     {
@@ -29,6 +32,7 @@ final class ArtifactNormalizer
         $rejected = 0;
         $bytes = 0;
         $seenPaths = array();
+        $limits = $this->limits($artifact);
 
         foreach ( array('entrypoint', 'entry', 'main') as $key ) {
             if ( is_string($artifact[$key] ?? null) ) {
@@ -63,9 +67,9 @@ final class ArtifactNormalizer
         }
 
         foreach ( $rawFiles as $index => $file ) {
-            if ( count($files) >= self::DEFAULT_MAX_FILES ) {
+            if ( count($files) >= $limits['max_files'] ) {
                 ++$rejected;
-                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => self::DEFAULT_MAX_FILES));
+                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files']));
                 break;
             }
 
@@ -83,15 +87,15 @@ final class ArtifactNormalizer
                 continue;
             }
 
-            if ( $payload['bytes'] > self::DEFAULT_MAX_FILE_BYTES ) {
+            if ( $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
-                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => self::DEFAULT_MAX_FILE_BYTES));
+                $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
-            if ( $bytes + $payload['bytes'] > self::DEFAULT_MAX_TOTAL_BYTES ) {
+            if ( $bytes + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
-                $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => self::DEFAULT_MAX_TOTAL_BYTES));
+                $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
                 continue;
             }
 
@@ -160,9 +164,21 @@ final class ArtifactNormalizer
             'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
+            'limits'         => $limits,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
             'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations),
             'runtime_declarations' => $runtimeDeclarations,
+        );
+    }
+
+    /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int} */
+    private function limits(array $artifact): array
+    {
+        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        return array(
+            'max_files'       => min(self::MAX_FILES, max(1, (int) ($requested['max_files'] ?? self::DEFAULT_MAX_FILES))),
+            'max_file_bytes'  => min(self::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES))),
+            'max_total_bytes' => min(self::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES))),
         );
     }
 

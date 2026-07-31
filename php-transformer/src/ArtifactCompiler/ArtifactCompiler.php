@@ -121,9 +121,9 @@ final class ArtifactCompiler
                 'files_by_source' => $this->countBy($normalized['files'], 'source'),
                 'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
                 'limits'          => array(
-                    'max_files'       => ArtifactNormalizer::DEFAULT_MAX_FILES,
-                    'max_file_bytes'  => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES,
-                    'max_total_bytes' => ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES,
+                    'max_files'       => $normalized['limits']['max_files'],
+                    'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
+                    'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
                 'source_hash'     => hash('sha256', $normalized['hash_payload']),
                 'html'            => array(
