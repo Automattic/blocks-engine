@@ -2175,6 +2175,7 @@ $assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu
 $assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
 $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: project source list navigation structure');
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+$assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 
 $artifactNavContainerCss = $compiler->compile(

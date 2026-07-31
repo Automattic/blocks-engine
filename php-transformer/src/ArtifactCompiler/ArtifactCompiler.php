@@ -1580,6 +1580,11 @@ final class ArtifactCompiler
         if ( '' === trim($tail) ) {
             return array();
         }
+        $tail = preg_replace(
+            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
+            '.wp-block-navigation-item',
+            $tail
+        ) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
         $runtimeTail = ' .wp-block-navigation__container' . $tail;
