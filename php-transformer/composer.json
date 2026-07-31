@@ -61,6 +61,7 @@
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",
       "php tests/unit/background-image-extractor.php",
+      "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",
       "php tests/unit/css-selector-matcher.php",
