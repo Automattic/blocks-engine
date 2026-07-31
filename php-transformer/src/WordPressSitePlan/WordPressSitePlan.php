@@ -251,7 +251,7 @@ final class WordPressSitePlan
             sort($classes, SORT_STRING);
             $innerMarkup = is_string($candidate['inner_block_markup'] ?? null) ? $this->routeLinks($references->content($candidate['inner_block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes) : $markup;
             $templatePartMarkup = is_string($candidate['template_part_block_markup'] ?? null) ? $this->routeLinks($references->content($candidate['template_part_block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes) : $innerMarkup;
-            $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'classes' => $classes);
+            $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'classes' => $classes, 'source_path' => self::value($document, 'source_path'), 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
         }
         return $candidates;
     }
@@ -270,7 +270,7 @@ final class WordPressSitePlan
         unset($page);
         foreach (array('header', 'footer') as $area) {
             if (isset($reservedSlugs[$area])) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area);
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'existing_template_part'));
                 continue;
             }
             $candidates = array();
@@ -278,13 +278,13 @@ final class WordPressSitePlan
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
             if (count($candidates) !== count($applicable) || array_filter($candidates, static fn(array $rows): bool => 1 !== count($rows))) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_incomplete', 'severity' => 'info', 'message' => "{$area} shell candidates are not present exactly once on every page.", 'area' => $area);
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_incomplete', 'severity' => 'info', 'message' => "{$area} shell candidates are not present exactly once on every page.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'incomplete', $candidates));
                 continue;
             }
             $first = $candidates[array_key_first($candidates)][0];
             $identity = hash('sha256', $area . "\0" . json_encode($first['classes']) . "\0" . $first['markup']);
             foreach ($candidates as $rows) if ($identity !== hash('sha256', $area . "\0" . json_encode($rows[0]['classes']) . "\0" . $rows[0]['markup'])) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area);
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'non_equivalent', $candidates));
                 continue 2;
             }
             $withShells = array(); $withoutShells = array(); $boundSources = array(); $boundCount = 0;
@@ -293,7 +293,7 @@ final class WordPressSitePlan
                 $withShell = $this->replaceTopLevelShell($page['canonical_block_markup'], $area, $candidates[$index][0]['markup']);
                 $withoutShell = null === $withShell ? null : $this->withoutTopLevelShell($withShell, $area);
                 if (null === $withShell || null === $withoutShell) {
-                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path']);
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
                     continue 2;
                 }
                 $withShells[$index] = $withShell;
@@ -310,7 +310,7 @@ final class WordPressSitePlan
                     $pages[$index]['canonical_block_markup'] = $withShell;
                     $pages[$index]['content_hash'] = self::contentHash($withShell);
                 }
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because extracting it would remove runtime entity binding anchors.", 'area' => $area, 'binding_count' => $boundCount, 'source_paths' => array_keys($boundSources));
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because extracting it would remove runtime entity binding anchors.", 'area' => $area, 'binding_count' => $boundCount, 'source_paths' => array_keys($boundSources), 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
                 continue;
             }
             foreach ($withoutShells as $index => $withoutShell) {
@@ -322,11 +322,20 @@ final class WordPressSitePlan
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
             $templateSlugs = $singlePage ? array('front-page') : array('index', 'page', 'front-page');
             $partMarkup = $first['template_part_markup'];
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => array('shell_identity' => $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted one semantically equivalent {$area} shell for all pages.", 'area' => $area, 'page_count' => count($applicable));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => $diagnostics);
+    }
+
+    /** @param array<int,array<int,array<string,mixed>>> $candidates @return array<string,mixed> */
+    private function shellProvenance(string $area, string $decision, string $reason, array $candidates = array(), ?string $identity = null): array
+    {
+        $sources = array();
+        foreach ($candidates as $rows) foreach ($rows as $candidate) if (is_array($candidate) && is_string($candidate['source_path'] ?? null)) $sources[$candidate['source_path']] = is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '';
+        ksort($sources, SORT_STRING);
+        return array_filter(array('schema' => 'blocks-engine/shell-extraction/v1', 'area' => $area, 'decision' => $decision, 'reason' => $reason, 'sources' => $sources, 'shell_identity' => $identity), static fn(mixed $value): bool => null !== $value);
     }
 
     private function withoutTopLevelShell(string $markup, string $area): ?string
