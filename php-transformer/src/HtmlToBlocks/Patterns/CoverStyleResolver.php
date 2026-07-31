@@ -10,24 +10,49 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
  */
 final class CoverStyleResolver
 {
+    private const MAX_STYLE_BYTES = 65536;
+    private const DECLARATION_CACHE_LIMIT = 32;
+
+    /**
+     * @var array<string, array<string, string>>
+     */
+    private array $declarationCache = array();
+
     /**
      * @return array<string, string>
      */
     public function declarations(string $style): array
     {
+        if ( strlen($style) > self::MAX_STYLE_BYTES ) {
+            return array();
+        }
+
+        if ( array_key_exists($style, $this->declarationCache) ) {
+            return $this->declarationCache[ $style ];
+        }
+
         $declarations = array();
-        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
-            $parts = CssValueSplitter::splitTopLevel($declaration, array( ':' ));
+        foreach ( $this->splitTopLevel($style, array( ';' )) as $declaration ) {
+            $parts = $this->splitTopLevel($declaration, array( ':' ));
             if ( count($parts) < 2 ) {
                 continue;
             }
 
             $name  = strtolower(trim((string) array_shift($parts)));
             $value = trim(implode(':', $parts));
+            $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value, 1));
             if ( '' !== $name && '' !== $value ) {
                 $declarations[ $name ] = $value;
             }
         }
+
+        if ( count($this->declarationCache) >= self::DECLARATION_CACHE_LIMIT ) {
+            $oldest = array_key_first($this->declarationCache);
+            if ( null !== $oldest ) {
+                unset($this->declarationCache[ $oldest ]);
+            }
+        }
+        $this->declarationCache[ $style ] = $declarations;
 
         return $declarations;
     }
@@ -43,13 +68,13 @@ final class CoverStyleResolver
         );
 
         $declarations = $this->declarations($style);
-        foreach ( array( 'background', 'background-image' ) as $property ) {
+        foreach ( array( 'background-image', 'background' ) as $property ) {
             $value = (string) ($declarations[ $property ] ?? '');
             if ( '' === $value ) {
                 continue;
             }
 
-            $layers   = CssValueSplitter::splitTopLevel($value, array( ',' ));
+            $layers   = $this->splitTopLevel($value, array( ',' ));
             $urlIndex = null;
             foreach ( $layers as $index => $layer ) {
                 if ( preg_match('/\burl\s*\(/i', $layer) ) {
@@ -67,19 +92,27 @@ final class CoverStyleResolver
                     continue;
                 }
 
-                $stops = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
+                $stops = $this->splitTopLevel($matches[1], array( ',' ));
+                if ( 3 === count($stops) && $this->isVerticalGradientDirection($stops[0]) ) {
+                    array_shift($stops);
+                }
                 if ( 2 !== count($stops) ) {
-                    return $default;
+                    continue;
                 }
 
                 $first  = $this->overlayColor($stops[0]);
                 $second = $this->overlayColor($stops[1]);
                 if ( null === $first || $first !== $second ) {
+                    continue;
+                }
+
+                $dimRatio = ( (int) round($first['alpha'] * 10) ) * 10;
+                if ( 0 === $dimRatio || 100 === $dimRatio ) {
                     return $default;
                 }
 
                 return array(
-                    'dimRatio'           => ( (int) round($first['alpha'] * 10) ) * 10,
+                    'dimRatio'           => $dimRatio,
                     'customOverlayColor' => sprintf('#%02x%02x%02x', $first['red'], $first['green'], $first['blue']),
                 );
             }
@@ -98,7 +131,7 @@ final class CoverStyleResolver
             ? $declarations['min-height']
             : (string) ($declarations['height'] ?? '');
         $value        = strtolower(trim($value));
-        if ( ! preg_match('/^(\d+(?:\.\d+)?)(px|vh|rem)$/', $value, $matches) ) {
+        if ( ! preg_match('/^(\d+(?:\.\d+)?)(px|vh|rem|dvh|svh|lvh)$/', $value, $matches) ) {
             return null;
         }
 
@@ -121,23 +154,37 @@ final class CoverStyleResolver
             return null;
         }
 
-        $parts = CssValueSplitter::splitTopLevelWhitespace($value);
+        $parts = $this->splitTopLevelWhitespace($value);
         if ( count($parts) < 1 || count($parts) > 2 ) {
             return null;
         }
 
-        $x = $this->positionValue($parts[0], array(
+        $horizontalKeywords = array(
             'left'   => 0.0,
             'center' => 0.5,
             'right'  => 1.0,
-        ));
-        $y = 1 === count($parts)
-            ? 0.5
-            : $this->positionValue($parts[1], array(
-                'top'    => 0.0,
-                'center' => 0.5,
-                'bottom' => 1.0,
-            ));
+        );
+        $verticalKeywords = array(
+            'top'    => 0.0,
+            'center' => 0.5,
+            'bottom' => 1.0,
+        );
+
+        if ( 1 === count($parts) ) {
+            $x = $this->positionValue($parts[0], $horizontalKeywords);
+            $y = 0.5;
+            if ( null === $x ) {
+                $x = 0.5;
+                $y = $this->positionValue($parts[0], $verticalKeywords);
+            }
+        } else {
+            $x = $this->positionValue($parts[0], $horizontalKeywords);
+            $y = $this->positionValue($parts[1], $verticalKeywords);
+            if ( null === $x || null === $y ) {
+                $x = $this->positionValue($parts[1], $horizontalKeywords);
+                $y = $this->positionValue($parts[0], $verticalKeywords);
+            }
+        }
         if ( null === $x || null === $y || ( 0.5 === $x && 0.5 === $y ) ) {
             return null;
         }
@@ -152,17 +199,17 @@ final class CoverStyleResolver
     {
         $declarations = $this->declarations($style);
         $size         = strtolower(trim((string) ($declarations['background-size'] ?? '')));
-        foreach ( CssValueSplitter::splitTopLevel($size, array( ',' )) as $layerSize ) {
-            if ( array( 'cover' ) === CssValueSplitter::splitTopLevelWhitespace($layerSize) ) {
+        foreach ( $this->splitTopLevel($size, array( ',' )) as $layerSize ) {
+            if ( array( 'cover' ) === $this->splitTopLevelWhitespace($layerSize) ) {
                 return true;
             }
         }
 
         $background = (string) ($declarations['background'] ?? '');
-        foreach ( CssValueSplitter::splitTopLevel($background, array( ',' )) as $layer ) {
-            $slashParts = CssValueSplitter::splitTopLevel($layer, array( '/' ));
+        foreach ( $this->splitTopLevel($background, array( ',' )) as $layer ) {
+            $slashParts = $this->splitTopLevel($layer, array( '/' ));
             foreach ( array_slice($slashParts, 1) as $sizeAndRepeat ) {
-                $tokens = CssValueSplitter::splitTopLevelWhitespace(strtolower($sizeAndRepeat));
+                $tokens = $this->splitTopLevelWhitespace(strtolower($sizeAndRepeat));
                 if ( 'cover' === ($tokens[0] ?? '') ) {
                     return true;
                 }
@@ -178,6 +225,9 @@ final class CoverStyleResolver
             'px'  => 200,
             'vh'  => 30,
             'rem' => 12.5,
+            'dvh' => 30,
+            'svh' => 30,
+            'lvh' => 30,
         );
 
         return $minHeight['minHeight'] >= $thresholds[ $minHeight['minHeightUnit'] ];
@@ -186,12 +236,14 @@ final class CoverStyleResolver
     public function hasRepeatingBackground(string $style): bool
     {
         $declarations = $this->declarations($style);
-        $repeat       = strtolower(trim((string) ($declarations['background-repeat'] ?? '')));
-        foreach ( CssValueSplitter::splitTopLevel($repeat, array( ',' )) as $layerRepeat ) {
-            $tokens = CssValueSplitter::splitTopLevelWhitespace($layerRepeat);
-            foreach ( $tokens as $token ) {
-                if ( in_array($token, array( 'repeat', 'repeat-x', 'repeat-y' ), true) ) {
-                    return true;
+        foreach ( array( 'background-repeat', 'background' ) as $property ) {
+            $value = strtolower(trim((string) ($declarations[ $property ] ?? '')));
+            foreach ( $this->splitTopLevel($value, array( ',' )) as $layer ) {
+                $tokens = $this->splitTopLevelWhitespace($layer);
+                foreach ( $tokens as $token ) {
+                    if ( in_array($token, array( 'repeat', 'repeat-x', 'repeat-y' ), true) ) {
+                        return true;
+                    }
                 }
             }
         }
@@ -205,7 +257,19 @@ final class CoverStyleResolver
     private function overlayColor(string $literal): ?array
     {
         $literal = strtolower(trim($literal));
-        if ( preg_match('/^#([0-9a-f]{4}|[0-9a-f]{8})$/', $literal, $matches) ) {
+        $parts   = $this->splitTopLevelWhitespace($literal);
+        if ( count($parts) < 1 || count($parts) > 3 ) {
+            return null;
+        }
+
+        $color = (string) array_shift($parts);
+        foreach ( $parts as $position ) {
+            if ( ! $this->isGradientStopPosition($position) ) {
+                return null;
+            }
+        }
+
+        if ( preg_match('/^#([0-9a-f]{4}|[0-9a-f]{8})$/', $color, $matches) ) {
             $hex = $matches[1];
             if ( 4 === strlen($hex) ) {
                 $red   = hexdec(str_repeat($hex[0], 2));
@@ -231,7 +295,10 @@ final class CoverStyleResolver
             );
         }
 
-        if ( ! preg_match('/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $literal, $matches) ) {
+        if (
+            ! preg_match('/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $color, $matches)
+            && ! preg_match('/^rgb\(\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*\/\s*((?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+))\s*\)$/', $color, $matches)
+        ) {
             return null;
         }
 
@@ -249,6 +316,103 @@ final class CoverStyleResolver
             'blue'  => $blue,
             'alpha' => $alpha,
         );
+    }
+
+    private function isVerticalGradientDirection(string $value): bool
+    {
+        return (bool) preg_match('/^(?:0deg|180deg|to\s+(?:top|bottom))$/i', trim($value));
+    }
+
+    private function isGradientStopPosition(string $value): bool
+    {
+        return (bool) preg_match(
+            '/^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)?|(?:calc|min|max|clamp|var)\(.*\))$/is',
+            trim($value)
+        );
+    }
+
+    /**
+     * @param array<int, string> $delimiters
+     * @return array<int, string>
+     */
+    private function splitTopLevel(string $input, array $delimiters): array
+    {
+        $masked = $this->maskQuotedAndEscapedCharacters($input);
+        $parts  = CssValueSplitter::splitTopLevel($masked, $delimiters);
+
+        return $this->restoreSplitParts($input, $masked, $parts);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitTopLevelWhitespace(string $input): array
+    {
+        $masked = $this->maskQuotedAndEscapedCharacters($input);
+        $parts  = CssValueSplitter::splitTopLevelWhitespace($masked);
+
+        return $this->restoreSplitParts($input, $masked, $parts);
+    }
+
+    private function maskQuotedAndEscapedCharacters(string $input): string
+    {
+        $masked = '';
+        $quote  = null;
+        $length = strlen($input);
+
+        for ( $index = 0; $index < $length; ++$index ) {
+            $character = $input[ $index ];
+            if ( '\\' === $character ) {
+                $masked .= 'x';
+                if ( $index + 1 < $length ) {
+                    $masked .= 'x';
+                    ++$index;
+                }
+                continue;
+            }
+
+            if ( null !== $quote ) {
+                if ( $quote === $character ) {
+                    $masked .= $character;
+                    $quote   = null;
+                } else {
+                    $masked .= 'x';
+                }
+                continue;
+            }
+
+            if ( '"' === $character || "'" === $character ) {
+                $quote  = $character;
+                $masked .= $character;
+                continue;
+            }
+
+            $masked .= $character;
+        }
+
+        return $masked;
+    }
+
+    /**
+     * @param array<int, string> $maskedParts
+     * @return array<int, string>
+     */
+    private function restoreSplitParts(string $input, string $masked, array $maskedParts): array
+    {
+        $parts  = array();
+        $offset = 0;
+
+        foreach ( $maskedParts as $maskedPart ) {
+            $start = strpos($masked, $maskedPart, $offset);
+            if ( false === $start ) {
+                return array();
+            }
+
+            $parts[] = substr($input, $start, strlen($maskedPart));
+            $offset  = $start + strlen($maskedPart);
+        }
+
+        return $parts;
     }
 
     /**

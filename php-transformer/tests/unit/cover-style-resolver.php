@@ -74,6 +74,72 @@ $assertFalse($resolver->meetsHeroSizeGate('background-image:url(h.jpg)'), 'No si
 $assertTrue($resolver->hasRepeatingBackground('background-repeat:repeat'), 'repeat disqualifies.');
 $assertFalse($resolver->hasRepeatingBackground('background-repeat:no-repeat'), 'no-repeat does not.');
 
+// H1: Quoted URL contents cannot inject declarations or hero-size signals.
+$quotedUrlStyle = "background:url('a) ;min-height:900px;.jpg') no-repeat";
+$assertFalse(array_key_exists('min-height', $resolver->declarations($quotedUrlStyle)), 'Quoted URL semicolons do not inject min-height.');
+$assertFalse($resolver->meetsHeroSizeGate($quotedUrlStyle), 'Quoted URL contents do not pass the hero-size gate.');
+
+// H2: background-image wins over background and invalid earlier gradients do not abort scanning.
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:linear-gradient(#000,#fff),url(a.jpg);background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url(b.jpg)'),
+    'background-image overlay wins over the background shorthand.'
+);
+
+// H3: Common uniform-overlay gradient forms are recognized.
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:linear-gradient(0deg, rgba(0,0,0,.5), rgba(0,0,0,.5)),url(h.jpg)'),
+    'Vertical direction prefixes are ignored when comparing overlay stops.'
+);
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:linear-gradient(rgba(0,0,0,.5) 0%, rgba(0,0,0,.5) 100%),url(h.jpg)'),
+    'Stop positions are ignored when comparing overlay colors.'
+);
+$assertSameArray(
+    array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
+    $resolver->dimFromStyle('background:linear-gradient(rgb(0 0 0 / 0.5),rgb(0 0 0 / 0.5)),url(h.jpg)'),
+    'Modern rgb alpha syntax maps to dimRatio and overlay color.'
+);
+
+// H4: A trailing !important does not alter parsed declaration values.
+$assertSameArray(
+    array( 'minHeight' => 480, 'minHeightUnit' => 'px' ),
+    $resolver->minHeightFromStyle('min-height:480px !important'),
+    'Important min-height values parse.'
+);
+$assertTrue(
+    $resolver->meetsHeroSizeGate('background-image:url(h.jpg);background-size:cover !important'),
+    'Important background-size cover values pass.'
+);
+
+// H5: Repeating tokens in the background shorthand disqualify the image.
+$assertTrue($resolver->hasRepeatingBackground('background:url(x.jpg) repeat'), 'Shorthand repeat disqualifies.');
+
+// H6: Near-transparent and near-opaque overlays collapse to the no-overlay default.
+$assertSameArray(
+    array( 'dimRatio' => 0, 'customOverlayColor' => '' ),
+    $resolver->dimFromStyle('background:linear-gradient(rgba(0,0,0,0.04),rgba(0,0,0,0.04)),url(h.jpg)'),
+    'An overlay that rounds to zero is omitted.'
+);
+$assertSameArray(
+    array( 'dimRatio' => 0, 'customOverlayColor' => '' ),
+    $resolver->dimFromStyle('background:linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)),url(h.jpg)'),
+    'An overlay that rounds to 100 is omitted.'
+);
+
+// H7: Vertical-first and single vertical background positions map correctly.
+$assertSameArray(array( 'x' => 0.5, 'y' => 0.0 ), $resolver->focalPointFromStyle('background-position:top'), 'Single top centers the horizontal axis.');
+$assertSameArray(array( 'x' => 1.0, 'y' => 0.0 ), $resolver->focalPointFromStyle('background-position:top right'), 'Vertical-first keyword pairs map to axes.');
+
+// H8: Modern viewport units parse and use the viewport hero threshold.
+$assertSameArray(array( 'minHeight' => 100, 'minHeightUnit' => 'dvh' ), $resolver->minHeightFromStyle('min-height:100dvh'), 'dvh minHeight parses.');
+$assertTrue($resolver->meetsHeroSizeGate('background-image:url(h.jpg);min-height:100dvh'), '100dvh passes the hero-size gate.');
+
+// Required change 9: Oversized scraped style strings are rejected without parsing.
+$assertSameArray(array(), $resolver->declarations('color:red;' . str_repeat(' ', 65527)), 'Styles over 65536 bytes are rejected.');
+
 echo "cover style resolver ok\n";
 
 exit(0 === $failures ? 0 : 1);
