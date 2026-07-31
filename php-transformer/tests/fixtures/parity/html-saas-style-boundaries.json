@@ -19,15 +19,14 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "/" } },
+    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "site-header", "contentMode": "inner-blocks", "tagName": "header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "brand-logo", "contentMode": "rich-text", "tagName": "a", "url": "/" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
     { "path": "blocks.1", "name": "core/group", "attrs": { "tagName": "main" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero", "tagName": "section" } },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "beta-badge" } },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading" },
-    { "path": "blocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "trusted-by", "tagName": "section" } },
+    { "path": "blocks.1.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "trusted-by", "tagName": "section" } },
     { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "trusted-card", "tagName": "article" } },
     { "path": "blocks.1.innerBlocks.2.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "width": 100 } }
   ],
@@ -36,13 +35,17 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<span>Relay Atlas</span></a>" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/\" class=\"wp-block-blocks-engine-author-layout brand-logo\"><img src=\"assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "><span>Relay Atlas</span></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-blocks-engine-author-layout brand-logo" },
     { "path": "serialized_blocks", "assert": "contains", "value": "beta-badge" },
     { "path": "serialized_blocks", "assert": "contains", "value": "status-orb" },
     { "path": "serialized_blocks", "assert": "contains", "value": "trusted-by" },
     { "path": "serialized_blocks", "assert": "contains", "value": "trusted-card" },
     { "path": "serialized_blocks", "assert": "contains", "value": "has-custom-width wp-block-button__width-100" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "brand-logo\"><!-- wp:paragraph" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

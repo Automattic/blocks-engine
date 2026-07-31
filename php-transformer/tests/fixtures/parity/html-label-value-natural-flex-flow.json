@@ -8,7 +8,7 @@
     "content": "<style>.proof-row{display:flex;justify-content:space-between;gap:16px}</style><div class=\"proof-row\"><p class=\"proof-label\">PHP + WordPress</p><p class=\"proof-value\">WebAssembly in the Worker</p></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "proof-row" } },
+    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "proof-row" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "proof-label", "content": "PHP + WordPress" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "proof-value", "content": "WebAssembly in the Worker" } }
   ],
