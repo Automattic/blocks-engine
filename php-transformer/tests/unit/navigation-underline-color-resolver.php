@@ -93,6 +93,17 @@ $assert(
     '4: truncated functional color values are rejected'
 );
 
+$assert(
+    '' === $resolver->resolve(
+        $item,
+        $anchor,
+        static fn (): array => array( 'color' => '#111111' ),
+        array(),
+        static fn (): bool => false
+    ),
+    '5: ordinary text color does not invent an active underline without a decoration signal'
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation underline color resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);

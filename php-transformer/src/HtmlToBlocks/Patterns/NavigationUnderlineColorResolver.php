@@ -17,19 +17,29 @@ final class NavigationUnderlineColorResolver
     {
         foreach ( array( $anchor, $item ) as $element ) {
             $declarations = $presentationDeclarations($element);
-            foreach ( array( 'text-decoration-color', 'border-bottom-color', 'border-color' ) as $property ) {
+            foreach ( array( 'text-decoration-color' ) as $property ) {
                 $color = $this->usableCssColor((string) ($declarations[ $property ] ?? ''));
                 if ( '' !== $color ) {
                     return $color;
                 }
             }
+            if ( isset($declarations['border-bottom-width']) && ! preg_match('/^0(?:[a-z%]+)?$/i', trim($declarations['border-bottom-width'])) ) {
+                foreach ( array( 'border-bottom-color', 'border-color' ) as $property ) {
+                    $color = $this->usableCssColor((string) ($declarations[ $property ] ?? ''));
+                    if ( '' !== $color ) {
+                        return $color;
+                    }
+                }
+            }
         }
 
+        $matchedPseudoElement = false;
         foreach ( $staticPseudoElementStyleRules as $rule ) {
             if ( ! $matchesCssSelector($anchor, $rule['selector']) && ! $matchesCssSelector($item, $rule['selector']) ) {
                 continue;
             }
 
+            $matchedPseudoElement = true;
             $declarations = $rule['declarations'];
             foreach ( array( 'background-color', 'background', 'border-bottom-color', 'border-color', 'color' ) as $property ) {
                 $color = $this->usableCssColor((string) ($declarations[ $property ] ?? ''));
@@ -39,10 +49,12 @@ final class NavigationUnderlineColorResolver
             }
         }
 
-        foreach ( array( $anchor, $item ) as $element ) {
-            $color = $this->usableCssColor((string) ($presentationDeclarations($element)['color'] ?? ''));
-            if ( '' !== $color ) {
-                return $color;
+        if ( $matchedPseudoElement ) {
+            foreach ( array( $anchor, $item ) as $element ) {
+                $color = $this->usableCssColor((string) ($presentationDeclarations($element)['color'] ?? ''));
+                if ( '' !== $color ) {
+                    return $color;
+                }
             }
         }
 
