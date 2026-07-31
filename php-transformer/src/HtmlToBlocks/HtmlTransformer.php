@@ -813,7 +813,8 @@ final class HtmlTransformer
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation,.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{gap:0!important}'
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
         if ( array() !== $this->nativeSearchTriggerCssRules ) {
@@ -7242,10 +7243,10 @@ final class HtmlTransformer
         $buttonWidth = $this->cssNumber($triggerWidth ?? ($width + 12));
         $dataUri = 'data:image/svg+xml,' . rawurlencode($svgMarkup);
         $selector = '.wp-block-search.' . $className;
-        $this->nativeSearchTriggerCssRules[$className] = $selector . '{display:block!important;box-sizing:border-box!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
+        $this->nativeSearchTriggerCssRules[$className] = $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
             . $selector . ' .wp-block-search__inside-wrapper{' . $triggerHeight . 'box-sizing:border-box!important;width:100%!important}'
             . $selector . ' .wp-block-search__button{display:block!important;box-sizing:border-box!important;width:100%!important;height:100%!important;min-width:0!important;margin:0!important;padding:1px 6px!important;font:400 13.3333px Arial!important;line-height:normal!important;text-align:center!important;color:#000!important;background:none!important;border:0!important;border-radius:0!important}'
-            . $selector . ' .wp-block-search__button>svg{display:none!important}'
+            . $selector . '.wp-block-search__icon-button .wp-block-search__button.has-icon>svg.search-icon{display:none!important}'
             . $selector . ' .wp-block-search__button:before{content:"";display:inline-block;width:' . $iconWidth . 'px;height:' . $iconHeight . 'px;background:url("' . $dataUri . '") center/contain no-repeat}';
 
         return $className;
