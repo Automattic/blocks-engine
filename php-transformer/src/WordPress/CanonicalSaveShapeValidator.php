@@ -59,6 +59,7 @@ final class CanonicalSaveShapeValidator
     private const TARGET_BLOCKS = array(
         'core/group',
         'core/cover',
+        'core/media-text',
         'core/columns',
         'core/column',
         'core/buttons',
@@ -166,7 +167,7 @@ final class CanonicalSaveShapeValidator
         // token core would reproduce from the className attribute. A leftover
         // source class core's save() never regenerates breaks the round-trip.
         foreach ( $wrapperClasses as $class ) {
-            if ( $this->isStructuralClass($class) || in_array($class, $classNameTokens, true) ) {
+            if ( $this->isStructuralClass($class, $blockName) || in_array($class, $classNameTokens, true) ) {
                 continue;
             }
 
@@ -276,8 +277,17 @@ final class CanonicalSaveShapeValidator
      * input: the block base class, element classes, and attribute-derived
      * support classes (alignment, color/border has-*, and is-* state/style).
      */
-    private function isStructuralClass(string $class): bool
+    private function isStructuralClass(string $class, string $blockName): bool
     {
+        if ( 'core/media-text' === $blockName && in_array($class, array(
+            'is-stacked-on-mobile',
+            'is-vertically-aligned-top',
+            'is-vertically-aligned-center',
+            'is-vertically-aligned-bottom',
+        ), true) ) {
+            return true;
+        }
+
         return str_starts_with($class, 'wp-block-')
             || str_starts_with($class, 'wp-element-')
             || str_starts_with($class, 'wp-container-')
