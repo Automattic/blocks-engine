@@ -222,6 +222,9 @@ final class HtmlTransformer
      */
     private array $sourceProvenance = array();
 
+    /** @var array<int, bool> */
+    private array $sourceBaseHiddenStates = array();
+
     /** @var array<string,int> */
     private array $blockBindingOccurrences = array();
 
@@ -368,6 +371,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
     private array $sourceRootChildMarkers = array();
 
+    /** @var list<string> Source body-state classes referenced by authored CSS. */
+    private array $sourceBodyProjectionClasses = array();
+
     /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
     private array $sourceTableMarkers = array();
 
@@ -455,6 +461,7 @@ final class HtmlTransformer
         $this->frozenHiddenStateFindings = array();
         $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
+        $this->sourceBaseHiddenStates = array();
         $this->blockBindingOccurrences = array();
         $this->formControlSlotPaths = array();
         $this->structureProvenance = array();
@@ -477,6 +484,7 @@ final class HtmlTransformer
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
+        $this->sourceBodyProjectionClasses = array();
         $this->sourceTableMarkers = array();
         $this->sourceTableRepresentability = array();
         $this->sourceTableDescendantPaths = array();
@@ -512,6 +520,7 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
+        $sourceBodyClasses = $this->documentBodyClassNames($html);
         $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($this->normalizeExplicitPlaintextElements($html)));
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
@@ -565,6 +574,10 @@ final class HtmlTransformer
                 context: $context,
                 metrics: $metrics
             );
+        }
+
+        if ( array() !== $sourceBodyClasses ) {
+            $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
@@ -881,6 +894,16 @@ final class HtmlTransformer
         $this->discoverAuthorInlineSemanticPaths();
         $this->discoverAuthorRootChildPaths();
         $this->discoverAuthorTablePaths();
+        $this->sourceBodyProjectionClasses = $this->referencedSourceBodyClasses($sourceBody);
+    }
+
+    /** @return list<string> */
+    private function referencedSourceBodyClasses(DOMElement $sourceBody): array
+    {
+        $classes = preg_split('/\s+/', trim($this->attr($sourceBody, 'class'))) ?: array();
+        return array_values(array_filter(array_unique($classes), function (string $class): bool {
+            return '' !== $class && (bool) preg_match('/\.' . preg_quote($class, '/') . '(?:\b|(?=[.#:\[]))/', $this->combinedAuthorCss);
+        }));
     }
 
     private function discoverAuthorControlPaths(): void
@@ -1116,6 +1139,7 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
@@ -1138,6 +1162,16 @@ final class HtmlTransformer
         }
 
         return implode(',', $rewritten);
+    }
+
+    private function projectSourceBodyStateSelector(string $selector): string
+    {
+        if ( array() === $this->sourceBodyProjectionClasses ) {
+            return $selector;
+        }
+
+        $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $this->sourceBodyProjectionClasses));
+        return preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
     }
 
     /** @return array{string, string} */
@@ -1184,6 +1218,7 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $rewritten[] = $selector;
@@ -1641,6 +1676,7 @@ final class HtmlTransformer
      */
     private function deduplicateNavigationBlocksRecursive(array $blocks, array &$seen): array
     {
+        $blocks = $this->preferVisibleSiblingNavigationBlocks($blocks);
         $deduplicated = array();
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
@@ -1669,6 +1705,58 @@ final class HtmlTransformer
     }
 
     /**
+     * Equivalent responsive variants frequently sit beside one another. When
+     * exactly one starts hidden, retain the visible source variant before the
+     * global mobile/drawer deduplication pass runs.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function preferVisibleSiblingNavigationBlocks(array $blocks): array
+    {
+        $preferred = array();
+        $discarded = array();
+        foreach ( $blocks as $index => $block ) {
+            if ( ! is_array($block) || 'core/navigation' !== ($block['blockName'] ?? '') ) {
+                continue;
+            }
+
+            $signature = $this->navigationBlockSignature($block);
+            if ( '' === $signature ) {
+                continue;
+            }
+
+            if ( ! isset($preferred[$signature]) ) {
+                $preferred[$signature] = $index;
+                continue;
+            }
+
+            $previousIndex = $preferred[$signature];
+            $previousHidden = $this->navigationBlockStartsHidden($blocks[$previousIndex]);
+            $currentHidden = $this->navigationBlockStartsHidden($block);
+            if ( $previousHidden === $currentHidden ) {
+                continue;
+            }
+
+            if ( $previousHidden ) {
+                $discarded[$previousIndex] = true;
+                $preferred[$signature] = $index;
+            } else {
+                $discarded[$index] = true;
+            }
+        }
+
+        return array_values(array_filter($blocks, static fn (mixed $block, int $index): bool => ! isset($discarded[$index]), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /** @param array<string, mixed> $block */
+    private function navigationBlockStartsHidden(array $block): bool
+    {
+        $provenanceId = $block['_source_provenance_id'] ?? null;
+        return is_int($provenanceId) && true === ($this->sourceBaseHiddenStates[$provenanceId] ?? false);
+    }
+
+    /**
      * @param array<string, mixed> $block
      */
     private function isMobileDuplicateNavigationBlock(array $block): bool
@@ -1685,7 +1773,7 @@ final class HtmlTransformer
             $classNames,
         ))));
 
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
     }
 
     /**
@@ -1794,6 +1882,26 @@ final class HtmlTransformer
         }
 
         return $this->innerHtml($body);
+    }
+
+    /** @return list<string> */
+    private function documentBodyClassNames(string $html): array
+    {
+        if ( ! preg_match('/<body\b/i', $html) ) {
+            return array();
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return array();
+        }
+
+        return array_values(array_filter(array_unique(preg_split('/\s+/', trim($this->attr($body, 'class'))) ?: array())));
     }
 
     /**
@@ -2463,7 +2571,7 @@ final class HtmlTransformer
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -2796,6 +2904,11 @@ final class HtmlTransformer
             if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
             }
+            if ( $sourceElement->parentNode instanceof DOMElement
+                && 'body' === strtolower($sourceElement->parentNode->tagName)
+                && array() !== $this->sourceBodyProjectionClasses ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$this->sourceBodyProjectionClasses);
+            }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
             }
@@ -2828,6 +2941,7 @@ final class HtmlTransformer
                 ));
             }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
+            $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($sourceElement);
         }
 
         if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
@@ -2843,6 +2957,22 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    private function sourceElementStartsHidden(DOMElement $element): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
+        $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
+        $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
+        return 'none' === $display
+            || in_array($visibility, array( 'hidden', 'collapse' ), true)
+            || (is_numeric($opacity) && 0.0 === (float) $opacity);
+    }
+
+    private function cssComparableValue(string $value): string
+    {
+        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
     }
 
     private function hasAuthorSemanticMarker(DOMElement $element): bool

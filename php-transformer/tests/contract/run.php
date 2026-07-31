@@ -1377,6 +1377,37 @@ $assert(5 === ($complexHeaderBlockMenus[0]['item_count'] ?? null), 'complex head
 $assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'icon-only header navigation links use accessible labels');
 $assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
 
+$visibleVariantNavigation = ( new HtmlTransformer() )->transform(
+    '<header><nav class="placeholder" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav><nav class="primary"><a href="/">Home</a><a href="/about">About</a></nav><label><span><div></div><div></div><div></div></span><span>menu</span><span>close</span></label></header><nav class="collapsed-nav" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav>'
+)->toArray();
+$visibleVariantSerialized = (string) ($visibleVariantNavigation['serialized_blocks'] ?? '');
+$assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), 'equivalent sibling navigation variants retain only the visible source variant');
+$assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder') && ! str_contains($visibleVariantSerialized, 'collapsed-nav'), 'navigation deduplication prefers the visible source variant over hidden placeholder and collapsed variants');
+$assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
+
+$bodyStateProjection = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="fixed-shell no-header-page"><div class="wrapper"><div class="main-wrap"><p>Content</p></div></div></body></html>',
+    array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}body.fixed-shell .main-wrap{background:#fff}' )
+)->toArray();
+$bodyStateSerialized = (string) ($bodyStateProjection['serialized_blocks'] ?? '');
+$bodyStateCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodyStateProjection['assets'] ?? array()));
+$assert(str_contains($bodyStateSerialized, 'wrapper fixed-shell no-header-page') && str_contains($bodyStateSerialized, 'main-wrap'), 'stylesheet-referenced body state projects onto converted root blocks');
+$assert(str_contains($bodyStateCss, '.no-header-page .main-wrap{padding-top:80px}'), 'body-state descendant selectors continue matching beneath the projected root block state');
+$assert(str_contains($bodyStateCss, '.fixed-shell .main-wrap{background:#fff}') && ! str_contains($bodyStateCss, 'body.fixed-shell'), 'explicit body-state selectors retarget the projected root state while retaining descendant structure');
+
+$styledLogo = ( new HtmlTransformer() )->transform(
+    '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
+)->toArray();
+$styledLogoSerialized = (string) ($styledLogo['serialized_blocks'] ?? '');
+$assert(str_contains($styledLogoSerialized, '<mark style="') && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
+$assert('pass' === ($styledLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed logo label markers remain editor-valid');
+
+$nestedStyledLogo = ( new HtmlTransformer() )->transform(
+    '<style>.header #wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><div class="header"><div class="logo"><span><a href="/"><span id="wordmark">Nested Brand</span></a></span></div></div>'
+)->toArray();
+$nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
+$assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+
 $brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
 )->toArray();
