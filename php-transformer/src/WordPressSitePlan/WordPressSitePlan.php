@@ -27,6 +27,7 @@ final class WordPressSitePlan
 
         $assets = $this->assets($compiled['assets'] ?? null);
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
+        $runtimeDeclarations = $this->svgFontDeclarations($assets, $runtimeDeclarations);
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
         $references = new AssetReferenceCanonicalizer($tokens);
@@ -393,7 +394,7 @@ final class WordPressSitePlan
             foreach ($transformation['css_source_paths'] as $path) {
                 $index = $bySource[$path] ?? null;
                 if (!is_int($index) || 'text/css' !== ($assets[$index]['mime_type'] ?? null) || !is_string($assets[$index]['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation references an undeclared local CSS input.');
-                $fontFaces = self::fontFaces($assets[$index]['content'], $path, $transformation['font_source_paths'], $assets, $bySource);
+                $fontFaces = self::fontFaces($assets[$index]['content'], $path, $transformation['font_source_paths'], $assets, $bySource, $transformation['font_families'] ?? array(), isset($transformation['font_families']));
                 if (array() === $fontFaces) throw new InvalidArgumentException('Asset publication transformation CSS input has no local font-face payload.');
                 $cssInputs[] = array('source_path' => $path, 'content_hash' => self::contentHash($assets[$index]['content']), 'font_faces' => $fontFaces);
             }
@@ -413,10 +414,63 @@ final class WordPressSitePlan
         return $assets;
     }
 
-    /** @return array<int,string> */
-    private static function fontFaces(string $css, string $cssPath, array $fontPaths, array $assets, array $bySource): array
+    /**
+     * Generated SVGs are independent image documents, so they cannot inherit a
+     * page's self-hosted faces. Declare a hash-bound enrichment only when the
+     * SVG explicitly uses a locally available font.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $declarations
+     * @return array<int,array<string,mixed>>
+     */
+    private function svgFontDeclarations(array $assets, array $declarations): array
     {
-        if (preg_match('~(?:</style|<!--|-->|/\*|\*/|\\|@import|[<>]|(?:https?:|//|file:|blob:|data:))~i', $css) || !preg_match_all('/@font-face\s*\{([^{}]+)\}\s*/i', $css, $matches) || '' !== trim((string) preg_replace('/@font-face\s*\{[^{}]+\}\s*/i', '', $css))) throw new InvalidArgumentException('Asset publication transformation rejects unsafe or non-font CSS inputs.');
+        $fontPaths = array_values(array_map(static fn (array $asset): string => $asset['source_path'], array_filter($assets, static fn (array $asset): bool => str_starts_with((string) ($asset['mime_type'] ?? ''), 'font/'))));
+        $cssAssets = array_values(array_filter($assets, static fn (array $asset): bool => 'text/css' === ($asset['mime_type'] ?? null) && is_string($asset['content'] ?? null)));
+        if (array() === $fontPaths || array() === $cssAssets) return $declarations;
+
+        $existing = array_fill_keys(array_column($declarations, 'source_path'), true);
+        foreach ($assets as $asset) {
+            $svg = $asset['content'] ?? null;
+            if ('inline-svg' !== ($asset['source'] ?? null) || 'image/svg+xml' !== ($asset['mime_type'] ?? null) || !is_string($svg) || isset($existing[$asset['source_path']]) || !preg_match('/<text\b/i', $svg)) continue;
+            $families = self::svgFontFamilies($svg);
+            if (array() === $families) continue;
+            $cssInputs = array();
+            foreach ($cssAssets as $cssAsset) {
+                $faces = self::fontFaces($cssAsset['content'], $cssAsset['source_path'], $fontPaths, $assets, array_column($assets, null, 'source_path'), $families, true);
+                if (array() !== $faces) $cssInputs[] = array('source_path' => $cssAsset['source_path'], 'content_hash' => self::contentHash($cssAsset['content']), 'font_faces' => $faces);
+            }
+            if (array() === $cssInputs) continue;
+            $faces = array_merge(...array_column($cssInputs, 'font_faces'));
+            $content = preg_replace('~</svg\s*>~i', '<style>' . implode("\n", $faces) . '</style></svg>', $svg, 1);
+            if (!is_string($content) || !self::safeSvg($content)) continue;
+            $fontInputs = array();
+            foreach ($fontPaths as $path) {
+                $font = $assets[array_search($path, array_column($assets, 'source_path'), true)];
+                $fontInputs[] = array('source_path' => $path, 'content_hash' => $font['content_hash']);
+            }
+            $declarations[] = array('kind' => 'asset_publication', 'type' => 'asset', 'source_path' => $asset['source_path'], 'provenance' => array('source_path' => $asset['source_path'], 'source' => $asset['source'], 'hash' => $asset['hash'], 'mime_type' => $asset['mime_type'], 'role' => $asset['role'], 'bytes' => $asset['bytes']), 'destination' => array('capability' => 'asset_materialization', 'required' => true), 'source_role' => $asset['role'], 'mime_type' => $asset['mime_type'], 'source_hash' => $asset['hash'], 'expected_content_hash' => self::contentHash($content), 'sanitization' => array('schema' => 'generic/svg-sanitization/v1', 'input_hash' => $asset['hash']), 'reference_targets' => array(), 'transformation' => array('kind' => 'svg_font_enrichment', 'css_source_paths' => array_column($cssInputs, 'source_path'), 'font_source_paths' => $fontPaths, 'font_families' => $families, 'input_hash' => RuntimeDeclarations::hash(array('css' => $cssInputs, 'fonts' => $fontInputs)), 'expected_content_hash' => self::contentHash($content)));
+        }
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+
+    /** @return array<int,string> */
+    private static function svgFontFamilies(string $svg): array
+    {
+        preg_match_all('/(?:font-family\s*=\s*["\']([^"\']+)["\']|font-family\s*:\s*([^;"\'}]+))/i', $svg, $matches, PREG_SET_ORDER);
+        $families = array();
+        foreach ($matches as $match) {
+            $family = trim((string) (($match[1] ?? '') ?: ($match[2] ?? '')), " \t\n\r\0\x0B\"'");
+            if ('' !== $family) $families[strtolower($family)] = $family;
+        }
+        return array_values($families);
+    }
+
+    /** @return array<int,string> */
+    private static function fontFaces(string $css, string $cssPath, array $fontPaths, array $assets, array $bySource, array $families = array(), bool $allowAdditionalRules = false): array
+    {
+        if (!$allowAdditionalRules && (preg_match('~(?:</style|<!--|-->|/\*|\*/|\\|@import|[<>]|(?:https?:|//|file:|blob:|data:))~i', $css) || '' !== trim((string) preg_replace('/@font-face\s*\{[^{}]+\}\s*/i', '', $css)))) throw new InvalidArgumentException('Asset publication transformation rejects unsafe or non-font CSS inputs.');
+        if (!preg_match_all('/@font-face\s*\{([^{}]+)\}\s*/i', $css, $matches)) return array();
         $faces = array();
         foreach ($matches[1] as $body) {
             $properties = array(); $hasSource = false;
@@ -426,13 +480,14 @@ final class WordPressSitePlan
                 $name = strtolower($pair[1]); $value = trim($pair[2]); if (isset($properties[$name])) throw new InvalidArgumentException('Asset publication transformation CSS has duplicate properties.');
                 if ('src' === $name) {
                     if (!preg_match('~^url\(\s*([a-zA-Z0-9._/-]+)\s*\)$~', $value, $url)) throw new InvalidArgumentException('Asset publication transformation CSS source must be a local font path.');
-                    $source = ArtifactPath::resolveRelativePath($url[1], $cssPath); $assetIndex = $bySource[$source] ?? null;
-                    if (!in_array($source, $fontPaths, true) || !is_int($assetIndex) || !str_starts_with((string) ($assets[$assetIndex]['mime_type'] ?? ''), 'font/')) throw new InvalidArgumentException('Asset publication transformation CSS source is not a declared font asset.');
+                    $source = ArtifactPath::resolveRelativePath($url[1], $cssPath); $assetIndex = array_search($source, array_column($assets, 'source_path'), true);
+                    if (!is_int($assetIndex) || !str_starts_with((string) ($assets[$assetIndex]['mime_type'] ?? ''), 'font/')) throw new InvalidArgumentException('Asset publication transformation CSS source is not a declared font asset.');
                     $value = 'url(' . self::TOKEN_PREFIX . $assets[$assetIndex]['token'] . '}})'; $hasSource = true;
                 } elseif (!preg_match('/^[a-z0-9 .,_\'"-]+$/i', $value)) throw new InvalidArgumentException('Asset publication transformation CSS value is not safe.');
                 $properties[$name] = $value;
             }
             if (!$hasSource || !isset($properties['font-family'])) throw new InvalidArgumentException('Asset publication transformation font-face is incomplete.');
+            if (array() !== $families && !in_array(strtolower(trim($properties['font-family'], " \t\n\r\0\x0B\"'")), array_map('strtolower', $families), true)) continue;
             $face = '@font-face{'; foreach ($properties as $name => $value) $face .= $name . ':' . $value . ';'; $faces[] = $face . '}';
         }
         return $faces;
@@ -764,7 +819,7 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $transformation @param array<string,array<string,mixed>> $assetsBySource */
     private static function assertPublicationTransformationInputs(array $transformation, array $assetsBySource): void
     {
-        $css = array(); foreach ($transformation['css_source_paths'] as $path) { $asset = $assetsBySource[$path] ?? null; if (!is_array($asset) || 'text/css' !== ($asset['mime_type'] ?? null) || !is_string($asset['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation has an unbound CSS input.'); $css[] = array('source_path' => $path, 'content_hash' => self::contentHash($asset['content']), 'font_faces' => self::fontFaces($asset['content'], $path, $transformation['font_source_paths'], array_values($assetsBySource), array_flip(array_keys($assetsBySource)))); }
+        $css = array(); foreach ($transformation['css_source_paths'] as $path) { $asset = $assetsBySource[$path] ?? null; if (!is_array($asset) || 'text/css' !== ($asset['mime_type'] ?? null) || !is_string($asset['content'] ?? null)) throw new InvalidArgumentException('Asset publication transformation has an unbound CSS input.'); $css[] = array('source_path' => $path, 'content_hash' => self::contentHash($asset['content']), 'font_faces' => self::fontFaces($asset['content'], $path, $transformation['font_source_paths'], array_values($assetsBySource), array_flip(array_keys($assetsBySource)), $transformation['font_families'] ?? array(), isset($transformation['font_families']))); }
         $fonts = array(); foreach ($transformation['font_source_paths'] as $path) { $asset = $assetsBySource[$path] ?? null; if (!is_array($asset) || !str_starts_with((string) ($asset['mime_type'] ?? ''), 'font/')) throw new InvalidArgumentException('Asset publication transformation has an unbound font input.'); $fonts[] = array('source_path' => $path, 'content_hash' => $asset['content_hash']); }
         if (RuntimeDeclarations::hash(array('css' => $css, 'fonts' => $fonts)) !== ($transformation['input_hash'] ?? null)) throw new InvalidArgumentException('Asset publication transformation inputs have stale hashes.');
     }
