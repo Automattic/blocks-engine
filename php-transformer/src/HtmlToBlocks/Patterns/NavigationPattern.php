@@ -539,6 +539,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             break;
         }
 
+        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+            // Core navigation adds its own default gap; source lists do not.
+            $attrs['style']['spacing']['blockGap'] = '0px';
+        }
+
         return $attrs;
     }
 

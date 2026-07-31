@@ -299,6 +299,9 @@ final class HtmlTransformer
      */
     private array $generatedAssets = array();
 
+    /** @var array<string, string> */
+    private array $nativeSearchTriggerCssRules = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -481,6 +484,7 @@ final class HtmlTransformer
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
+        $this->nativeSearchTriggerCssRules = array();
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
@@ -811,6 +815,9 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
+        }
+        if ( array() !== $this->nativeSearchTriggerCssRules ) {
+            $cssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
         }
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
@@ -7154,12 +7161,18 @@ final class HtmlTransformer
             if ( $this->isIconOnlySearchControl($submitControl) ) {
                 $attrs['buttonUseIcon'] = true;
             }
-        } elseif ( $this->hasAdjacentSearchTrigger($form) ) {
+        } elseif ( null !== ($searchTrigger = $this->adjacentSearchTrigger($form)) ) {
             $attrs['buttonPosition'] = 'button-only';
             $attrs['buttonUseIcon'] = true;
             $attrs['style']['color']['text'] = '#000000';
             $attrs['style']['color']['background'] = 'transparent';
             $attrs['style']['border']['width'] = '0px';
+            $triggerAttrs = $this->presentationAttributes($searchTrigger);
+            $attrs['className'] = trim(implode(' ', array_filter(array(
+                (string) ($attrs['className'] ?? ''),
+                (string) ($triggerAttrs['className'] ?? ''),
+                $this->registerNativeSearchTriggerCss($searchTrigger),
+            ))));
         } else {
             $attrs['buttonPosition'] = 'no-button';
         }
@@ -7169,6 +7182,11 @@ final class HtmlTransformer
 
     private function hasAdjacentSearchTrigger(DOMElement $form): bool
     {
+        return null !== $this->adjacentSearchTrigger($form);
+    }
+
+    private function adjacentSearchTrigger(DOMElement $form): ?DOMElement
+    {
         $containers = array( $form );
         if ( $form->parentNode instanceof DOMElement ) {
             $containers[] = $form->parentNode;
@@ -7177,11 +7195,72 @@ final class HtmlTransformer
         foreach ( $containers as $container ) {
             $sibling = $this->nextElementSibling($container);
             if ( $sibling instanceof DOMElement && $this->isAdjacentSearchTriggerControl($sibling) ) {
-                return true;
+                return $sibling;
             }
         }
 
-        return false;
+        return null;
+    }
+
+    private function registerNativeSearchTriggerCss(DOMElement $trigger): string
+    {
+        $svg = $trigger->getElementsByTagName('svg')->item(0);
+        if ( ! $svg instanceof DOMElement ) {
+            return '';
+        }
+
+        $svgDeclarations = $this->presentationDeclarations($svg);
+        $width = $this->cssPixelLength((string) ($svgDeclarations['width'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'width'));
+        $height = $this->cssPixelLength((string) ($svgDeclarations['height'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'height'));
+        if ( null === $width || null === $height ) {
+            $viewBox = preg_split('/[\s,]+/', trim($this->attr($svg, 'viewbox'))) ?: array();
+            if ( 4 === count($viewBox) && is_numeric($viewBox[2]) && is_numeric($viewBox[3]) ) {
+                $width ??= (float) $viewBox[2];
+                $height ??= (float) $viewBox[3];
+            }
+        }
+        if ( null === $width || null === $height || 0 >= $width || 0 >= $height ) {
+            return '';
+        }
+
+        $svgMarkup = $this->restoreSvgCasing($this->outerHtml($svg));
+        if ( ! preg_match('/<svg\b[^>]*\bxmlns=/i', $svgMarkup) ) {
+            $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
+        }
+        $className = 'blocks-engine-source-search-icon-' . substr(hash('sha256', $svgMarkup), 0, 12);
+        if ( isset($this->nativeSearchTriggerCssRules[$className]) ) {
+            return $className;
+        }
+
+        $declarations = $this->presentationDeclarations($trigger);
+        $triggerHeight = isset($declarations['height']) && '' !== trim($declarations['height'])
+            ? 'height:' . trim($declarations['height']) . '!important;'
+            : '';
+        $triggerWidth = $this->cssPixelLength((string) ($declarations['width'] ?? ''));
+        $iconWidth = $this->cssNumber($width);
+        $iconHeight = $this->cssNumber($height);
+        $buttonWidth = $this->cssNumber($triggerWidth ?? ($width + 12));
+        $dataUri = 'data:image/svg+xml,' . rawurlencode($svgMarkup);
+        $selector = '.wp-block-search.' . $className;
+        $this->nativeSearchTriggerCssRules[$className] = $selector . '{display:block!important;box-sizing:border-box!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
+            . $selector . ' .wp-block-search__inside-wrapper{' . $triggerHeight . 'box-sizing:border-box!important;width:100%!important}'
+            . $selector . ' .wp-block-search__button{display:block!important;box-sizing:border-box!important;width:100%!important;height:100%!important;min-width:0!important;margin:0!important;padding:1px 6px!important;font:400 13.3333px Arial!important;line-height:normal!important;text-align:center!important;color:#000!important;background:none!important;border:0!important;border-radius:0!important}'
+            . $selector . ' .wp-block-search__button>svg{display:none!important}'
+            . $selector . ' .wp-block-search__button:before{content:"";display:inline-block;width:' . $iconWidth . 'px;height:' . $iconHeight . 'px;background:url("' . $dataUri . '") center/contain no-repeat}';
+
+        return $className;
+    }
+
+    private function cssPixelLength(string $value): ?float
+    {
+        return preg_match('/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i', trim($value), $match)
+            ? (float) $match[1]
+            : null;
+    }
+
+    private function cssNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
     }
 
     /**

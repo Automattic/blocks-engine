@@ -1647,6 +1647,7 @@ $activeNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
 )->toArray();
 $activeNavigationLinks = $activeNavigation['blocks'][0]['innerBlocks'] ?? array();
+$assert('0px' === ($activeNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'list navigation neutralizes the core default gap when the source has no authored gap');
 $assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration'] ?? ''), 'active navigation link carries native underline style intent');
 $assert(str_contains((string) ($activeNavigationLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-item'), 'active navigation link carries a frontend current-item styling marker');
 $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
@@ -1695,15 +1696,29 @@ $assert(! str_contains($headerClusterSerialized, '<form class="site-search"'), '
 $assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
 
 $expandableHeaderSearch = ( new HtmlTransformer() )->transform(
-    '<header><div class="site-utils"><span class="provider-search"><form id="provider-search" action="/apps/search" method="get"><input type="text" name="q" placeholder="Search"></form></span><button class="search-icon"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button><button class="search-close">close</button></div></header>'
+    '<style>.search-icon{display:none;height:80px}.search-icon.visible{display:block}</style><script>document.querySelector(".search-icon").classList.add("visible")</script><header><div class="site-utils"><span class="provider-search"><form id="provider-search" action="/apps/search" method="get"><input type="text" name="q" placeholder="Search"></form></span><button class="search-icon"><svg width="12px" height="13px" viewBox="0 0 12 13"><path d="M1 1"></path></svg></button><button class="search-close">close</button></div></header>'
 )->toArray();
 $expandableHeaderSearchSerialized = (string) ($expandableHeaderSearch['serialized_blocks'] ?? '');
+$expandableHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $expandableHeaderSearch['assets'] ?? array()));
 $assert(str_contains($expandableHeaderSearchSerialized, '<!-- wp:search'), 'provider search cluster migrates to native WordPress search');
 $assert(str_contains($expandableHeaderSearchSerialized, '"buttonPosition":"button-only"') && str_contains($expandableHeaderSearchSerialized, '"buttonUseIcon":true'), 'adjacent icon trigger maps to expandable icon-only core/search');
 $assert(str_contains($expandableHeaderSearchSerialized, '"text":"#000000"') && str_contains($expandableHeaderSearchSerialized, '"background":"transparent"') && str_contains($expandableHeaderSearchSerialized, '"width":"0px"'), 'expandable native search preserves borderless black icon treatment');
 $assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && str_contains($expandableHeaderSearchSerialized, '"placeholder":"Search"'), 'provider search cluster uses an accessible hidden label and preserves placeholder text');
 $assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
-$assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && ! str_contains($expandableHeaderSearchSerialized, 'search-icon') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrapper and toggle controls');
+$assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrappers while carrying the trigger presentation onto core search');
+$assert(str_contains($expandableHeaderSearchCss, 'width:24px!important;height:80px!important') && str_contains($expandableHeaderSearchCss, 'width:12px;height:13px') && str_contains($expandableHeaderSearchCss, 'data:image/svg+xml,'), 'native icon search replays the source trigger geometry and exact SVG artwork');
+
+$viewBoxOnlyHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<header><form role="search"><input name="s" type="search"></form><button class="search-trigger"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button></header>'
+)->toArray();
+$viewBoxOnlyHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $viewBoxOnlyHeaderSearch['assets'] ?? array()));
+$assert(str_contains($viewBoxOnlyHeaderSearchCss, 'width:12px;height:13px'), 'native icon search derives intrinsic dimensions from an HTML-normalized lowercase viewBox attribute');
+
+$cssSizedHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<style>.search-trigger{width:48px;height:32px}.search-trigger svg{width:20px;height:21px}</style><header><form role="search"><input name="s" type="search"></form><button class="search-trigger"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button></header>'
+)->toArray();
+$cssSizedHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedHeaderSearch['assets'] ?? array()));
+$assert(str_contains($cssSizedHeaderSearchCss, 'width:48px!important;height:32px!important') && str_contains($cssSizedHeaderSearchCss, 'width:20px;height:21px'), 'native icon search honors authored trigger and SVG dimensions before intrinsic dimensions');
 
 $boundedHeaderSearch = ( new HtmlTransformer() )->transform(
     '<header><div class="site-utils"><div class="search-shell">Search our catalog<form role="search"><input type="search" name="s"></form></div><button class="search-help" aria-label="Search help"><svg viewBox="0 0 10 10"><path d="M1 1"></path></svg></button></div></header>'

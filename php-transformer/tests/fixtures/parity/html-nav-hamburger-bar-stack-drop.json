@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "main-nav blocks-engine-list-navigation", "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "main-nav blocks-engine-list-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
