@@ -1577,6 +1577,9 @@ final class ArtifactCompiler
         $matchLength = strlen((string) ($listMatch[0][0] ?? ''));
         $prefix = rtrim(substr($selector, 0, $matchStart));
         $tail = substr($selector, $matchStart + $matchLength);
+        if ( '' === trim($tail) ) {
+            return array();
+        }
         $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
         $runtimeTail = ' .wp-block-navigation__container' . $tail;

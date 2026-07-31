@@ -7157,6 +7157,9 @@ final class HtmlTransformer
         } elseif ( $this->hasAdjacentSearchTrigger($form) ) {
             $attrs['buttonPosition'] = 'button-only';
             $attrs['buttonUseIcon'] = true;
+            $attrs['style']['color']['text'] = '#000000';
+            $attrs['style']['color']['background'] = 'transparent';
+            $attrs['style']['border']['width'] = '0px';
         } else {
             $attrs['buttonPosition'] = 'no-button';
         }
