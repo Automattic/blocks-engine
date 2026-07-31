@@ -2983,6 +2983,7 @@ final class HtmlTransformer
                     $element,
                     $fallbacks,
                     fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                     fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
                     fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                     fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),

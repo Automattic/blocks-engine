@@ -72,12 +72,12 @@ $pattern = new MediaTextPattern();
 $matchMethod = new ReflectionMethod(MediaTextPattern::class, 'match');
 $matchParameters = $matchMethod->getParameters();
 $assertSame(
-    array( 'element', 'fallbacks', 'convertChildren', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
+    array( 'element', 'fallbacks', 'convertChildren', 'convertElement', 'presentationAttributes', 'mergedPresentationStyle', 'htmlAttributes', 'resolveAssetUrl', 'createBlock' ),
     array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $matchParameters),
     'match callback parameter names remain frozen.'
 );
 $assertSame(
-    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
+    array( 'DOMElement', 'array', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable', 'callable' ),
     array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $matchParameters),
     'match callback parameter types remain frozen.'
 );
@@ -128,6 +128,7 @@ $match = static function (
             }
             return $convertedText;
         },
+        static fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => null,
         static function (DOMElement $sourceElement, array $excludedGeometryProperties) use (&$record, $presentation): array {
             $record['excluded'] = $excludedGeometryProperties;
             return $presentation;

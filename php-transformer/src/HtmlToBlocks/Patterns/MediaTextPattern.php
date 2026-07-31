@@ -30,6 +30,7 @@ final class MediaTextPattern
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
+     * @param callable(DOMElement, array<int, array<string, mixed>>&, bool): (array<string, mixed>|null) $convertElement
      * @param callable(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $mergedPresentationStyle
      * @param callable(DOMElement): array<string, string> $htmlAttributes
@@ -41,6 +42,7 @@ final class MediaTextPattern
         DOMElement $element,
         array &$fallbacks,
         callable $convertChildren,
+        callable $convertElement,
         callable $presentationAttributes,
         callable $mergedPresentationStyle,
         callable $htmlAttributes,
