@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
 $assertTrue = static function (bool $actual, string $message) use (&$failures): void {
@@ -43,6 +44,37 @@ $elementFromHtml = static function (string $html, string $tagName = 'section'): 
     }
 
     return $element;
+};
+$transformHtml = static function (string $html): array {
+    return (new HtmlTransformer())->transform($html)->toArray();
+};
+$blockNames = static function (array $blocks) use (&$blockNames): array {
+    $names = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $name = $block['blockName'] ?? null;
+        if ( is_string($name) ) {
+            $names[] = $name;
+        }
+        $innerBlocks = $block['innerBlocks'] ?? array();
+        if ( is_array($innerBlocks) ) {
+            array_push($names, ...$blockNames($innerBlocks));
+        }
+    }
+
+    return $names;
+};
+$assetCss = static function (array $result): string {
+    $css = '';
+    foreach ( $result['assets'] ?? array() as $asset ) {
+        if ( is_array($asset) && 'css' === ($asset['kind'] ?? null) ) {
+            $css .= (string) ($asset['content'] ?? '');
+        }
+    }
+
+    return $css;
 };
 
 $pattern = new CoverPattern();
@@ -124,6 +156,11 @@ $heading = array(
     'attrs'       => array( 'content' => 'Build' ),
     'innerBlocks' => array(),
 );
+$paragraph = array(
+    'blockName'   => 'core/paragraph',
+    'attrs'       => array( 'content' => 'Ship' ),
+    'innerBlocks' => array(),
+);
 
 // 1. Hero matches and converted children become cover innerBlocks.
 $fallbacks = array();
@@ -189,7 +226,7 @@ $assertSame('core/cover', $match($hero, array( $nestedHeading ), array(), array(
 
 // 8. Presentation extraction excludes all consumed background geometry.
 $assertSame(
-    array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat' ),
+    array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height', 'height' ),
     $record['excluded'],
     'Presentation extraction receives frozen background exclusions.'
 );
@@ -240,6 +277,72 @@ $record = array();
 $failOpenCover = $match($hero, array( $heading ), array(), array(), $fallbacks, $record, true);
 $assertSame('core/cover', $failOpenCover['blockName'] ?? null, 'Presentation failure does not throw or suppress gated cover.');
 $assertSame('resolved:https://example.com/hero.jpg', $failOpenCover['attrs']['url'] ?? null, 'Fail-open cover retains independently derivable URL.');
+
+// K3: Consumed min-height/height geometry emits exactly once through core/cover attrs.
+$minHeightResult = $transformHtml('<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship</p></section>');
+$minHeightCover = $minHeightResult['blocks'][0] ?? array();
+$minHeightOpening = (string) ($minHeightCover['innerContent'][0] ?? '');
+$assertSame('core/cover', $minHeightCover['blockName'] ?? null, 'K3: Min-height hero remains core/cover.');
+$assertSame(1, substr_count($minHeightOpening, 'min-height'), 'K3: Min-height hero opening markup emits min-height once.');
+$assertSame(480, $minHeightCover['attrs']['minHeight'] ?? null, 'K3: Min-height hero keeps numeric minHeight attr.');
+$assertTrue(! isset($minHeightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Min-height hero removes duplicate style.dimensions.minHeight.');
+$assertTrue(! str_contains($assetCss($minHeightResult), 'min-height:480px'), 'K3: Min-height hero generates no carrier min-height rule.');
+
+$heightResult = $transformHtml('<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;height:345.5px"><h1>Build</h1><p>Ship</p></section>');
+$heightCover = $heightResult['blocks'][0] ?? array();
+$heightOpening = (string) ($heightCover['innerContent'][0] ?? '');
+$assertSame('core/cover', $heightCover['blockName'] ?? null, 'K3: Height-fallback hero remains core/cover.');
+$assertSame(1, substr_count($heightOpening, 'min-height'), 'K3: Height-fallback hero opening markup emits min-height once.');
+$assertSame(1, substr_count($heightOpening, 'height:345.5px'), 'K3: Height-fallback source height survives only inside emitted min-height.');
+$assertTrue(! isset($heightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Height-fallback hero removes duplicate style.dimensions.minHeight.');
+$assertTrue(! str_contains($assetCss($heightResult), 'height:345.5px'), 'K3: Height-fallback hero generates no carrier height rule.');
+
+// K4: Background-image heroes that are columns candidates remain core/columns.
+$columnsResult = $transformHtml('<section style="display:flex;background-image:url(https://example.com/h.jpg);background-size:cover"><div style="flex:1"><h1>Left</h1></div><div style="flex:1"><p>Right</p></div></section>');
+$columnsNames = $blockNames($columnsResult['blocks'] ?? array());
+$assertTrue(in_array('core/columns', $columnsNames, true), 'K4: Flex hero candidate preserves core/columns.');
+$assertTrue(! in_array('core/cover', $columnsNames, true), 'K4: Flex hero candidate does not become core/cover.');
+
+// K5: Navigation-bearing shell wrappers never become core/cover.
+$shellResult = $transformHtml('<div style="background-image:url(https://example.com/h.jpg);background-size:cover"><nav><a href="/a">A</a><a href="/b">B</a></nav><h1>T</h1><p>Body</p></div>');
+$shellNames = $blockNames($shellResult['blocks'] ?? array());
+$assertTrue(! in_array('core/cover', $shellNames, true), 'K5: Navigation-bearing shell rejects core/cover.');
+
+$fallbacks = array( array( 'blockName' => 'existing/fallback' ) );
+$record = array();
+$navigation = array(
+    'blockName'   => 'core/group',
+    'attrs'       => array(),
+    'innerBlocks' => array(
+        array( 'blockName' => 'core/navigation', 'attrs' => array(), 'innerBlocks' => array() ),
+        $paragraph,
+    ),
+);
+$assertNull($match($hero, array( $navigation ), array(), array(), $fallbacks, $record), 'K5: Recursive core/navigation child rejects cover.');
+$assertSame(array( array( 'blockName' => 'existing/fallback' ) ), $fallbacks, 'K5: Navigation rejection discards local fallbacks.');
+
+// K6: Design gradients may survive, but URL layers never remain in cover style attrs.
+$gradientResult = $transformHtml('<section class="hero" style="background:linear-gradient(90deg,#ff0000,#0000ff),url(https://example.com/h.jpg) center/cover;min-height:480px"><h1>T</h1><p>B</p></section>');
+$designGradientCover = $gradientResult['blocks'][0] ?? array();
+$assertSame('core/cover', $designGradientCover['blockName'] ?? null, 'K6: Design-gradient hero remains core/cover.');
+$assertTrue(! str_contains((string) json_encode($designGradientCover['attrs'] ?? array()), 'url('), 'K6: Cover attrs contain no URL layer.');
+$assertTrue(! str_contains((string) ($designGradientCover['innerContent'][0] ?? ''), 'url('), 'K6: Cover opening markup contains no CSS URL layer.');
+
+// K7: Multiple image layers reject cover instead of dropping a layer.
+$multiLayerStyle = 'background-image:url(https://example.com/top.png),url(https://example.com/bottom.png);background-size:cover;min-height:480px';
+$multiLayerResult = $transformHtml('<section class="hero" style="' . $multiLayerStyle . '"><h1>T</h1><p>B</p></section>');
+$multiLayerNames = $blockNames($multiLayerResult['blocks'] ?? array());
+$assertTrue(! in_array('core/cover', $multiLayerNames, true), 'K7: Multi-layer background rejects core/cover.');
+$assertSame('multi_layer_background', $pattern->rejectionGate($multiLayerStyle, true), 'K7: rejectionGate reports multi_layer_background.');
+
+// K8: Cover URL follows source-order cascade.
+$resetResult = $transformHtml('<section class="hero" style="background-image:url(https://example.com/gone.jpg);background-size:cover;min-height:480px;background:#fff"><h1>T</h1><p>B</p></section>');
+$assertTrue(! in_array('core/cover', $blockNames($resetResult['blocks'] ?? array()), true), 'K8: Later background reset rejects core/cover.');
+
+$laterUrlResult = $transformHtml('<section class="hero" style="background:url(https://example.com/first.jpg) center/cover;background-image:url(https://example.com/second.jpg);min-height:480px"><h1>T</h1><p>B</p></section>');
+$laterUrlCover = $laterUrlResult['blocks'][0] ?? array();
+$assertSame('core/cover', $laterUrlCover['blockName'] ?? null, 'K8: Later background-image URL remains core/cover.');
+$assertSame('https://example.com/second.jpg', $laterUrlCover['attrs']['url'] ?? null, 'K8: Later background-image URL wins.');
 
 echo "cover pattern ok\n";
 

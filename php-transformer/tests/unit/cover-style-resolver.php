@@ -38,8 +38,26 @@ $assertFalse = static function (bool $actual, string $message) use (&$failures):
     ++$failures;
     fwrite(STDERR, 'FAIL: ' . $message . ' expected=false actual=true' . PHP_EOL);
 };
+$assertSame = static function (mixed $expected, mixed $actual, string $message) use (&$failures): void {
+    if ( $expected === $actual ) {
+        return;
+    }
+
+    ++$failures;
+    fwrite(STDERR, 'FAIL: ' . $message . ' expected=' . var_export($expected, true) . ' actual=' . var_export($actual, true) . PHP_EOL);
+};
 
 $resolver = new CoverStyleResolver();
+
+$backgroundUrlMethodExists = method_exists(CoverStyleResolver::class, 'backgroundUrlFromStyle');
+$assertTrue($backgroundUrlMethodExists, 'K8: backgroundUrlFromStyle public contract exists.');
+if ( $backgroundUrlMethodExists ) {
+    $backgroundUrlMethod = new ReflectionMethod(CoverStyleResolver::class, 'backgroundUrlFromStyle');
+    $backgroundUrlParameters = $backgroundUrlMethod->getParameters();
+    $assertSame(array( 'style' ), array_map(static fn (ReflectionParameter $parameter): string => $parameter->getName(), $backgroundUrlParameters), 'K8: backgroundUrlFromStyle parameter name remains frozen.');
+    $assertSame(array( 'string' ), array_map(static fn (ReflectionParameter $parameter): string => (string) $parameter->getType(), $backgroundUrlParameters), 'K8: backgroundUrlFromStyle parameter type remains frozen.');
+    $assertSame('string', (string) $backgroundUrlMethod->getReturnType(), 'K8: backgroundUrlFromStyle return type remains frozen.');
+}
 
 $assertSameArray(
     array( 'dimRatio' => 50, 'customOverlayColor' => '#000000' ),
@@ -163,6 +181,30 @@ $assertSameArray(
     array( 'minHeight' => 480, 'minHeightUnit' => 'px' ),
     $resolver->minHeightFromStyle('min-height:480px ! important'),
     'Spaced important min-height values parse.'
+);
+
+// K8: URL extraction follows background/background-image source-order cascade.
+if ( $backgroundUrlMethodExists ) {
+    $assertSame(
+        '',
+        $resolver->backgroundUrlFromStyle('background-image:url(https://example.com/gone.jpg);background:#fff'),
+        'K8: Later background shorthand resets an earlier background-image URL.'
+    );
+    $assertSame(
+        'https://example.com/second.jpg',
+        $resolver->backgroundUrlFromStyle('background:url(https://example.com/first.jpg);background-image:url(https://example.com/second.jpg)'),
+        'K8: Later background-image URL wins over an earlier background shorthand URL.'
+    );
+}
+
+// K9: A later background shorthand resets earlier background-size unless it carries /size.
+$assertFalse(
+    $resolver->meetsHeroSizeGate('background-size:cover;background:url(x.jpg)'),
+    'K9: Later background shorthand without /size resets earlier background-size.'
+);
+$assertTrue(
+    $resolver->meetsHeroSizeGate('background:url(x.jpg) center/cover'),
+    'K9: Background shorthand with /cover remains a hero-size signal.'
 );
 
 echo "cover style resolver ok\n";

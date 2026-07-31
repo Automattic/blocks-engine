@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-layered-background-top-image",
-  "description": "Converts the top image layer of a gated hero to core/cover without introducing an in-flow media child.",
+  "description": "Preserves layered image backgrounds as generated author CSS without introducing an in-flow media child.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-layered-background-top-image.json",
@@ -16,17 +16,16 @@
     "content": "<section class=\"hero layered-image\" aria-label=\"Featured story\" style=\"width:691px;height:345.5px;overflow:hidden;background-image:url('assets/top.png'),url('assets/bottom.png');background-size:cover;background-position:center\"><h1>Featured story</h1></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/cover" },
+    { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Featured story", "level": 1 } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero layered-image" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-background-image" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "background-image" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "background-size:cover" },
+    { "path": "assets.0.content", "assert": "contains", "value": "url('assets/top.png'),url('assets/bottom.png')" },
+    { "path": "assets.0.content", "assert": "contains", "value": "background-size:cover" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 
 /**
@@ -58,6 +59,18 @@ final class CoverStyleResolver
         $this->declarationCache[ $style ] = $declarations;
 
         return $declarations;
+    }
+
+    public function backgroundUrlFromStyle(string $style): string
+    {
+        $declaration = $this->winningBackgroundDeclaration($style);
+        if ( null === $declaration || ! preg_match('/\burl\s*\(/i', $declaration['value']) ) {
+            return '';
+        }
+
+        return (new BackgroundImageExtractor())->urlFromStyle(
+            $declaration['name'] . ':' . $declaration['value']
+        );
     }
 
     /**
@@ -206,21 +219,29 @@ final class CoverStyleResolver
     public function meetsHeroSizeGate(string $style): bool
     {
         $declarations = $this->declarations($style);
-        $size         = strtolower(trim((string) ($declarations['background-size'] ?? '')));
-        foreach ( $this->splitTopLevel($size, array( ',' )) as $layerSize ) {
-            if ( array( 'cover' ) === $this->splitTopLevelWhitespace($layerSize) ) {
-                return true;
-            }
-        }
-
-        $background = (string) ($declarations['background'] ?? '');
-        foreach ( $this->splitTopLevel($background, array( ',' )) as $layer ) {
-            $slashParts = $this->splitTopLevel($layer, array( '/' ));
-            foreach ( array_slice($slashParts, 1) as $sizeAndRepeat ) {
-                $tokens = $this->splitTopLevelWhitespace(strtolower($sizeAndRepeat));
-                if ( 'cover' === ($tokens[0] ?? '') ) {
-                    return true;
+        foreach ( array_reverse(array_keys($declarations)) as $name ) {
+            if ( 'background-size' === $name ) {
+                $size = strtolower(trim((string) $declarations[ $name ]));
+                foreach ( $this->splitTopLevel($size, array( ',' )) as $layerSize ) {
+                    if ( array( 'cover' ) === $this->splitTopLevelWhitespace($layerSize) ) {
+                        return true;
+                    }
                 }
+                break;
+            }
+
+            if ( 'background' === $name ) {
+                $background = (string) $declarations[ $name ];
+                foreach ( $this->splitTopLevel($background, array( ',' )) as $layer ) {
+                    $slashParts = $this->splitTopLevel($layer, array( '/' ));
+                    foreach ( array_slice($slashParts, 1) as $sizeAndRepeat ) {
+                        $tokens = $this->splitTopLevelWhitespace(strtolower($sizeAndRepeat));
+                        if ( 'cover' === ($tokens[0] ?? '') ) {
+                            return true;
+                        }
+                    }
+                }
+                break;
             }
         }
 
@@ -262,6 +283,24 @@ final class CoverStyleResolver
         }
 
         return false;
+    }
+
+    /**
+     * @return array{name:string, value:string}|null
+     */
+    private function winningBackgroundDeclaration(string $style): ?array
+    {
+        $declarations = $this->declarations($style);
+        foreach ( array_reverse(array_keys($declarations)) as $name ) {
+            if ( in_array($name, array( 'background', 'background-image' ), true) ) {
+                return array(
+                    'name'  => $name,
+                    'value' => (string) $declarations[ $name ],
+                );
+            }
+        }
+
+        return null;
     }
 
     /**
