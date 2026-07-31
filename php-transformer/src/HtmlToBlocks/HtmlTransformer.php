@@ -2144,6 +2144,11 @@ final class HtmlTransformer
             }
         }
 
+        $wrappedSearchBlock = $this->searchBlockFromWrapper($element);
+        if ( null !== $wrappedSearchBlock ) {
+            return $wrappedSearchBlock;
+        }
+
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
         if ( $mediaDispatch['handled'] ) {
             return $mediaDispatch['block'];
@@ -2479,6 +2484,9 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
+            if ( $this->isReplacedSearchClusterControl($element) ) {
+                return null;
+            }
             return $this->convertButtonDispatchElement($element);
         }
 
@@ -7293,7 +7301,214 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->htmlPreservationBlock($form);
+        $label = $this->formControlLabel($textInput);
+        $showLabel = '' !== $label;
+        if ( '' === $label ) {
+            $label = trim($this->attr($form, 'aria-label'));
+        }
+        if ( '' === $label ) {
+            $label = trim($this->attr($textInput, 'placeholder'));
+        }
+
+        $attrs = array_merge($this->presentationAttributes($form), array(
+            'label'       => '' !== $label ? $label : 'Search',
+            'showLabel'   => $showLabel,
+            'placeholder' => $this->attr($textInput, 'placeholder'),
+        ));
+        if ( $submitControl instanceof DOMElement ) {
+            $attrs['buttonPosition'] = 'button-outside';
+            $attrs['buttonText'] = $this->submitButtonText($submitControl);
+            if ( $this->isIconOnlySearchControl($submitControl) ) {
+                $attrs['buttonUseIcon'] = true;
+            }
+        } elseif ( $this->hasAdjacentSearchTrigger($form) ) {
+            $attrs['buttonPosition'] = 'button-only';
+            $attrs['buttonUseIcon'] = true;
+            $attrs['style']['color']['text'] = '#000000';
+            $attrs['style']['color']['background'] = 'transparent';
+            $attrs['style']['border']['width'] = '0px';
+        } else {
+            $attrs['buttonPosition'] = 'no-button';
+        }
+
+        return $this->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    private function hasAdjacentSearchTrigger(DOMElement $form): bool
+    {
+        $containers = array( $form );
+        if ( $form->parentNode instanceof DOMElement ) {
+            $containers[] = $form->parentNode;
+        }
+
+        foreach ( $containers as $container ) {
+            $sibling = $this->nextElementSibling($container);
+            if ( $sibling instanceof DOMElement && $this->isAdjacentSearchTriggerControl($sibling) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function searchBlockFromWrapper(DOMElement $element): ?array
+    {
+        if ( 1 !== $this->childElementCount($element) ) {
+            return null;
+        }
+
+        $form = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'form' === strtolower($child->tagName) ) {
+                $form = $child;
+                break;
+            }
+        }
+
+        if ( ! $form instanceof DOMElement || ! $this->hasAdjacentSearchTrigger($form) ) {
+            return null;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+        }
+
+        return $this->searchBlockFromForm($form);
+    }
+
+    private function isReplacedSearchClusterControl(DOMElement $control): bool
+    {
+        if ( $this->isAdjacentSearchTriggerControl($control) ) {
+            $formContainer = $this->previousElementSibling($control);
+            return $formContainer instanceof DOMElement && $this->containsNativeSearchForm($formContainer);
+        }
+
+        if ( ! $this->isSearchCloseControl($control) ) {
+            return false;
+        }
+
+        $trigger = $this->previousElementSibling($control);
+        $formContainer = $trigger instanceof DOMElement ? $this->previousElementSibling($trigger) : null;
+        return $trigger instanceof DOMElement
+            && $this->isAdjacentSearchTriggerControl($trigger)
+            && $formContainer instanceof DOMElement
+            && $this->containsNativeSearchForm($formContainer);
+    }
+
+    private function containsNativeSearchForm(DOMElement $element): bool
+    {
+        $forms = 'form' === strtolower($element->tagName)
+            ? array( $element )
+            : iterator_to_array($element->getElementsByTagName('form'));
+        return 1 === count($forms) && $forms[0] instanceof DOMElement && $this->isNativeSearchForm($forms[0]);
+    }
+
+    private function nextElementSibling(DOMElement $element): ?DOMElement
+    {
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                return $sibling;
+            }
+        }
+
+        return null;
+    }
+
+    private function previousElementSibling(DOMElement $element): ?DOMElement
+    {
+        for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                return $sibling;
+            }
+        }
+
+        return null;
+    }
+
+    private function isSearchCloseControl(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'aria-label'),
+            $this->attr($control, 'title'),
+        )));
+        return str_contains($haystack, 'search') && str_contains($haystack, 'close');
+    }
+
+    private function isNativeSearchForm(DOMElement $form): bool
+    {
+        $method = strtolower(trim($this->attr($form, 'method')));
+        if ( '' !== $method && 'get' !== $method ) {
+            return false;
+        }
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+            return false;
+        }
+
+        $textInput = null;
+        $submitControl = null;
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) ) {
+                return false;
+            }
+            $tagName = strtolower($control->tagName);
+            $type = $this->formControlType($control);
+            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
+                if ( null !== $textInput ) {
+                    return false;
+                }
+                $textInput = $control;
+                continue;
+            }
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                if ( null !== $submitControl ) {
+                    return false;
+                }
+                $submitControl = $control;
+                continue;
+            }
+            return false;
+        }
+
+        return $textInput instanceof DOMElement && $this->hasSearchFormSignal($form, $textInput);
+    }
+
+    private function isIconOnlySearchControl(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'aria-label'),
+            $this->attr($control, 'title'),
+        )));
+        if ( ! str_contains($haystack, 'search') || str_contains($haystack, 'close') ) {
+            return false;
+        }
+
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        return '' === $text || 0 < $control->getElementsByTagName('svg')->length;
+    }
+
+    private function isAdjacentSearchTriggerControl(DOMElement $control): bool
+    {
+        if ( ! $this->isIconOnlySearchControl($control) ) {
+            return false;
+        }
+
+        $identity = strtolower(trim($this->attr($control, 'class') . ' ' . $this->attr($control, 'id')));
+        foreach ( preg_split('/\s+/', $identity) ?: array() as $token ) {
+            if ( in_array($token, array( 'search-icon', 'search-toggle', 'search-trigger', 'open-search' ), true) ) {
+                return true;
+            }
+        }
+
+        $accessibleName = strtolower(trim($this->attr($control, 'aria-label') . ' ' . $this->attr($control, 'title')));
+        return in_array($accessibleName, array( 'search', 'open search', 'expand search', 'toggle search' ), true);
     }
 
     /**
