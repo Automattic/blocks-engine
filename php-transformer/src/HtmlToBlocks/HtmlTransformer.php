@@ -1139,6 +1139,7 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
@@ -1161,6 +1162,16 @@ final class HtmlTransformer
         }
 
         return implode(',', $rewritten);
+    }
+
+    private function projectSourceBodyStateSelector(string $selector): string
+    {
+        if ( array() === $this->sourceBodyProjectionClasses ) {
+            return $selector;
+        }
+
+        $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $this->sourceBodyProjectionClasses));
+        return preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
     }
 
     /** @return array{string, string} */
@@ -1207,6 +1218,7 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
                 $rewritten[] = $selector;

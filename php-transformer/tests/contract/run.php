@@ -1387,12 +1387,13 @@ $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($v
 
 $bodyStateProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="fixed-shell no-header-page"><div class="wrapper"><div class="main-wrap"><p>Content</p></div></div></body></html>',
-    array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}' )
+    array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}body.fixed-shell .main-wrap{background:#fff}' )
 )->toArray();
 $bodyStateSerialized = (string) ($bodyStateProjection['serialized_blocks'] ?? '');
 $bodyStateCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodyStateProjection['assets'] ?? array()));
-$assert(str_contains($bodyStateSerialized, 'wrapper no-header-page') && str_contains($bodyStateSerialized, 'main-wrap'), 'stylesheet-referenced body state projects onto converted root blocks');
+$assert(str_contains($bodyStateSerialized, 'wrapper fixed-shell no-header-page') && str_contains($bodyStateSerialized, 'main-wrap'), 'stylesheet-referenced body state projects onto converted root blocks');
 $assert(str_contains($bodyStateCss, '.no-header-page .main-wrap{padding-top:80px}'), 'body-state descendant selectors continue matching beneath the projected root block state');
+$assert(str_contains($bodyStateCss, '.fixed-shell .main-wrap{background:#fff}') && ! str_contains($bodyStateCss, 'body.fixed-shell'), 'explicit body-state selectors retarget the projected root state while retaining descendant structure');
 
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
