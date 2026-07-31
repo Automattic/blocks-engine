@@ -514,6 +514,15 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Resolve full authored layout style for media-text strict gates, including
+     * low-value direct children that general presentation resolution skips.
+     */
+    private function mediaTextPresentationStyle(DOMElement $element): string
+    {
+        return $this->cssDeclarationString($this->structuralPresentationDeclarations($element));
+    }
+
+    /**
      * Remove responsive/JS-revealed hidden base states (display:none /
      * visibility:hidden / opacity:0) from content-bearing or interactive
      * elements so they are not frozen permanently invisible (#259). Genuinely
@@ -993,6 +1002,7 @@ trait StyleResolutionTrait
             'color',
             'align-items',
             'column-gap',
+            'direction',
             'display',
             'flex-direction',
             'flex',
@@ -1020,6 +1030,7 @@ trait StyleResolutionTrait
             'max-width',
             'min-height',
             'min-width',
+            'order',
             'padding',
             'padding-bottom',
             'padding-left',

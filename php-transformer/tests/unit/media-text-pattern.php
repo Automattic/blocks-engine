@@ -111,7 +111,8 @@ $match = static function (
     bool $emitFallback = false,
     bool $throwMediaStyle = false,
     ?callable $resolveMediaUrl = null,
-    bool $throwCreate = false
+    bool $throwCreate = false,
+    ?callable $resolvePresentationStyle = null
 ) use ($pattern, $htmlAttributes): ?array {
     $record = array(
         'convertCalls'         => 0,
@@ -121,6 +122,7 @@ $match = static function (
     );
 
     $resolveMediaUrl ??= static fn (string $url): string => '/resolved/' . ltrim($url, '/');
+    $resolvePresentationStyle ??= static fn (DOMElement $sourceElement): string => $sourceElement->getAttribute('style');
 
     return $pattern->match(
         $element,
@@ -149,12 +151,12 @@ $match = static function (
             $record['excluded'] = $excludedGeometryProperties;
             return $presentation;
         },
-        static function (DOMElement $sourceElement) use ($element, $throwMediaStyle): string {
+        static function (DOMElement $sourceElement) use ($element, $throwMediaStyle, $resolvePresentationStyle): string {
             if ( $throwMediaStyle && ! $sourceElement->isSameNode($element) ) {
                 throw new RuntimeException('media style unavailable');
             }
 
-            return $sourceElement->getAttribute('style');
+            return $resolvePresentationStyle($sourceElement);
         },
         $htmlAttributes,
         $resolveMediaUrl,
@@ -517,6 +519,49 @@ $rowElement = $elementFromHtml('<section style="display:flex;flex-direction:row"
 $row = $match($rowElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('core/media-text', $row['blockName'] ?? null, 'Normal flex row remains eligible.');
 
+// Authored direction/order rules reach strict gates for low-value direct children.
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$authoredOrderElement = $elementFromHtml('<section><img src="ordered.jpg"><div class="copy"><p>Ordered</p></div></section>');
+$authoredOrder = $match(
+    $authoredOrderElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    static fn (DOMElement $sourceElement): string => str_contains(' ' . $sourceElement->getAttribute('class') . ' ', ' copy ')
+        ? 'order:2'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($authoredOrder, 'Authored child order declines match.');
+$assertSame(0, $record['convertCalls'], 'Authored child order declines before text conversion.');
+$assertSame(array( array( 'reason' => 'existing' ) ), $fallbacks, 'Authored child order leaves host fallbacks unchanged.');
+
+$fallbacks = array( array( 'reason' => 'existing' ) );
+$record = array();
+$authoredRtlElement = $elementFromHtml('<section class="shell"><img src="rtl.jpg"><div><p>RTL</p></div></section>');
+$authoredRtl = $match(
+    $authoredRtlElement,
+    array( $paragraph ),
+    $fallbacks,
+    $record,
+    array(),
+    true,
+    false,
+    null,
+    false,
+    static fn (DOMElement $sourceElement): string => str_contains(' ' . $sourceElement->getAttribute('class') . ' ', ' shell ')
+        ? 'display:grid;direction:rtl'
+        : $sourceElement->getAttribute('style')
+);
+$assertNull($authoredRtl, 'Authored container rtl declines match.');
+$assertSame(0, $record['convertCalls'], 'Authored container rtl declines before text conversion.');
+$assertSame(array( array( 'reason' => 'existing' ) ), $fallbacks, 'Authored container rtl leaves host fallbacks unchanged.');
+
 // Link-wrapped video is not representable by core/media-text save markup.
 $fallbacks = array( array( 'reason' => 'existing' ) );
 $record = array();
@@ -583,13 +628,16 @@ $assertSame(array( array( 'reason' => 'existing' ) ), $fallbacks, 'Block creatio
 
 // Ladder fallthrough remains unchanged for strict declines.
 $geometryResult = $transformHtml(
-    '<section style="display:grid;grid-template-columns:30% auto;max-width:900px;min-height:30rem;aspect-ratio:16/9;--media-gap:2rem;padding:1rem"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>'
+    '<section style="display:grid;grid-template-columns:30% auto;max-width:900px;min-height:30rem;aspect-ratio:16/9;--media-gap:2rem;padding:1rem;background-color:var(--wp--preset--color--accent)"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>'
 );
 $geometryBlock = $geometryResult['blocks'][0] ?? array();
 $geometryOpening = (string) ($geometryBlock['innerContent'][0] ?? '');
 $geometryAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $geometryResult['assets'] ?? array()));
 $assertSame('core/media-text', $geometryBlock['blockName'] ?? null, 'Grid geometry case emits media-text.');
-$assertTrue(! isset($geometryBlock['attrs']['style']['dimensions']['maxWidth']), 'Media-text attrs omit maxWidth.');
+$assertTrue(! isset($geometryBlock['attrs']['style']), 'Media-text attrs omit suppressed style object.');
+$assertSame('accent', $geometryBlock['attrs']['backgroundColor'] ?? null, 'Media-text preserves top-level preset attr.');
+$assertContains('has-accent-background-color has-background', $geometryOpening, 'Media-text preserves top-level preset classes.');
+$assertContains('be-inline-geometry-', (string) ($geometryBlock['attrs']['className'] ?? ''), 'Media-text preserves generated geometry carrier class.');
 $assertContains('style="grid-template-columns:30% auto"', $geometryOpening, 'Media-text wrapper style contains grid tracks.');
 foreach ( array( 'max-width', 'min-height', 'aspect-ratio', '--media-gap', 'padding-' ) as $leakedProperty ) {
     $assertTrue(! str_contains($geometryOpening, $leakedProperty), 'Media-text wrapper style omits source property: ' . $leakedProperty);
@@ -600,6 +648,24 @@ $assertContains('aspect-ratio:16/9 !important', $geometryAssets, 'Carrier styles
 
 $rowReverseResult = $transformHtml('<section style="display:flex;flex-direction:row-reverse"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
 $assertTrue('core/media-text' !== ($rowReverseResult['blocks'][0]['blockName'] ?? null), 'Flex row-reverse falls through without media-text.');
+
+$authoredOrderResult = $transformHtml('<style>.copy{order:2}</style><section><img src="x.jpg"><div class="copy"><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($authoredOrderResult['blocks'][0]['blockName'] ?? null), 'Authored .copy{order:2} declines media-text.');
+
+$authoredRtlResult = $transformHtml('<style>.shell{display:grid;direction:rtl}</style><section class="shell"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($authoredRtlResult['blocks'][0]['blockName'] ?? null), 'Authored .shell{display:grid;direction:rtl} declines media-text.');
+
+$lastDisplayWinsResult = $transformHtml('<section style="display:flex;display:grid;flex-direction:row-reverse"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertSame('core/media-text', $lastDisplayWinsResult['blocks'][0]['blockName'] ?? null, 'Last duplicate display declaration controls row-reverse gate.');
+
+$lastFlexDirectionWinsResult = $transformHtml('<section style="display:flex;flex-direction:row-reverse;flex-direction:row"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertSame('core/media-text', $lastFlexDirectionWinsResult['blocks'][0]['blockName'] ?? null, 'Last duplicate flex-direction declaration controls row-reverse gate.');
+
+$reviewerLastDisplayResult = $transformHtml('<section style="display:flex;display:block;flex-direction:column"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertSame('core/media-text', $reviewerLastDisplayResult['blocks'][0]['blockName'] ?? null, 'Last display:block declaration makes stale flex column inapplicable.');
+
+$reviewerLastDirectionResult = $transformHtml('<section style="display:flex;flex-direction:column;flex-direction:row"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertSame('core/media-text', $reviewerLastDirectionResult['blocks'][0]['blockName'] ?? null, 'Last flex-direction:row declaration supersedes stale column.');
 
 $linkedVideoResult = $transformHtml('<section><a href="https://e.com/go"><video src="v.mp4"></video></a><div><p>Copy</p></div></section>');
 $assertTrue('core/media-text' !== ($linkedVideoResult['blocks'][0]['blockName'] ?? null), 'Linked video falls through without media-text.');

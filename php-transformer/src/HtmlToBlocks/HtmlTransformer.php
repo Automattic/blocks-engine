@@ -2985,7 +2985,7 @@ final class HtmlTransformer
                     fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                     fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                     fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                    fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
                     fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
                     fn (string $url): string => $this->resolvedAssetImageUrl($url),
                     fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)

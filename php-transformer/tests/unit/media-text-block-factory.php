@@ -73,6 +73,7 @@ $right = $factory->create('core/media-text', array(
     'linkClass'         => 'media-link',
     'anchor'            => 'feature',
     'className'         => 'promo',
+    'backgroundColor'   => 'accent',
     'style'             => array(
         'color'      => array( 'text' => '#123456' ),
         'dimensions' => array( 'maxWidth' => '900px' ),
@@ -81,7 +82,7 @@ $right = $factory->create('core/media-text', array(
     'inlineGeometryStyle' => 'min-height:30rem;aspect-ratio:16/9;max-width:900px;--media-ratio:1',
 ), array( $paragraph ));
 $assertSame(
-    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center has-text-color promo" style="grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
+    '<div id="feature" class="wp-block-media-text has-media-on-the-right is-stacked-on-mobile is-vertically-aligned-center has-accent-background-color has-background promo" style="grid-template-columns:auto 35%"><div class="wp-block-media-text__content">',
     $right['innerContent'][0],
     'Media-right opening carries position, stack, vertical, and width attributes.'
 );
@@ -92,9 +93,10 @@ $assertSame(
 );
 $assertContains('grid-template-columns:auto 35%', $right['innerHTML'], 'Right media width targets second grid track.');
 $assertContains('is-vertically-aligned-center', $right['innerHTML'], 'Vertical alignment class matches core save shape.');
-$assertContains('has-text-color', $right['innerHTML'], 'Style-derived support class survives wrapper style filtering.');
-$assertSame(array( 'padding' => array( 'top' => '2rem' ) ), $right['attrs']['style']['spacing'] ?? null, 'Unsupported blockGap is removed while supported spacing remains.');
-$assertSame(null, $right['attrs']['style']['dimensions']['maxWidth'] ?? null, 'Media-text comment attrs omit unsupported maxWidth.');
+$assertContains('has-accent-background-color has-background', $right['innerHTML'], 'Top-level preset support classes survive media-text style suppression.');
+$assertNotContains('has-text-color', $right['innerHTML'], 'Suppressed style attrs emit no ghost support class.');
+$assertSame('accent', $right['attrs']['backgroundColor'] ?? null, 'Top-level preset attr survives media-text style suppression.');
+$assertSame(null, $right['attrs']['style'] ?? null, 'Media-text comment attrs omit suppressed style object entirely.');
 $assertNotContains('gap:', $right['innerHTML'], 'Unsupported blockGap emits no wrapper CSS.');
 $assertNotContains('padding-top:', $right['innerHTML'], 'Supported comment attrs do not leak into media-text wrapper style.');
 $assertNotContains('min-height:', $right['innerHTML'], 'Source min-height does not leak into media-text wrapper style.');

@@ -76,6 +76,10 @@ final class BlockFactory
             }
         }
 
+        if ( 'core/media-text' === $name ) {
+            unset($attrs['style']);
+        }
+
         if ( 'core/separator' === $name ) {
             unset($attrs['style']['spacing']['margin']['left'], $attrs['style']['spacing']['margin']['right']);
             if ( empty($attrs['style']['spacing']['margin']) ) {

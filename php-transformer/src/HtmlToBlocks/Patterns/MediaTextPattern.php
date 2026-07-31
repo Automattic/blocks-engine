@@ -14,11 +14,11 @@ use DOMElement;
  * |
  * +-- exactly one pure img/video side? -- no --> null
  * |
+ * +-- strict media/layout gates pass? ---- no --> null
+ * |
  * +-- convert text child once
  * |
  * +-- text-bearing block? -------------- no --> null
- * |
- * +-- vertical flex container? --------- yes -> null
  * |
  * `-- core/media-text
  */
@@ -85,9 +85,9 @@ final class MediaTextPattern
         }
 
         $displayType = $this->containerDisplayType($containerStyle);
+        $flexDirection = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($containerStyle)['flex-direction'] ?? '')));
         if (
-            $this->isVerticalFlexContainer(strtolower($containerStyle))
-            || ( 'flex' === $displayType && $this->styleValueEquals($containerStyle, 'flex-direction', 'row-reverse') )
+            ( 'flex' === $displayType && in_array($flexDirection, array( 'column', 'column-reverse', 'row-reverse' ), true) )
             || $this->styleValueEquals($containerStyle, 'direction', 'rtl')
         ) {
             return null;
