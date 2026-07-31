@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-search-form-conversion",
-  "description": "Preserves arbitrary GET search forms as valid HTML instead of static core/search markup.",
+  "description": "Converts a native-compatible GET search form to dynamic core/search markup.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-search-form-conversion.json",
-    "notes": "Arbitrary static search UI is not assumed to be WordPress content search; preserving the source form avoids invalid static core/search markup."
+    "notes": "A single-query GET search form maps losslessly to WordPress content search while retaining its label, placeholder, button text, and presentation class."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,15 +16,15 @@
     "content": "<form role=\"search\" action=\"/\" method=\"get\" class=\"site-search\"><label for=\"site-search-field\">Find articles</label><input id=\"site-search-field\" type=\"search\" name=\"s\" placeholder=\"Search posts\"><button type=\"submit\">Go</button></form>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/html" }
+    { "path": "blocks.0", "name": "core/search", "attrs": { "className": "site-search", "label": "Find articles", "showLabel": true, "placeholder": "Search posts", "buttonPosition": "button-outside", "buttonText": "Go" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<form role=\"search\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:search" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:search" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<form role=\"search\"" },
     { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

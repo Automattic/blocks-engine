@@ -1176,6 +1176,58 @@ final class ArtifactCompiler
         return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
     }
 
+    private function navigationStructureCompatCss(string $css): string
+    {
+        $rules = $this->navigationStructureCompatRules($css);
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: project source list navigation structure onto core/navigation markup */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function navigationStructureCompatRules(string $css): array
+    {
+        $rules = array();
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            $selectorList = trim($rule['selector']);
+            $body = $rule['body'];
+            if ( '' === $body ) {
+                continue;
+            }
+
+            if ( str_starts_with($selectorList, '@') ) {
+                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
+                    continue;
+                }
+                $nestedRules = $this->navigationStructureCompatRules($body);
+                if ( array() !== $nestedRules ) {
+                    $rules[] = $selectorList . ' {' . implode('', $nestedRules) . '}';
+                }
+                continue;
+            }
+            if ( str_contains(strtolower($body), 'url(') ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
+                foreach ( $this->mapNavigationStructureSelector($selector) as $mappedSelector ) {
+                    $mappedSelectors[$mappedSelector] = true;
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        return $rules;
+    }
+
     private function navigationContainerCompatCss(string $css): string
     {
         $rules = array();
@@ -1302,6 +1354,7 @@ final class ArtifactCompiler
     private function wordpressCompatCss(string $css, array $files): string
     {
         return $this->navigationContainerCompatCss($css)
+            . $this->navigationStructureCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
             . $this->rootStartupClassCompatCss($css, $files);
     }
@@ -1333,7 +1386,7 @@ final class ArtifactCompiler
     }
 
     /** @return array<int, array{selector:string,body:string}> */
-    private function topLevelCssRules(string $css): array
+    private function topLevelCssRules(string $css, bool $includeConditionalRules = false): array
     {
         $rules = array();
         $length = strlen($css);
@@ -1389,7 +1442,7 @@ final class ArtifactCompiler
                     $depth--;
                 }
             }
-            if ( '' !== $selector && ! str_starts_with($selector, '@') && 0 === $depth ) {
+            if ( '' !== $selector && ( $includeConditionalRules || ! str_starts_with($selector, '@') ) && 0 === $depth ) {
                 $closingBrace = $index - 1;
                 $rules[] = array(
                     'selector' => $selector,
@@ -1414,6 +1467,35 @@ final class ArtifactCompiler
         $length = strlen($selectorList);
         for ( $i = 0; $i < $length; $i++ ) {
             $char = $selectorList[$i];
+            if ( '\\' === $char && $i + 1 < $length ) {
+                $current .= $char . $selectorList[++$i];
+                continue;
+            }
+            if ( '/' === $char && '*' === ($selectorList[$i + 1] ?? '') ) {
+                $end = strpos($selectorList, '*/', $i + 2);
+                if ( false === $end ) {
+                    $current .= substr($selectorList, $i);
+                    break;
+                }
+                $current .= substr($selectorList, $i, $end + 2 - $i);
+                $i = $end + 1;
+                continue;
+            }
+            if ( in_array($char, array( '"', "'" ), true) ) {
+                $quote = $char;
+                $current .= $char;
+                while ( ++$i < $length ) {
+                    $current .= $selectorList[$i];
+                    if ( '\\' === $selectorList[$i] && $i + 1 < $length ) {
+                        $current .= $selectorList[++$i];
+                        continue;
+                    }
+                    if ( $quote === $selectorList[$i] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
             if ( '(' === $char || '[' === $char ) {
                 $depth++;
             } elseif ( ')' === $char || ']' === $char ) {
@@ -1473,6 +1555,90 @@ final class ArtifactCompiler
         }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mapNavigationStructureSelector(string $selector): array
+    {
+        $selector = $this->selectorWithoutComments($selector);
+        if ( str_contains($selector, '.wp-block-navigation')
+            || ! preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE) ) {
+            return array();
+        }
+
+        $listClasses = (string) ($listMatch[2][0] ?? '');
+        if ( ! preg_match('/(?:nav|menu)/i', $listClasses) ) {
+            return array();
+        }
+
+        $matchStart = (int) ($listMatch[0][1] ?? 0);
+        $matchLength = strlen((string) ($listMatch[0][0] ?? ''));
+        $prefix = rtrim(substr($selector, 0, $matchStart));
+        $tail = substr($selector, $matchStart + $matchLength);
+        $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
+        $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
+        $runtimeTail = ' .wp-block-navigation__container' . $tail;
+        $scope = $listClasses . '.wp-block-navigation';
+
+        $selectors = array();
+        if ( '' === $prefix ) {
+            $selectors[$scope . $runtimeTail] = true;
+            return array_keys($selectors);
+        }
+
+        $selectors[$prefix . ' ' . $scope . $runtimeTail] = true;
+        if ( preg_match('/([^\s>+~]+)$/', $prefix, $prefixMatch, PREG_OFFSET_CAPTURE) ) {
+            $compound = (string) ($prefixMatch[1][0] ?? '');
+            $offset = (int) ($prefixMatch[1][1] ?? 0);
+            $pseudoOffset = strpos($compound, ':');
+            $fused = false === $pseudoOffset
+                ? $compound . $listClasses . '.wp-block-navigation'
+                : substr($compound, 0, $pseudoOffset) . $listClasses . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+            $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
+        }
+
+        return array_keys($selectors);
+    }
+
+    private function selectorWithoutComments(string $selector): string
+    {
+        $result = '';
+        $length = strlen($selector);
+        for ( $index = 0; $index < $length; $index++ ) {
+            $char = $selector[$index];
+            if ( '\\' === $char && $index + 1 < $length ) {
+                $result .= $char . $selector[++$index];
+                continue;
+            }
+            if ( in_array($char, array( '"', "'" ), true) ) {
+                $quote = $char;
+                $result .= $char;
+                while ( ++$index < $length ) {
+                    $result .= $selector[$index];
+                    if ( '\\' === $selector[$index] && $index + 1 < $length ) {
+                        $result .= $selector[++$index];
+                        continue;
+                    }
+                    if ( $quote === $selector[$index] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( '/' === $char && '*' === ($selector[$index + 1] ?? '') ) {
+                $end = strpos($selector, '*/', $index + 2);
+                if ( false === $end ) {
+                    break;
+                }
+                $index = $end + 1;
+                continue;
+            }
+            $result .= $char;
+        }
+
+        return trim($result);
     }
 
     private function addNavigationClassToLastPrefixCompound(string $selector, int $anchorStart): ?string

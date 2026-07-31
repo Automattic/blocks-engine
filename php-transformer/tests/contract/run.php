@@ -1682,9 +1682,30 @@ $headerClusterParity = $headerCluster['source_reports']['semantic_parity'] ?? ar
 $assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/search/CTA clusters preserve source navigation semantic parity');
 $assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
 $assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
-$assert(str_contains($headerClusterSerialized, '<form class="site-search"'), 'header cluster preserves arbitrary search form markup instead of invalid static core/search');
-$assert(! str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster does not emit static core/search markup for arbitrary HTML search forms');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts a constrained GET search form to native core/search');
+$assert(str_contains($headerClusterSerialized, '"className":"site-search"'), 'header search conversion preserves the source form class');
+$assert(str_contains($headerClusterSerialized, '"label":"Search"') && str_contains($headerClusterSerialized, '"showLabel":true'), 'header search conversion preserves its visible label');
+$assert(str_contains($headerClusterSerialized, '"placeholder":"Search docs"') && str_contains($headerClusterSerialized, '"buttonText":"Search"'), 'header search conversion preserves placeholder and submit text');
+$assert(! str_contains($headerClusterSerialized, '<form class="site-search"'), 'native search conversion emits no invalid static form payload');
 $assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
+
+$expandableHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<header><div class="site-utils"><span class="provider-search"><form id="provider-search" action="/apps/search" method="get"><input type="text" name="q" placeholder="Search"></form></span><button class="search-icon"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button><button class="search-close">close</button></div></header>'
+)->toArray();
+$expandableHeaderSearchSerialized = (string) ($expandableHeaderSearch['serialized_blocks'] ?? '');
+$assert(str_contains($expandableHeaderSearchSerialized, '<!-- wp:search'), 'provider search cluster migrates to native WordPress search');
+$assert(str_contains($expandableHeaderSearchSerialized, '"buttonPosition":"button-only"') && str_contains($expandableHeaderSearchSerialized, '"buttonUseIcon":true'), 'adjacent icon trigger maps to expandable icon-only core/search');
+$assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && str_contains($expandableHeaderSearchSerialized, '"placeholder":"Search"'), 'provider search cluster uses an accessible hidden label and preserves placeholder text');
+$assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
+$assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && ! str_contains($expandableHeaderSearchSerialized, 'search-icon') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrapper and toggle controls');
+
+$boundedHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<header><div class="site-utils"><div class="search-shell">Search our catalog<form role="search"><input type="search" name="s"></form></div><button class="search-help" aria-label="Search help"><svg viewBox="0 0 10 10"><path d="M1 1"></path></svg></button></div></header>'
+)->toArray();
+$boundedHeaderSearchSerialized = (string) ($boundedHeaderSearch['serialized_blocks'] ?? '');
+$assert(str_contains($boundedHeaderSearchSerialized, 'Search our catalog'), 'search conversion preserves meaningful wrapper text');
+$assert(str_contains($boundedHeaderSearchSerialized, 'search-shell'), 'search conversion preserves a non-cluster wrapper presentation hook');
+$assert(str_contains($boundedHeaderSearchSerialized, 'search-help'), 'search conversion preserves unrelated adjacent icon-only search utility controls');
 
 $arbitrarySearchForm = ( new HtmlTransformer() )->transform(
     '<form class="catalog-filter" role="search" action="/products" method="post" data-endpoint="catalog"><input type="hidden" name="token" value="abc"><label for="term">Find</label><input id="term" type="search" name="term" value="chairs"><select name="category"><option>All</option></select><button type="submit" data-track="filter">Go</button></form>'
@@ -2133,6 +2154,24 @@ $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
+
+$artifactNavStructureCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body class="menu-ready"><header><nav class="desktop-nav"><ul class="site-menu"><li><a href="#one">One</a></li></ul></nav></header></body></html>',
+            'styles.css' => '@media screen and (min-width:1025px){body.menu-ready .desktop-nav/* menu, desktop */ ul.site-menu>li{display:flex;align-items:center;margin-right:30px}body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}.nav\\,alternate ul.site-menu>li{gap:4px}.desktop-nav ul.site-menu:has([data-kind="/* promoted */"])>li{order:2}}',
+        ),
+    )
+)->toArray();
+$artifactNavStructureMarkup = (string) ($artifactNavStructureCss['serialized_blocks'] ?? '');
+$artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation promotes source list classes onto the core navigation wrapper');
+$assert(str_contains($artifactNavStructureStaticCss, '@media screen and (min-width:1025px)'), 'artifact navigation projection preserves its authored responsive condition');
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items', $artifactNavStructureStaticCss);
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, '.wp-block-navigation-item__content { font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px }'), 'artifact CSS projects source list anchor typography onto core navigation content');
+$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
+$assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
 
 $artifactNavContainerCss = $compiler->compile(
     array(

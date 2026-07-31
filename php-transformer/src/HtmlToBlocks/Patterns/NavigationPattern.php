@@ -525,11 +525,17 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $listGap = (string) ($presentationAttributes($child)['style']['spacing']['blockGap'] ?? '');
+            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($child));
+            $listClasses = trim((string) ($listAttrs['className'] ?? ''));
+            if ( '' !== $listClasses ) {
+                $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+            }
+
+            $listGap = (string) ($listAttrs['style']['spacing']['blockGap'] ?? '');
             if ( '' !== $listGap ) {
                 $attrs['style']['spacing']['blockGap'] = $listGap;
-                break;
             }
+            break;
         }
 
         return $attrs;
