@@ -5874,6 +5874,7 @@ final class HtmlTransformer
     private function tableAttributes(DOMElement $table): array
     {
         $attrs = array();
+        $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
             foreach ( $table->getElementsByTagName($sectionTag) as $section ) {
@@ -5914,6 +5915,41 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function registerTableCellGeometry(DOMElement $table): void
+    {
+        $rules = array();
+        $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
+        foreach ( $table->getElementsByTagName('tr') as $row ) {
+            if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) ) {
+                continue;
+            }
+            $section = $this->closestTagName($row);
+            $section = isset($sectionRows[$section]) ? $section : 'tbody';
+            $rowIndex = ++$sectionRows[$section];
+            $cellIndex = 0;
+            foreach ( $row->childNodes as $cell ) {
+                if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                    continue;
+                }
+                ++$cellIndex;
+                $declarations = $this->cssDeclarations($this->attr($cell, 'style'));
+                $width = trim((string) ($declarations['width'] ?? ''));
+                if ( '' === $width || ! preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
+                    continue;
+                }
+                $rules[] = $section . '>tr:nth-child(' . $rowIndex . ')>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . '){width:' . $width . '!important}';
+            }
+        }
+        if ( array() === $rules ) {
+            return;
+        }
+
+        $path = $this->sourceElementIdentity($table);
+        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
+        $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool
@@ -8917,18 +8953,19 @@ final class HtmlTransformer
     private function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
         $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
-        if ( '' === $href || ! $this->isImageOnlyAnchor($anchor) ) {
+        if ( ! $this->isImageOnlyAnchor($anchor) ) {
             return null;
         }
+        $link = '' !== $href ? $anchor : null;
 
         $picture = $this->firstChildElement($anchor, 'picture');
         if ( $picture instanceof DOMElement ) {
             $image = $this->firstChildElement($picture, 'img');
-            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $link) : null;
         }
 
         $image = $this->firstChildElement($anchor, 'img');
-        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $link) : null;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool

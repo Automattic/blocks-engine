@@ -317,6 +317,11 @@ $assert(str_contains($styledTableCss, ':hover{color:#456}') && str_contains($sty
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(2)>td:nth-child(1)') && str_contains($styledTableCss, '{background:#eee}'), 'section-position selectors retain the matched source rows when native table bodies merge');
 $assert(3 === count(array_unique(array_map(static fn (array $block): string => (string) ($block['attrs']['className'] ?? ''), $styledTableResult['blocks'] ?? array()))), 'table projection markers isolate same-shaped native tables');
 $assert('pass' === ($styledTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'structurally projected native tables remain editor-valid');
+$inlineWidthTableResult = ( new HtmlTransformer() )->transform('<table class="layout-table"><tbody><tr><td style="width:27.5%">Left</td><td style="width:45%">Center</td><td style="width:27.5%">Right</td></tr></tbody></table>')->toArray();
+$inlineWidthTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineWidthTableResult['assets'] ?? array()));
+$assert('core/table' === ($inlineWidthTableResult['blocks'][0]['blockName'] ?? null), 'layout tables with authored cell widths remain editable native tables');
+$assert(str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(1){width:27.5%!important}') && str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(2){width:45%!important}'), 'native table geometry CSS preserves authored cell proportions');
+$assert('pass' === ($inlineWidthTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline-width native tables remain editor-valid');
 $nestedTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>Outer<table><tr><td>Inner</td></tr></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'descendant table falls back to core/html');
 $assert(str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<table><tr><td>Outer<table>'), 'descendant table fallback preserves nested table markup');
@@ -696,6 +701,19 @@ $assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'out
 $assert(str_contains($outlineButtonMarkup, 'border-radius:0'), 'outline button with no source radius emits square radius to suppress default rounded inner button chrome');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
+
+$descendantSurfaceButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;box-sizing:border-box;min-width:170px;padding:22px 26px;background:#fff;color:#000;font:700 16px/16px Montserrat}</style><div style="text-align:center"><a class="cta" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+)->toArray();
+$descendantSurfaceButtonMarkup = (string) ($descendantSurfaceButton['serialized_blocks'] ?? '');
+$descendantSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $descendantSurfaceButton['assets'] ?? array()));
+$assert(str_contains($descendantSurfaceButtonMarkup, '<!-- wp:button') && str_contains($descendantSurfaceButtonMarkup, '"justifyContent":"center"'), 'composite button surfaces remain native and inherit source wrapper alignment');
+$assert(str_contains($descendantSurfaceButtonCss, '> :where(.wp-block-button__link)') && str_contains($descendantSurfaceButtonCss, 'min-width:170px') && str_contains($descendantSurfaceButtonCss, 'padding:22px 26px'), 'composite button descendant selectors project their complete painted geometry onto the native link');
+$assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validity']['status'] ?? ''), 'composite button surface conversion remains editor-valid');
+
+$unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"><a><img src="testimonial.jpg" alt="Clients"></a><div class="caption"></div></div>')->toArray();
+$unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');
+$assert(str_contains($unlinkedWrappedImageMarkup, '<!-- wp:image') && str_contains($unlinkedWrappedImageMarkup, 'src="testimonial.jpg"'), 'image-only anchors without href preserve their image as a native block');
 
 $roundedOutlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;border-radius:12px;background:transparent;color:#eee" href="/tickets">Tickets</a></main>'
