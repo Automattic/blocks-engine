@@ -150,7 +150,7 @@ trait StyleResolutionTrait
                 $this->promotedClassName($this->attr($element, 'class')),
                 $this->inlineGeometryClassName($element, $excludedGeometryProperties, $forcedGeometryProperties, $forcedGeometryDeclarations)
             ),
-            'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties),
+            'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties, $forcedGeometryProperties),
             'style'     => $mapped['style'],
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
@@ -348,12 +348,12 @@ trait StyleResolutionTrait
         return implode('/', array_reverse($segments));
     }
 
-    private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array()): string
+    private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array()): string
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $style = array();
         $geometryValues = array();
-        foreach ($this->inlineGeometryProperties() as $property) {
+        foreach (array_values(array_unique(array_merge($this->inlineGeometryProperties(), $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }

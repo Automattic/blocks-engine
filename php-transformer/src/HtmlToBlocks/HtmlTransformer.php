@@ -2071,7 +2071,7 @@ final class HtmlTransformer
         }
 
         if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
-            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         $mathBlock = $this->mathPattern->match(
@@ -2090,7 +2090,7 @@ final class HtmlTransformer
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
@@ -2109,7 +2109,7 @@ final class HtmlTransformer
                 $content = $inlineSvgContent;
             }
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
             if ( $this->hasEmptyVisualInlineChild($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
@@ -2151,12 +2151,19 @@ final class HtmlTransformer
 
         if ( $this->isInlineContentElement($tagName) ) {
             if ( $this->isRuntimeDomTarget($element) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
 
             $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
             if ( null !== $inlineSvgTextGroup ) {
                 return $inlineSvgTextGroup;
+            }
+
+            if ( $this->ownsPositioningGeometry($element) ) {
+                $carrier = $this->positionedInlineCarrierBlock($element, $fallbacks);
+                if ( null !== $carrier ) {
+                    return $carrier;
+                }
             }
 
             if ( $this->hasAuthorSemanticMarker($element) ) {
@@ -2439,7 +2446,7 @@ final class HtmlTransformer
         if ( 'table' === $tagName ) {
             $classification = $this->tableClassificationPolicy->classify($element);
             if ( ! $classification['representable'] ) {
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
 
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
@@ -2556,7 +2563,7 @@ final class HtmlTransformer
                 'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
                 'required_scripts'        => $this->requiredScriptsForElement($element),
             ));
-            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( 'script' === $tagName ) {
@@ -2943,7 +2950,7 @@ final class HtmlTransformer
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
-                return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+                return $this->blockFactory->create('core/html', array( 'content' => $this->safeFallbackHtml($sourceElement) ));
             }
         }
 
@@ -3051,6 +3058,10 @@ final class HtmlTransformer
             return false;
         }
 
+        if ( $this->ownsPositioningGeometry($element) ) {
+            return true;
+        }
+
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
         if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
             return false;
@@ -3075,6 +3086,214 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /**
+     * A positioned inline leaf cannot survive as RichText: its wrapper owns a
+     * containing-block relationship and/or stacking context, rather than text
+     * formatting. Preserve it as a native group carrier before RichText drops
+     * the source class and geometry.
+     */
+    private function ownsPositioningGeometry(DOMElement $element): bool
+    {
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+            return false;
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( $this->hasPositionedInlineDescendant($element) ) {
+            return true;
+        }
+
+        $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? 'auto')));
+        $hasZIndex = ! in_array($zIndex, array( '', 'auto', 'inherit', 'initial', 'unset' ), true);
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return true;
+        }
+
+        if ( 'sticky' === $position ) {
+            return $this->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        if ( 'relative' === $position ) {
+            return $this->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasResolvedInset(array $declarations): bool
+    {
+        foreach ( array( 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'right', 'bottom', 'left' ) as $property ) {
+            $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+            if ( ! in_array($value, array( '', 'auto', 'inherit', 'initial', 'unset', '0', '0px', '0rem', '0em', '0%' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPositionedInlineDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->ownsPositioningGeometry($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->hasAuthorDirectChildSelector($element) ) {
+            return $this->positionedInlineHtmlPreservationBlock($element);
+        }
+
+        if ( $this->positionedCarrierHasStructuredContent($element) ) {
+            $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
+            return array() === $children
+                ? null
+                : $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), $children, $element);
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), array(
+            $this->createBlock('core/paragraph', array(
+                'content' => $content,
+                'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+            )),
+        ), $element);
+    }
+
+    private function positionedInlineHtmlPreservationBlock(DOMElement $element): array
+    {
+        $preserved = $element->cloneNode(true);
+        if ( $preserved instanceof DOMElement ) {
+            $markers = $this->authorSemanticMarkersForElement($element);
+            if ( array() !== $markers ) {
+                $preserved->setAttribute('class', $this->mergeClassNames($this->attr($preserved, 'class'), ...$markers));
+            }
+            return $this->htmlPreservationBlock($preserved);
+        }
+
+        return $this->htmlPreservationBlock($element);
+    }
+
+    private function hasAuthorDirectChildSelector(DOMElement $element): bool
+    {
+        if ( '' === $this->combinedAuthorCss ) {
+            return false;
+        }
+
+        $directChildren = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $directChildren[] = $child;
+            }
+        }
+        if ( array() === $directChildren ) {
+            return false;
+        }
+
+        $matches = false;
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use ($element, $directChildren, &$matches): string {
+            if ( $matches ) {
+                return $prelude;
+            }
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                // Pseudo-elements describe paint on the direct child rather than
+                // a DOM node of their own. Match their owning element to retain
+                // the source parent/child topology for rules such as
+                // `.overlay > strong::before`.
+                $matchSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
+                $parsed = $this->parsedCssSelector($matchSelector);
+                $last = count($parsed['compounds'] ?? array()) - 1;
+                if ( ! $parsed['supported'] || $last < 1 || '>' !== ($parsed['combinators'][$last - 1] ?? '') ) {
+                    continue;
+                }
+                foreach ( $directChildren as $child ) {
+                    if ( CssSelectorMatcher::matches($child, $parsed, true)['matches'] ) {
+                        $matches = true;
+                        return $prelude;
+                    }
+                }
+            }
+            return $prelude;
+        });
+
+        return $matches;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function positionedInlineCarrierChildren(DOMElement $element, array &$fallbacks): array
+    {
+        $blocks = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $blocks = array_merge($blocks, $this->convertText($text));
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isFormControlElement($child) ) {
+                $blocks[] = $this->htmlPreservationBlock($child);
+                continue;
+            }
+            $block = $this->convertElement($child, $fallbacks, true);
+            if ( null !== $block ) {
+                $blocks[] = $block;
+            }
+        }
+
+        return $blocks;
+    }
+
+    private function positionedCarrierHasStructuredContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            if ( $this->ownsPositioningGeometry($descendant)
+                || ! $this->isInlineContentElement($tagName)
+                || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, mixed> */
+    private function positionedInlineCarrierAttributes(DOMElement $element): array
+    {
+        return $this->presentationAttributes($element, array(), array(
+            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
+            'inset-block-start', 'inset-block-end', 'inset-inline-start',
+            'inset-inline-end', 'top', 'right', 'bottom', 'left',
+        ));
     }
 
     private function isStructuralLayoutElement(DOMElement $element): bool
@@ -7652,7 +7871,7 @@ final class HtmlTransformer
 
     private function htmlPreservationBlock(DOMElement $element): array
     {
-        return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
     }
 
     private function recordRuntimeControlIsland(DOMElement $element): void
