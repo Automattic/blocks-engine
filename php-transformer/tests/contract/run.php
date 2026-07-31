@@ -1212,6 +1212,72 @@ $emptyBackgroundVisual = ( new HtmlTransformer() )->transform(
 $serializedEmptyBackgroundVisual = (string) ($emptyBackgroundVisual['serialized_blocks'] ?? '');
 $assert(str_contains($serializedEmptyBackgroundVisual, 'blocks-engine-background-image'), 'empty background visual elements remain editable image blocks');
 
+// Slice 4 case 1: a gated hero serializes to the exact canonical core/cover
+// shape and passes the pure-PHP save-shape validator.
+$coverHero = ( new HtmlTransformer() )->transform(
+    '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
+)->toArray();
+$coverHeroSerialized = (string) ($coverHero['serialized_blocks'] ?? '');
+$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"content":"Build","level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph {"content":"Ship faster with blocks."} --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
+$assert($expectedCoverHeroSerialized === $coverHeroSerialized, 'gated hero serializes to the exact canonical core/cover golden', $coverHeroSerialized);
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($coverHero['blocks'] ?? array()), 'canonical hero cover passes save-shape validation');
+
+// Slice 4 case 2: a uniform dim overlay moves to cover attributes and the
+// overlay span without retaining a second background paint on the hero.
+$dimCoverHero = ( new HtmlTransformer() )->transform(
+    '<section class="hero" style="background:linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)),url(https://example.com/hero.jpg) center/cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
+)->toArray();
+$dimCoverBlock = $dimCoverHero['blocks'][0] ?? array();
+$dimCoverAttrs = is_array($dimCoverBlock['attrs'] ?? null) ? $dimCoverBlock['attrs'] : array();
+$dimCoverCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $dimCoverHero['assets'] ?? array()));
+$assert(50 === ($dimCoverAttrs['dimRatio'] ?? null), 'dim overlay cover records dimRatio 50', json_encode($dimCoverAttrs));
+$assert('#000000' === ($dimCoverAttrs['customOverlayColor'] ?? null), 'dim overlay cover records the uniform custom overlay color', json_encode($dimCoverAttrs));
+$assert(str_contains((string) ($dimCoverBlock['innerHTML'] ?? ''), '<span aria-hidden="true" class="wp-block-cover__background has-background-dim" style="background-color:#000000"></span>'), 'dim overlay cover paints the overlay span with the custom color');
+$assert(! isset($dimCoverAttrs['style']['color']['gradient']) && ! isset($dimCoverAttrs['style']['color']['background']), 'dim overlay cover attrs do not retain hero background paint', json_encode($dimCoverAttrs));
+$assert(! str_contains($dimCoverCss, 'background') && ! str_contains($dimCoverCss, 'gradient') && ! str_contains($dimCoverCss, 'hero.jpg'), 'dim overlay cover generated author CSS does not double-paint the hero', $dimCoverCss);
+
+// Slice 4 case 3: a repeating texture remains byte-identical to trunk's
+// core/group serialization and never enters the cover path.
+$repeatingTexture = ( new HtmlTransformer() )->transform(
+    '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
+)->toArray();
+$repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"content":"Pricing","level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph {"content":"Plans"} --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
+$assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
+
+// Slice 4 case 4: a cover may wrap a recognized two-column content split while
+// both wrappers retain canonical save() shapes.
+$columnsCoverHero = ( new HtmlTransformer() )->transform(
+    '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><div class="hero-columns" style="display:flex;gap:24px"><div><h2>Build</h2><p>Plan</p></div><div><h2>Ship</h2><p>Launch</p></div></div></section>'
+)->toArray();
+$columnsCoverBlock = $columnsCoverHero['blocks'][0] ?? array();
+$assert('core/cover' === ($columnsCoverBlock['blockName'] ?? null) && 'core/columns' === ($columnsCoverBlock['innerBlocks'][0]['blockName'] ?? null), 'core/cover wraps the recognized core/columns inner block', json_encode($columnsCoverBlock));
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($columnsCoverHero['blocks'] ?? array()), 'cover with nested columns passes save-shape validation');
+
+// Slice 4 case 5: an empty background container keeps the tagged core/image
+// projection and never enters the text-bearing cover path.
+$emptyCoverCandidate = ( new HtmlTransformer() )->transform(
+    '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
+)->toArray();
+$emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"url":"https://example.com/decor.png","className":"blocks-engine-background-image","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover;height:auto"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+
+// Slice 4 L6: support-derived color and spacing declarations retain canonical
+// wrapper attribute order before the cover-owned min-height declaration.
+$styledCoverHero = ( new HtmlTransformer() )->transform(
+    '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px;padding:24px;background-color:#123456"><h1>Build</h1></section>'
+)->toArray();
+$styledCoverBlock = $styledCoverHero['blocks'][0] ?? array();
+$styledCoverOpeningContent = (string) ($styledCoverBlock['innerContent'][0] ?? '');
+$styledCoverOpeningEnd = strpos($styledCoverOpeningContent, '>');
+$styledCoverWrapperOpening = false === $styledCoverOpeningEnd ? '' : substr($styledCoverOpeningContent, 0, $styledCoverOpeningEnd + 1);
+$expectedStyledCoverWrapperOpening = '<div class="wp-block-cover has-background hero" style="background-color:#123456;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px;min-height:480px">';
+$assert($expectedStyledCoverWrapperOpening === $styledCoverWrapperOpening, 'styled cover wrapper opening tag preserves exact support and min-height order', $styledCoverWrapperOpening);
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($styledCoverHero['blocks'] ?? array()), 'styled cover passes save-shape validation');
+
 $flexIconRow = ( new HtmlTransformer() )->transform(
     '<main><div class="notice-row" style="display: flex; gap: 1rem;"><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle><path d="M2 5h6"></path></svg><div><strong>Venue address</strong><br>Asheville, NC</div></div></main>'
 )->toArray();

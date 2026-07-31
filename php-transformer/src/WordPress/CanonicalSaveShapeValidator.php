@@ -58,6 +58,7 @@ final class CanonicalSaveShapeValidator
      */
     private const TARGET_BLOCKS = array(
         'core/group',
+        'core/cover',
         'core/columns',
         'core/column',
         'core/buttons',
