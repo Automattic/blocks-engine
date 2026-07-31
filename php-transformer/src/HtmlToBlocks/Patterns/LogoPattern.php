@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use DOMDocument;
 use DOMElement;
 
 final class LogoPattern
@@ -93,6 +94,7 @@ final class LogoPattern
         $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
         $html = $materializeSvgImages($element, $html) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html);
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
+        $html = $this->semanticMarkerSpansAsMarks($html);
         $html = trim($html);
         $text = $this->plainText($html);
         if ( '' === $text ) {
@@ -105,6 +107,44 @@ final class LogoPattern
         }
 
         return $html;
+    }
+
+    private function semanticMarkerSpansAsMarks(string $html): string
+    {
+        if ( ! str_contains($html, '--blocks-engine-richtext-marker:') ) {
+            return $html;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $html;
+        }
+
+        $spans = array();
+        foreach ( $body->getElementsByTagName('span') as $span ) {
+            if ( $span instanceof DOMElement && str_contains($span->getAttribute('style'), '--blocks-engine-richtext-marker:') ) {
+                $spans[] = $span;
+            }
+        }
+        foreach ( $spans as $span ) {
+            $mark = $document->createElement('mark');
+            $mark->setAttribute('style', $span->getAttribute('style'));
+            while ( null !== $span->firstChild ) {
+                $mark->appendChild($span->firstChild);
+            }
+            $span->parentNode?->replaceChild($mark, $span);
+        }
+
+        $content = '';
+        foreach ( $body->childNodes as $child ) {
+            $content .= $document->saveHTML($child);
+        }
+        return $content;
     }
 
     private function unwrapPresentationalSpan(string $html): string

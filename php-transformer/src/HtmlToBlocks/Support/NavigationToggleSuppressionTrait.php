@@ -17,7 +17,8 @@ trait NavigationToggleSuppressionTrait
      * by a specific class string — so any framework's hamburger is recognized:
      * a <button> (or <a role="button">) carrying aria-controls and/or
      * aria-expanded whose visible content is empty/decorative bars (only empty
-     * spans or an icon, no text label). It is suppressed when it opens, lives
+     * spans or an icon, no text label), or an input-free <label> containing a
+     * nested stack of CSS-drawn bars. It is suppressed when it opens, lives
      * inside, or sits beside a source navigation menu. A converted menu already
      * ships its own responsive overlay hamburger; a menu that does NOT convert
      * still must not gain an always-visible dead hamburger the source hid behind
@@ -160,6 +161,10 @@ trait NavigationToggleSuppressionTrait
     private function isHamburgerMenuToggleControl(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
+        if ( 'label' === $tagName ) {
+            return $this->isNestedHamburgerBarLabel($element);
+        }
+
         $isButton = 'button' === $tagName;
         $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->attr($element, 'role'));
         if ( ! $isButton && ! $isButtonRoleAnchor ) {
@@ -184,6 +189,42 @@ trait NavigationToggleSuppressionTrait
         // it. Recognizing that shape (never a class string) lets these toggles be
         // dropped too, instead of surfacing as an empty, always-visible button.
         return $this->isHamburgerBarStackControl($element);
+    }
+
+    private function isNestedHamburgerBarLabel(DOMElement $element): bool
+    {
+        if ( $element->hasAttribute('for')
+            || 0 !== $element->getElementsByTagName('input')->length
+            || 0 !== $element->getElementsByTagName('select')->length
+            || 0 !== $element->getElementsByTagName('textarea')->length ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $container ) {
+            if ( ! $container instanceof DOMElement ) {
+                continue;
+            }
+
+            $bars = 0;
+            foreach ( $container->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                    continue;
+                }
+                if ( ! $child instanceof DOMElement
+                    || ! in_array(strtolower($child->tagName), array( 'div', 'span' ), true)
+                    || '' !== trim($child->textContent ?? '')
+                    || 0 !== $child->childNodes->length ) {
+                    $bars = 0;
+                    break;
+                }
+                ++$bars;
+            }
+            if ( $bars >= 2 ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

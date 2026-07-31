@@ -1377,6 +1377,30 @@ $assert(5 === ($complexHeaderBlockMenus[0]['item_count'] ?? null), 'complex head
 $assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'icon-only header navigation links use accessible labels');
 $assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
 
+$visibleVariantNavigation = ( new HtmlTransformer() )->transform(
+    '<header><nav class="placeholder" style="display:none"><a href="/">Home</a><a href="/about">About</a></nav><nav class="primary"><a href="/">Home</a><a href="/about">About</a></nav><label><span><div></div><div></div><div></div></span><span>menu</span><span>close</span></label></header>'
+)->toArray();
+$visibleVariantSerialized = (string) ($visibleVariantNavigation['serialized_blocks'] ?? '');
+$assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), 'equivalent sibling navigation variants retain only the visible source variant');
+$assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder'), 'navigation deduplication prefers the visible source variant over a hidden placeholder');
+$assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
+
+$bodyStateProjection = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="fixed-shell no-header-page"><div class="main-wrap"><p>Content</p></div></body></html>',
+    array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}' )
+)->toArray();
+$bodyStateSerialized = (string) ($bodyStateProjection['serialized_blocks'] ?? '');
+$bodyStateCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodyStateProjection['assets'] ?? array()));
+$assert(str_contains($bodyStateSerialized, 'main-wrap no-header-page'), 'stylesheet-referenced body state projects onto converted root blocks');
+$assert(str_contains($bodyStateCss, '.no-header-page.main-wrap{padding-top:80px}'), 'body-state descendant selectors fuse onto the projected root block state');
+
+$styledLogo = ( new HtmlTransformer() )->transform(
+    '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
+)->toArray();
+$styledLogoSerialized = (string) ($styledLogo['serialized_blocks'] ?? '');
+$assert(str_contains($styledLogoSerialized, '<mark style="') && str_contains($styledLogoSerialized, 'Brand Name</mark>'), 'selector-addressed logo labels retain a valid RichText semantic marker instead of flattening to plain text');
+$assert('pass' === ($styledLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'selector-addressed logo label markers remain editor-valid');
+
 $brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
 )->toArray();
