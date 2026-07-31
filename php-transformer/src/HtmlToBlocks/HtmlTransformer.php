@@ -2984,7 +2984,7 @@ final class HtmlTransformer
                     $fallbacks,
                     fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                     fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
                     fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
                     fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
                     fn (string $url): string => $this->resolvedAssetImageUrl($url),

@@ -48,6 +48,11 @@ trait StyleResolutionTrait
     private array $mergedPresentationStyleCache = array();
 
     /**
+     * @var array<string, string>
+     */
+    private array $mediaTextPresentationStyleCache = array();
+
+    /**
      * Inline presentation declarations which core block supports cannot serialize
      * are carried by deterministic classes in a generated stylesheet.
      *
@@ -100,6 +105,7 @@ trait StyleResolutionTrait
         $this->presentationAttributesCache = array();
         $this->presentationDeclarationsCache = array();
         $this->mergedPresentationStyleCache = array();
+        $this->mediaTextPresentationStyleCache = array();
         $this->generatedGeometryRules = array();
         $this->geometryCarrierClassAllocator = null;
     }
@@ -129,7 +135,34 @@ trait StyleResolutionTrait
      */
     private function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
     {
-        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $excludedGeometryProperties) . ':' . implode(',', $forcedGeometryProperties);
+        return $this->resolvedPresentationAttributes($element, $excludedGeometryProperties, $forcedGeometryProperties, false);
+    }
+
+    /**
+     * Preserve inline-only geometry entirely in the generated carrier because
+     * core/media-text cannot serialize arbitrary wrapper geometry inline.
+     *
+     * @return array<string, mixed>
+     */
+    private function mediaTextPresentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
+    {
+        return $this->resolvedPresentationAttributes($element, $excludedGeometryProperties, array(), true);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolvedPresentationAttributes(
+        DOMElement $element,
+        array $excludedGeometryProperties,
+        array $forcedGeometryProperties,
+        bool $carrierOwnsInlineGeometry
+    ): array
+    {
+        $cacheKey = $this->presentationCacheKey($element)
+            . ':' . implode(',', $excludedGeometryProperties)
+            . ':' . implode(',', $forcedGeometryProperties)
+            . ':' . ($carrierOwnsInlineGeometry ? 'carrier' : 'inline');
         if ( isset($this->presentationAttributesCache[$cacheKey]) ) {
             return $this->presentationAttributesCache[$cacheKey];
         }
@@ -148,7 +181,13 @@ trait StyleResolutionTrait
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->promotedClassName($this->attr($element, 'class')),
-                $this->inlineGeometryClassName($element, $excludedGeometryProperties, $forcedGeometryProperties, $forcedGeometryDeclarations)
+                $this->inlineGeometryClassName(
+                    $element,
+                    $excludedGeometryProperties,
+                    $forcedGeometryProperties,
+                    $forcedGeometryDeclarations,
+                    $carrierOwnsInlineGeometry
+                )
             ),
             'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties, $forcedGeometryProperties),
             'style'     => $mapped['style'],
@@ -285,9 +324,17 @@ trait StyleResolutionTrait
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.
      */
-    private function inlineGeometryClassName(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array(), array $forcedDeclarations = array()): string
+    private function inlineGeometryClassName(
+        DOMElement $element,
+        array $excludedProperties = array(),
+        array $forcedProperties = array(),
+        array $forcedDeclarations = array(),
+        bool $carrierOwnsInlineGeometry = false
+    ): string
     {
-        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $declarations = $carrierOwnsInlineGeometry
+            ? $this->mediaTextInlineCascadeDeclarations($this->attr($element, 'style'))
+            : $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
@@ -301,10 +348,12 @@ trait StyleResolutionTrait
                 continue;
             }
             $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
-            if (1 === preg_match('/\s*!important\s*$/i', $rawValue)) {
+            if (! $carrierOwnsInlineGeometry && 1 === preg_match('/\s*!important\s*$/i', $rawValue)) {
                 continue;
             }
-            $value = $rawValue;
+            $value = $carrierOwnsInlineGeometry
+                ? trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue)
+                : $rawValue;
             if ( in_array($property, array( 'background', 'background-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }
@@ -514,12 +563,331 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Resolve media-text gate declarations without flattening CSS importance or
+     * shorthand/longhand order. Inline declarations outrank matched stylesheet
+     * declarations at equal importance.
+     *
+     * @return array<string, string>
+     */
+    private function mediaTextPresentationDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ($this->staticStyleRules as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            foreach ($rule['mediaTextDeclarations'] ?? array() as $entry) {
+                $this->applyMediaTextCascadeDeclaration(
+                    $cascade,
+                    $entry['property'],
+                    $entry['value'] . ($entry['important'] ? ' !important' : ''),
+                    false,
+                    $rule['mediaTextSpecificity'] ?? array( 0, 0, 0 ),
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ($this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry) {
+            $this->applyMediaTextCascadeDeclaration(
+                $cascade,
+                $entry['property'],
+                $entry['value'] . ($entry['important'] ? ' !important' : ''),
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $declarations = array();
+        foreach ($cascade as $property => $entry) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array{int, int, int} $specificity
+     */
+    private function applyMediaTextCascadeDeclaration(
+        array &$cascade,
+        string $property,
+        string $rawValue,
+        bool $inline,
+        array $specificity,
+        int $sequence
+    ): void {
+        $property = str_starts_with($property, '--') ? $property : strtolower($property);
+        $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
+        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+        if ('' === $property || '' === $value) {
+            return;
+        }
+
+        if ('flex-flow' === $property) {
+            $property = 'flex-direction';
+            $flowDirection = null;
+            foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
+                if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
+                    $flowDirection = $component;
+                    break;
+                }
+            }
+            $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
+        }
+
+        $current = $cascade[$property] ?? null;
+        if (is_array($current)) {
+            if ($current['important'] && ! $important) {
+                return;
+            }
+            if ($current['important'] === $important) {
+                $specificityComparison = $this->compareMediaTextSpecificity($current['specificity'], $specificity);
+                if (0 < $specificityComparison) {
+                    return;
+                }
+                if (0 === $specificityComparison && $current['sequence'] > $sequence) {
+                    return;
+                }
+                if (0 === $specificityComparison && $current['sequence'] === $sequence && $current['inline'] && ! $inline) {
+                    return;
+                }
+            }
+        }
+
+        $cascade[$property] = array(
+            'value' => $value,
+            'important' => $important,
+            'inline' => $inline,
+            'specificity' => $specificity,
+            'sequence' => $sequence,
+        );
+    }
+
+    /**
+     * @return list<array{property: string, value: string, important: bool}>
+     */
+    private function mediaTextInlineDeclarationEntries(string $style): array
+    {
+        $entries = array();
+        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
+            $separator = strpos($declaration, ':');
+            if (false === $separator) {
+                continue;
+            }
+
+            $rawProperty = trim(substr($declaration, 0, $separator));
+            $property = str_starts_with($rawProperty, '--') ? $rawProperty : strtolower($rawProperty);
+            $rawValue = trim(substr($declaration, $separator + 1));
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue);
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            if ('' === $property
+                || '' === $value
+                || array() === $this->cssDeclarations($property . ':' . $value)
+                || ! $this->isValidMediaTextDeclarationValue($property, $value)
+            ) {
+                continue;
+            }
+
+            $entries[] = array(
+                'property' => $property,
+                'value' => $value,
+                'important' => $important,
+            );
+        }
+
+        return $entries;
+    }
+
+    private function isValidMediaTextDeclarationValue(string $property, string $rawValue): bool
+    {
+        if (str_starts_with($property, '--')) {
+            return true;
+        }
+
+        $value = strtolower(trim($rawValue));
+        if (in_array($value, array('inherit', 'initial', 'revert', 'revert-layer', 'unset'), true)) {
+            return true;
+        }
+
+        if ('display' === $property) {
+            return in_array($value, array(
+                'block', 'contents', 'flow-root', 'flex', 'grid', 'inline', 'inline-block',
+                'inline-flex', 'inline-grid', 'inline-table', 'list-item', 'none', 'ruby',
+                'ruby-base', 'ruby-base-container', 'ruby-text', 'ruby-text-container',
+                'table', 'table-caption', 'table-cell', 'table-column', 'table-column-group',
+                'table-footer-group', 'table-header-group', 'table-row', 'table-row-group',
+            ), true) || 1 === preg_match('/^(?:block|inline)\s+(?:flow|flow-root|flex|grid|ruby)(?:\s+list-item)?$/', $value);
+        }
+
+        if ('flex-direction' === $property) {
+            return in_array($value, array('column', 'column-reverse', 'row', 'row-reverse'), true);
+        }
+
+        if ('flex-flow' === $property) {
+            $directions = array('column', 'column-reverse', 'row', 'row-reverse');
+            $wraps = array('nowrap', 'wrap', 'wrap-reverse');
+            $seenDirection = false;
+            $seenWrap = false;
+            $components = CssValueSplitter::splitTopLevelWhitespace($value);
+            if (array() === $components || 2 < count($components)) {
+                return false;
+            }
+            foreach ($components as $component) {
+                if (in_array($component, $directions, true) && ! $seenDirection) {
+                    $seenDirection = true;
+                    continue;
+                }
+                if (in_array($component, $wraps, true) && ! $seenWrap) {
+                    $seenWrap = true;
+                    continue;
+                }
+                return false;
+            }
+            return true;
+        }
+
+        if ('order' === $property) {
+            return is_numeric($value);
+        }
+
+        if ('align-items' === $property) {
+            return in_array($value, array(
+                'anchor-center', 'baseline', 'center', 'dialog', 'end', 'first baseline',
+                'flex-end', 'flex-start', 'last baseline', 'normal', 'self-end', 'self-start',
+                'start', 'stretch',
+            ), true) || 1 === preg_match('/^(?:safe|unsafe)\s+(?:center|end|flex-end|flex-start|self-end|self-start|start)$/', $value);
+        }
+
+        if ('direction' === $property) {
+            return in_array($value, array('ltr', 'rtl'), true);
+        }
+
+        if (in_array($property, array('flex-basis', 'width'), true)) {
+            return in_array($value, array('auto', 'contain', 'content', 'fit-content', 'max-content', 'min-content', 'stretch'), true)
+                || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%|[a-z]+)?$/i', $value)
+                || 1 === preg_match('/^(?:calc|clamp|fit-content|max|min|var)\(.+\)$/i', $value);
+        }
+
+        if ('grid-template-columns' === $property) {
+            return $this->isValidMediaTextGridTemplateColumns($value);
+        }
+
+        return true;
+    }
+
+    private function isValidMediaTextGridTemplateColumns(string $value): bool
+    {
+        if (in_array($value, array('masonry', 'none', 'subgrid'), true)) {
+            return true;
+        }
+
+        $tracks = CssValueSplitter::splitTopLevelWhitespace($value);
+        if (array() === $tracks) {
+            return false;
+        }
+        foreach ($tracks as $track) {
+            if (in_array($track, array('auto', 'max-content', 'min-content'), true)
+                || 1 === preg_match('/^\[[^\]]+\]$/', $track)
+                || 1 === preg_match('/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%|fr|[a-z]+)$/i', $track)
+                || 1 === preg_match('/^(?:calc|clamp|fit-content|max|min|minmax|repeat|var)\(.+\)$/i', $track)
+            ) {
+                continue;
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Preserve case-sensitive custom-property names while resolving duplicate
+     * inline declarations by CSS importance and source order.
+     *
+     * @return array<string, string>
+     */
+    private function mediaTextInlineCascadeDeclarations(string $style): array
+    {
+        $cascade = array();
+        foreach ($this->mediaTextInlineDeclarationEntries($style) as $entry) {
+            $current = $cascade[$entry['property']] ?? null;
+            if (is_array($current) && $current['important'] && ! $entry['important']) {
+                continue;
+            }
+            $cascade[$entry['property']] = array(
+                'value' => $entry['value'],
+                'important' => $entry['important'],
+            );
+        }
+
+        $declarations = array();
+        foreach ($cascade as $property => $entry) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @return array{int, int, int}
+     */
+    private function mediaTextSelectorSpecificity(string $selector): array
+    {
+        $parsed = $this->parsedCssSelector($selector);
+        if (! ($parsed['supported'] ?? false)) {
+            return array( 0, 0, 0 );
+        }
+
+        $ids = 0;
+        $classes = 0;
+        $elements = 0;
+        foreach ($parsed['compounds'] as $compound) {
+            $ids += count($compound['ids'] ?? array());
+            $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array());
+            if (null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false)) {
+                ++$classes;
+            }
+            if (null !== ($compound['type'] ?? null)) {
+                ++$elements;
+            }
+        }
+
+        return array( $ids, $classes, $elements );
+    }
+
+    /**
+     * @param array{int, int, int} $left
+     * @param array{int, int, int} $right
+     */
+    private function compareMediaTextSpecificity(array $left, array $right): int
+    {
+        foreach ( array( 0, 1, 2 ) as $index ) {
+            if ( $left[ $index ] !== $right[ $index ] ) {
+                return $left[ $index ] <=> $right[ $index ];
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Resolve full authored layout style for media-text strict gates, including
      * low-value direct children that general presentation resolution skips.
      */
     private function mediaTextPresentationStyle(DOMElement $element): string
     {
-        return $this->cssDeclarationString($this->structuralPresentationDeclarations($element));
+        $cacheKey = $this->presentationCacheKey($element);
+        if ( isset($this->mediaTextPresentationStyleCache[$cacheKey]) ) {
+            return $this->mediaTextPresentationStyleCache[$cacheKey];
+        }
+
+        $this->mediaTextPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($this->mediaTextPresentationDeclarations($element));
+
+        return $this->mediaTextPresentationStyleCache[$cacheKey];
     }
 
     /**
@@ -659,7 +1027,7 @@ trait StyleResolutionTrait
     }
 
     /**
-     * @return array<int, array{selector: string, declarations: array<string, string>, condition: string}>
+     * @return array<int, array{selector: string, declarations: array<string, string>, mediaTextDeclarations: list<array{property: string, value: string, important: bool}>, mediaTextSpecificity: array{int, int, int}}>
      */
     private function staticStyleRules(string $html, string $linkedCss): array
     {
@@ -684,12 +1052,28 @@ trait StyleResolutionTrait
             if ( array() === $declarations ) {
                 continue;
             }
+            $mediaTextDeclarations = array_values(array_filter(
+                $this->mediaTextInlineDeclarationEntries((string) $match[2]),
+                static fn (array $entry): bool => in_array($entry['property'], array(
+                    'align-items',
+                    'direction',
+                    'display',
+                    'flex-basis',
+                    'flex-direction',
+                    'flex-flow',
+                    'grid-template-columns',
+                    'order',
+                    'width',
+                ), true)
+            ));
             foreach ( explode(',', (string) $match[1]) as $selector ) {
                 $selector = trim($selector);
                 if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
                     $rules[] = array(
                         'selector' => $selector,
                         'declarations' => $declarations,
+                        'mediaTextDeclarations' => $mediaTextDeclarations,
+                        'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                     );
                 }
             }
@@ -1005,6 +1389,7 @@ trait StyleResolutionTrait
             'direction',
             'display',
             'flex-direction',
+            'flex-flow',
             'flex',
             'flex-basis',
             'flex-grow',

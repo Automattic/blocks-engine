@@ -352,7 +352,7 @@ foreach ( array(
     $assertSame($safeMediaUrl, $safeMedia['attrs']['mediaUrl'] ?? null, 'Allowed media URL survives: ' . $safeMediaUrl);
 }
 
-foreach ( array( 'javascript:alert(1)', 'data:text/html,unsafe', 'ftp://example.com/media.jpg', 'file:///tmp/media.jpg', "bad\x01media.jpg" ) as $unsafeMediaUrl ) {
+foreach ( array( 'javascript:alert(1)', 'data:text/html,unsafe', 'data:image/svg+xml;base64,AAAA', 'data:image/SVG;base64,AAAA', 'ftp://example.com/media.jpg', 'file:///tmp/media.jpg', "bad\x01media.jpg" ) as $unsafeMediaUrl ) {
     $fallbacks = array();
     $record = array();
     $unsafeMediaElement = $elementFromHtml('<section><img src="placeholder.jpg"><div><p>Unsafe media</p></div></section>');
@@ -425,25 +425,32 @@ foreach ( array( '30% 24rem' => 30, '35% minmax(10rem,1fr)' => 35 ) as $gridTemp
 }
 
 foreach ( array(
-    'grid-template-columns:30% auto',
-    'display:flex;grid-template-columns:30% auto',
-    'display:inline-grid;grid-template-columns:30% auto',
-) as $inactiveGridStyle ) {
+    'grid-template-columns:30% auto' => 30,
+    'display:block;grid-template-columns:30% auto' => 30,
+    'display:flex;grid-template-columns:30% auto' => null,
+    'display:inline-grid;grid-template-columns:30% auto' => 30,
+) as $gridIntentStyle => $expectedWidth ) {
     $fallbacks = array();
     $record = array();
-    $inactiveGridElement = $elementFromHtml('<section style="' . $inactiveGridStyle . '"><img src="inactive-grid.jpg"><div><p>Inactive grid</p></div></section>');
-    $inactiveGrid = $match($inactiveGridElement, array( $paragraph ), $fallbacks, $record);
-    $assertTrue(! array_key_exists('mediaWidth', $inactiveGrid['attrs'] ?? array()), 'Grid tracks ignored unless display resolves exactly grid: ' . $inactiveGridStyle);
+    $gridIntentElement = $elementFromHtml('<section style="' . $gridIntentStyle . '"><img src="grid-intent.jpg"><div><p>Grid intent</p></div></section>');
+    $gridIntent = $match($gridIntentElement, array( $paragraph ), $fallbacks, $record);
+    $assertSame($expectedWidth, $gridIntent['attrs']['mediaWidth'] ?? null, 'Grid tracks imply grid intent unless display resolves flex: ' . $gridIntentStyle);
 }
 
-foreach ( array( 14 => null, 15 => 15, 85 => 85, 86 => null ) as $sourceWidth => $expectedWidth ) {
+foreach ( array( 10 => 15, 14 => 15, 15 => 15, 85 => 85, 86 => 85, 90 => 85 ) as $sourceWidth => $expectedWidth ) {
     $fallbacks = array();
     $record = array();
     $boundedWidthElement = $elementFromHtml('<section style="display:grid;grid-template-columns:' . $sourceWidth . '% auto"><img src="bounded.jpg"><div><p>Bounded</p></div></section>');
     $boundedWidth = $match($boundedWidthElement, array( $paragraph ), $fallbacks, $record);
     $actualWidth = $boundedWidth['attrs']['mediaWidth'] ?? null;
-    $assertSame($expectedWidth, $actualWidth, 'mediaWidth emits only within inclusive 15..85 range: ' . $sourceWidth);
+    $assertSame($expectedWidth, $actualWidth, 'mediaWidth clamps to inclusive 15..85 range: ' . $sourceWidth);
 }
+
+$fallbacks = array();
+$record = array();
+$flexContradictionElement = $elementFromHtml('<section style="display:flex;grid-template-columns:30% auto"><img style="width:41%" src="flex-width.jpg"><div><p>Flex width</p></div></section>');
+$flexContradiction = $match($flexContradictionElement, array( $paragraph ), $fallbacks, $record);
+$assertSame(41, $flexContradiction['attrs']['mediaWidth'] ?? null, 'Resolved flex ignores grid tracks and keeps media flex-basis/width fallback order.');
 
 // Vertical alignment mapping covers all core values.
 foreach ( array( 'flex-start' => 'top', 'start' => 'top', 'center' => 'center', 'flex-end' => 'bottom', 'end' => 'bottom' ) as $alignItems => $expectedAlignment ) {
@@ -455,16 +462,16 @@ foreach ( array( 'flex-start' => 'top', 'start' => 'top', 'center' => 'center', 
 }
 
 foreach ( array(
-    'align-items:center',
-    'display:block;align-items:center',
-    'display:inline-flex;align-items:center',
-    'display:inline-grid;align-items:center',
-) as $inactiveAlignmentStyle ) {
+    'align-items:center' => null,
+    'display:block;align-items:center' => null,
+    'display:inline-flex;align-items:center' => 'center',
+    'display:inline-grid;align-items:center' => 'center',
+) as $alignmentStyle => $expectedAlignment ) {
     $fallbacks = array();
     $record = array();
-    $inactiveAlignmentElement = $elementFromHtml('<section style="' . $inactiveAlignmentStyle . '"><img src="inactive-align.jpg"><div><p>Align</p></div></section>');
-    $inactiveAlignment = $match($inactiveAlignmentElement, array( $paragraph ), $fallbacks, $record);
-    $assertTrue(! array_key_exists('verticalAlignment', $inactiveAlignment['attrs'] ?? array()), 'Alignment ignored unless display resolves exactly flex or grid: ' . $inactiveAlignmentStyle);
+    $alignmentElement = $elementFromHtml('<section style="' . $alignmentStyle . '"><img src="alignment.jpg"><div><p>Align</p></div></section>');
+    $alignment = $match($alignmentElement, array( $paragraph ), $fallbacks, $record);
+    $assertSame($expectedAlignment, $alignment['attrs']['verticalAlignment'] ?? null, 'Inline display forms share flex/grid alignment semantics: ' . $alignmentStyle);
 }
 
 $fallbacks = array();
@@ -501,9 +508,12 @@ $assertSame(0, $record['convertCalls'], 'Three-child decline avoids conversion.'
 // Strict layout-direction gates decline before text conversion.
 foreach ( array(
     'row reverse' => '<section style="display:flex;flex-direction:row-reverse"><img src="reverse.jpg"><div><p>Reverse</p></div></section>',
-    'media order' => '<section style="display:flex"><img style="order:0" src="ordered.jpg"><div><p>Ordered</p></div></section>',
+    'inline flex column' => '<section style="display:inline-flex;flex-direction:column"><img src="vertical.jpg"><div><p>Vertical</p></div></section>',
+    'flex flow reverse' => '<section style="display:flex;flex-flow:row-reverse wrap"><img src="flow-reverse.jpg"><div><p>Reverse</p></div></section>',
+    'media order' => '<section style="display:flex"><img style="order:1" src="ordered.jpg"><div><p>Ordered</p></div></section>',
     'text order'  => '<section style="display:grid"><img src="ordered.jpg"><div style="order:2"><p>Ordered</p></div></section>',
     'rtl'         => '<section style="display:grid;direction:rtl"><img src="rtl.jpg"><div><p>RTL</p></div></section>',
+    'dir rtl'     => '<section dir="rtl" style="display:grid"><img src="rtl.jpg"><div><p>RTL</p></div></section>',
 ) as $gateName => $gateHtml ) {
     $fallbacks = array( array( 'reason' => 'existing' ) );
     $record = array();
@@ -518,6 +528,74 @@ $record = array();
 $rowElement = $elementFromHtml('<section style="display:flex;flex-direction:row"><img src="row.jpg"><div><p>Row</p></div></section>');
 $row = $match($rowElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('core/media-text', $row['blockName'] ?? null, 'Normal flex row remains eligible.');
+
+foreach ( array( '0', '+0', '-0', '0.0', 'initial', 'unset' ) as $initialOrder ) {
+    $fallbacks = array();
+    $record = array();
+    $initialOrderElement = $elementFromHtml('<section style="display:flex"><img src="initial-order.jpg"><div style="order:' . $initialOrder . '"><p>Initial order</p></div></section>');
+    $initialOrderBlock = $match($initialOrderElement, array( $paragraph ), $fallbacks, $record);
+    $assertSame('core/media-text', $initialOrderBlock['blockName'] ?? null, 'Initial-equivalent child order remains eligible: ' . $initialOrder);
+}
+
+foreach ( array(
+    'order:1 !important;order:0' => null,
+    'order:0 !important;order:1' => 'core/media-text',
+) as $orderCascade => $expectedBlockName ) {
+    $fallbacks = array();
+    $record = array();
+    $orderCascadeElement = $elementFromHtml('<section style="display:flex"><img src="order-cascade.jpg"><div style="' . $orderCascade . '"><p>Order cascade</p></div></section>');
+    $orderCascadeBlock = $match($orderCascadeElement, array( $paragraph ), $fallbacks, $record);
+    $assertSame($expectedBlockName, $orderCascadeBlock['blockName'] ?? null, 'Order gate honors declaration importance: ' . $orderCascade);
+}
+
+foreach ( array(
+    'flex-direction:row;flex-flow:row-reverse wrap' => null,
+    'flex-flow:row-reverse wrap;flex-direction:row' => 'core/media-text',
+    'flex-flow:row;flex-direction:row;flex-flow:row-reverse wrap' => null,
+    'flex-direction:row !important;flex-flow:column' => 'core/media-text',
+) as $directionOrder => $expectedBlockName ) {
+    $fallbacks = array();
+    $record = array();
+    $directionOrderElement = $elementFromHtml('<section style="display:flex;' . $directionOrder . '"><img src="flow-order.jpg"><div><p>Flow order</p></div></section>');
+    $directionOrderBlock = $match($directionOrderElement, array( $paragraph ), $fallbacks, $record);
+    $assertSame($expectedBlockName, $directionOrderBlock['blockName'] ?? null, 'Last flex-flow/flex-direction declaration controls direction: ' . $directionOrder);
+}
+
+foreach ( array(
+    'display:flex;flex-flow:column;flex-direction:banana',
+    'display:flex;flex-direction:column;flex-flow:nope',
+    'display:flex;display:banana;flex-direction:column',
+) as $invalidDirectionStyle ) {
+    $fallbacks = array();
+    $record = array();
+    $invalidDirectionElement = $elementFromHtml('<section style="' . $invalidDirectionStyle . '"><img src="invalid-direction.jpg"><div><p>Invalid direction</p></div></section>');
+    $invalidDirectionBlock = $match($invalidDirectionElement, array( $paragraph ), $fallbacks, $record);
+    $assertNull($invalidDirectionBlock, 'Invalid CSS value does not override earlier valid layout declaration: ' . $invalidDirectionStyle);
+}
+
+$fallbacks = array();
+$record = array();
+$invalidInitialOrderElement = $elementFromHtml('<section style="display:flex"><img src="invalid-order.jpg"><div style="order:0;order:banana"><p>Invalid order</p></div></section>');
+$invalidInitialOrderBlock = $match($invalidInitialOrderElement, array( $paragraph ), $fallbacks, $record);
+$assertSame('core/media-text', $invalidInitialOrderBlock['blockName'] ?? null, 'Invalid order does not override earlier zero order.');
+
+$fallbacks = array();
+$record = array();
+$invalidAlignmentElement = $elementFromHtml('<section style="display:flex;align-items:center;align-items:banana"><img src="invalid-align.jpg"><div><p>Invalid align</p></div></section>');
+$invalidAlignmentBlock = $match($invalidAlignmentElement, array( $paragraph ), $fallbacks, $record);
+$assertSame('center', $invalidAlignmentBlock['attrs']['verticalAlignment'] ?? null, 'Invalid alignment does not override earlier center alignment.');
+
+$fallbacks = array();
+$record = array();
+$invalidGridElement = $elementFromHtml('<section style="grid-template-columns:30% auto;grid-template-columns:banana"><img src="invalid-grid.jpg"><div><p>Invalid grid</p></div></section>');
+$invalidGridBlock = $match($invalidGridElement, array( $paragraph ), $fallbacks, $record);
+$assertSame(30, $invalidGridBlock['attrs']['mediaWidth'] ?? null, 'Invalid grid template does not override earlier valid tracks.');
+
+$fallbacks = array();
+$record = array();
+$invalidWidthElement = $elementFromHtml('<section><img style="width:40%;width:banana" src="invalid-width.jpg"><div><p>Invalid width</p></div></section>');
+$invalidWidthBlock = $match($invalidWidthElement, array( $paragraph ), $fallbacks, $record);
+$assertSame(40, $invalidWidthBlock['attrs']['mediaWidth'] ?? null, 'Invalid media width does not override earlier percentage width.');
 
 // Authored direction/order rules reach strict gates for low-value direct children.
 $fallbacks = array( array( 'reason' => 'existing' ) );
@@ -651,14 +729,116 @@ $assertContains('max-width:900px !important', $geometryAssets, 'Carrier styleshe
 $assertContains('min-height:30rem !important', $geometryAssets, 'Carrier stylesheet preserves source min-height.');
 $assertContains('aspect-ratio:16/9 !important', $geometryAssets, 'Carrier stylesheet preserves source aspect-ratio.');
 
+$variableGeometryResult = $transformHtml(
+    '<section style="display:flex;--base:420px;--pane:var(--base);min-height:var(--pane)"><figure><img src="x.jpg" alt=""></figure><div><p>Copy</p></div></section>'
+);
+$variableGeometryBlock = $variableGeometryResult['blocks'][0] ?? array();
+$variableGeometryOpening = (string) ($variableGeometryBlock['innerContent'][0] ?? '');
+$variableGeometryAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variableGeometryResult['assets'] ?? array()));
+$assertSame('core/media-text', $variableGeometryBlock['blockName'] ?? null, 'Variable geometry case emits media-text.');
+$assertContains('--base:420px !important', $variableGeometryAssets, 'Carrier stylesheet preserves transitive custom-property definition.');
+$assertContains('--pane:var(--base) !important', $variableGeometryAssets, 'Carrier stylesheet preserves directly referenced custom-property definition.');
+$assertContains('min-height:var(--pane) !important', $variableGeometryAssets, 'Carrier stylesheet preserves variable geometry declaration.');
+$assertTrue(! str_contains($variableGeometryOpening, '--pane'), 'Media-text wrapper keeps custom properties out of inline style.');
+$assertTrue(! str_contains($variableGeometryOpening, 'min-height'), 'Media-text wrapper keeps variable geometry out of inline style.');
+
+$importantGeometryResult = $transformHtml(
+    '<section style="display:flex;min-height:420px !important"><figure><img src="x.jpg" alt=""></figure><div><p>Copy</p></div></section>'
+);
+$importantGeometryBlock = $importantGeometryResult['blocks'][0] ?? array();
+$importantGeometryOpening = (string) ($importantGeometryBlock['innerContent'][0] ?? '');
+$importantGeometryAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $importantGeometryResult['assets'] ?? array()));
+$assertSame('core/media-text', $importantGeometryBlock['blockName'] ?? null, 'Important geometry case emits media-text.');
+$assertContains('min-height:420px !important', $importantGeometryAssets, 'Carrier stylesheet preserves important-only geometry.');
+$assertTrue(! str_contains($importantGeometryOpening, 'min-height'), 'Media-text wrapper keeps important geometry out of inline style.');
+
+$importantCascadeResult = $transformHtml(
+    '<section style="display:flex;min-height:420px !important;min-height:200px"><figure><img src="x.jpg" alt=""></figure><div><p>Copy</p></div></section>'
+);
+$importantCascadeAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $importantCascadeResult['assets'] ?? array()));
+$assertContains('min-height:420px !important', $importantCascadeAssets, 'Carrier stylesheet honors important geometry over later normal declaration.');
+$assertTrue(! str_contains($importantCascadeAssets, 'min-height:200px'), 'Carrier stylesheet drops losing normal geometry declaration.');
+
+$caseSensitiveVariableResult = $transformHtml(
+    '<section style="display:flex;--x:400px;--X:500px;min-height:var(--x)"><figure><img src="x.jpg" alt=""></figure><div><p>Copy</p></div></section>'
+);
+$caseSensitiveVariableAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $caseSensitiveVariableResult['assets'] ?? array()));
+$assertContains('--x:400px !important', $caseSensitiveVariableAssets, 'Carrier stylesheet preserves case-sensitive custom-property identity.');
+$assertTrue(! str_contains($caseSensitiveVariableAssets, '--x:500px'), 'Carrier stylesheet does not merge differently cased custom properties.');
+
+$clampedWidthResult = $transformHtml('<section style="display:grid;grid-template-columns:10% auto"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$clampedWidthBlock = $clampedWidthResult['blocks'][0] ?? array();
+$assertSame(15, $clampedWidthBlock['attrs']['mediaWidth'] ?? null, 'Out-of-range source width clamps in emitted attrs.');
+$assertContains('grid-template-columns:15% auto', (string) ($clampedWidthBlock['innerContent'][0] ?? ''), 'Clamped width controls emitted wrapper track.');
+
+$impliedGridResult = $transformHtml('<section style="grid-template-columns:30% auto"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertSame(30, $impliedGridResult['blocks'][0]['attrs']['mediaWidth'] ?? null, 'Grid tracks derive emitted width without explicit display grid.');
+
+$inlineFlexAlignmentResult = $transformHtml('<section style="display:inline-flex;align-items:center"><figure><img src="x.jpg" alt=""></figure><div><p>Copy</p></div></section>');
+$assertSame('center', $inlineFlexAlignmentResult['blocks'][0]['attrs']['verticalAlignment'] ?? null, 'Inline flex preserves emitted vertical alignment.');
+
 $rowReverseResult = $transformHtml('<section style="display:flex;flex-direction:row-reverse"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
 $assertTrue('core/media-text' !== ($rowReverseResult['blocks'][0]['blockName'] ?? null), 'Flex row-reverse falls through without media-text.');
+
+$inlineFlexColumnResult = $transformHtml('<section style="display:inline-flex;flex-direction:column"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($inlineFlexColumnResult['blocks'][0]['blockName'] ?? null), 'Inline-flex column falls through without media-text.');
+
+$flexFlowReverseResult = $transformHtml('<section style="display:flex;flex-flow:row-reverse wrap"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($flexFlowReverseResult['blocks'][0]['blockName'] ?? null), 'Flex-flow row-reverse falls through without media-text.');
+
+$authoredFlexFlowResult = $transformHtml('<style>.flow-shell{display:flex;flex-flow:row-reverse wrap}</style><section class="flow-shell"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($authoredFlexFlowResult['blocks'][0]['blockName'] ?? null), 'Stylesheet-authored flex-flow row-reverse reaches media-text gate.');
+
+$importantAuthoredFlowResult = $transformHtml('<style>.flow-priority{display:flex;flex-flow:column !important}</style><section class="flow-priority" style="flex-flow:row"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($importantAuthoredFlowResult['blocks'][0]['blockName'] ?? null), 'Stylesheet important flex-flow beats inline normal flex-flow.');
+
+$repeatedAuthoredFlowResult = $transformHtml('<style>.flow-repeat{display:flex;flex-flow:row;flex-direction:row;flex-flow:row-reverse wrap}</style><section class="flow-repeat"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($repeatedAuthoredFlowResult['blocks'][0]['blockName'] ?? null), 'Stylesheet declaration order resolves repeated flex-flow against flex-direction.');
+
+$inlineImportantFlowResult = $transformHtml('<style>.flow-inline-priority{display:flex;flex-flow:column !important}</style><section class="flow-inline-priority" style="flex-direction:row !important"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertSame('core/media-text', $inlineImportantFlowResult['blocks'][0]['blockName'] ?? null, 'Inline important flex-direction beats stylesheet important flex-flow.');
+
+$specificAuthoredFlowResult = $transformHtml('<style>#specific-flow{display:flex;flex-flow:column}.specific-flow{flex-flow:row}</style><section id="specific-flow" class="specific-flow"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($specificAuthoredFlowResult['blocks'][0]['blockName'] ?? null), 'Higher-specificity stylesheet flex-flow beats later lower-specificity rule.');
+
+$tupleSpecificityFlowResult = $transformHtml('<style>#target{display:flex;flex-flow:column}.a.b.c.d.e.f.g.h.i.j.k{flex-flow:row}</style><section id="target" class="a b c d e f g h i j k"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($tupleSpecificityFlowResult['blocks'][0]['blockName'] ?? null), 'ID specificity beats any number of class selectors without scalar carry.');
+
+$attributeValueSpecificityResult = $transformHtml('<style>#target{display:flex;flex-flow:column}[data-token="#fake"]{flex-flow:row}</style><section id="target" data-token="#fake"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($attributeValueSpecificityResult['blocks'][0]['blockName'] ?? null), 'ID-like text inside attribute value does not add ID specificity.');
+
+foreach ( array(
+    'display:flex;flex-flow:column;flex-direction:banana',
+    'display:flex;flex-direction:column;flex-flow:nope',
+    'display:flex;display:banana;flex-direction:column',
+) as $invalidIntegrationStyle ) {
+    $invalidIntegrationResult = $transformHtml('<section style="' . $invalidIntegrationStyle . '"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+    $assertTrue('core/media-text' !== ($invalidIntegrationResult['blocks'][0]['blockName'] ?? null), 'Transform ignores invalid layout declaration: ' . $invalidIntegrationStyle);
+}
+
+$invalidAuthoredLayoutResult = $transformHtml('<style>.invalid-layout{display:flex;flex-flow:column;flex-direction:banana}</style><section class="invalid-layout"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($invalidAuthoredLayoutResult['blocks'][0]['blockName'] ?? null), 'Stylesheet invalid value does not override earlier valid layout declaration.');
+
+$initialOrderResult = $transformHtml('<section style="display:flex"><img src="x.jpg" alt=""><div style="order:0"><p>Copy</p></div></section>');
+$assertSame('core/media-text', $initialOrderResult['blocks'][0]['blockName'] ?? null, 'Authored order zero remains eligible for media-text.');
 
 $authoredOrderResult = $transformHtml('<style>.copy{order:2}</style><section><img src="x.jpg"><div class="copy"><p>Copy</p></div></section>');
 $assertTrue('core/media-text' !== ($authoredOrderResult['blocks'][0]['blockName'] ?? null), 'Authored .copy{order:2} declines media-text.');
 
+$importantAuthoredOrderResult = $transformHtml('<style>.ordered-copy{order:1 !important}</style><section style="display:flex"><img src="x.jpg"><div class="ordered-copy" style="order:0"><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($importantAuthoredOrderResult['blocks'][0]['blockName'] ?? null), 'Stylesheet important order beats inline normal order.');
+
+$repeatedAuthoredOrderResult = $transformHtml('<style>.repeated-order{order:1 !important;order:0}</style><section style="display:flex"><img src="x.jpg"><div class="repeated-order"><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($repeatedAuthoredOrderResult['blocks'][0]['blockName'] ?? null), 'Stylesheet declaration importance resolves repeated order declarations.');
+
 $authoredRtlResult = $transformHtml('<style>.shell{display:grid;direction:rtl}</style><section class="shell"><img src="x.jpg"><div><p>Copy</p></div></section>');
 $assertTrue('core/media-text' !== ($authoredRtlResult['blocks'][0]['blockName'] ?? null), 'Authored .shell{display:grid;direction:rtl} declines media-text.');
+
+$dirRtlResult = $transformHtml('<section dir="rtl" style="display:grid;grid-template-columns:30% auto"><img src="x.jpg"><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($dirRtlResult['blocks'][0]['blockName'] ?? null), 'Container dir=rtl declines media-text.');
+
+$svgDataResult = $transformHtml('<section><img src="data:image/svg+xml;base64,AAAA" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($svgDataResult['blocks'][0]['blockName'] ?? null), 'SVG data media URL declines media-text.');
 
 $lastDisplayWinsResult = $transformHtml('<section style="display:flex;display:grid;flex-direction:row-reverse"><img src="x.jpg"><div><p>Copy</p></div></section>');
 $assertSame('core/media-text', $lastDisplayWinsResult['blocks'][0]['blockName'] ?? null, 'Last duplicate display declaration controls row-reverse gate.');
@@ -701,6 +881,21 @@ $roundTrip = $roundTripResult['blocks'][0] ?? array();
 $assertSame('core/media-text', $roundTrip['blockName'] ?? null, 'wp-block-media-text markup passes strict round-trip gate.');
 $assertSame('right', $roundTrip['attrs']['mediaPosition'] ?? null, 'Round-trip DOM order restores right position.');
 $assertContains('has-media-on-the-right', (string) ($roundTrip['innerHTML'] ?? ''), 'Round-trip save shape restores right class.');
+
+// Media-text style resolution memoizes by the shared presentation cache key.
+$memoizedTransformer = new HtmlTransformer();
+$memoizedElement = $elementFromHtml('<section style="display:flex"><img src="memo.jpg"><div><p>Memo</p></div></section>');
+$mediaStyleMethod = new ReflectionMethod(HtmlTransformer::class, 'mediaTextPresentationStyle');
+$presentationKeyMethod = new ReflectionMethod(HtmlTransformer::class, 'presentationCacheKey');
+$mediaStyleCacheProperty = new ReflectionProperty(HtmlTransformer::class, 'mediaTextPresentationStyleCache');
+$firstMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
+$memoizedElement->setAttribute('style', 'display:grid');
+$secondMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
+$mediaStyleCache = $mediaStyleCacheProperty->getValue($memoizedTransformer);
+$presentationKey = $presentationKeyMethod->invoke($memoizedTransformer, $memoizedElement);
+$assertSame('display:flex', $firstMediaStyle, 'Media-text presentation style resolves initial authored style.');
+$assertSame($firstMediaStyle, $secondMediaStyle, 'Media-text presentation style reuses cached value for same DOM node.');
+$assertSame($firstMediaStyle, $mediaStyleCache[$presentationKey] ?? null, 'Media-text style cache uses shared presentation cache key.');
 
 // Emitted media-text markup passes Runtime serialization validation.
 $runtime = new Runtime();
