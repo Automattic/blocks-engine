@@ -257,6 +257,54 @@ $rate = (float) $collected['metrics']['native_rate'];
 $assert($rate >= 0.0 && $rate <= 1.0, '6: native_rate is a bounded ratio', (string) $rate);
 $assert((int) $collected['metrics']['block_count'] > 0, '6b: block_count is populated');
 
+// ---------------------------------------------------------------------------
+// 7. Cover-gate rejections: inline background-image containers rejected by a
+//    style-derived cover gate are informational tuning candidates.
+// ---------------------------------------------------------------------------
+$subThresholdHero = '<div class="short-hero" style="background-image:url(https://example.com/t.jpg);min-height:120px">'
+    . '<h2>T</h2><p>B</p></div>';
+$coverRejections = CorpusDetectors::coverGateRejections($subThresholdHero, array());
+$assert(
+    1 === count($coverRejections)
+        && 'cover_gate_rejection' === ($coverRejections[0]['repair_bucket'] ?? '')
+        && CorpusDetectors::SEVERITY_INFO === ($coverRejections[0]['severity'] ?? '')
+        && array(
+            'gate'  => 'not_hero_sized',
+            'tag'   => 'div',
+            'class' => 'short-hero',
+        ) === ($coverRejections[0]['detail'] ?? null),
+    '7: a sub-threshold background hero yields one informational cover-gate rejection',
+    json_encode($coverRejections)
+);
+
+$matchedHero = '<section class="hero" style="background-image:url(https://example.com/hero.jpg);'
+    . 'background-size:cover;min-height:480px"><h1>Build</h1><p>Ship</p></section>';
+$matchedCover = array(
+    array(
+        'blockName'   => 'core/cover',
+        'attrs'       => array(),
+        'innerBlocks' => array(),
+    ),
+);
+$matchedRejections = CorpusDetectors::coverGateRejections($matchedHero, $matchedCover);
+$assert(0 === count($matchedRejections), '7b: a matched hero emitted as core/cover yields no rejection', 'got ' . count($matchedRejections));
+
+$noBackgroundRejections = CorpusDetectors::coverGateRejections(
+    '<article class="story"><h2>Story</h2><p>Body</p></article>',
+    array()
+);
+$assert(0 === count($noBackgroundRejections), '7c: source without background containers yields no cover rejection', 'got ' . count($noBackgroundRejections));
+
+$collectedCoverRejections = $byDetector(
+    CorpusDetectors::collect(array('blocks' => array()), $subThresholdHero)['findings'],
+    'cover_gate_rejection'
+);
+$assert(
+    1 === count($collectedCoverRejections),
+    '7d: collect wires cover-gate rejection findings into the report',
+    'got ' . count($collectedCoverRejections)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CorpusDetectors unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

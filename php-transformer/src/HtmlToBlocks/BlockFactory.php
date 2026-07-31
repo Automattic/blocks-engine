@@ -139,6 +139,9 @@ final class BlockFactory
         if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
             unset($attrs['content']);
         }
+        if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
+            unset($attrs['minHeightUnit']);
+        }
 
         return $attrs;
     }
@@ -322,12 +325,94 @@ final class BlockFactory
             return '<div class="wp-block-shortcode">' . ($attrs['text'] ?? '') . '</div>';
         }
 
+        if ( 'core/cover' === $name ) {
+            return $this->coverHtml($attrs, $innerBlocks);
+        }
+
         if ( 'core/group' === $name ) {
             $tag = $this->groupTagName($attrs['tagName'] ?? null);
             return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</' . $tag . '>' );
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @param array<int, array<string, mixed>> $innerBlocks
+     * @return array{opening: string, closing: string}
+     */
+    private function coverHtml(array $attrs, array $innerBlocks): array
+    {
+        unset($innerBlocks);
+
+        $wrapperAttrs = $attrs;
+        unset($wrapperAttrs['layout']);
+        if ( ! empty($attrs['minHeight']) ) {
+            $unit = '' !== (string) ($attrs['minHeightUnit'] ?? '') ? (string) $attrs['minHeightUnit'] : 'px';
+            $wrapperAttrs['inlineGeometryStyle'] = trim(
+                (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';min-height:' . (string) $attrs['minHeight'] . $unit,
+                ';'
+            );
+        }
+
+        $imageHtml = '';
+        $url = (string) ($attrs['url'] ?? '');
+        if ( '' !== $url ) {
+            $imageAttrs = array(
+                'class'                => 'wp-block-cover__image-background',
+                'alt'                  => (string) ($attrs['alt'] ?? ''),
+                'src'                  => $url,
+                'style'                => '',
+                'data-object-fit'      => 'cover',
+                'data-object-position' => '',
+            );
+            if ( is_array($attrs['focalPoint'] ?? null) ) {
+                $objectPosition = (string) (int) round((float) ($attrs['focalPoint']['x'] ?? 0.5) * 100)
+                    . '% '
+                    . (string) (int) round((float) ($attrs['focalPoint']['y'] ?? 0.5) * 100)
+                    . '%';
+                $imageAttrs['style'] = 'object-position:' . $objectPosition;
+                $imageAttrs['data-object-position'] = $objectPosition;
+            }
+            $imageHtml = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
+        }
+
+        $overlayClasses = array( 'wp-block-cover__background' );
+        $dimRatio = array_key_exists('dimRatio', $attrs) ? (int) $attrs['dimRatio'] : null;
+        if ( null !== $dimRatio ) {
+            if ( 50 !== $dimRatio ) {
+                $overlayClasses[] = 'has-background-dim-' . (string) (10 * round($dimRatio / 10));
+            }
+            $overlayClasses[] = 'has-background-dim';
+        }
+        $customGradient = (string) ($attrs['customGradient'] ?? '');
+        if ( '' !== $url && '' !== $customGradient && 0 !== $dimRatio ) {
+            $overlayClasses[] = 'wp-block-cover__gradient-background';
+        }
+        if ( '' !== $customGradient ) {
+            $overlayClasses[] = 'has-background-gradient';
+        }
+        $overlayStyles = array();
+        if ( '' !== (string) ($attrs['customOverlayColor'] ?? '') ) {
+            $overlayStyles[] = 'background-color:' . (string) $attrs['customOverlayColor'];
+        }
+        if ( '' !== $customGradient ) {
+            $overlayStyles[] = 'background:' . $customGradient;
+        }
+        $overlayHtml = '<span' . $this->htmlAttrs(array(
+            'aria-hidden' => 'true',
+            'class'       => implode(' ', $overlayClasses),
+            'style'       => implode(';', $overlayStyles),
+        )) . '></span>';
+
+        return array(
+            'opening' => '<div' . $this->blockSupportAttrs($wrapperAttrs, 'wp-block-cover') . '>'
+                . $imageHtml
+                . $overlayHtml
+                . '<div class="wp-block-cover__inner-container">',
+            'closing' => '</div></div>',
+        );
     }
 
     /**

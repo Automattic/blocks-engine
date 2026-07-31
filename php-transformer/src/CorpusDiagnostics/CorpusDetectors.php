@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\CorpusDiagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
 
 /**
  * Pure, read-only detectors that turn a transformer result envelope into a flat
@@ -60,6 +62,7 @@ final class CorpusDetectors
      * — they are reported for visibility but kept out of the actionable worklist.
      */
     private const INFO_BUCKETS = array(
+        'cover_gate_rejection',
         'informational_var_density',
     );
 
@@ -101,6 +104,7 @@ final class CorpusDetectors
         $richTextRisk = self::richTextInvalidRisk($flat);
         $svgLost = self::svgContentLost($result, $flat);
         $layoutMisrecognition = self::layoutDirectionMisrecognition($sourceHtml, $columnsVerifier);
+        $coverGateRejections = self::coverGateRejections($sourceHtml, $flat);
 
         $findings = array();
         foreach ( self::transformerFindings($result) as $finding ) {
@@ -119,6 +123,9 @@ final class CorpusDetectors
             $findings[] = $finding;
         }
         foreach ( $layoutMisrecognition as $finding ) {
+            $findings[] = $finding;
+        }
+        foreach ( $coverGateRejections as $finding ) {
             $findings[] = $finding;
         }
         foreach ( self::emptyCoreHtml($flat) as $finding ) {
@@ -503,6 +510,82 @@ final class CorpusDetectors
                 'severity'      => self::SEVERITY_HIGH,
                 'pattern'       => 'columns_from_vertical_flex',
                 'count'         => 1,
+            );
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Informational candidates whose inline background-image container fails a
+     * source-derivable core/cover gate.
+     *
+     * Inline-style-only under-count: this source-side scan cannot see the
+     * transformer's merged cascade, so it surfaces tuning candidates rather
+     * than exact rejection rates. It reports only the style-derivable rejection
+     * keys no_background_url|not_hero_sized|repeating_background|no_text_content|
+     * multi_layer_background. Context gates columns_layout and nav_shell are
+     * intentionally absent because they cannot be reproduced from style alone.
+     *
+     * @param string                           $sourceHtml Original source HTML for the document.
+     * @param array<int, array<string, mixed>> $flat       Flattened block list.
+     * @return array<int, array<string, mixed>>
+     */
+    public static function coverGateRejections(string $sourceHtml, array $flat): array
+    {
+        if ( '' === trim($sourceHtml) ) {
+            return array();
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $doc = new \DOMDocument();
+        $loaded = $doc->loadHTML('<?xml encoding="utf-8"?>' . $sourceHtml);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        $xpath = new \DOMXPath($doc);
+        $nodes = $xpath->query('//div[@style] | //section[@style] | //article[@style]');
+        if ( false === $nodes ) {
+            return array();
+        }
+
+        $styleResolver = new CoverStyleResolver();
+        $coverPattern = new CoverPattern();
+        $findings = array();
+
+        foreach ( $nodes as $node ) {
+            if ( ! $node instanceof \DOMElement ) {
+                continue;
+            }
+
+            $style = $node->getAttribute('style');
+            if ( '' === $styleResolver->backgroundUrlFromStyle($style) ) {
+                continue;
+            }
+            if ( '' === trim($node->textContent) ) {
+                continue;
+            }
+
+            $gate = $coverPattern->rejectionGate($style, true);
+            if ( null === $gate ) {
+                continue;
+            }
+
+            $findings[] = array(
+                'source'        => 'detector',
+                'detector'      => 'cover_gate_rejection',
+                'repair_bucket' => 'cover_gate_rejection',
+                'severity'      => self::SEVERITY_INFO,
+                'pattern'       => $gate,
+                'count'         => 1,
+                'detail'        => array(
+                    'gate'  => $gate,
+                    'tag'   => strtolower($node->tagName),
+                    'class' => $node->getAttribute('class'),
+                ),
             );
         }
 

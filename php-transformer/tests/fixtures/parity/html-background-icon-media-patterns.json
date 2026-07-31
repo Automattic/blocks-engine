@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-background-icon-media-patterns",
-  "description": "Keeps content-container backgrounds out of document flow and materializes icon-like SVG card media as editable core/image assets, without fallbacks.",
+  "description": "Converts a gated background hero to core/cover and materializes icon-like SVG card media as editable core/image assets, without fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-background-icon-media-patterns.json",
@@ -16,7 +16,7 @@
     "content": "<section class=\"hero media-hero\" aria-label=\"Mountain clinic exterior\" style=\"background-image:url('/assets/clinic-hero.jpg');background-size:cover\"><div class=\"hero-copy\"><h1>Care that meets you</h1><p>Evidence-based care in a calm space.</p></div></section><div class=\"feature-card\"><div class=\"feature-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M4 12h16\"/><path d=\"M12 4v16\"/></svg></div><h3>Fast booking</h3><p>Choose the right visit online.</p></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0", "name": "core/cover" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero-copy" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Care that meets you", "level": 1 } },
     { "path": "blocks.1", "name": "core/group", "attrs": { "className": "feature-card" } },
@@ -29,6 +29,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stroke=\"#000000\"" },

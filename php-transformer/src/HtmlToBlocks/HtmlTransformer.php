@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPatter
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
@@ -147,6 +148,8 @@ final class HtmlTransformer
     private readonly CodeWindowPattern $codeWindowPattern;
 
     private readonly ColumnsPattern $columnsPattern;
+
+    private readonly CoverPattern $coverPattern;
 
     private readonly DetailsPattern $detailsPattern;
 
@@ -426,6 +429,7 @@ final class HtmlTransformer
         $this->buttonsPattern    = new ButtonsPattern();
         $this->codeWindowPattern = new CodeWindowPattern();
         $this->columnsPattern    = new ColumnsPattern();
+        $this->coverPattern      = new CoverPattern();
         $this->detailsPattern    = new DetailsPattern();
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
@@ -2621,6 +2625,20 @@ final class HtmlTransformer
                     $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
 
                     return $disclosure;
+                }
+
+                $cover = $this->coverPattern->match(
+                    $element,
+                    $fallbacks,
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+                    fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
+                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $cover ) {
+                    return $cover;
                 }
             }
 

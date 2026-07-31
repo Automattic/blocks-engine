@@ -12,6 +12,7 @@ final class GeneratedGutenbergClassPolicy
      * @var array<string, string>
      */
     private const BASE_CLASSES = array(
+        'core/cover' => 'wp-block-cover',
         'core/group'     => 'wp-block-group',
         'core/columns'   => 'wp-block-columns',
         'core/column'    => 'wp-block-column',
