@@ -421,9 +421,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
-            $baseAttrs['style']['typography']['textDecoration'] = 'underline';
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
-            if ( '' === $decorationColor ) {
+            $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
+            if ( 'underline' === $sourceDecoration || '' !== $decorationColor ) {
+                $itemAttrs['className'] .= ' blocks-engine-current-navigation-underline';
+                $baseAttrs['style']['typography']['textDecoration'] = 'underline';
+            }
+            if ( '' === $decorationColor && 'underline' === $sourceDecoration ) {
                 $decorationColor = $this->activeNavigationUnderlineColor($anchorAttrs, $itemAttrs);
             }
             if ( '' !== $decorationColor ) {

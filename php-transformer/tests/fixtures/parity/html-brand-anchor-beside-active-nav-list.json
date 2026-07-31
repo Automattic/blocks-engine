@@ -27,7 +27,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"nav-logo blocks-engine-synthetic-paragraph\"><a href=\"index.html\">Mara <em><mark style=\"font-style:normal;color:#b8552a;background-color:transparent\">Vale</mark></em></a></p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"nav-links blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0px\"}},\"overlayMenu\":\"mobile\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active blocks-engine-current-navigation-item\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"style\":{\"typography\":{\"textDecoration\":\"underline\"}},\"anchorClassName\":\"active\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active blocks-engine-current-navigation-item\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"anchorClassName\":\"active\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"label\":\"Mara \\u003cem" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

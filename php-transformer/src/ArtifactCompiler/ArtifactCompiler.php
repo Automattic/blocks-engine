@@ -1369,7 +1369,7 @@ final class ArtifactCompiler
                 continue;
             }
             if ( preg_match('/\baria-current\s*=|\b(?:id|class)\s*=\s*(?:"[^"]*(?:active|current|selected)[^"]*"|\'[^\']*(?:active|current|selected)[^\']*\'|[^\s>]*(?:active|current|selected)[^\s>]*)/i', $file['content']) ) {
-                $rules['current-navigation'] = '.blocks-engine-current-navigation-item>.wp-block-navigation-item__content { text-decoration:underline }';
+                $rules['current-navigation'] = '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }';
                 break;
             }
         }

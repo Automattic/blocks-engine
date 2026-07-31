@@ -1648,10 +1648,10 @@ $activeNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $activeNavigationLinks = $activeNavigation['blocks'][0]['innerBlocks'] ?? array();
 $assert('0px' === ($activeNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'list navigation neutralizes the core default gap when the source has no authored gap');
-$assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration'] ?? ''), 'active navigation link carries native underline style intent');
 $assert(str_contains((string) ($activeNavigationLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-item'), 'active navigation link carries a frontend current-item styling marker');
+$assert(! isset($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration']), 'current navigation signals do not invent an underline absent source styling');
 $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
-$assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
+$assert(! str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'unstyled current navigation remains visually faithful in serialized block attrs');
 
 $activeNavigationColor = ( new HtmlTransformer() )->transform(
     '<style>.nav-links a{color:var(--bone);font-family:monospace;font-size:12px;line-height:1.65;letter-spacing:.05em}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
@@ -1661,6 +1661,7 @@ $activeNavigationColorAttrs = $activeNavigationColor['blocks'][0]['attrs'] ?? ar
 $activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
 $activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $activeNavigationColor['assets'] ?? array()));
 $assert('var(--bone)' === ($activeNavigationColorLinks[0]['attrs']['style']['color']['text'] ?? ''), 'navigation link carries source anchor text color as a native block attribute');
+$assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
 $assert('var(--bone)' === ($activeNavigationColorAttrs['customTextColor'] ?? '') && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation'), 'list navigation keeps source container typography separate from anchor styling while retaining shared color context');
 $assert(str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:0!important}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation neutralizes core runtime gap while preserving source list-item and inline-anchor formatting semantics');
@@ -2217,7 +2218,7 @@ $artifactHeaderRuntimeCss = $compiler->compile(
     )
 )->toArray();
 $artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-item>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders the current navigation marker underline on core navigation links');
+$assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders only source-authored current navigation underlines on core navigation links');
 $assert(str_contains($artifactHeaderRuntimeStaticCss, '.wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }'), 'artifact CSS protects the core search SVG from colliding source search-icon hidden states');
 
 $artifactNavContainerCss = $compiler->compile(
