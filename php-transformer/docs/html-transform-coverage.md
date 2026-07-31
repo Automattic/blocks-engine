@@ -10,6 +10,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | --- | --- | --- |
 | Heading and paragraph | `simple-html.json`, `html-core-text-structure.json` | `core/heading`, `core/paragraph` |
 | Lists | `html-core-text-structure.json` | `core/list`, `core/list-item` |
+| Grouped description lists | `fixtures/websites/37-art-gallery-exhibition/current-exhibition.html`, `fixtures/websites/33-sports-team-league/team-roxbury-roar.html` | Observed corpus sources preserve valid `dl > div > dt/dd` row topology through `blocks-engine/description-list`; the synthetic `tests/fixtures/description-list-grouped-schedule.html` covers the closed wrapper-attribute policy. |
 | Quotes | `html-core-text-structure.json`, `html-figure-quote-media.json` | `core/quote`, `core/pullquote`, figure-wrapped testimonial quotes with `figcaption` citation |
 | Code | `html-core-text-structure.json` | `core/code`, `core/preformatted` |
 | Tables | `html-core-media-actions.json` | `core/table` with head/body/caption attrs |
@@ -30,3 +31,4 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | Supported | Heading, paragraph, unordered/ordered list, quote, pullquote, code, preformatted, table, image, buttons/button, shortcode | Fixtures assert the block names and representative attrs currently emitted by `HtmlTransformer`. |
 | Unsupported fallback | Unknown/custom elements, SVG markup, form controls, other unsupported top-level HTML | Fallbacks use `type: unsupported_element`, include the source tag, selector, caller source/scope when provided, sanitized HTML, and increment `coverage.0.fallback_count`. |
 | Context-required | Interactive/form behavior, embeds, advanced layout semantics, raw-handler hooks | These require WordPress/Gutenberg runtime context or richer product converter behavior and remain outside the PHP transformer's supported slice. |
+| Gutenberg editor validation | Gap | The repository has no browser harness that boots Gutenberg, registers generated companion blocks, and validates load/edit/save output. `wp_block_validity` is a PHP structural and canonical save-shape check; the WordPress integration test and Playwright visual-parity tooling do not exercise the editor. |

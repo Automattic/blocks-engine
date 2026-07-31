@@ -6026,9 +6026,8 @@ final class HtmlTransformer
     }
 
     /**
-     * Preserve a direct, valid description list as a static companion block.
-     * Wrapped or malformed lists deliberately return null for the established
-     * core/list and core/group safety paths below.
+     * Preserve valid direct and div-grouped description lists as a static
+     * companion block while retaining the existing direct-list group schema.
      *
      * @return array<string, mixed>|null
      */
@@ -6046,6 +6045,18 @@ final class HtmlTransformer
             }
 
             $tag = strtolower($child->tagName);
+            if ( 'div' === $tag ) {
+                if ( null !== $group ) {
+                    $groups[] = $group;
+                    $group = null;
+                }
+                $wrappedGroup = $this->descriptionListWrappedGroup($child);
+                if ( null === $wrappedGroup ) {
+                    return null;
+                }
+                $groups[] = $wrappedGroup;
+                continue;
+            }
             if ( ! in_array($tag, array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
                 return null;
             }
@@ -6065,10 +6076,15 @@ final class HtmlTransformer
             $group['descriptions'][] = $this->descriptionListItem($child);
         }
 
-        if ( null === $group || array() === $group['descriptions'] ) {
+        if ( null !== $group ) {
+            if ( array() === $group['descriptions'] ) {
+                return null;
+            }
+            $groups[] = $group;
+        }
+        if ( array() === $groups ) {
             return null;
         }
-        $groups[] = $group;
 
         if ( ! $this->descriptionListBlockGenerated ) {
             $this->generatedBlocks[] = ( new DescriptionListBlockGenerator() )->definition();
@@ -6104,7 +6120,8 @@ final class HtmlTransformer
                 return false;
             }
             foreach ( $child->attributes as $attribute ) {
-                if ( 'a' !== $tag || ! in_array(strtolower($attribute->name), array( 'href', 'target', 'rel' ), true) ) {
+                $attributeName = strtolower($attribute->name);
+                if ( ! ( 'a' === $tag && in_array($attributeName, array( 'href', 'target', 'rel' ), true) ) && ! ( 'time' === $tag && 'datetime' === $attributeName ) ) {
                     return false;
                 }
             }
@@ -6114,6 +6131,45 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function descriptionListWrappedGroup(DOMElement $wrapper): ?array
+    {
+        $items = array();
+        $hasTerm = false;
+        $hasDescription = false;
+        foreach ( $wrapper->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
+                return null;
+            }
+            $tag = strtolower($child->tagName);
+            if ( 'dt' === $tag ) {
+                if ( $hasTerm && ! $hasDescription ) {
+                    // Multiple terms may describe the same following definition.
+                } elseif ( $hasDescription ) {
+                    $hasDescription = false;
+                }
+                $hasTerm = true;
+            } elseif ( ! $hasTerm ) {
+                return null;
+            } else {
+                $hasDescription = true;
+            }
+            $items[] = array_merge(array( 'tagName' => $tag ), $this->descriptionListItem($child));
+        }
+
+        if ( ! $hasDescription ) {
+            return null;
+        }
+
+        return array(
+            'wrapper' => $this->descriptionListWrapper($wrapper),
+            'items' => $items,
+        );
     }
 
     /** @return array<string, string> */
@@ -6126,6 +6182,36 @@ final class HtmlTransformer
         ), static fn (mixed $value): bool => '' !== $value);
     }
 
+    /** @return array<string, mixed> */
+    private function descriptionListWrapper(DOMElement $element): array
+    {
+        $wrapper = array_filter(array(
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+        $attributes = array();
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( $this->descriptionListWrapperAttributeIsSafe($name) ) {
+                $attributes[$name] = $attribute->value;
+            }
+        }
+        if ( array() !== $attributes ) {
+            $wrapper['attributes'] = $attributes;
+        }
+        return $wrapper;
+    }
+
+    private function descriptionListWrapperAttributeIsSafe(string $name): bool
+    {
+        if ( in_array($name, array( 'id', 'role' ), true) || str_starts_with($name, 'aria-') ) {
+            return true;
+        }
+
+        // Keep passive data hooks but exclude WordPress Interactivity API directives.
+        return str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-');
+    }
+
     /** @param array<int, array<string, mixed>> $groups */
     private function descriptionListMarkup(DOMElement $list, array $groups): string
     {
@@ -6134,6 +6220,15 @@ final class HtmlTransformer
             'style' => $list->getAttribute('style'),
         )) . '>';
         foreach ( $groups as $group ) {
+            if ( isset($group['wrapper']) && is_array($group['wrapper']) ) {
+                $markup .= '<div' . $this->descriptionListMarkupAttributes($group['wrapper']) . '>';
+                foreach ( $group['items'] ?? array() as $item ) {
+                    $tag = $item['tagName'] ?? '';
+                    $markup .= '<' . $tag . $this->descriptionListMarkupAttributes($item) . '>' . ($item['content'] ?? '') . '</' . $tag . '>';
+                }
+                $markup .= '</div>';
+                continue;
+            }
             foreach ( $group['terms'] as $term ) {
                 $markup .= '<dt' . $this->descriptionListMarkupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
             }
@@ -6152,6 +6247,9 @@ final class HtmlTransformer
             if ( '' !== (string) ($attributes[$key] ?? '') ) {
                 $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
+        }
+        foreach ( $attributes['attributes'] ?? array() as $name => $value ) {
+            $markup .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $markup;
     }

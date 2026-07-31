@@ -36,6 +36,7 @@ $groups = $block['attrs']['groups'] ?? array();
 $serialized = (string) ($result['serialized_blocks'] ?? '');
 $assert(DescriptionListBlockGenerator::NAME === ($block['blockName'] ?? null), 'direct valid list maps to the companion block');
 $assert(2 === count($groups) && 2 === count($groups[0]['terms'] ?? array()) && 2 === count($groups[0]['descriptions'] ?? array()), 'term and description ordering is grouped deterministically');
+$assert(! isset($groups[0]['wrapper'], $groups[0]['items']), 'direct definition lists retain the persisted terms/descriptions group schema');
 $assert('<strong>Office</strong> <em>location</em>' === ($groups[0]['terms'][0]['content'] ?? null) && 'North <a href="/hall">Hall</a>' === ($groups[0]['descriptions'][0]['content'] ?? null), 'nested inline markup is preserved in the payload');
 $assert(str_contains($serialized, '<dl class="facts &amp; figures" style="display:grid"><dt class="term"><strong>Office</strong> <em>location</em></dt><dt>Alias</dt><dd class="definition">North <a href="/hall">Hall</a></dd><dd>Weekdays</dd><dt>Hours</dt><dd>09:00 &amp; 17:00</dd></dl>'), 'static markup retains semantics and escapes attributes exactly once');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'static companion serialization is editor-valid');
@@ -46,7 +47,6 @@ $assert(str_contains((string) ($result['diagnostics'][count($result['diagnostics
 foreach ( array(
     '<dl><dd>Description before term</dd><dt>Term</dt><dd>Description</dd></dl>',
     '<dl><dt>Term</dt></dl>',
-    '<dl><div><dt>Term</dt><dd>Description</dd></div></dl>',
     '<dl><dt>Term</dt><dd>Description</dd><span>Unexpected wrapper</span></dl>',
     '<dl><dt>Term</dt><dd><p>Block-level description</p></dd></dl>',
     '<dl><dt><span class="unsupported-richtext-attribute">Term</span></dt><dd>Description</dd></dl>',
@@ -55,6 +55,45 @@ foreach ( array(
     $assert(DescriptionListBlockGenerator::NAME !== ($converted['blocks'][0]['blockName'] ?? null), 'malformed or wrapped lists retain conservative fallback conversion');
     $assert(array() === ($converted['source_reports']['generated_blocks'] ?? null), 'malformed or wrapped lists do not generate a companion definition');
 }
+
+$grouped = ( new HtmlTransformer() )->transform('<dl class="facts"><div class="fact-row" style="display:grid;grid-template-columns:8rem 1fr" data-layout="grid" aria-label="Office details"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></div></dl>')->toArray();
+$groupedBlock = $grouped['blocks'][0] ?? array();
+$groupedItems = $groupedBlock['attrs']['groups'][0]['items'] ?? array();
+$assert(DescriptionListBlockGenerator::NAME === ($groupedBlock['blockName'] ?? null), 'valid div-grouped lists map to the companion block');
+$assert(array('dt', 'dd', 'dt', 'dd') === array_column($groupedItems, 'tagName'), 'grouped list payload preserves dt/dd source order');
+$assert('fact-row' === ($groupedBlock['attrs']['groups'][0]['wrapper']['className'] ?? null) && 'display:grid;grid-template-columns:8rem 1fr' === ($groupedBlock['attrs']['groups'][0]['wrapper']['style'] ?? null) && 'grid' === ($groupedBlock['attrs']['groups'][0]['wrapper']['attributes']['data-layout'] ?? null) && 'Office details' === ($groupedBlock['attrs']['groups'][0]['wrapper']['attributes']['aria-label'] ?? null), 'grouped list payload preserves wrapper classes, grid layout, and attributes');
+$assert(str_contains((string) ($grouped['serialized_blocks'] ?? ''), '<dl class="facts"><div class="fact-row" style="display:grid;grid-template-columns:8rem 1fr" data-layout="grid" aria-label="Office details"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></div></dl>'), 'grouped list serialization preserves wrapper topology and source order');
+$assert('pass' === ($grouped['source_reports']['wp_block_validity']['status'] ?? null), 'grouped list serialization remains editor-valid');
+
+$findDescriptionList = static function (array $blocks, string $className) use (&$findDescriptionList): ?array {
+    foreach ( $blocks as $candidate ) {
+        if ( DescriptionListBlockGenerator::NAME === ($candidate['blockName'] ?? null) && $className === ($candidate['attrs']['className'] ?? null) ) {
+            return $candidate;
+        }
+        $match = $findDescriptionList($candidate['innerBlocks'] ?? array(), $className);
+        if ( null !== $match ) {
+            return $match;
+        }
+    }
+    return null;
+};
+$sportsFixture = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/33-sports-team-league/team-roxbury-roar.html');
+$sports = ( new HtmlTransformer() )->transform($sportsFixture)->toArray();
+$sportsList = $findDescriptionList($sports['blocks'] ?? array(), 'record-strip');
+$assert(null !== $sportsList, 'observed sports fixture grouped record strip maps to the companion block');
+$assert(4 === count($sportsList['attrs']['groups'] ?? array()) && array('dt', 'dd') === array_column($sportsList['attrs']['groups'][0]['items'] ?? array(), 'tagName'), 'observed sports fixture retains each grouped record row and dt/dd source order');
+$assert(str_contains((string) ($sports['serialized_blocks'] ?? ''), '<dl class="record-strip"><div><dt>2025-26 record</dt><dd>31-8-3</dd></div><div><dt>Points</dt><dd>65</dd></div>'), 'observed sports fixture serialization retains its grouped description-list topology');
+
+$scheduleFixture = (string) file_get_contents(dirname(__DIR__) . '/fixtures/description-list-grouped-schedule.html');
+$schedule = ( new HtmlTransformer() )->transform($scheduleFixture)->toArray();
+$scheduleBlock = $schedule['blocks'][0] ?? array();
+$scheduleWrapper = $scheduleBlock['attrs']['groups'][0]['wrapper'] ?? array();
+$scheduleMarkup = (string) ($schedule['serialized_blocks'] ?? '');
+$assert(DescriptionListBlockGenerator::NAME === ($scheduleBlock['blockName'] ?? null), 'independent grouped schedule fixture maps to the companion block');
+$assert(array('dt', 'dt', 'dd', 'dd') === array_column($scheduleBlock['attrs']['groups'][0]['items'] ?? array(), 'tagName'), 'independent grouped schedule fixture preserves multiple-term source order');
+$assert('arrival-row' === ($scheduleWrapper['className'] ?? null) && 'arrival' === ($scheduleWrapper['attributes']['id'] ?? null) && 'group' === ($scheduleWrapper['attributes']['role'] ?? null) && 'Arrival details' === ($scheduleWrapper['attributes']['aria-label'] ?? null) && 'morning' === ($scheduleWrapper['attributes']['data-slot'] ?? null), 'wrapper safe-attribute policy retains id, role, aria, and ordinary data attributes');
+$assert(! isset($scheduleWrapper['attributes']['data-wp-interactive'], $scheduleWrapper['attributes']['data-wp-bind--hidden'], $scheduleWrapper['attributes']['onclick'], $scheduleWrapper['attributes']['title']) && ! str_contains($scheduleMarkup, 'data-wp-') && ! str_contains($scheduleMarkup, 'onclick=') && ! str_contains($scheduleMarkup, 'title="Behavioral title"'), 'wrapper safe-attribute policy excludes WordPress directives and behavior-bearing attributes');
+$assert(str_contains($scheduleMarkup, '<div class="arrival-row" id="arrival" role="group" aria-label="Arrival details" data-slot="morning"><dt>Doors</dt><dt>Registration</dt><dd>09:00</dd><dd>Foyer</dd></div>'), 'independent grouped schedule fixture retains wrapper topology and ordered records');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Description-list block unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
