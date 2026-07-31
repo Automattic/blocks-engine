@@ -15,6 +15,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | Code | `html-core-text-structure.json` | `core/code`, `core/preformatted` |
 | Tables | `html-core-media-actions.json` | `core/table` with head/body/caption attrs |
 | Images | `html-core-media-actions.json`, `html-figure-quote-media.json` | `core/image` with URL, alt, dimensions, caption, identity, size, and class attrs |
+| Media and text | `html-media-text.json` | `core/media-text` for strict two-pane image/video and text layouts; ambiguous or impure media layouts continue through existing columns/group handling |
 | Buttons | `html-core-media-actions.json` | `core/buttons` containing `core/button` children |
 | Shortcodes | `html-core-media-actions.json` | `core/shortcode` for standalone shortcode text |
 | Wrapper provenance and safety | `html-provenance-wrapper-safety.json` | Presentational semantic wrappers are preserved as `core/group`; unsupported fallback records include selector/source metadata and sanitized fallback HTML |
@@ -28,7 +29,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 
 | Category | Status | Notes |
 | --- | --- | --- |
-| Supported | Heading, paragraph, unordered/ordered list, quote, pullquote, code, preformatted, table, image, buttons/button, shortcode | Fixtures assert the block names and representative attrs currently emitted by `HtmlTransformer`. |
+| Supported | Heading, paragraph, unordered/ordered list, quote, pullquote, code, preformatted, table, image, media-text, buttons/button, shortcode | Fixtures assert the block names and representative attrs currently emitted by `HtmlTransformer`. Media-text requires exactly two element children: one pure image/video side and one text-bearing side; ambiguous layouts retain existing columns/group behavior. |
 | Unsupported fallback | Unknown/custom elements, SVG markup, form controls, other unsupported top-level HTML | Fallbacks use `type: unsupported_element`, include the source tag, selector, caller source/scope when provided, sanitized HTML, and increment `coverage.0.fallback_count`. |
 | Context-required | Interactive/form behavior, embeds, advanced layout semantics, raw-handler hooks | These require WordPress/Gutenberg runtime context or richer product converter behavior and remain outside the PHP transformer's supported slice. |
 | Gutenberg editor validation | Gap | The repository has no browser harness that boots Gutenberg, registers generated companion blocks, and validates load/edit/save output. `wp_block_validity` is a PHP structural and canonical save-shape check; the WordPress integration test and Playwright visual-parity tooling do not exercise the editor. |

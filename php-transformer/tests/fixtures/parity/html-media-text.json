@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-media-text",
+  "description": "Converts strict two-pane image/text and video/text layouts to native core/media-text blocks while preserving key media geometry and link attributes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-media-text.json",
+    "notes": "Covers a linked picture-backed image on the left and a video on the right; both layouts have exactly two element children, pure media subtrees, text-bearing content, and zero fallbacks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This covers the PHP transformer's native core/media-text recognizer and canonical save shape."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"feature-split\" style=\"display:grid;grid-template-columns:40% auto;align-items:flex-end;gap:2rem\"><figure><a class=\"media-link\" href=\"https://example.com/story\" target=\"_blank\" rel=\"noreferrer\"><picture><source srcset=\"https://example.com/feature.webp\" type=\"image/webp\"><img src=\"https://example.com/feature.jpg\" alt=\"Feature view\"></picture></a></figure><div><h2>Image feature</h2><p>Linked media stays beside readable copy.</p></div></section><article class=\"video-split\" style=\"display:grid;grid-template-columns:auto 35%;align-items:center\"><div><h3>Video feature</h3><p>Video renders on the right.</p></div><video src=\"https://example.com/feature.mp4\"></video></article>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/media-text", "attrs": { "className": "feature-split", "mediaType": "image", "mediaUrl": "https://example.com/feature.jpg", "mediaAlt": "Feature view", "mediaWidth": 40, "verticalAlignment": "bottom", "href": "https://example.com/story", "linkTarget": "_blank", "rel": "noreferrer", "linkClass": "media-link" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Image feature", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Linked media stays beside readable copy." } },
+    { "path": "blocks.1", "name": "core/media-text", "attrs": { "className": "video-split", "mediaPosition": "right", "mediaType": "video", "mediaUrl": "https://example.com/feature.mp4", "mediaWidth": 35, "verticalAlignment": "center" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Video feature", "level": 3 } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Video renders on the right." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:media-text" }
+  ]
+}
