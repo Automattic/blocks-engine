@@ -130,8 +130,8 @@ final class ButtonsPattern
         // The canonical core/button wrapper is structural. A source control's
         // classes would otherwise let an unprojected stylesheet paint that outer
         // div instead of the link that Gutenberg actually renders as the button.
-        if ( $presentationElement === $anchor && $hasAuthoredStyleRules ) {
-            $this->removeSourceControlClasses($attrs, $anchor);
+        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
+            $this->removeSourceControlClasses($attrs, $presentationElement);
         }
 
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);

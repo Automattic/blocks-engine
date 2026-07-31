@@ -728,6 +728,7 @@ $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBloc
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
 $assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
 $assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
+$assert(! str_contains((string) ($contextualSurfaceButtonAttrs['className'] ?? ''), 'cta-inner'), 'descendant presentation classes do not paint the structural core button wrapper');
 $assert(str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important') && str_contains($contextualSurfaceButtonCss, 'color:#000!important'), 'native button control rule protects resolved source paint from theme defaults');
 
 $declarativeCounter = ( new HtmlTransformer() )->transform(
