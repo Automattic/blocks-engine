@@ -1356,7 +1356,43 @@ final class ArtifactCompiler
         return $this->navigationContainerCompatCss($css)
             . $this->navigationStructureCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
-            . $this->rootStartupClassCompatCss($css, $files);
+            . $this->rootStartupClassCompatCss($css, $files)
+            . $this->coreRuntimeCompatCss($css, $files);
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function coreRuntimeCompatCss(string $css, array $files): string
+    {
+        $rules = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            if ( preg_match('/\baria-current\s*=|\b(?:id|class)\s*=\s*(?:"[^"]*(?:active|current|selected)[^"]*"|\'[^\']*(?:active|current|selected)[^\']*\'|[^\s>]*(?:active|current|selected)[^\s>]*)/i', $file['content']) ) {
+                $rules['current-navigation'] = '.blocks-engine-current-navigation-item>.wp-block-navigation-item__content { text-decoration:underline }';
+                break;
+            }
+        }
+
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            if ( str_starts_with(trim($rule['selector']), '@') ) {
+                if ( '' !== $this->coreRuntimeCompatCss($rule['body'], array()) ) {
+                    $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
+                    break;
+                }
+                continue;
+            }
+            if ( str_contains($rule['selector'], '.search-icon')
+                && ! str_contains($rule['selector'], '.wp-block-search')
+                && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $rule['body']) ) {
+                $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
+                break;
+            }
+        }
+
+        return array() === $rules
+            ? ''
+            : "\n\n/* wp-compat: protect core block runtime semantics from source selector collisions */\n" . implode("\n", $rules);
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */

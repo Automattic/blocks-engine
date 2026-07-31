@@ -1473,6 +1473,10 @@ $nestedStyledLogo = ( new HtmlTransformer() )->transform(
 )->toArray();
 $nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
 $assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+$assert(str_contains($nestedStyledLogoSerialized, '"margin":{"top":"0","right":"0","bottom":"0","left":"0"}'), 'div-based logos neutralize core paragraph margins that the source element did not have');
+$explicitLogoMargin = ( new HtmlTransformer() )->transform('<div class="logo" style="margin-bottom:4px"><a href="/">Brand</a></div>')->toArray();
+$explicitLogoMarginSerialized = (string) ($explicitLogoMargin['serialized_blocks'] ?? '');
+$assert(str_contains($explicitLogoMarginSerialized, '"margin":{"top":"0","right":"0","bottom":"4px","left":"0"}'), 'div-based logo margin defaults preserve explicitly authored source sides');
 
 $brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
@@ -1644,6 +1648,7 @@ $activeNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $activeNavigationLinks = $activeNavigation['blocks'][0]['innerBlocks'] ?? array();
 $assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration'] ?? ''), 'active navigation link carries native underline style intent');
+$assert(str_contains((string) ($activeNavigationLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-item'), 'active navigation link carries a frontend current-item styling marker');
 $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
 $assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
 
@@ -2178,6 +2183,19 @@ $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
+
+$artifactHeaderRuntimeCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header><nav><ul><li id=selected><a href="/">Home</a></li></ul></nav><div class="site-utils"><span class="wsite-search"><form action="/apps/search" method="get"><input name="q" type="text"></form></span><button class="search-icon"><svg></svg></button></div></header></body></html>',
+            'styles.css' => '@media (min-width:1px){.site-utils .search-icon{display:none;height:80px}}',
+        ),
+    )
+)->toArray();
+$artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-item>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders the current navigation marker underline on core navigation links');
+$assert(str_contains($artifactHeaderRuntimeStaticCss, '.wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }'), 'artifact CSS protects the core search SVG from colliding source search-icon hidden states');
 
 $artifactNavContainerCss = $compiler->compile(
     array(
