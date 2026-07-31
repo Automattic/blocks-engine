@@ -537,14 +537,6 @@ final class CorpusDetectors
             return array();
         }
 
-        $hasCover = false;
-        foreach ( $flat as $block ) {
-            if ( 'core/cover' === ($block['blockName'] ?? null) ) {
-                $hasCover = true;
-                break;
-            }
-        }
-
         $previous = libxml_use_internal_errors(true);
         $doc = new \DOMDocument();
         $loaded = $doc->loadHTML('<?xml encoding="utf-8"?>' . $sourceHtml);
@@ -578,9 +570,6 @@ final class CorpusDetectors
             }
 
             $gate = $coverPattern->rejectionGate($style, true);
-            if ( null === $gate && $hasCover ) {
-                continue;
-            }
             if ( null === $gate ) {
                 continue;
             }

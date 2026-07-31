@@ -379,17 +379,31 @@ final class BlockFactory
         }
 
         $overlayClasses = array( 'wp-block-cover__background' );
-        if ( array_key_exists('dimRatio', $attrs) ) {
-            $dimRatio = (int) $attrs['dimRatio'];
+        $dimRatio = array_key_exists('dimRatio', $attrs) ? (int) $attrs['dimRatio'] : null;
+        if ( null !== $dimRatio ) {
             if ( 50 !== $dimRatio ) {
                 $overlayClasses[] = 'has-background-dim-' . (string) (10 * round($dimRatio / 10));
             }
             $overlayClasses[] = 'has-background-dim';
         }
+        $customGradient = (string) ($attrs['customGradient'] ?? '');
+        if ( '' !== $url && '' !== $customGradient && 0 !== $dimRatio ) {
+            $overlayClasses[] = 'wp-block-cover__gradient-background';
+        }
+        if ( '' !== $customGradient ) {
+            $overlayClasses[] = 'has-background-gradient';
+        }
+        $overlayStyles = array();
+        if ( '' !== (string) ($attrs['customOverlayColor'] ?? '') ) {
+            $overlayStyles[] = 'background-color:' . (string) $attrs['customOverlayColor'];
+        }
+        if ( '' !== $customGradient ) {
+            $overlayStyles[] = 'background:' . $customGradient;
+        }
         $overlayHtml = '<span' . $this->htmlAttrs(array(
             'aria-hidden' => 'true',
             'class'       => implode(' ', $overlayClasses),
-            'style'       => '' !== (string) ($attrs['customOverlayColor'] ?? '') ? 'background-color:' . (string) $attrs['customOverlayColor'] : '',
+            'style'       => implode(';', $overlayStyles),
         )) . '></span>';
 
         return array(

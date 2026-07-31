@@ -130,9 +130,9 @@ final class CoverPattern
         $overlayColor = (string) ($dim['customOverlayColor'] ?? '');
         if ( preg_match('/^#[0-9a-f]{6}$/', $overlayColor) ) {
             $attrs['customOverlayColor'] = $overlayColor;
-            $this->removeConsumedGradient($attrs);
         }
-        $this->removeBackgroundUrlLayersFromGradient($attrs);
+        $this->promoteDesignGradient($attrs, $dim);
+        $this->removeConsumedGradient($attrs);
 
         try {
             $minHeight = $this->styleResolver->minHeightFromStyle($style);
@@ -351,9 +351,10 @@ final class CoverPattern
     }
 
     /**
-     * @param array<string, mixed> $attrs
+     * @param array<string, mixed>                           $attrs
+     * @param array{dimRatio:int, customOverlayColor:string} $dim
      */
-    private function removeBackgroundUrlLayersFromGradient(array &$attrs): void
+    private function promoteDesignGradient(array &$attrs, array $dim): void
     {
         $gradient = $attrs['style']['color']['gradient'] ?? null;
         if ( ! is_string($gradient) ) {
@@ -361,20 +362,42 @@ final class CoverPattern
         }
 
         $layers = $this->splitTopLevel($gradient, array( ',' ));
-        $kept   = array_values(array_filter(
-            $layers,
-            static fn (string $layer): bool => ! preg_match('/\burl\s*\(/i', $layer)
-        ));
-        if ( count($kept) === count($layers) ) {
-            return;
+        $kept   = array();
+        $consumedOverlay = false;
+        foreach ( $layers as $layer ) {
+            if ( preg_match('/\burl\s*\(/i', $layer) ) {
+                continue;
+            }
+            if ( ! $consumedOverlay && $this->isConsumedOverlayGradient($layer, $dim) ) {
+                $consumedOverlay = true;
+                continue;
+            }
+            $kept[] = $layer;
+        }
+        if ( array() !== $kept ) {
+            $attrs['customGradient'] = implode(',', $kept);
+        }
+    }
+
+    /**
+     * @param array{dimRatio:int, customOverlayColor:string} $dim
+     */
+    private function isConsumedOverlayGradient(string $layer, array $dim): bool
+    {
+        $overlayColor = (string) ($dim['customOverlayColor'] ?? '');
+        $dimRatio     = (int) ($dim['dimRatio'] ?? 0);
+        if ( 0 === $dimRatio || ! preg_match('/^#[0-9a-f]{6}$/', $overlayColor) ) {
+            return false;
         }
 
-        if ( array() === $kept ) {
-            unset($attrs['style']['color']['gradient']);
-        } else {
-            $attrs['style']['color']['gradient'] = implode(',', $kept);
+        try {
+            $candidate = $this->styleResolver->dimFromStyle('background:' . $layer . ',url(cover-gradient-probe)');
+        } catch ( Throwable ) {
+            return false;
         }
-        $this->pruneEmptySupportStyle($attrs);
+
+        return $dimRatio === ($candidate['dimRatio'] ?? 0)
+            && $overlayColor === ($candidate['customOverlayColor'] ?? '');
     }
 
     /**

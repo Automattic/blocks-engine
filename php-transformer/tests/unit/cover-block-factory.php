@@ -66,6 +66,39 @@ $assertNotContains('has-background-dim-50', $dimmed['innerHTML'], 'dimRatio 50 o
 $assertContains('style="background-color:#000000"', $dimmed['innerHTML'], 'Overlay color rides the span.');
 $assertContains('style="object-position:25% 75%" data-object-fit="cover" data-object-position="25% 75%"', $dimmed['innerHTML'], 'Focal point serializes to object-position.');
 
+$designGradient = $factory->create('core/cover', array(
+    'url'            => 'https://example.com/hero.jpg',
+    'alt'            => '',
+    'dimRatio'       => 0,
+    'customGradient' => 'linear-gradient(90deg,#ff0000,#0000ff)',
+), array());
+$assertContains(
+    'class="wp-block-cover__background has-background-dim-0 has-background-dim has-background-gradient"',
+    $designGradient['innerHTML'],
+    'N3: Design gradient uses core class order without the dim compatibility class at dimRatio 0.'
+);
+$assertNotContains('wp-block-cover__gradient-background', $designGradient['innerHTML'], 'N3: dimRatio 0 omits the gradient compatibility class.');
+$assertContains('style="background:linear-gradient(90deg,#ff0000,#0000ff)"', $designGradient['innerHTML'], 'N3: customGradient paints the overlay span.');
+$assertSame('linear-gradient(90deg,#ff0000,#0000ff)', $designGradient['attrs']['customGradient'] ?? null, 'N3: customGradient rides comment attrs.');
+
+$gradientWithDim = $factory->create('core/cover', array(
+    'url'                => 'https://example.com/hero.jpg',
+    'alt'                => '',
+    'dimRatio'           => 30,
+    'customOverlayColor' => '#112233',
+    'customGradient'     => 'linear-gradient(90deg,#ff0000,#0000ff)',
+), array());
+$assertContains(
+    'class="wp-block-cover__background has-background-dim-30 has-background-dim wp-block-cover__gradient-background has-background-gradient"',
+    $gradientWithDim['innerHTML'],
+    'N3: Nonzero dim with media and gradient uses core compatibility-class order.'
+);
+$assertContains(
+    'style="background-color:#112233;background:linear-gradient(90deg,#ff0000,#0000ff)"',
+    $gradientWithDim['innerHTML'],
+    'N3: Core bgStyle order keeps custom overlay color before custom gradient.'
+);
+
 if ( 0 === $failures ) {
     echo "cover block factory ok\n";
 }
