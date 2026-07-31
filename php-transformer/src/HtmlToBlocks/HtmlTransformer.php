@@ -590,6 +590,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        $this->materializeDeclarativeCounters($body);
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
@@ -5935,11 +5936,20 @@ final class HtmlTransformer
                 }
                 ++$cellIndex;
                 $declarations = $this->cssDeclarations($this->attr($cell, 'style'));
+                $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
-                if ( '' === $width || ! preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
-                    continue;
+                if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
+                    $geometry[] = 'width:' . $width . '!important';
                 }
-                $rules[] = $section . '>tr:nth-child(' . $rowIndex . ')>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . '){width:' . $width . '!important}';
+                foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
+                    $value = trim((string) ($declarations[$property] ?? ''));
+                    if ( '' !== $value && preg_match('/^(?:-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?)(?:\s+-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?){0,3}$/i', $value) ) {
+                        $geometry[] = $property . ':' . $value . '!important';
+                    }
+                }
+                if ( array() !== $geometry ) {
+                    $rules[] = $section . '>tr:nth-child(' . $rowIndex . ')>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . '){' . implode(';', $geometry) . '}';
+                }
             }
         }
         if ( array() === $rules ) {
@@ -5950,6 +5960,52 @@ final class HtmlTransformer
         $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
         $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
+    }
+
+    private function materializeDeclarativeCounters(DOMElement $body): void
+    {
+        $document = $body->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return;
+        }
+
+        foreach ( $body->getElementsByTagName('script') as $script ) {
+            if ( ! $script instanceof DOMElement ) {
+                continue;
+            }
+            $source = (string) $script->textContent;
+            if ( ! str_contains($source, 'PlatformElementSettings')
+                || ! preg_match('/\.prototype\.element_id\s*=\s*(["\'])([a-z0-9-]+)\1/i', $source, $elementMatch)
+            ) {
+                continue;
+            }
+
+            $settingsStart = strpos($source, 'new PlatformElementSettings(');
+            $settingsEnd = false !== $settingsStart ? strpos($source, ');', $settingsStart) : false;
+            if ( false === $settingsStart || false === $settingsEnd || $settingsEnd - $settingsStart > 262144 ) {
+                continue;
+            }
+            $settingsLiteral = substr($source, $settingsStart, $settingsEnd - $settingsStart);
+            if ( ! preg_match('/["\']end["\']\s*:\s*(-?(?:0|[1-9]\d*)(?:\.\d+)?)\s*[,}]/', $settingsLiteral, $endMatch) ) {
+                continue;
+            }
+            $end = str_contains($endMatch[1], '.') ? (float) $endMatch[1] : (int) $endMatch[1];
+
+            $container = $document->getElementById('element-' . $elementMatch[2]);
+            if ( ! $container instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $container->getElementsByTagName('*') as $target ) {
+                if ( ! $target instanceof DOMElement
+                    || ! in_array('content-number-bold', preg_split('/\s+/', trim($target->getAttribute('class'))) ?: array(), true)
+                    || '' !== trim((string) $target->textContent)
+                ) {
+                    continue;
+                }
+                $target->appendChild($document->createTextNode((string) $end));
+                break;
+            }
+        }
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool

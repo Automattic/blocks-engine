@@ -119,6 +119,14 @@ final class ButtonsPattern
         $resolvedPresentation = trim((string) $resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle);
+        if ( $presentationElement !== $anchor ) {
+            $anchorStyle = (string) $resolvedStyle($anchor);
+            if ( preg_match('/(?:^|;)\s*border\s*:\s*(?!0(?:;|$)|none(?:;|$))[^;]+/i', $anchorStyle)
+                && ! preg_match('/(?:^|;)\s*border-radius\s*:/i', $anchorStyle)
+            ) {
+                $attrs['style']['border']['radius'] = '0';
+            }
+        }
         // The canonical core/button wrapper is structural. A source control's
         // classes would otherwise let an unprojected stylesheet paint that outer
         // div instead of the link that Gutenberg actually renders as the button.

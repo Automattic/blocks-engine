@@ -322,6 +322,16 @@ $inlineWidthTableCss = implode("\n", array_map(static fn (array $asset): string 
 $assert('core/table' === ($inlineWidthTableResult['blocks'][0]['blockName'] ?? null), 'layout tables with authored cell widths remain editable native tables');
 $assert(str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(1){width:27.5%!important}') && str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(2){width:45%!important}'), 'native table geometry CSS preserves authored cell proportions');
 $assert('pass' === ($inlineWidthTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline-width native tables remain editor-valid');
+$paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td style="width:50%;padding:0 15px"><div style="text-align:center"><img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%"></div></td><td style="width:50%;padding:0 15px">Copy</td></tr></tbody></table>')->toArray();
+$paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
+$assert(str_contains($paddedTableCss, 'width:50%!important;padding:0 15px!important'), 'native table geometry CSS preserves authored cell width and padding together');
+$assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native table images remain editor-valid');
+$maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
+$maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
+$maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));
+$assert(! str_contains($maxWidthImageMarkup, 'style="max-width:100%"'), 'native image save markup omits unsupported max-width block support');
+$assert(str_contains($maxWidthImageCss, 'max-width:100%'), 'native image max-width remains in its generated geometry carrier');
+$assert('pass' === ($maxWidthImageResult['source_reports']['wp_block_validity']['status'] ?? ''), 'max-width native image remains editor-valid');
 $nestedTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>Outer<table><tr><td>Inner</td></tr></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'descendant table falls back to core/html');
 $assert(str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<table><tr><td>Outer<table>'), 'descendant table fallback preserves nested table markup');
@@ -710,6 +720,18 @@ $descendantSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): 
 $assert(str_contains($descendantSurfaceButtonMarkup, '<!-- wp:button') && str_contains($descendantSurfaceButtonMarkup, '"justifyContent":"center"'), 'composite button surfaces remain native and inherit source wrapper alignment');
 $assert(str_contains($descendantSurfaceButtonCss, '> :where(.wp-block-button__link)') && str_contains($descendantSurfaceButtonCss, 'min-width:170px') && str_contains($descendantSurfaceButtonCss, 'padding:22px 26px'), 'composite button descendant selectors project their complete painted geometry onto the native link');
 $assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validity']['status'] ?? ''), 'composite button surface conversion remains editor-valid');
+
+$contextualSurfaceButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+)->toArray();
+$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
+$assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
+
+$declarativeCounter = ( new HtmlTransformer() )->transform(
+    '<div id="element-counter-one"><div class="counter-number"><div class="content-number-bold"></div></div><div>YEARS</div></div><script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":1350,"duration":2}); _Element.prototype.element_id = "counter-one";</script>'
+)->toArray();
+$assert(str_contains((string) ($declarativeCounter['serialized_blocks'] ?? ''), '>1350<'), 'bounded declarative counter settings materialize their final numeric state as editable content');
 
 $unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"><a><img src="testimonial.jpg" alt="Clients"></a><div class="caption"></div></div>')->toArray();
 $unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');
