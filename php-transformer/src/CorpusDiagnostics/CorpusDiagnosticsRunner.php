@@ -50,6 +50,14 @@ final class CorpusDiagnosticsRunner
             'layout_direction_misrecognition_count' => 0,
             'var_ref_count'       => 0,
             'var_custom_ref_count' => 0,
+            'media_text_count'                               => 0,
+            'media_text_decline_media_impure_count'          => 0,
+            'media_text_decline_no_text_side_count'          => 0,
+            'media_text_decline_vertical_or_reversed_count'  => 0,
+            'media_text_decline_unsafe_url_count'            => 0,
+            'media_text_width_oob_count'                     => 0,
+            'media_text_decline_linked_video_count'          => 0,
+            'media_text_decline_other_count'                 => 0,
             'finding_count'       => 0,
         );
 
@@ -81,6 +89,18 @@ final class CorpusDiagnosticsRunner
             $totals['layout_direction_misrecognition_count'] += (int) $metrics['layout_direction_misrecognition_count'];
             $totals['var_ref_count'] += (int) $metrics['var_ref_count'];
             $totals['var_custom_ref_count'] += (int) $metrics['var_custom_ref_count'];
+            foreach ( array(
+                'media_text_count',
+                'media_text_decline_media_impure_count',
+                'media_text_decline_no_text_side_count',
+                'media_text_decline_vertical_or_reversed_count',
+                'media_text_decline_unsafe_url_count',
+                'media_text_width_oob_count',
+                'media_text_decline_linked_video_count',
+                'media_text_decline_other_count',
+            ) as $metricName ) {
+                $totals[ $metricName ] += (int) $metrics[ $metricName ];
+            }
 
             foreach ( $collected['findings'] as $finding ) {
                 $key = CorpusDetectors::clusterKey($finding);
@@ -149,6 +169,17 @@ final class CorpusDiagnosticsRunner
             'MISSING ARTWORK: svg_content_lost=%d   LAYOUT: columns_from_vertical_flex=%d',
             (int) ($totals['svg_content_lost_count'] ?? 0),
             (int) ($totals['layout_direction_misrecognition_count'] ?? 0)
+        );
+        $lines[] = sprintf(
+            'MEDIA-TEXT: media_text_count=%d media_text_decline_media_impure_count=%d media_text_decline_no_text_side_count=%d media_text_decline_vertical_or_reversed_count=%d media_text_decline_unsafe_url_count=%d media_text_width_oob_count=%d media_text_decline_linked_video_count=%d media_text_decline_other_count=%d',
+            (int) ($totals['media_text_count'] ?? 0),
+            (int) ($totals['media_text_decline_media_impure_count'] ?? 0),
+            (int) ($totals['media_text_decline_no_text_side_count'] ?? 0),
+            (int) ($totals['media_text_decline_vertical_or_reversed_count'] ?? 0),
+            (int) ($totals['media_text_decline_unsafe_url_count'] ?? 0),
+            (int) ($totals['media_text_width_oob_count'] ?? 0),
+            (int) ($totals['media_text_decline_linked_video_count'] ?? 0),
+            (int) ($totals['media_text_decline_other_count'] ?? 0)
         );
         $lines[] = sprintf(
             'INFORMATIONAL var density (materialized downstream by SSI — not a repair gap): var_refs=%d (custom=%d)',
@@ -331,4 +362,5 @@ final class CorpusDiagnosticsRunner
             return is_array($first) && 'core/columns' === ($first['blockName'] ?? '');
         };
     }
+
 }

@@ -4,8 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\CorpusDiagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverStyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 
 /**
  * Pure, read-only detectors that turn a transformer result envelope into a flat
@@ -105,6 +108,7 @@ final class CorpusDetectors
         $svgLost = self::svgContentLost($result, $flat);
         $layoutMisrecognition = self::layoutDirectionMisrecognition($sourceHtml, $columnsVerifier);
         $coverGateRejections = self::coverGateRejections($sourceHtml, $flat);
+        $mediaTextMetrics = self::mediaTextMetrics($sourceHtml, $flat);
 
         $findings = array();
         foreach ( self::transformerFindings($result) as $finding ) {
@@ -155,6 +159,9 @@ final class CorpusDetectors
             'svg_content_lost_count'      => count($svgLost),
             'layout_direction_misrecognition_count' => count($layoutMisrecognition),
         );
+        foreach ( $mediaTextMetrics as $name => $value ) {
+            $metrics[ $name ] = $value;
+        }
 
         return array(
             'metrics'   => $metrics,
@@ -249,6 +256,176 @@ final class CorpusDetectors
             'freeform' => $freeform,
             'rate'     => $total > 0 ? round($native / $total, 4) : 0.0,
         );
+    }
+
+    /**
+     * Count emitted core/media-text blocks and source-derived outcomes for
+     * strict two-pane candidates. A candidate has exactly two direct element
+     * children and exactly one img/video across those two sides.
+     *
+     * Outcome counters are exclusive. width_oob is intentionally not a decline:
+     * MediaTextPattern still emits the block and merely omits an out-of-bounds
+     * mediaWidth attribute.
+     *
+     * @param string                           $sourceHtml Original source HTML for the document.
+     * @param array<int, array<string, mixed>> $flat       Flattened emitted block list.
+     * @return array{
+     *     media_text_count: int,
+     *     media_text_decline_media_impure_count: int,
+     *     media_text_decline_no_text_side_count: int,
+     *     media_text_decline_vertical_or_reversed_count: int,
+     *     media_text_decline_unsafe_url_count: int,
+     *     media_text_width_oob_count: int,
+     *     media_text_decline_linked_video_count: int,
+     *     media_text_decline_other_count: int
+     * }
+     */
+    private static function mediaTextMetrics(string $sourceHtml, array $flat): array
+    {
+        $metrics = array(
+            'media_text_count'                               => 0,
+            'media_text_decline_media_impure_count'          => 0,
+            'media_text_decline_no_text_side_count'          => 0,
+            'media_text_decline_vertical_or_reversed_count'  => 0,
+            'media_text_decline_unsafe_url_count'            => 0,
+            'media_text_width_oob_count'                     => 0,
+            'media_text_decline_linked_video_count'          => 0,
+            'media_text_decline_other_count'                 => 0,
+        );
+
+        foreach ( $flat as $block ) {
+            if ( 'core/media-text' === ($block['blockName'] ?? null) ) {
+                ++$metrics['media_text_count'];
+            }
+        }
+
+        if ( '' === trim($sourceHtml) ) {
+            return $metrics;
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $doc = new \DOMDocument();
+        $loaded = $doc->loadHTML('<?xml encoding="utf-8"?>' . $sourceHtml);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return $metrics;
+        }
+
+        $xpath = new \DOMXPath($doc);
+        $nodes = $xpath->query('//body//*');
+        if ( false === $nodes ) {
+            return $metrics;
+        }
+        $textTransformer = null;
+        $sourceStyleMarkup = '';
+        $sourceCss = '';
+        foreach ( $doc->getElementsByTagName('style') as $styleElement ) {
+            $styleCss = (string) $styleElement->textContent;
+            $sourceCss .= ( '' === $sourceCss ? '' : "\n" ) . $styleCss;
+            $styleMarkup = $doc->saveHTML($styleElement);
+            if ( is_string($styleMarkup) ) {
+                $sourceStyleMarkup .= $styleMarkup;
+            }
+        }
+        $styleRules = self::mediaTextStaticStyleRules($sourceCss);
+
+        $sourcePasserCount = 0;
+        $widthOobCandidateCount = 0;
+        foreach ( $nodes as $node ) {
+            if ( ! $node instanceof \DOMElement ) {
+                continue;
+            }
+
+            $children = self::directElementChildren($node);
+            if ( 2 !== count($children) ) {
+                continue;
+            }
+
+            $mediaCounts = array(
+                self::mediaElementCount($children[0]),
+                self::mediaElementCount($children[1]),
+            );
+            if ( 1 !== $mediaCounts[0] + $mediaCounts[1] ) {
+                continue;
+            }
+
+            $mediaIndex = 1 === $mediaCounts[0] ? 0 : 1;
+            $textIndex = 0 === $mediaIndex ? 1 : 0;
+
+            if ( self::hasNonIgnorableDirectNodes($node) ) {
+                ++$metrics['media_text_decline_other_count'];
+                continue;
+            }
+
+            $resolution = self::diagnosticPureMediaResolution($children[ $mediaIndex ]);
+            if ( null === $resolution ) {
+                ++$metrics['media_text_decline_media_impure_count'];
+                continue;
+            }
+
+            $media = $resolution['media'];
+            if ( 'video' === strtolower($media->tagName) && $resolution['anchor'] instanceof \DOMElement ) {
+                ++$metrics['media_text_decline_linked_video_count'];
+                continue;
+            }
+
+            $containerStyle = self::mediaTextResolvedDeclarations(
+                $node,
+                $styleRules,
+                array( 'display', 'flex-direction', 'direction', 'grid-template-columns' )
+            );
+            $childStyles = array(
+                self::mediaTextResolvedDeclarations($children[0], $styleRules, array( 'order', 'flex-basis', 'width' )),
+                self::mediaTextResolvedDeclarations($children[1], $styleRules, array( 'order', 'flex-basis', 'width' )),
+            );
+            if ( self::mediaTextHasVerticalOrReversedLayout($containerStyle, $childStyles) ) {
+                ++$metrics['media_text_decline_vertical_or_reversed_count'];
+                continue;
+            }
+
+            if ( '' === self::diagnosticSafeMediaUrl($media->getAttribute('src')) ) {
+                ++$metrics['media_text_decline_unsafe_url_count'];
+                continue;
+            }
+
+            $textBearing = self::mediaTextSideHasTextBearingBlock(
+                $doc,
+                $children[ $textIndex ],
+                $sourceStyleMarkup,
+                $textTransformer
+            );
+            if ( false === $textBearing ) {
+                ++$metrics['media_text_decline_no_text_side_count'];
+                continue;
+            }
+            if ( null === $textBearing ) {
+                ++$metrics['media_text_decline_other_count'];
+                continue;
+            }
+
+            ++$sourcePasserCount;
+            $mediaWidth = self::diagnosticMediaWidth($containerStyle, $childStyles[ $mediaIndex ], $mediaIndex);
+            if ( null !== $mediaWidth && ( 15 > $mediaWidth || 85 < $mediaWidth ) ) {
+                ++$widthOobCandidateCount;
+            }
+        }
+
+        // Source-only gates cannot expose transform-time failures. Approximate
+        // `other` as otherwise-eligible candidates that did not emit, at document
+        // granularity; emitted blocks consume source passers, never known declines.
+        // The width diagnostic is capped by emitted adoption so it cannot also be
+        // counted as an `other` decline for the same document-level candidate.
+        $metrics['media_text_width_oob_count'] = min(
+            $widthOobCandidateCount,
+            $metrics['media_text_count']
+        );
+        $metrics['media_text_decline_other_count'] += max(
+            0,
+            $sourcePasserCount - $metrics['media_text_count']
+        );
+
+        return $metrics;
     }
 
     /**
@@ -771,6 +948,454 @@ final class CorpusDetectors
         $pattern = (string) ($finding['pattern'] ?? 'unclassified');
 
         return $bucket . ' :: ' . $pattern;
+    }
+
+    /**
+     * Keep only top-level author rules, matching HtmlTransformer's strict-gate
+     * cascade. Conditional and other at-rules remain available to the isolated
+     * text-side transform through the separately preserved source markup.
+     */
+    private static function mediaTextTopLevelCss(string $css): string
+    {
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $output = '';
+        $length = strlen($css);
+        $depth = 0;
+
+        for ( $offset = 0; $offset < $length; ++$offset ) {
+            $char = $css[ $offset ];
+            if ( '"' === $char || "'" === $char ) {
+                $output .= $char;
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    $output .= $css[ $offset ];
+                    if ( '\\' === $css[ $offset ] && $offset + 1 < $length ) {
+                        $output .= $css[ ++$offset ];
+                        continue;
+                    }
+                    if ( $char === $css[ $offset ] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            if ( 0 !== $depth || '@' !== $char ) {
+                if ( '{' === $char ) {
+                    ++$depth;
+                } elseif ( '}' === $char && 0 < $depth ) {
+                    --$depth;
+                }
+                $output .= $char;
+                continue;
+            }
+
+            $blockStart = self::mediaTextCssToken($css, '{', $offset);
+            $statementEnd = self::mediaTextCssToken($css, ';', $offset);
+            if ( null === $blockStart || ( null !== $statementEnd && $statementEnd < $blockStart ) ) {
+                if ( null === $statementEnd ) {
+                    break;
+                }
+                $offset = $statementEnd;
+                continue;
+            }
+
+            $atRuleDepth = 1;
+            for ( $inner = $blockStart + 1; $inner < $length; ++$inner ) {
+                if ( '"' === $css[ $inner ] || "'" === $css[ $inner ] ) {
+                    $quote = $css[ $inner ];
+                    for ( ++$inner; $inner < $length; ++$inner ) {
+                        if ( '\\' === $css[ $inner ] ) {
+                            ++$inner;
+                            continue;
+                        }
+                        if ( $quote === $css[ $inner ] ) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if ( '{' === $css[ $inner ] ) {
+                    ++$atRuleDepth;
+                } elseif ( '}' === $css[ $inner ] && 0 === --$atRuleDepth ) {
+                    $offset = $inner;
+                    continue 2;
+                }
+            }
+            break;
+        }
+
+        return $output;
+    }
+
+    /**
+     * Parse production-equivalent ordered static rules for media-text gate
+     * properties. Dynamic pseudo-state rules never affect resting strict gates.
+     *
+     * @return array<int, array{selector: array<string, mixed>, declarations: array<string, string>}>
+     */
+    private static function mediaTextStaticStyleRules(string $css): array
+    {
+        $css = self::mediaTextTopLevelCss($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $requested = array_flip(array(
+            'display',
+            'flex-direction',
+            'direction',
+            'grid-template-columns',
+            'order',
+            'flex-basis',
+            'width',
+        ));
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = array_intersect_key(
+                self::mediaTextCssDeclarations((string) $match[2]),
+                $requested
+            );
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selectorSource ) {
+                $selectorSource = trim($selectorSource);
+                if (
+                    '' === $selectorSource
+                    || preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selectorSource)
+                ) {
+                    continue;
+                }
+                $selector = CssSelectorMatcher::parse($selectorSource);
+                if ( $selector['supported'] ?? false ) {
+                    $rules[] = array(
+                        'selector'     => $selector,
+                        'declarations' => $declarations,
+                    );
+                }
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Merge matching rules in source order, then inline declarations, exactly as
+     * StyleResolutionTrait::structuralPresentationDeclarations().
+     *
+     * @param array<int, array{selector: array<string, mixed>, declarations: array<string, string>}> $rules
+     * @param array<int, string> $requested
+     * @return array<string, string>
+     */
+    private static function mediaTextResolvedDeclarations(\DOMElement $element, array $rules, array $requested): array
+    {
+        $declarations = array();
+        foreach ( $rules as $rule ) {
+            $match = CssSelectorMatcher::matches($element, $rule['selector']);
+            if ( $match['supported'] && $match['matches'] ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+        $declarations = array_merge(
+            $declarations,
+            self::mediaTextCssDeclarations($element->getAttribute('style'))
+        );
+
+        return array_intersect_key($declarations, array_flip($requested));
+    }
+
+    /** @return array<string, string> */
+    private static function mediaTextCssDeclarations(string $style): array
+    {
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            $name = strtolower($name);
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            $allowsImageUrl = in_array($name, array( 'background', 'background-image' ), true)
+                && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
+            if (
+                '' !== $name
+                && '' !== $value
+                && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) )
+            ) {
+                $declarations[ $name ] = $value;
+            }
+        }
+
+        return $declarations;
+    }
+
+    private static function mediaTextCssToken(string $css, string $token, int $offset): ?int
+    {
+        $length = strlen($css);
+        for ( ; $offset < $length; ++$offset ) {
+            if ( '"' === $css[ $offset ] || "'" === $css[ $offset ] ) {
+                $quote = $css[ $offset ];
+                for ( ++$offset; $offset < $length; ++$offset ) {
+                    if ( '\\' === $css[ $offset ] ) {
+                        ++$offset;
+                        continue;
+                    }
+                    if ( $quote === $css[ $offset ] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( $token === $css[ $offset ] ) {
+                return $offset;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert the candidate text side through the production transformer, then
+     * apply the same recursive block-name test as PatternGateHelpersTrait.
+     * Embedded source styles are retained so selector-driven conversion stays
+     * as close as possible to the full-document path.
+     */
+    private static function mediaTextSideHasTextBearingBlock(
+        \DOMDocument $doc,
+        \DOMElement $textSide,
+        string $sourceStyleMarkup,
+        ?HtmlTransformer &$transformer
+    ): ?bool {
+        $fragment = $doc->saveHTML($textSide);
+        if ( ! is_string($fragment) ) {
+            return null;
+        }
+
+        $transformer ??= new HtmlTransformer();
+        try {
+            $result = $transformer->transform(
+                '<!doctype html><html><head>' . $sourceStyleMarkup . '</head><body>' . $fragment . '</body></html>',
+                array()
+            )->toArray();
+        } catch ( \Throwable ) {
+            return null;
+        }
+
+        $blocks = is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+        $textBearingNames = array( 'core/heading', 'core/paragraph', 'core/list', 'core/buttons', 'core/quote' );
+        foreach ( self::flatten($blocks) as $block ) {
+            if ( in_array($block['blockName'] ?? null, $textBearingNames, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, \DOMElement>
+     */
+    private static function directElementChildren(\DOMElement $element): array
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof \DOMElement ) {
+                $children[] = $child;
+            }
+        }
+
+        return $children;
+    }
+
+    private static function hasNonIgnorableDirectNodes(\DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || $child instanceof \DOMElement ) {
+                continue;
+            }
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static function mediaElementCount(\DOMElement $element): int
+    {
+        return (in_array(strtolower($element->tagName), array( 'img', 'video' ), true) ? 1 : 0)
+            + $element->getElementsByTagName('img')->length
+            + $element->getElementsByTagName('video')->length;
+    }
+
+    /**
+     * @return array{media: \DOMElement, anchor: \DOMElement|null}|null
+     */
+    private static function diagnosticPureMediaResolution(\DOMElement $element, ?\DOMElement $anchor = null): ?array
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'img', 'video' ), true) ) {
+            if ( array() !== self::directElementChildren($element) || self::hasNonIgnorableDirectNodes($element) ) {
+                return null;
+            }
+
+            return array(
+                'media'  => $element,
+                'anchor' => $anchor,
+            );
+        }
+
+        if ( ! in_array($tagName, array( 'figure', 'div', 'a', 'picture' ), true) ) {
+            return null;
+        }
+        if ( 'a' === $tagName ) {
+            if ( $anchor instanceof \DOMElement ) {
+                return null;
+            }
+            $anchor = $element;
+        }
+
+        if ( 'picture' === $tagName ) {
+            $image = null;
+            foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                $descendantTag = strtolower($descendant->tagName);
+                if ( 'source' === $descendantTag ) {
+                    continue;
+                }
+                if ( 'img' !== $descendantTag || $image instanceof \DOMElement ) {
+                    return null;
+                }
+                $image = $descendant;
+            }
+            if ( ! $image instanceof \DOMElement || '' !== trim($element->textContent ?? '') ) {
+                return null;
+            }
+
+            return array( 'media' => $image, 'anchor' => $anchor );
+        }
+
+        $children = self::directElementChildren($element);
+        if ( 1 !== count($children) || self::hasNonIgnorableDirectNodes($element) ) {
+            return null;
+        }
+
+        return self::diagnosticPureMediaResolution($children[0], $anchor);
+    }
+
+    private static function diagnosticSafeMediaUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]/', $url) ) {
+            return '';
+        }
+        if ( str_starts_with($url, '//') || ! preg_match('/^([a-z][a-z0-9+.-]*)\s*:/i', $url, $matches) ) {
+            return $url;
+        }
+
+        $scheme = strtolower($matches[1]);
+        if ( in_array($scheme, array( 'http', 'https' ), true) && preg_match('/^' . preg_quote($scheme, '/') . ':/i', $url) ) {
+            return $url;
+        }
+        if ( 'data' === $scheme && preg_match('/^data:image\/[a-z0-9.+-]+(?:[;,])/i', $url) ) {
+            return $url;
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, string>             $containerStyle
+     * @param array<int, array<string, string>> $childStyles
+     */
+    private static function mediaTextHasVerticalOrReversedLayout(array $containerStyle, array $childStyles): bool
+    {
+        $display = strtolower(self::mediaTextCssValue((string) ($containerStyle['display'] ?? '')));
+        $flexDirection = strtolower(self::mediaTextCssValue((string) ($containerStyle['flex-direction'] ?? '')));
+        $direction = strtolower(self::mediaTextCssValue((string) ($containerStyle['direction'] ?? '')));
+        if (
+            ( 'flex' === $display && in_array($flexDirection, array( 'column', 'column-reverse', 'row-reverse' ), true) )
+            || 'rtl' === $direction
+        ) {
+            return true;
+        }
+
+        foreach ( $childStyles as $style ) {
+            if ( array_key_exists('order', $style) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, string> $containerStyle
+     * @param array<string, string> $mediaStyle
+     */
+    private static function diagnosticMediaWidth(array $containerStyle, array $mediaStyle, int $mediaIndex): ?int
+    {
+        $display = strtolower(self::mediaTextCssValue((string) ($containerStyle['display'] ?? '')));
+        $template = self::mediaTextCssValue((string) ($containerStyle['grid-template-columns'] ?? ''));
+        if ( 'grid' === $display && '' !== $template ) {
+            return self::diagnosticGridMediaWidth($template, $mediaIndex);
+        }
+
+        foreach ( array( 'flex-basis', 'width' ) as $property ) {
+            $width = self::diagnosticPercentage((string) ($mediaStyle[ $property ] ?? ''));
+            if ( null !== $width ) {
+                return $width;
+            }
+        }
+
+        return null;
+    }
+
+    private static function diagnosticGridMediaWidth(string $template, int $mediaIndex): ?int
+    {
+        $tracks = CssValueSplitter::splitTopLevelWhitespace($template);
+        if ( 2 !== count($tracks) ) {
+            return null;
+        }
+
+        $percentage = self::diagnosticPercentage($tracks[ $mediaIndex ]);
+        if ( null !== $percentage ) {
+            return $percentage;
+        }
+
+        $firstFr = self::diagnosticFrValue($tracks[0]);
+        $secondFr = self::diagnosticFrValue($tracks[1]);
+        if ( null === $firstFr || null === $secondFr || 0.0 >= $firstFr + $secondFr ) {
+            return null;
+        }
+
+        return (int) round(100 * ( 0 === $mediaIndex ? $firstFr : $secondFr ) / ($firstFr + $secondFr));
+    }
+
+    private static function diagnosticPercentage(string $value): ?int
+    {
+        $value = self::mediaTextCssValue($value);
+        if ( ! preg_match('/^-?(?:\d+(?:\.\d*)?|\.\d+)%$/', $value) ) {
+            return null;
+        }
+
+        return (int) round((float) rtrim($value, '%'));
+    }
+
+    private static function diagnosticFrValue(string $value): ?float
+    {
+        $value = self::mediaTextCssValue($value);
+        if ( ! preg_match('/^(?:\d+(?:\.\d*)?|\.\d+)fr$/i', $value) ) {
+            return null;
+        }
+
+        return (float) substr($value, 0, -2);
+    }
+
+    private static function mediaTextCssValue(string $value): string
+    {
+        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
     }
 
     /**
