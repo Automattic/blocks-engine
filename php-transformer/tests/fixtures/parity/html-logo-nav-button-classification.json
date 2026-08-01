@@ -29,7 +29,7 @@
     { "path": "blocks.2", "name": "core/navigation" },
     { "path": "blocks.2.innerBlocks.0", "name": "core/navigation-link", "attrs": { "url": "/privacy", "kind": "custom" } },
     { "path": "blocks.2.innerBlocks.1", "name": "core/navigation-link", "attrs": { "url": "/terms", "kind": "custom" } },
-    { "path": "blocks.3", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation" } },
+    { "path": "blocks.3", "name": "core/navigation", "attrs": { "className": "blocks-engine-navigation-list-d66bb2eab67a blocks-engine-list-navigation" } },
     { "path": "blocks.3.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Menu", "url": "#menu", "kind": "custom" } },
     { "path": "blocks.3.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Hours", "url": "#hours", "kind": "custom" } }
   ],

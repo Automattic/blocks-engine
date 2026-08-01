@@ -518,6 +518,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
+        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
+            $attrs['className'] = $this->navigationListProjectionClasses((string) ($attrs['className'] ?? ''));
+        }
         if ( $this->isListNavigationSource($element) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
         }
@@ -528,7 +531,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $list = $this->navigationSourceList($element);
         if ( $list instanceof DOMElement ) {
             $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
-            $listClasses = trim((string) ($listAttrs['className'] ?? ''));
+            // A source list is replaced by core/navigation's inner list. Its
+            // classes must not leak onto the outer navigation flex item.
+            $listClasses = $this->navigationListProjectionClasses((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
                 $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
             }
@@ -545,6 +550,30 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    private function navigationListProjectionClasses(string $className): string
+    {
+        $classes = array();
+        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+            if ( '' === $class ) {
+                continue;
+            }
+            if ( str_starts_with($class, 'blocks-engine-source-ul-') || str_starts_with($class, 'blocks-engine-source-ol-') ) {
+                $classes[] = $class;
+                continue;
+            }
+            if ( ! str_starts_with($class, 'blocks-engine-') ) {
+                $classes[] = self::navigationListProjectionClass($class);
+            }
+        }
+
+        return implode(' ', array_values(array_unique($classes)));
+    }
+
+    private static function navigationListProjectionClass(string $sourceClass): string
+    {
+        return 'blocks-engine-navigation-list-' . substr(hash('sha256', $sourceClass), 0, 12);
     }
 
     private function isListNavigationSource(DOMElement $element): bool

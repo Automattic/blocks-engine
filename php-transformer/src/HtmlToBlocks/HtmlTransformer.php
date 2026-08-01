@@ -1310,6 +1310,11 @@ final class HtmlTransformer
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
+            $navigationListProjection = $this->projectNavigationListSelector($parsed, $matches);
+            if ( null !== $navigationListProjection ) {
+                $rewritten[] = $navigationListProjection;
+                continue;
+            }
             if ( $this->isRootChildSelector($parsed) ) {
                 $shellTags = array_values(array_unique(array_filter(array_map(
                     function (DOMElement $element): string {
@@ -1400,6 +1405,38 @@ final class HtmlTransformer
             }
         }
         return implode(',', $rewritten);
+    }
+
+    /**
+     * A source list is replaced by core/navigation's runtime inner list. Project
+     * selectors that addressed only that list there instead of onto the outer
+     * navigation flex item.
+     *
+     * @param array<string,mixed> $parsed
+     * @param array<int,DOMElement> $matches
+     */
+    private function projectNavigationListSelector(array $parsed, array $matches): ?string
+    {
+        if ( array() === $matches ) {
+            return null;
+        }
+
+        $markers = array();
+        foreach ( $matches as $element ) {
+            if ( ! in_array(strtolower($element->tagName), array('ul', 'ol'), true) || ! $this->isFoldedIntoCoreNavigation($element) ) {
+                return null;
+            }
+            $classes = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
+            $sourceClass = $classes[0] ?? ($element->getNodePath() ?? strtolower($element->tagName));
+            $markers[] = 'blocks-engine-navigation-list-' . substr(hash('sha256', $sourceClass), 0, 12);
+        }
+
+        $selectors = array();
+        foreach ( array_unique($markers) as $marker ) {
+            $selectors[] = ':where(.' . $marker . '.wp-block-navigation) .wp-block-navigation__container' . $this->selectorSpecificityShims($parsed);
+        }
+
+        return implode(',', $selectors);
     }
 
     private function projectAuthorImageSelectorPrelude(string $prelude): string
