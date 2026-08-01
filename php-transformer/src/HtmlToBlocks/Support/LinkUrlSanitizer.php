@@ -24,6 +24,10 @@ final class LinkUrlSanitizer
             return 'mailto:' . $url;
         }
 
+        if ( self::isBareWebHost($url) ) {
+            return 'https://' . $url;
+        }
+
         if ( 1 === preg_match('/^([a-z][a-z0-9+.-]*):/i', $url, $matches) && ! in_array(strtolower($matches[1]), self::ALLOWED_PROTOCOLS, true) ) {
             return '';
         }
@@ -38,5 +42,17 @@ final class LinkUrlSanitizer
         $label = '[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?';
 
         return 1 === preg_match('/^(?:' . $atom . '(?:\.' . $atom . ')*|' . $quoted . ')@' . $label . '(?:\.' . $label . ')+$/u', $url);
+    }
+
+    private static function isBareWebHost(string $url): bool
+    {
+        $label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+        $fileExtensions = array('asp', 'aspx', 'avif', 'css', 'gif', 'htm', 'html', 'jpeg', 'jpg', 'js', 'json', 'markdown', 'md', 'mdown', 'mkd', 'pdf', 'php', 'png', 'svg', 'txt', 'webp', 'xml', 'zip');
+
+        if (1 !== preg_match('/^(?:' . $label . '\.)+([a-z]{2,63})$/i', $url, $matches)) {
+            return false;
+        }
+
+        return ! in_array(strtolower($matches[1]), $fileExtensions, true);
     }
 }
