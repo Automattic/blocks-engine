@@ -200,6 +200,18 @@ $assert('blocks-engine/author-layout' === ($columnsMaxWidthBlock['blockName'] ??
 $assert(! isset($columnsMaxWidthAttrs['style']), '25: author layout omits core dimensions support', json_encode($columnsMaxWidthAttrs));
 $assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: author layout leaves unsupported geometry to source CSS', $columnsMaxWidthMarkup);
 
+$gridGeometryHtml = '<div class="layout-grid"><div>Left</div><div>Right</div></div>';
+$gridGeometryResult = ( new HtmlTransformer() )->transform($gridGeometryHtml, array('static_css' => '.layout-grid{display:grid;grid-template-columns:1fr 1fr;max-width:72rem;margin:0 auto;padding:0 2rem}'))->toArray();
+$gridGeometryBlock = $gridGeometryResult['blocks'][0] ?? array();
+$gridGeometryMarkup = (string) ($gridGeometryResult['serialized_blocks'] ?? '');
+$assert('blocks-engine/author-layout' === ($gridGeometryBlock['blockName'] ?? ''), '27: CSS-owned grids stay in the author-layout companion instead of core Columns', (string) ($gridGeometryBlock['blockName'] ?? '(none)'));
+$assert(! str_contains($gridGeometryMarkup, '<!-- wp:columns') && ! str_contains($gridGeometryMarkup, 'max-width:72rem'), '28: CSS-owned grid geometry never enters a core Columns save wrapper', $gridGeometryMarkup);
+
+$nativeColumnsHtml = '<div class="wp-block-columns"><div class="wp-block-column"><p>Left</p></div><div class="wp-block-column"><p>Right</p></div></div>';
+$nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumnsHtml, array('static_css' => '.wp-block-columns{display:flex}'))->toArray();
+$nativeColumnsBlock = $nativeColumnsResult['blocks'][0] ?? array();
+$assert('core/columns' === ($nativeColumnsBlock['blockName'] ?? ''), '29: explicit native Columns markup remains core Columns', (string) ($nativeColumnsBlock['blockName'] ?? '(none)'));
+
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();

@@ -2644,7 +2644,12 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            if ( 'button' !== strtolower($this->attr($element, 'role')) && $this->isAuthorOwnedLayout($element) ) {
+            // Native Columns owns its canonical save shape. Other flex/grid
+            // containers retain their source geometry through author-layout.
+            if ( 'button' !== strtolower($this->attr($element, 'role'))
+                && ! $this->hasClass($element, 'wp-block-columns')
+                && $this->isAuthorOwnedLayout($element)
+            ) {
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
