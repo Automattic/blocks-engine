@@ -2,6 +2,7 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use DOMElement;
 use DOMNode;
 
@@ -495,17 +496,6 @@ trait DomHelpersTrait
      */
     private function dedupeArrayRows(array $rows): array
     {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 }

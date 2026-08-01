@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+
 final class ConversionReportProjection
 {
     public const SCHEMA = 'blocks-engine/php-transformer/conversion-report/v1';
@@ -595,17 +597,6 @@ final class ConversionReportProjection
      */
     private static function dedupeRows(array $rows): array
     {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 }
