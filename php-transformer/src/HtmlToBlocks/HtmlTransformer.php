@@ -1367,8 +1367,8 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( isset($this->sourceControlMarkers[$path]) ) {
-                    $controls[] = $this->sourceControlMarkers[$path];
+                if ( isset($this->sourceControlMarkers[$path]) || isset($this->sourceButtonPresentationMarkers[$path]) ) {
+                    $controls[] = $this->sourceControlMarkers[$path] ?? $this->sourceButtonPresentationMarkers[$path];
                 } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
                     $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
                 } elseif ( isset($this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)]) ) {

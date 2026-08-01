@@ -58,8 +58,8 @@ final class CssSelectorMatcher
     }
 
     /**
-     * Match from the rightmost compound. Only hover, focus, active, and visited
-     * are detachable dynamic suffixes; callers must explicitly account for them.
+     * Match from the rightmost compound. Dynamic states and generated before/after
+     * pseudo-elements are detachable suffixes; callers must explicitly account for them.
      *
      * @param array<string, mixed> $selector Result of parse().
      * @return array{supported: bool, matches: bool}
@@ -102,8 +102,9 @@ final class CssSelectorMatcher
             if ( ':' === $character ) {
                 $start = $offset;
                 ++$offset;
-                if ( ':' === ($source[ $offset ] ?? '') ) {
-                    return null;
+                $isPseudoElement = ':' === ($source[ $offset ] ?? '');
+                if ( $isPseudoElement ) {
+                    ++$offset;
                 }
                 $name = self::identifier($source, $offset);
                 if ( null === $name ) {
@@ -129,7 +130,7 @@ final class CssSelectorMatcher
                     $hasSimple = true;
                     continue;
                 }
-                if ( '(' === ($source[ $offset ] ?? '') || ! $isRightmost || ! in_array($lowerName, array( 'hover', 'focus', 'active', 'visited' ), true) ) {
+                if ( '(' === ($source[ $offset ] ?? '') || ! $isRightmost || ! in_array($lowerName, array( 'hover', 'focus', 'active', 'visited', 'before', 'after' ), true) || ($isPseudoElement && ! in_array($lowerName, array( 'before', 'after' ), true)) ) {
                     return null;
                 }
                 if ( null === $suffix ) {
