@@ -3130,6 +3130,12 @@ final class HtmlTransformer
                 $attrs['tagName'] = $semanticTag;
             }
         }
+        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && $this->isImagePresentationWrapper($sourceElement) ) {
+            // Core Group has no text-alignment support. Carry an image-only
+            // wrapper's explicit alignment so its native core/image child keeps
+            // the source inline formatting context.
+            $attrs = array_merge($attrs, $this->presentationAttributes($sourceElement, array(), array( 'text-align' )));
+        }
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
         if ( isset($provenanceId) ) {
             $block['_source_provenance_id'] = $provenanceId;
@@ -4628,6 +4634,16 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function isImagePresentationWrapper(DOMElement $element): bool
+    {
+        $alignment = strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['text-align'] ?? '')));
+        if ( ! in_array($alignment, array( 'left', 'center', 'right' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        return 1 === $element->getElementsByTagName('img')->length;
     }
 
     /**

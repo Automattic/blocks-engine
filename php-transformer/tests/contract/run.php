@@ -326,6 +326,12 @@ $paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td
 $paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
 $assert(str_contains($paddedTableCss, 'width:50%!important;padding:0 15px!important'), 'native table geometry CSS preserves authored cell width and padding together');
 $assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native table images remain editor-valid');
+$centeredImageWrapperResult = ( new HtmlTransformer() )->transform('<div class="portrait" style="text-align:center"><img src="portrait.jpg" alt="Portrait"></div>')->toArray();
+$centeredImageWrapperMarkup = (string) ($centeredImageWrapperResult['serialized_blocks'] ?? '');
+$centeredImageWrapperCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $centeredImageWrapperResult['assets'] ?? array()));
+$assert(str_contains($centeredImageWrapperMarkup, '<div class="wp-block-group portrait be-inline-geometry-') && str_contains($centeredImageWrapperMarkup, '<figure class="wp-block-image"'), 'inline-aligned image wrappers remain editable core/group and core/image blocks');
+$assert(str_contains($centeredImageWrapperCss, 'text-align:center !important'), 'native image wrappers preserve inline centering through deterministic presentation CSS');
+$assert('pass' === ($centeredImageWrapperResult['source_reports']['wp_block_validity']['status'] ?? ''), 'centered native image wrappers remain editor-valid');
 $maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
 $maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
 $maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));
