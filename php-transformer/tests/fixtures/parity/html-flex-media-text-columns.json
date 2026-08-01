@@ -16,9 +16,9 @@
     "content": "<div style=\"display:flex;gap:2rem;align-items:flex-start\"><svg viewBox=\"0 0 20 20\" aria-label=\"Paw width diagram\"><rect x=\"1\" y=\"1\" width=\"18\" height=\"18\" fill=\"#eee\" /><text x=\"10\" y=\"12\" text-anchor=\"middle\" font-family=\"monospace\" font-size=\"6\">WIDTH</text></svg><div><h3>Paw Width</h3><p>Measure the widest point while standing.</p></div></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout" },
+    { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/image" },
-    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "tagName": "div" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Paw Width", "level": 3 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Measure the widest point while standing." } }
   ],
@@ -30,7 +30,10 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "WIDTH" },
-    { "path": "assets", "assert": "count", "count": 1 },
+    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets.1.content", "assert": "contains", "value": "margin-block-start:0;margin-block-end:0" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
   ]

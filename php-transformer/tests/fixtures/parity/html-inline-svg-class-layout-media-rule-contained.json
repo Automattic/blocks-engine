@@ -16,14 +16,15 @@
     "content": "<style>.release-grid{display:grid;grid-template-columns:260px 1fr;gap:5rem}.cover-wrap{position:relative}.ep-cover{width:100%;aspect-ratio:1;display:block}@media (max-width: 768px){.release-grid{grid-template-columns:1fr;gap:2rem}.cover-wrap{max-width:220px;margin:0 auto}.ep-cover{max-width:220px}}</style><main><section class=\"release-grid\"><div class=\"cover-wrap\"><svg class=\"ep-cover\" viewBox=\"0 0 500 500\" role=\"img\" aria-label=\"EP cover\"><defs><linearGradient id=\"paint\"><stop offset=\"0%\" stop-color=\"currentColor\"></stop><stop offset=\"100%\" stop-color=\"#b8552a\"></stop></linearGradient></defs><rect width=\"500\" height=\"500\" fill=\"url(#paint)\"></rect></svg></div><div><h2>Between the Fog</h2><p>New EP.</p></div></section></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "release-grid", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cover-wrap", "tagName": "div" } },
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover", "alt": "EP cover" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout release-grid\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout cover-wrap\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group release-grid blocks-engine-css-owned-layout blocks-engine-css-owned-flow\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cover-wrap blocks-engine-css-owned-layout\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stop-color=\"#000000\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "margin-right:auto" },

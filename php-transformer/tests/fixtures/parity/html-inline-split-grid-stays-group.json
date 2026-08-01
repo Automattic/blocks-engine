@@ -16,14 +16,16 @@
     "content": "<section class=\"feature-row\" style=\"display:grid;grid-template-columns:520px 520px;gap:64px;align-items:center\"><div class=\"feature-copy\"><h2>Fast setup</h2><p>Start with a stable foundation.</p></div><div class=\"feature-visual\"><p>Preview</p></div></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-row", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-copy", "tagName": "div" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-visual", "tagName": "div" } }
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/author-layout {\"className\":\"feature-row\",\"contentMode\":\"inner-blocks\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group feature-row blocks-engine-css-owned-layout blocks-engine-css-owned-flow\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "feature-copy blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

@@ -16,15 +16,17 @@
     "content": "<div class=\"event-row\" style=\"display:grid;grid-template-columns:90px 1fr auto;align-items:center;gap:2rem;padding:1.5rem 0\"><div class=\"date\">Mar 8</div><div class=\"venue\">The Moth House</div><a class=\"btn\" href=\"/tickets\" style=\"padding:10px 16px;background:#135e96\">Tickets</a></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "event-row", "tagName": "div" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "date", "tagName": "div" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "venue", "tagName": "div" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "blocks-engine/author-layout", "attrs": { "className": "btn", "tagName": "a", "content": "Tickets" } }
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/author-layout {\"className\":\"event-row\",\"contentMode\":\"inner-blocks\",\"tagName\":\"div\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "event-row blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "date blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
