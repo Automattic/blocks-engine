@@ -300,7 +300,7 @@ $assertTrue(! str_contains($assetCss($heightResult), 'height:345.5px'), 'K3: Hei
 // K4: CSS-owned semantic flex heroes retain their source section and direct children.
 $columnsResult = $transformHtml('<section style="display:flex;background-image:url(https://example.com/h.jpg);background-size:cover"><div style="flex:1"><h1>Left</h1></div><div style="flex:1"><p>Right</p></div></section>');
 $columnsNames = $blockNames($columnsResult['blocks'] ?? array());
-$assertTrue(in_array('blocks-engine/author-layout', $columnsNames, true) && ! in_array('core/columns', $columnsNames, true), 'K4: Flex hero candidate preserves section topology without Group layout defaults.');
+$assertTrue(in_array('core/group', $columnsNames, true) && ! in_array('core/columns', $columnsNames, true), 'K4: Flex hero candidate preserves section topology through core/group without layout defaults.');
 $assertTrue(! in_array('core/cover', $columnsNames, true), 'K4: Flex hero candidate does not become core/cover.');
 
 // K5: Navigation-bearing shell wrappers never become core/cover.
