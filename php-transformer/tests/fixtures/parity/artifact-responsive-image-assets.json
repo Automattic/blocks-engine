@@ -40,7 +40,12 @@
   ],
   "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "status", "assert": "equals", "value": "failed" },
+    { "path": "diagnostics", "assert": "count", "count": 1 },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "wordpress_site_plan_not_self_contained" },
+    { "path": "diagnostics.0.severity", "assert": "equals", "value": "error" },
+    { "path": "diagnostics.0.source", "assert": "equals", "value": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" },
+    { "path": "source_reports.wordpress_site_plan_diagnostics", "assert": "equals", "value": [{ "code": "wordpress_site_plan_not_self_contained", "severity": "error", "message": "WordPress site plan contains unresolved local browser reference ../../missing/ghost.png.", "source": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" }] },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },

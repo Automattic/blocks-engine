@@ -25,7 +25,7 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "status", "assert": "equals", "value": "failed" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "warning" },
     { "path": "source_reports.runtime_dependency_parity.findings", "assert": "count", "count": 1 },
     { "path": "source_reports.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_script_not_materialized" },
