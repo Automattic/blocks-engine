@@ -1164,9 +1164,19 @@ $boxedDivParagraph = ( new HtmlTransformer() )->transform(
 )->toArray();
 $boxedDivParagraphMarkup = (string) ($boxedDivParagraph['serialized_blocks'] ?? '');
 $boxedDivParagraphCss = implode("\n", array_column(array_filter($boxedDivParagraph['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(str_contains($boxedDivParagraphMarkup, '<div class="wp-block-group paragraph') && str_contains($boxedDivParagraphMarkup, '<p class="blocks-engine-synthetic-paragraph">Boxed copy.</p>'), 'box-chrome text wrappers neutralize margins on their generated inner paragraphs');
+$boxedDivParagraphBlock = $boxedDivParagraph['blocks'][0]['innerBlocks'][0] ?? array();
+$assert(str_contains($boxedDivParagraphMarkup, '<div class="wp-block-group paragraph') && str_contains($boxedDivParagraphMarkup, '<p class="has-text-align-center blocks-engine-synthetic-paragraph">Boxed copy.</p>'), 'box-chrome text wrappers propagate supported text alignment to their generated inner paragraphs');
+$assert('center' === ($boxedDivParagraphBlock['attrs']['align'] ?? ''), 'box-chrome wrapper alignment uses native paragraph align support');
+$assert(! str_contains((string) ($boxedDivParagraphBlock['attrs']['className'] ?? ''), 'blocks-engine-source-div-'), 'generated inner paragraphs retain distinct source-tag semantics');
 $assert(str_contains($boxedDivParagraphCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}'), 'box-chrome text wrappers emit the synthetic paragraph margin reset');
 $assert('pass' === ($boxedDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'box-chrome text wrappers preserve valid generated paragraph markup');
+
+$explicitDescendantAlignment = ( new HtmlTransformer() )->transform(
+    '<main><div class="paragraph" style="padding-bottom:20px;text-align:center"><p style="text-align:left">Explicit copy.</p></div></main>'
+)->toArray();
+$explicitDescendantBlock = $explicitDescendantAlignment['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('left' === ($explicitDescendantBlock['attrs']['align'] ?? ''), 'explicit descendant paragraph alignment wins over wrapper alignment');
+$assert(str_contains((string) ($explicitDescendantAlignment['serialized_blocks'] ?? ''), '<p class="has-text-align-left">Explicit copy.</p>'), 'explicit descendant alignment retains native paragraph save markup');
 
 $tableCellSourceDiv = ( new HtmlTransformer() )->transform(
     '<style>div.paragraph{padding-bottom:20px}</style><main><table><tbody><tr><td><div class="paragraph">Table copy.</div></td></tr></tbody></table></main>'

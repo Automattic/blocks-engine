@@ -5016,12 +5016,21 @@ final class HtmlTransformer
         return $this->createBlock(
             'core/group',
             $this->presentationAttributes($element),
-            array( $this->createBlock('core/paragraph', array(
+            array( $this->createBlock('core/paragraph', array_filter(array(
                 'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
                 'content'   => $content,
-            )) ),
+                // The generated RichText block replaces the source wrapper's
+                // text flow, so retain its supported inherited alignment.
+                'align'     => $this->supportedTextAlignment($element),
+            ), static fn ($value): bool => '' !== $value)) ),
             $element
         );
+    }
+
+    private function supportedTextAlignment(DOMElement $element): string
+    {
+        $alignment = strtolower(trim((string) ($this->presentationDeclarations($element)['text-align'] ?? '')));
+        return in_array($alignment, array( 'left', 'center', 'right' ), true) ? $alignment : '';
     }
 
     /**
