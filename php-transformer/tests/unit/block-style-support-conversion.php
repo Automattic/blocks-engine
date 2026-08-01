@@ -207,7 +207,7 @@ $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-blocks-engine-author-layout tier-price'), '27: CSS-owned card price row uses the editable author layout wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<p class="tier-price blocks-engine-synthetic-paragraph"'), '27: phrasing-only card price rows retain source-owned flex layout on one editable RichText block', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 

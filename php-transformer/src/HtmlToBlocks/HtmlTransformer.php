@@ -2647,6 +2647,14 @@ final class HtmlTransformer
             }
 
             if ( 'button' !== strtolower($this->attr($element, 'role')) && $this->isAuthorOwnedLayout($element) ) {
+                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $inlineContent ) {
+                    return $inlineContent;
+                }
+                $textFlow = $this->textFlowBlockFromElement($element);
+                if ( null !== $textFlow ) {
+                    return $textFlow;
+                }
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
