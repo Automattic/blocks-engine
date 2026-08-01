@@ -420,9 +420,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
 
         if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
-            $baseAttrs['style']['typography']['textDecoration'] = 'underline';
+            $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
-            if ( '' === $decorationColor ) {
+            $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
+            if ( 'underline' === $sourceDecoration || '' !== $decorationColor ) {
+                $itemAttrs['className'] .= ' blocks-engine-current-navigation-underline';
+                $baseAttrs['style']['typography']['textDecoration'] = 'underline';
+            }
+            if ( '' === $decorationColor && 'underline' === $sourceDecoration ) {
                 $decorationColor = $this->activeNavigationUnderlineColor($anchorAttrs, $itemAttrs);
             }
             if ( '' !== $decorationColor ) {
@@ -525,11 +530,22 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $listGap = (string) ($presentationAttributes($child)['style']['spacing']['blockGap'] ?? '');
+            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($child));
+            $listClasses = trim((string) ($listAttrs['className'] ?? ''));
+            if ( '' !== $listClasses ) {
+                $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
+            }
+
+            $listGap = (string) ($listAttrs['style']['spacing']['blockGap'] ?? '');
             if ( '' !== $listGap ) {
                 $attrs['style']['spacing']['blockGap'] = $listGap;
-                break;
             }
+            break;
+        }
+
+        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+            // Core navigation adds its own default gap; source lists do not.
+            $attrs['style']['spacing']['blockGap'] = '0px';
         }
 
         return $attrs;

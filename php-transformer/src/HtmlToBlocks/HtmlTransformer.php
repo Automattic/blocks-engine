@@ -313,6 +313,12 @@ final class HtmlTransformer
      */
     private array $generatedAssets = array();
 
+    /** @var array<string, string> */
+    private array $nativeSearchTriggerCssRules = array();
+
+    /** @var array<string, string> */
+    private array $nativeButtonStyleRules = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -372,6 +378,8 @@ final class HtmlTransformer
     private array $sourceTagMarkers = array();
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
+
+    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
@@ -502,6 +510,8 @@ final class HtmlTransformer
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
+        $this->nativeSearchTriggerCssRules = array();
+        $this->nativeButtonStyleRules = array();
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
@@ -608,6 +618,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
@@ -854,12 +865,21 @@ final class HtmlTransformer
             // did not have paragraph margins in the source document.
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
         }
+        if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
+            $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
+        if ( array() !== $this->nativeSearchTriggerCssRules ) {
+            $cssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
+        }
         if ( '' !== trim($authorCss) ) {
             $cssParts[] = $authorCss;
+        }
+        if ( array() !== $this->nativeButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -867,7 +887,8 @@ final class HtmlTransformer
             return;
         }
 
-        $hash = hash('sha256', $css);
+        $content = $css . "\n";
+        $hash = hash('sha256', $content);
         $path = 'assets/css/source-author-' . substr($hash, 0, 16) . '.css';
 
         $this->generatedAssets[$path] = array(
@@ -879,8 +900,8 @@ final class HtmlTransformer
             'role'        => 'stylesheet',
             'mime_type'   => 'text/css',
             'media_type'  => 'text/css',
-            'content'     => $css . "\n",
-            'bytes'       => strlen($css) + 1,
+            'content'     => $content,
+            'bytes'       => strlen($content),
             'encoding'    => 'utf-8',
             'binary'      => false,
             'hash'        => $hash,
@@ -907,7 +928,7 @@ final class HtmlTransformer
         $this->formLayoutCss = $this->combinedAuthorCss;
         // Ignore already-generated-looking markers when seeding so collision
         // avoidance remains deterministic even when source CSS contains one.
-        $seedInput = preg_replace('/blocks-engine-(?:source-p|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
+        $seedInput = preg_replace('/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
         $this->authorMarkerSeed = substr(hash('sha256', $seedInput), 0, 12);
         $this->authorMarkerCollisionText = $html . "\0" . $this->combinedAuthorCss;
         $this->authorSpecificityShim = $this->allocateAuthorMarker('specificity');
@@ -931,7 +952,7 @@ final class HtmlTransformer
                 $parsed = $this->parsedCssSelector($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
+                    if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
                         $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }
@@ -2174,6 +2195,11 @@ final class HtmlTransformer
             }
         }
 
+        $wrappedSearchBlock = $this->searchBlockFromWrapper($element);
+        if ( null !== $wrappedSearchBlock ) {
+            return $wrappedSearchBlock;
+        }
+
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
         if ( $mediaDispatch['handled'] ) {
             return $mediaDispatch['block'];
@@ -2239,7 +2265,7 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
                 }
 
                 return null;
@@ -2516,6 +2542,9 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
+            if ( $this->isReplacedSearchClusterControl($element) ) {
+                return null;
+            }
             return $this->convertButtonDispatchElement($element);
         }
 
@@ -2663,7 +2692,10 @@ final class HtmlTransformer
             // card heuristics can collapse the source child boundary.
             if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                $attrs = array() === $children && $this->shouldPreserveEmptyVisualElement($element)
+                    ? $this->emptyVisualElementAttributes($element)
+                    : $this->presentationAttributes($element);
+                return $this->createBlock('core/group', $attrs, $children, $element);
             }
 
             $logo = $this->logoPattern->match(
@@ -2826,7 +2858,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
             }
             return null;
         }
@@ -3028,6 +3060,9 @@ final class HtmlTransformer
                 }
                 if ( isset($this->sourceControlMarkers[$path]) ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                    if ( 'core/button' === $name ) {
+                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$path], $attrs);
+                    }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
                 if ( '' !== $presentationPath && $presentationPath !== $path ) {
@@ -3060,6 +3095,40 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function registerNativeButtonStyleRule(string $marker, array $attrs): void
+    {
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $declarations = array();
+        foreach ( array(
+            'background-color' => $style['color']['background'] ?? '',
+            'color'            => $style['color']['text'] ?? '',
+            'border-color'     => $style['border']['color'] ?? '',
+            'border-style'     => $style['border']['style'] ?? '',
+            'border-width'     => $style['border']['width'] ?? '',
+            'border-radius'    => $style['border']['radius'] ?? '',
+            'font-size'        => $style['typography']['fontSize'] ?? '',
+            'font-weight'      => $style['typography']['fontWeight'] ?? '',
+            'letter-spacing'   => $style['typography']['letterSpacing'] ?? '',
+            'line-height'      => $style['typography']['lineHeight'] ?? '',
+            'text-transform'   => $style['typography']['textTransform'] ?? '',
+            'padding-top'      => $style['spacing']['padding']['top'] ?? '',
+            'padding-right'    => $style['spacing']['padding']['right'] ?? '',
+            'padding-bottom'   => $style['spacing']['padding']['bottom'] ?? '',
+            'padding-left'     => $style['spacing']['padding']['left'] ?? '',
+        ) as $property => $value ) {
+            $value = trim((string) $value);
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $property . ':' . $value . '!important';
+            }
+        }
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $this->nativeButtonStyleRules[$marker] = '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -4385,7 +4454,7 @@ final class HtmlTransformer
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') ) {
+        if ( '' !== $this->renderedTextContent($element) ) {
             return false;
         }
 
@@ -4409,6 +4478,55 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function renderedTextContent(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent ?? '';
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || in_array(strtolower($child->tagName), array( 'script', 'style', 'template' ), true) ) {
+                continue;
+            }
+
+            $text .= $this->renderedTextContent($child);
+        }
+
+        return trim($text);
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyVisualElementAttributes(DOMElement $element): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $parentDisplay = strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')));
+        if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
+            return $attrs;
+        }
+
+        $declarations = $this->presentationDeclarations($element);
+        foreach ( array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
+                return $attrs;
+            }
+        }
+        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+                return $attrs;
+            }
+        }
+
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        return $attrs;
     }
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool
@@ -6462,6 +6580,7 @@ final class HtmlTransformer
     private function tableAttributes(DOMElement $table): array
     {
         $attrs = array();
+        $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
             foreach ( $table->getElementsByTagName($sectionTag) as $section ) {
@@ -6502,6 +6621,102 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function registerTableCellGeometry(DOMElement $table): void
+    {
+        $rules = array();
+        $sectionRows = array( 'thead' => 0, 'tbody' => 0, 'tfoot' => 0 );
+        foreach ( $table->getElementsByTagName('tr') as $row ) {
+            if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) ) {
+                continue;
+            }
+            $section = $this->closestTagName($row);
+            $section = isset($sectionRows[$section]) ? $section : 'tbody';
+            $rowIndex = ++$sectionRows[$section];
+            $cellIndex = 0;
+            foreach ( $row->childNodes as $cell ) {
+                if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
+                    continue;
+                }
+                ++$cellIndex;
+                $declarations = $this->cssDeclarations($this->attr($cell, 'style'));
+                $geometry = array();
+                $width = trim((string) ($declarations['width'] ?? ''));
+                if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
+                    $geometry[] = 'width:' . $width . '!important';
+                }
+                foreach ( array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
+                    $value = trim((string) ($declarations[$property] ?? ''));
+                    if ( '' !== $value && preg_match('/^(?:-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?)(?:\s+-?\d+(?:\.\d+)?(?:px|em|rem|%|vw|vh|ch)?){0,3}$/i', $value) ) {
+                        $geometry[] = $property . ':' . $value . '!important';
+                    }
+                }
+                if ( array() !== $geometry ) {
+                    $rules[] = $section . '>tr:nth-child(' . $rowIndex . ')>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . '){' . implode(';', $geometry) . '}';
+                }
+            }
+        }
+        if ( array() === $rules ) {
+            return;
+        }
+
+        $path = $this->sourceElementIdentity($table);
+        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
+        $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
+    }
+
+    private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
+    {
+        $document = $body->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return;
+        }
+
+        $scriptSources = array();
+        foreach ( $body->getElementsByTagName('script') as $script ) {
+            if ( $script instanceof DOMElement ) {
+                $scriptSources[] = (string) $script->textContent;
+            }
+        }
+        if ( '' !== $declarativeStateHtml && preg_match_all('@<script\b[^>]*>(.*?)</script>@is', $declarativeStateHtml, $scriptMatches) ) {
+            $scriptSources = array_merge($scriptSources, $scriptMatches[1]);
+        }
+
+        foreach ( array_unique($scriptSources) as $source ) {
+            if ( ! str_contains($source, 'PlatformElementSettings')
+                || ! preg_match('/\.prototype\.element_id\s*=\s*(["\'])([a-z0-9-]+)\1/i', $source, $elementMatch)
+            ) {
+                continue;
+            }
+
+            $settingsStart = strpos($source, 'new PlatformElementSettings(');
+            $settingsEnd = false !== $settingsStart ? strpos($source, ');', $settingsStart) : false;
+            if ( false === $settingsStart || false === $settingsEnd || $settingsEnd - $settingsStart > 262144 ) {
+                continue;
+            }
+            $settingsLiteral = substr($source, $settingsStart, $settingsEnd - $settingsStart);
+            if ( ! preg_match('/["\']end["\']\s*:\s*(-?(?:0|[1-9]\d*)(?:\.\d+)?)\s*[,}]/', $settingsLiteral, $endMatch) ) {
+                continue;
+            }
+            $end = str_contains($endMatch[1], '.') ? (float) $endMatch[1] : (int) $endMatch[1];
+
+            $container = $document->getElementById('element-' . $elementMatch[2]);
+            if ( ! $container instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $container->getElementsByTagName('*') as $target ) {
+                if ( ! $target instanceof DOMElement
+                    || ! in_array('content-number-bold', preg_split('/\s+/', trim($target->getAttribute('class'))) ?: array(), true)
+                    || '' !== trim((string) $target->textContent)
+                ) {
+                    continue;
+                }
+                $target->appendChild($document->createTextNode((string) $end));
+                break;
+            }
+        }
     }
 
     private function belongsToTable(DOMElement $element, DOMElement $table): bool
@@ -7963,7 +8178,286 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->htmlPreservationBlock($form);
+        $label = $this->formControlLabel($textInput);
+        $showLabel = '' !== $label;
+        if ( '' === $label ) {
+            $label = trim($this->attr($form, 'aria-label'));
+        }
+        if ( '' === $label ) {
+            $label = trim($this->attr($textInput, 'placeholder'));
+        }
+
+        $attrs = array_merge($this->presentationAttributes($form), array(
+            'label'       => '' !== $label ? $label : 'Search',
+            'showLabel'   => $showLabel,
+            'placeholder' => $this->attr($textInput, 'placeholder'),
+        ));
+        if ( $submitControl instanceof DOMElement ) {
+            $attrs['buttonPosition'] = 'button-outside';
+            $attrs['buttonText'] = $this->submitButtonText($submitControl);
+            if ( $this->isIconOnlySearchControl($submitControl) ) {
+                $attrs['buttonUseIcon'] = true;
+            }
+        } elseif ( null !== ($searchTrigger = $this->adjacentSearchTrigger($form)) ) {
+            $attrs['buttonPosition'] = 'button-only';
+            $attrs['buttonUseIcon'] = true;
+            $attrs['style']['color']['text'] = '#000000';
+            $attrs['style']['color']['background'] = 'transparent';
+            $attrs['style']['border']['width'] = '0px';
+            $triggerAttrs = $this->presentationAttributes($searchTrigger);
+            $attrs['className'] = trim(implode(' ', array_filter(array(
+                (string) ($attrs['className'] ?? ''),
+                (string) ($triggerAttrs['className'] ?? ''),
+                $this->registerNativeSearchTriggerCss($searchTrigger),
+            ))));
+        } else {
+            $attrs['buttonPosition'] = 'no-button';
+        }
+
+        return $this->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    private function hasAdjacentSearchTrigger(DOMElement $form): bool
+    {
+        return null !== $this->adjacentSearchTrigger($form);
+    }
+
+    private function adjacentSearchTrigger(DOMElement $form): ?DOMElement
+    {
+        $containers = array( $form );
+        if ( $form->parentNode instanceof DOMElement ) {
+            $containers[] = $form->parentNode;
+        }
+
+        foreach ( $containers as $container ) {
+            $sibling = $this->nextElementSibling($container);
+            if ( $sibling instanceof DOMElement && $this->isAdjacentSearchTriggerControl($sibling) ) {
+                return $sibling;
+            }
+        }
+
+        return null;
+    }
+
+    private function registerNativeSearchTriggerCss(DOMElement $trigger): string
+    {
+        $svg = $trigger->getElementsByTagName('svg')->item(0);
+        if ( ! $svg instanceof DOMElement ) {
+            return '';
+        }
+
+        $svgDeclarations = $this->presentationDeclarations($svg);
+        $width = $this->cssPixelLength((string) ($svgDeclarations['width'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'width'));
+        $height = $this->cssPixelLength((string) ($svgDeclarations['height'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'height'));
+        if ( null === $width || null === $height ) {
+            $viewBox = preg_split('/[\s,]+/', trim($this->attr($svg, 'viewbox'))) ?: array();
+            if ( 4 === count($viewBox) && is_numeric($viewBox[2]) && is_numeric($viewBox[3]) ) {
+                $width ??= (float) $viewBox[2];
+                $height ??= (float) $viewBox[3];
+            }
+        }
+        if ( null === $width || null === $height || 0 >= $width || 0 >= $height ) {
+            return '';
+        }
+
+        $svgMarkup = $this->restoreSvgCasing($this->outerHtml($svg));
+        if ( ! preg_match('/<svg\b[^>]*\bxmlns=/i', $svgMarkup) ) {
+            $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
+        }
+        $className = 'blocks-engine-source-search-icon-' . substr(hash('sha256', $svgMarkup), 0, 12);
+        if ( isset($this->nativeSearchTriggerCssRules[$className]) ) {
+            return $className;
+        }
+
+        $declarations = $this->presentationDeclarations($trigger);
+        $triggerHeight = isset($declarations['height']) && '' !== trim($declarations['height'])
+            ? 'height:' . trim($declarations['height']) . '!important;'
+            : '';
+        $triggerWidth = $this->cssPixelLength((string) ($declarations['width'] ?? ''));
+        $iconWidth = $this->cssNumber($width);
+        $iconHeight = $this->cssNumber($height);
+        $buttonWidth = $this->cssNumber($triggerWidth ?? ($width + 12));
+        $dataUri = 'data:image/svg+xml,' . rawurlencode($svgMarkup);
+        $selector = '.wp-block-search.' . $className;
+        $this->nativeSearchTriggerCssRules[$className] = $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
+            . $selector . ' .wp-block-search__inside-wrapper{' . $triggerHeight . 'box-sizing:border-box!important;width:100%!important}'
+            . $selector . ' .wp-block-search__button{display:block!important;box-sizing:border-box!important;width:100%!important;height:100%!important;min-width:0!important;margin:0!important;padding:1px 6px!important;font:400 13.3333px Arial!important;line-height:normal!important;text-align:center!important;color:#000!important;background:none!important;border:0!important;border-radius:0!important}'
+            . $selector . '.wp-block-search__icon-button .wp-block-search__button.has-icon>svg.search-icon{display:none!important}'
+            . $selector . ' .wp-block-search__button:before{content:"";display:inline-block;width:' . $iconWidth . 'px;height:' . $iconHeight . 'px;background:url("' . $dataUri . '") center/contain no-repeat}';
+
+        return $className;
+    }
+
+    private function cssPixelLength(string $value): ?float
+    {
+        return preg_match('/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i', trim($value), $match)
+            ? (float) $match[1]
+            : null;
+    }
+
+    private function cssNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function searchBlockFromWrapper(DOMElement $element): ?array
+    {
+        if ( 1 !== $this->childElementCount($element) ) {
+            return null;
+        }
+
+        $form = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'form' === strtolower($child->tagName) ) {
+                $form = $child;
+                break;
+            }
+        }
+
+        if ( ! $form instanceof DOMElement || ! $this->hasAdjacentSearchTrigger($form) ) {
+            return null;
+        }
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+        }
+
+        return $this->searchBlockFromForm($form);
+    }
+
+    private function isReplacedSearchClusterControl(DOMElement $control): bool
+    {
+        if ( $this->isAdjacentSearchTriggerControl($control) ) {
+            $formContainer = $this->previousElementSibling($control);
+            return $formContainer instanceof DOMElement && $this->containsNativeSearchForm($formContainer);
+        }
+
+        if ( ! $this->isSearchCloseControl($control) ) {
+            return false;
+        }
+
+        $trigger = $this->previousElementSibling($control);
+        $formContainer = $trigger instanceof DOMElement ? $this->previousElementSibling($trigger) : null;
+        return $trigger instanceof DOMElement
+            && $this->isAdjacentSearchTriggerControl($trigger)
+            && $formContainer instanceof DOMElement
+            && $this->containsNativeSearchForm($formContainer);
+    }
+
+    private function containsNativeSearchForm(DOMElement $element): bool
+    {
+        $forms = 'form' === strtolower($element->tagName)
+            ? array( $element )
+            : iterator_to_array($element->getElementsByTagName('form'));
+        return 1 === count($forms) && $forms[0] instanceof DOMElement && $this->isNativeSearchForm($forms[0]);
+    }
+
+    private function nextElementSibling(DOMElement $element): ?DOMElement
+    {
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                return $sibling;
+            }
+        }
+
+        return null;
+    }
+
+    private function previousElementSibling(DOMElement $element): ?DOMElement
+    {
+        for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
+            if ( $sibling instanceof DOMElement ) {
+                return $sibling;
+            }
+        }
+
+        return null;
+    }
+
+    private function isSearchCloseControl(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'aria-label'),
+            $this->attr($control, 'title'),
+        )));
+        return str_contains($haystack, 'search') && str_contains($haystack, 'close');
+    }
+
+    private function isNativeSearchForm(DOMElement $form): bool
+    {
+        $method = strtolower(trim($this->attr($form, 'method')));
+        if ( '' !== $method && 'get' !== $method ) {
+            return false;
+        }
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+            return false;
+        }
+
+        $textInput = null;
+        $submitControl = null;
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) ) {
+                return false;
+            }
+            $tagName = strtolower($control->tagName);
+            $type = $this->formControlType($control);
+            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
+                if ( null !== $textInput ) {
+                    return false;
+                }
+                $textInput = $control;
+                continue;
+            }
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                if ( null !== $submitControl ) {
+                    return false;
+                }
+                $submitControl = $control;
+                continue;
+            }
+            return false;
+        }
+
+        return $textInput instanceof DOMElement && $this->hasSearchFormSignal($form, $textInput);
+    }
+
+    private function isIconOnlySearchControl(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'aria-label'),
+            $this->attr($control, 'title'),
+        )));
+        if ( ! str_contains($haystack, 'search') || str_contains($haystack, 'close') ) {
+            return false;
+        }
+
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        return '' === $text || 0 < $control->getElementsByTagName('svg')->length;
+    }
+
+    private function isAdjacentSearchTriggerControl(DOMElement $control): bool
+    {
+        if ( ! $this->isIconOnlySearchControl($control) ) {
+            return false;
+        }
+
+        $identity = strtolower(trim($this->attr($control, 'class') . ' ' . $this->attr($control, 'id')));
+        foreach ( preg_split('/\s+/', $identity) ?: array() as $token ) {
+            if ( in_array($token, array( 'search-icon', 'search-toggle', 'search-trigger', 'open-search' ), true) ) {
+                return true;
+            }
+        }
+
+        $accessibleName = strtolower(trim($this->attr($control, 'aria-label') . ' ' . $this->attr($control, 'title')));
+        return in_array($accessibleName, array( 'search', 'open search', 'expand search', 'toggle search' ), true);
     }
 
     /**
@@ -9428,18 +9922,19 @@ final class HtmlTransformer
     private function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
         $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
-        if ( '' === $href || ! $this->isImageOnlyAnchor($anchor) ) {
+        if ( ! $this->isImageOnlyAnchor($anchor) ) {
             return null;
         }
+        $link = '' !== $href ? $anchor : null;
 
         $picture = $this->firstChildElement($anchor, 'picture');
         if ( $picture instanceof DOMElement ) {
             $image = $this->firstChildElement($picture, 'img');
-            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $link) : null;
         }
 
         $image = $this->firstChildElement($anchor, 'img');
-        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $link) : null;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
