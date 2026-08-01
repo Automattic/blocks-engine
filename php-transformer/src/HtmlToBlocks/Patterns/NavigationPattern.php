@@ -518,9 +518,6 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
-        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            $attrs['className'] = $this->navigationListProjectionClasses((string) ($attrs['className'] ?? ''));
-        }
         if ( $this->isListNavigationSource($element) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
         }
@@ -528,12 +525,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $list = $this->navigationSourceList($element);
-        if ( $list instanceof DOMElement ) {
-            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
-            // A source list is replaced by core/navigation's inner list. Its
-            // classes must not leak onto the outer navigation flex item.
-            $listClasses = $this->navigationListProjectionClasses((string) ($listAttrs['className'] ?? ''));
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                continue;
+            }
+
+            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($child));
+            $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
                 $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
             }
@@ -542,9 +540,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' !== $listGap ) {
                 $attrs['style']['spacing']['blockGap'] = $listGap;
             }
+            break;
         }
 
-        if ( $list instanceof DOMElement && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             // Core navigation adds its own default gap; source lists do not.
             $attrs['style']['spacing']['blockGap'] = '0px';
         }
@@ -552,59 +551,19 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
-    private function navigationListProjectionClasses(string $className): string
-    {
-        $classes = array();
-        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-            if ( '' === $class ) {
-                continue;
-            }
-            if ( str_starts_with($class, 'blocks-engine-source-ul-') || str_starts_with($class, 'blocks-engine-source-ol-') ) {
-                $classes[] = $class;
-                continue;
-            }
-            if ( ! str_starts_with($class, 'blocks-engine-') ) {
-                $classes[] = self::navigationListProjectionClass($class);
-            }
-        }
-
-        return implode(' ', array_values(array_unique($classes)));
-    }
-
-    private static function navigationListProjectionClass(string $sourceClass): string
-    {
-        return 'blocks-engine-navigation-list-' . substr(hash('sha256', $sourceClass), 0, 12);
-    }
-
     private function isListNavigationSource(DOMElement $element): bool
     {
-        return $this->navigationSourceList($element) instanceof DOMElement;
-    }
-
-    private function navigationSourceList(DOMElement $element): ?DOMElement
-    {
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return $element;
+            return true;
         }
 
         foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                return $child;
-            }
-
-            if ( $this->isNavigationWrapperElement($child) ) {
-                $list = $this->navigationSourceList($child);
-                if ( $list instanceof DOMElement ) {
-                    return $list;
-                }
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return true;
             }
         }
 
-        return null;
+        return false;
     }
 
     /**

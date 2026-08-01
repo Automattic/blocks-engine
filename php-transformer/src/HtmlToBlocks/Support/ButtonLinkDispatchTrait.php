@@ -22,10 +22,6 @@ trait ButtonLinkDispatchTrait
             return $linkedLogo;
         }
 
-        if ( $this->isStructuredLogoAnchor($element) ) {
-            return $this->authorLayoutLeafBlockFromElement($element);
-        }
-
         $logo = $this->logoPattern->match(
             $element,
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),

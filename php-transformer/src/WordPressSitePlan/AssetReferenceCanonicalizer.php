@@ -50,9 +50,6 @@ final class AssetReferenceCanonicalizer
         $replace = fn(string $reference): string => $this->reference($reference, $origin) ?? $reference;
         $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
         $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
-        // Block-comment JSON hex-escapes embedded RichText markup quotes.
-        $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)([^\\\\]*)(\\\\u0022)~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
-        $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\u0022)([^\\\\]*)(\\\\u0022)~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
         $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*)(["\'])(.*?)\2~is', static fn(array $match): string => $match[1] . $match[2] . $replace($match[3]) . $match[2], $content) ?? $content;
         $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*)([^\s>]+)~i', static fn(array $match): string => $match[1] . $replace($match[2]), $content) ?? $content;
         $content = preg_replace_callback('~(\bsrcset\s*=\s*)(["\'])(.*?)\2~is', static fn(array $match): string => $match[1] . $match[2] . self::srcset($match[3], $replace) . $match[2], $content) ?? $content;

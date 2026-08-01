@@ -60,8 +60,6 @@ $parsed = CssSelectorMatcher::parse('.final:hover:focus:active');
 $assert($parsed['supported'] && array( 'start' => 6, 'end' => 25 ) === $parsed['pseudo_state_suffix_span'] && 6 === $parsed['rightmost_rewrite_end'], 'exposes dynamic pseudo suffix span and rewrite boundary');
 $assert(! CssSelectorMatcher::matches($byId('target'), $parsed)['supported'], 'dynamic suffix requires caller acknowledgement');
 $assert(CssSelectorMatcher::matches($byId('target'), $parsed, true)['matches'], 'caller acknowledgement permits structural dynamic-pseudo match');
-$parsed = CssSelectorMatcher::parse('.final::after');
-$assert($parsed['supported'] && array( 'start' => 6, 'end' => 13 ) === $parsed['pseudo_state_suffix_span'] && CssSelectorMatcher::matches($byId('target'), $parsed, true)['matches'], 'generated pseudo-element suffixes retain their structural selector for projection');
 
 foreach ( array( 'p:first-child' => 'one', 'p:nth-child(2)' => 'two', 'span:last-child' => 'target' ) as $selector => $id ) {
     $result = $match($selector, $byId($id));
@@ -69,7 +67,7 @@ foreach ( array( 'p:first-child' => 'one', 'p:nth-child(2)' => 'two', 'span:last
 }
 $assert(! $match('p:nth-child(1)', $byId('two'))['matches'], 'rejects a non-matching structural child index');
 
-foreach ( array( ':disabled', ':not(.x)', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+foreach ( array( ':disabled', ':not(.x)', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 
