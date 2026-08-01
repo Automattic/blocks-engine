@@ -3832,7 +3832,7 @@ final class HtmlTransformer
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') ) {
+        if ( '' !== $this->renderedTextContent($element) ) {
             return false;
         }
 
@@ -3856,6 +3856,25 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function renderedTextContent(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text .= $child->textContent ?? '';
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || in_array(strtolower($child->tagName), array( 'script', 'style', 'template' ), true) ) {
+                continue;
+            }
+
+            $text .= $this->renderedTextContent($child);
+        }
+
+        return trim($text);
     }
 
     /** @return array<string, mixed> */

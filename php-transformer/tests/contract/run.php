@@ -692,6 +692,14 @@ $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
 $assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
 
+$styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
+    '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
+)->toArray();
+$styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
+$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group footer-wrap"'), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
+$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
+$assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
