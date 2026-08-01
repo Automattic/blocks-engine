@@ -3057,6 +3057,12 @@ final class HtmlTransformer
         }
 
         $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        // A grid placement belongs to this inline node. Keep phrasing-only grid
+        // siblings in one RichText container rather than replacing their direct
+        // grid items with Group/Paragraph wrappers.
+        if ( 'grid' === strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
+            return false;
+        }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
             return true;
@@ -3194,23 +3200,18 @@ final class HtmlTransformer
         $hoistedDeclarations = array();
 
         // Peel a single styling-hook span wrapping the whole content, hoisting it
-        // onto the block. Nested wrappers are peeled across iterations.
+        // onto the block. A source identity needs to remain on the inline node so
+        // author selectors continue to address the saved RichText carrier.
         while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) ) {
+                break;
+            }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
             $wrapperStyle   = trim($this->attr($wrapper, 'style'));
             if ( '' !== $wrapperStyle ) {
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
             }
             $this->unwrapElement($wrapper);
-        }
-
-        $soleAnchor = $this->soleRichTextAnchor($body);
-        if ( $soleAnchor instanceof DOMElement ) {
-            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($soleAnchor, 'class'));
-            $anchorStyle    = trim($this->attr($soleAnchor, 'style'));
-            if ( '' !== $anchorStyle ) {
-                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($anchorStyle));
-            }
         }
 
         // Unwrap any remaining styling hooks (sibling / partial content) unless
@@ -3225,7 +3226,6 @@ final class HtmlTransformer
         }
 
         foreach ( $this->richTextAnchors($body) as $anchor ) {
-            $anchor->removeAttribute('class');
             $anchor->removeAttribute('style');
         }
 
@@ -3292,9 +3292,9 @@ final class HtmlTransformer
     }
 
     /**
-     * A `<span>` whose only attributes are class and/or style (at least one
-     * non-empty). These are presentational styling hooks RichText cannot store,
-     * not semantic spans (a span carrying id, data-, or role is left intact).
+     * A `<span>` whose attributes can be represented by a semantic RichText
+     * carrier. Class/id/data identity and inline styles move together onto a
+     * `<mark>` so selector hooks survive without storing an invalid span.
      */
     private function isStylingHookSpan(DOMElement $element): bool
     {
@@ -3305,10 +3305,10 @@ final class HtmlTransformer
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
-            if ( ! in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) ) {
+            if ( ! in_array($attributeName, array( 'class', 'id', 'style', 'data-blocks-engine-richtext-marker' ), true) && ! str_starts_with($attributeName, 'data-') ) {
                 return false;
             }
-            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+            if ( in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) && '' !== trim($attribute->nodeValue ?? '') ) {
                 $hasStyling = true;
             }
         }
@@ -3394,6 +3394,30 @@ final class HtmlTransformer
         }
 
         return $anchors;
+    }
+
+    /**
+     * Source identity that RichText can retain on a semantic inline carrier.
+     * Classes, safe ids, and data attributes are selector hooks, unlike an
+     * arbitrary inline style that RichText cannot safely round-trip.
+     *
+     * @return array<string, string>
+     */
+    private function richTextSafeIdentityAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 'class' === $name && '' !== trim($attribute->nodeValue ?? '') ) {
+                $attributes['class'] = $attribute->nodeValue ?? '';
+            } elseif ( 'id' === $name && '' !== $this->safeAnchor($attribute->nodeValue ?? '') ) {
+                $attributes['id'] = $this->safeAnchor($attribute->nodeValue ?? '');
+            } elseif ( str_starts_with($name, 'data-') && 'data-blocks-engine-richtext-marker' !== $name ) {
+                $attributes[$name] = $attribute->nodeValue ?? '';
+            }
+        }
+
+        return $attributes;
     }
 
     private function richTextRequiresHtmlFallback(string $content): bool
@@ -3538,7 +3562,7 @@ final class HtmlTransformer
         $declarations = $this->richTextInlineVisualDeclarations($element);
         $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
-        if ( '' === $marker && array() === $declarations ) {
+        if ( '' === $marker && array() === $declarations && array() === $this->richTextSafeIdentityAttributes($element) ) {
             return false;
         }
 
@@ -3559,6 +3583,9 @@ final class HtmlTransformer
         }
 
         $mark = $document->createElement('mark');
+        foreach ( $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
+            $mark->setAttribute($name, $value);
+        }
         $mark->setAttribute('style', $this->cssDeclarationString($declarations));
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
@@ -4371,9 +4398,9 @@ final class HtmlTransformer
             return null;
         }
 
-        // A CSS-addressed inline leaf needs an independent native wrapper. Do
-        // not absorb it into this parent RichText paragraph, where its selector
-        // path and flex/grid item geometry would be lost.
+        // A lone marked descendant needs an independent carrier. Phrasing-only
+        // sibling runs remain together in this RichText block so authored
+        // flex/grid child geometry is not replaced with block wrappers.
         if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }

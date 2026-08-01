@@ -1060,7 +1060,6 @@ $linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
 $assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
 $assert(str_contains($linkedLogoSerialized, '<p class="site-logo blocks-engine-synthetic-paragraph"><a href="/">Mara Vale</a></p>'), 'linked logo paragraph hoists link styling hooks to its marginless synthetic wrapper and keeps valid anchor markup');
-$assert(! str_contains($linkedLogoSerialized, '<a class="site-logo"'), 'linked logo paragraph does not leave className on the RichText anchor');
 $assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
 $assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
 
@@ -1162,7 +1161,7 @@ $paragraphSvgBlock = $paragraphSvgResult['blocks'][0] ?? array();
 $paragraphSvgSerialized = (string) ($paragraphSvgResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph content with a safe inline SVG remains a native RichText paragraph');
 $assert(str_contains($paragraphSvgSerialized, '<!-- wp:paragraph'), 'paragraph inline SVG serializes as a native paragraph block');
-$assert(str_contains($paragraphSvgSerialized, '<a href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object');
+$assert(str_contains($paragraphSvgSerialized, '<a class="social-link" href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object with its source link identity');
 $assert(! str_contains($paragraphSvgSerialized, '<svg'), 'paragraph inline SVG is not stored as unsupported SVG RichText markup');
 
 $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
@@ -1182,12 +1181,12 @@ $coffeeStylesheetCss = implode("\n", array_map(static fn (array $asset): string 
 $coffeeRiskCount = 0;
 if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
     foreach ( $coffeeBlocks as $coffeeBlock ) {
-        if ( preg_match('/<(?:span|a)\b[^>]*(?:class|style)=|<svg\b/i', $coffeeBlock[2]) ) {
+        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[2]) ) {
             ++$coffeeRiskCount;
         }
     }
 }
-$assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no class/style anchors/spans or SVG inside RichText core blocks', (string) $coffeeRiskCount);
+$assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no unsupported styled RichText nodes or SVG', (string) $coffeeRiskCount);
 $assert('pass' === ($coffeeResult['source_reports']['wp_block_validity']['status'] ?? ''), '2-onepager-coffee generated block serialization remains valid after stylesheet materialization');
 $assert(str_contains($coffeeStylesheetCss, '.about-section'), '2-onepager-coffee materializes source About-section CSS as class-owned theme CSS');
 $assert(str_contains($coffeeStylesheetCss, '.about-title'), '2-onepager-coffee materializes Born from Fog & Flame heading paint/spacing CSS without group style attrs');

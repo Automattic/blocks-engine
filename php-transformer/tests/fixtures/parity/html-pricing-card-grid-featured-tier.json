@@ -30,7 +30,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "tier-badge" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<h3 class=\"wp-block-heading tier-name\">Pro</h3>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"price\">$29</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"price\" style=\"background-color:transparent;color:inherit\">$29</mark>" },
     { "path": "source_reports.html.structure_signals.1.signals.name_price_row", "assert": "equals", "value": true },
     { "path": "source_reports.html.structure_signals.4.signals.price_like", "assert": "equals", "value": true }
   ]
