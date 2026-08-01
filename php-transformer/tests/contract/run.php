@@ -760,6 +760,15 @@ $assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group fo
 $assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
+$alignedStyleOnlyShell = ( new HtmlTransformer() )->transform(
+    '<main><div class="shell"><div style="text-align:center"><a class="brand" href="/">Pathway</a></div></div></main>'
+)->toArray();
+$alignedStyleOnlyShellMarkup = (string) ($alignedStyleOnlyShell['serialized_blocks'] ?? '');
+$alignedStyleOnlyShellCss = implode("\n", array_column(array_filter($alignedStyleOnlyShell['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(str_contains($alignedStyleOnlyShellMarkup, '<div class="wp-block-group be-inline-geometry-') && str_contains($alignedStyleOnlyShellMarkup, '>Pathway<'), 'style-only child alignment retains its source wrapper around editable content');
+$assert(str_contains($alignedStyleOnlyShellCss, 'text-align:center !important'), 'style-only child alignment projects through a generated presentation carrier');
+$assert('pass' === ($alignedStyleOnlyShell['source_reports']['wp_block_validity']['status'] ?? ''), 'style-only child alignment preserves valid block markup');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
@@ -806,7 +815,7 @@ $assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validit
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
-$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
 $assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
 $assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');

@@ -290,6 +290,11 @@ trait StyleResolutionTrait
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
+        // Text alignment belongs to a container with element children, not its
+        // converted child blocks. Preserve that relationship with a carrier rule.
+        if (0 < $this->directElementChildCount($element)) {
+            $properties[] = 'text-align';
+        }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
             && ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
