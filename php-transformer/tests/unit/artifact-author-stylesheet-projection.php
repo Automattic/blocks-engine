@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -126,6 +127,24 @@ $positionedImageCss = implode("\n", array_column($positionedImage['assets'] ?? a
 $assert(str_contains((string) ($positionedImage['serialized_blocks'] ?? ''), 'map be-inline-geometry-'), 'unsupported inline image presentation uses a deterministic carrier class');
 $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-position:-197.702px -102.702px !important'), 'image presentation carrier preserves source object fit and position for the nested image bridge');
 $assert(str_contains($positionedImageCss, '.map.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height');
+
+$croppedImage = ( new HtmlTransformer() )->transform(
+    '<style>.well{width:280px;height:280px;overflow:hidden}.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.png" alt="Portrait"></div></main>',
+    array( 'asset_metadata' => array( 'portrait.png' => array( 'url' => 'portrait.png', 'width' => 278, 'height' => 302 ) ) )
+)->toArray();
+$croppedImageCss = implode("\n", array_column($croppedImage['assets'] ?? array(), 'content'));
+$assert(1 === preg_match('/\.well\s+:where\(figure\).*\.wp-block-image > img\{display:block;width:100%;height:100%;max-width:100%;object-fit:cover;object-position:50% 0;border-radius:inherit\}/', $croppedImageCss), 'undersized intrinsic images in fixed clipped wells fold deterministic cover sizing into the canonical image bridge');
+$assert('pass' === ($croppedImage['source_reports']['wp_block_validity']['status'] ?? ''), 'folded fixed-well image sizing preserves valid core/image markup');
+
+$compiledCroppedImage = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="well.css"><main><div class="well"><img src="portrait.png" alt="Portrait"></div></main>' ),
+        array( 'path' => 'well.css', 'kind' => 'css', 'content' => '.well{width:280px;height:280px;overflow:hidden}.well img{width:auto;height:auto}' ),
+        array( 'path' => 'portrait.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2Nk+M/wHwAF/gL+0iLK5wAAAABJRU5ErkJggg==' ),
+    ),
+) )->toArray();
+$compiledCroppedImageCss = implode("\n", array_column($compiledCroppedImage['assets'] ?? array(), 'content'));
+$assert(str_contains($compiledCroppedImageCss, 'object-fit:cover;object-position:50% 0'), 'artifact compilation supplies intrinsic asset dimensions to deterministic fixed-well image sizing');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
