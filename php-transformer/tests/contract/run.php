@@ -2043,18 +2043,27 @@ $unknownIframe = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
-$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
-$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
-$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
-$unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
-$assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
-$assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownIframeBlock = $unknownIframe['blocks'][0]['innerBlocks'][2] ?? array();
+$assert('core/html' === ($unknownIframeBlock['blockName'] ?? ''), 'bounded unknown iframe becomes a core/html block');
+$assert(array() === $unknownIframeDiagnostics, 'bounded unknown iframe does not emit fallback metadata');
+$assert(array() === ($unknownIframe['fallbacks'] ?? array()), 'bounded unknown iframe does not lose content to fallbacks');
 $unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
 $assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, '<!-- wp:html'), 'bounded unknown iframe materializes as editor-safe HTML');
+$assert(str_contains($unknownSerialized, 'width="640" height="360"'), 'bounded unknown iframe retains explicit dimensions');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+
+$weeblyMapIframe = ( new HtmlTransformer() )->transform(
+    '<main><div class="wsite-map"><iframe allowtransparency="true" frameborder="0" scrolling="no" style="width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;" src="//www.weebly.com/weebly/apps/generateMap.php?map=google"></iframe></div><p>123 Wall St.</p></main>'
+)->toArray();
+$weeblyMapSerialized = (string) ($weeblyMapIframe['serialized_blocks'] ?? '');
+$assert(str_contains($weeblyMapSerialized, '<!-- wp:html'), 'protocol-relative map iframe materializes as editor-safe HTML');
+$assert(str_contains($weeblyMapSerialized, 'src="//www.weebly.com/weebly/apps/generateMap.php?map=google"'), 'protocol-relative map iframe source is preserved');
+$assert(str_contains($weeblyMapSerialized, 'width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;'), 'map iframe retains bounded dimensions and vertical margins');
+$assert(array() === ($weeblyMapIframe['fallbacks'] ?? array()), 'map iframe does not lose content to fallback metadata');
+$assert(str_contains($weeblyMapSerialized, '123 Wall St.'), 'content after map iframe remains in document flow');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'

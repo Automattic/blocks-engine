@@ -10392,6 +10392,9 @@ final class HtmlTransformer
     private function safeEmbedUrl(string $url): string
     {
         $url = trim($url);
+        if ( str_starts_with($url, '//') ) {
+            $url = 'https:' . $url;
+        }
         if ( '' === $url || ! preg_match('#^https?://#i', $url) ) {
             return '';
         }
@@ -10484,6 +10487,10 @@ final class HtmlTransformer
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
+        if ( '' !== $url && $this->hasBoundedIframeGeometry($iframe) ) {
+            return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($iframe) ), array(), $iframe);
+        }
+
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
         $this->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
             'preservation_strategy' => 'sanitized_embed_markup',
@@ -10507,6 +10514,15 @@ final class HtmlTransformer
         ), $this->fallbackProvenance);
 
         return null;
+    }
+
+    private function hasBoundedIframeGeometry(DOMElement $iframe): bool
+    {
+        $declarations = $this->presentationDeclarations($iframe);
+        $width = trim($this->attr($iframe, 'width')) ?: trim($declarations['width'] ?? '');
+        $height = trim($this->attr($iframe, 'height')) ?: trim($declarations['height'] ?? '');
+
+        return '' !== $width && '' !== $height;
     }
 
     private function safeImageUrl(string $url): string
