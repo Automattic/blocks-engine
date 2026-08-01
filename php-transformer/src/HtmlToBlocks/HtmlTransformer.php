@@ -3370,8 +3370,17 @@ final class HtmlTransformer
      */
     private function isAuthorOwnedLayout(DOMElement $element): bool
     {
-        if ( 0 === $this->childElementCount($element) ) {
+        $childCount = $this->childElementCount($element);
+        if ( 0 === $childCount ) {
             return false;
+        }
+
+        if ( 1 === $childCount ) {
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg' ), true) ) {
+                    return false;
+                }
+            }
         }
 
         $declarations = $this->structuralPresentationDeclarations($element);

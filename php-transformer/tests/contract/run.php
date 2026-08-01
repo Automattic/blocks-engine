@@ -653,9 +653,11 @@ $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
 $flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
-    '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
+    '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon" style="background:#7657ff"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
 )->toArray();
+$flexItemSvgWrapper = $flexItemSvgArtwork['blocks'][0] ?? array();
 $flexItemSvg = $flexItemSvgArtwork['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('core/group' === ($flexItemSvgWrapper['blockName'] ?? '') && '#7657ff' === ($flexItemSvgWrapper['attrs']['style']['color']['background'] ?? '') && array() === ($flexItemSvgArtwork['source_reports']['generated_blocks'] ?? array()), 'single-child flex media wrappers remain native groups with inline background paint support');
 $assert(! str_contains((string) ($flexItemSvg['attrs']['className'] ?? ''), 'be-inline-geometry-') && '0' === ($flexItemSvg['attrs']['style']['typography']['lineHeight'] ?? ''), 'standalone SVG flex items use block image geometry without an inline baseline carrier');
 
 $classSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
