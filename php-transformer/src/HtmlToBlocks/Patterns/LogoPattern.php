@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use DOMDocument;
 use DOMElement;
 
@@ -220,12 +221,7 @@ final class LogoPattern
 
     private function safeNavigationUrl(string $url): string
     {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
+        return LinkUrlSanitizer::sanitize($url);
     }
 
     /**

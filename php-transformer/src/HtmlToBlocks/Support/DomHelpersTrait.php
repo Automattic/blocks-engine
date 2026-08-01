@@ -23,6 +23,7 @@ trait DomHelpersTrait
 
     private function innerHtml(DOMElement $element): string
     {
+        $this->canonicalizeLinkUrls($element);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -33,6 +34,7 @@ trait DomHelpersTrait
 
     private function innerHtmlPreservingWhitespace(DOMElement $element): string
     {
+        $this->canonicalizeLinkUrls($element);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -43,7 +45,31 @@ trait DomHelpersTrait
 
     private function outerHtml(DOMElement $element): string
     {
+        $this->canonicalizeLinkUrls($element);
         return trim($element->ownerDocument->saveHTML($element) ?: '');
+    }
+
+    private function canonicalizeLinkUrls(DOMElement $element): void
+    {
+        $anchors = 'a' === strtolower($element->tagName) ? array( $element ) : array();
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement ) {
+                $anchors[] = $anchor;
+            }
+        }
+
+        foreach ( $anchors as $anchor ) {
+            if ( ! $anchor->hasAttribute('href') ) {
+                continue;
+            }
+
+            $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
+            if ( '' === $href ) {
+                $anchor->removeAttribute('href');
+                continue;
+            }
+            $anchor->setAttribute('href', $href);
+        }
     }
 
     private function attr(DOMElement $element, string $name): string
@@ -303,12 +329,7 @@ trait DomHelpersTrait
      */
     private function safeNavigationUrl(string $url): string
     {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
+        return LinkUrlSanitizer::sanitize($url);
     }
 
     private function runtimeIslandSelector(DOMElement $element): string
