@@ -163,6 +163,8 @@ final class ArtifactCompiler
                 'source_hash'   => hash('sha256', $normalized['hash_payload']),
             ),
         );
+        // WordPressSitePlan consumes a canonical result envelope, so give it a
+        // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -171,10 +173,9 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
-
         // Failed compilations have no materializable source identity and no site plan.
         if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
+            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
                     'schema' => TransformerResult::SCHEMA,
@@ -194,8 +195,16 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
             } catch (\InvalidArgumentException $exception) {
-                $sourceReports['wordpress_site_plan_diagnostics'] = array(array('code' => 'wordpress_site_plan_not_self_contained', 'message' => $exception->getMessage()));
+                $diagnostics[] = $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
+        }
+
+        $metrics['diagnostic_count'] = count($diagnostics);
+        $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? '')));
+        if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
+            unset($sourceReports['wordpress_site_plan_diagnostics']);
         }
 
         return new TransformerResult(
@@ -402,7 +411,7 @@ final class ArtifactCompiler
         return array(
             'blocks'            => $result['blocks'],
             'serialized_blocks' => $result['serialized_blocks'],
-            'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
+            'diagnostics'       => $result['diagnostics'],
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],

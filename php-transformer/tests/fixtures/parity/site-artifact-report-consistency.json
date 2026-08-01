@@ -84,7 +84,7 @@
   },
   "expect": [
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "status", "assert": "equals", "value": "failed" },
     { "path": "source_reports.artifact.schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
     { "path": "source_reports.artifact.original_schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "public/index.html" },
