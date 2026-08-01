@@ -235,6 +235,11 @@ $assert('blocks-engine/author-layout' === ($articleLayout['blocks'][0]['blockNam
 $ordinaryFlow = $transform('<div><p>One</p><p>Two</p></div>');
 $assert('core/group' === ($ordinaryFlow['blocks'][0]['blockName'] ?? '') && array() === ($ordinaryFlow['source_reports']['generated_blocks'] ?? array()), 'ordinary flow containers remain core blocks without companion generation');
 
+$unclassedLayout = $transform('<style>header > nav{display:flex;align-items:center;max-width:60rem;margin:0 auto}</style><header><nav><a href="/">Home</a><div>Actions</div></nav></header>');
+$unclassedLayoutMarkup = (string) ($unclassedLayout['serialized_blocks'] ?? '');
+$unclassedLayoutCss = $css($unclassedLayout);
+$assert(preg_match('/<nav class="wp-block-blocks-engine-author-layout (blocks-engine-source-nav-[^"]+)"/', $unclassedLayoutMarkup, $unclassedLayoutMarker) === 1 && str_contains($unclassedLayoutCss, ':where(.' . $unclassedLayoutMarker[1] . ')') && str_contains($unclassedLayoutCss, 'display:flex;align-items:center;max-width:60rem'), 'unclassed author-layout wrappers retain selector-projection provenance hooks');
+
 $directControls = $transform('<style>.row{display:flex}</style><div class="row" role="list"><a class="item" href="/one" target="_blank" rel="noopener" role="listitem" data-key="one">One</a><button class="item" type="button" role="listitem" aria-label="Two">Two</button></div>');
 $directControlsMarkup = (string) ($directControls['serialized_blocks'] ?? '');
 $assert(str_contains($directControlsMarkup, '<div class="wp-block-blocks-engine-author-layout row" role="list">') && str_contains($directControlsMarkup, 'wp-block-blocks-engine-author-layout item') && str_contains($directControlsMarkup, 'href="/one"') && str_contains($directControlsMarkup, 'type="button"') && str_contains($directControlsMarkup, 'role="listitem"') && ! str_contains($directControlsMarkup, 'wp-block-buttons'), 'author layout controls retain direct anchor and button topology with safe attributes');

@@ -3013,20 +3013,12 @@ final class HtmlTransformer
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
             }
-            if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
-            }
-            if ( $sourceElement->parentNode instanceof DOMElement
-                && 'body' === strtolower($sourceElement->parentNode->tagName)
-                && array() !== $this->sourceBodyProjectionClasses ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$this->sourceBodyProjectionClasses);
+            $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
+            if ( '' !== $projectionClassName ) {
+                $attrs['className'] = $projectionClassName;
             }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
-            }
-            $semanticMarkers = $this->authorSemanticMarkersForElement($sourceElement);
-            if ( array() !== $semanticMarkers ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$semanticMarkers);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
@@ -3089,6 +3081,24 @@ final class HtmlTransformer
     private function hasAuthorSemanticMarker(DOMElement $element): bool
     {
         return array() !== $this->authorSemanticMarkersForElement($element);
+    }
+
+    private function sourceProjectionClassName(DOMElement $element, string $className = ''): string
+    {
+        $sourceTagName = strtolower($element->tagName);
+        if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+            $className = $this->mergeClassNames($className, $this->sourceTagMarkers[$sourceTagName]);
+        }
+        if ( $element->parentNode instanceof DOMElement
+            && 'body' === strtolower($element->parentNode->tagName)
+            && array() !== $this->sourceBodyProjectionClasses ) {
+            $className = $this->mergeClassNames($className, ...$this->sourceBodyProjectionClasses);
+        }
+        $semanticMarkers = $this->authorSemanticMarkersForElement($element);
+        if ( array() !== $semanticMarkers ) {
+            $className = $this->mergeClassNames($className, ...$semanticMarkers);
+        }
+        return $className;
     }
 
     /** @return list<string> */
@@ -3456,9 +3466,10 @@ final class HtmlTransformer
 
         $sourceTag = strtolower($element->tagName);
         $tagName = in_array($sourceTag, array( 'a', 'button' ), true) ? $sourceTag : ($this->semanticGroupTagName($element) ?? 'div');
+        $presentationAttrs = $this->presentationAttributes($element);
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
             'sourceAttributes' => array_merge(
                 $this->authorLayoutSourceAttributes($element),
                 in_array($tagName, array( 'a', 'button' ), true) ? array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' ))) : array()
@@ -3540,9 +3551,10 @@ final class HtmlTransformer
         }
 
         $tagName = strtolower($element->tagName);
+        $presentationAttrs = $this->presentationAttributes($element);
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
             'content' => $content,
             'contentMode' => 'rich-text',
             'sourceAttributes' => array_filter(array_merge(
