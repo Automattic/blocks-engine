@@ -48,7 +48,7 @@ final class AuthorLayoutBlockGenerator
     function wrapperProps( attributes ) {
         var props = Object.assign( {}, attributes.sourceAttributes || {} );
         if ( attributes.anchor ) { props.id = attributes.anchor; }
-        props.className = [ 'wp-block-group', attributes.className || '' ].filter( Boolean ).join( ' ' );
+        if ( attributes.className ) { props.className = attributes.className; }
         if ( attributes.url && attributes.tagName === 'a' ) { props.href = attributes.url; }
         return props;
     }

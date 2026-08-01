@@ -761,7 +761,7 @@ $assert(! str_contains($classOwnedGridMarkup, 'is-layout-grid'), 'class-owned CS
 
 $explicitGridPlacement = ( new HtmlTransformer() )->transform('<style>.essay{display:grid;grid-template-columns:1fr minmax(0,900px) 320px;gap:3rem}.essay__body{grid-column:2}.essay__side{grid-column:3}</style><main><div class="essay"><article class="essay__body">Body</article><aside class="essay__side">Sidebar</aside></div></main>')->toArray();
 $explicitGridPlacementMarkup = (string) ($explicitGridPlacement['serialized_blocks'] ?? '');
-$assert(str_contains($explicitGridPlacementMarkup, '<div class="wp-block-blocks-engine-author-layout wp-block-group essay"'), 'explicitly positioned grid children retain their editable author-layout track container and the supported core Group consumer class');
+$assert(str_contains($explicitGridPlacementMarkup, '<div class="wp-block-blocks-engine-author-layout essay"'), 'explicitly positioned grid children retain their editable author-layout track container');
 $assert(! str_contains($explicitGridPlacementMarkup, '<!-- wp:columns'), 'explicitly positioned grid children do not become flex-based core columns');
 
 $classOwnedFlex = ( new HtmlTransformer() )->transform('<style>.hero{display:flex;align-items:center;min-height:100vh}</style><main><section class="hero"><div>Text</div></section></main>')->toArray();
@@ -1126,7 +1126,7 @@ $syntheticInlineParagraphs = ( new HtmlTransformer() )->transform(
 )->toArray();
 $syntheticInlineMarkup = (string) ($syntheticInlineParagraphs['serialized_blocks'] ?? '');
 $syntheticInlineCss = implode("\n", array_column(array_filter($syntheticInlineParagraphs['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert(2 === substr_count($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($syntheticInlineMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group brand">Verified Artifact</a>') && str_contains($syntheticInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><span>Portable input.</span></p>'), 'author-layout anchors remain direct editable children while unrelated standalone spans receive marginless synthetic paragraph wrappers');
+$assert(2 === substr_count($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($syntheticInlineMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout brand">Verified Artifact</a>') && str_contains($syntheticInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><span>Portable input.</span></p>'), 'author-layout anchors remain direct editable children while unrelated standalone spans receive marginless synthetic paragraph wrappers');
 $assert(str_contains($syntheticInlineCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && strpos($syntheticInlineCss, ':where(.blocks-engine-synthetic-paragraph)') < strpos($syntheticInlineCss, ':where(.blocks-engine-source-p-'), 'synthetic paragraph reset precedes projected author CSS so explicit source margins retain cascade precedence');
 $assert(preg_match('/<p class="blocks-engine-source-p-[^"]+">Source paragraph\.<\/p>/', $syntheticInlineMarkup) === 1 && ! str_contains($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph blocks-engine-source-p-') && 'pass' === ($syntheticInlineParagraphs['source_reports']['wp_block_validity']['status'] ?? ''), 'source paragraphs retain source-p selector provenance without the synthetic inline wrapper reset');
 
@@ -1137,12 +1137,12 @@ $richTextMediaBlock = $richTextMediaAnchor['blocks'][0]['innerBlocks'][0] ?? arr
 $richTextMediaMarkup = (string) ($richTextMediaAnchor['serialized_blocks'] ?? '');
 $richTextMediaContent = (string) ($richTextMediaBlock['attrs']['content'] ?? '');
 $richTextMediaAssetCount = count(array_filter($richTextMediaAnchor['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? '')));
-$richTextMediaDirectSave = 1 === preg_match('~<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group logo"><img[^>]+><span>Logo</span></a>~', $richTextMediaMarkup);
-$assert('rich-text' === ($richTextMediaBlock['attrs']['contentMode'] ?? '') && array() === ($richTextMediaBlock['innerBlocks'] ?? array()) && str_contains($richTextMediaContent, '<img src="assets/materialized-svg/') && str_contains($richTextMediaContent, 'style="width:24px;height:18px"') && $richTextMediaDirectSave && ! str_contains($richTextMediaMarkup, '<svg') && ! str_contains($richTextMediaMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group logo"><!-- wp:paragraph') && 1 === $richTextMediaAssetCount, 'Passive SVG anchors use the direct RichText save shape with resolved image sizing and a retained materialized asset.');
+$richTextMediaDirectSave = 1 === preg_match('~<a href="/" class="wp-block-blocks-engine-author-layout logo"><img[^>]+><span>Logo</span></a>~', $richTextMediaMarkup);
+$assert('rich-text' === ($richTextMediaBlock['attrs']['contentMode'] ?? '') && array() === ($richTextMediaBlock['innerBlocks'] ?? array()) && str_contains($richTextMediaContent, '<img src="assets/materialized-svg/') && str_contains($richTextMediaContent, 'style="width:24px;height:18px"') && $richTextMediaDirectSave && ! str_contains($richTextMediaMarkup, '<svg') && ! str_contains($richTextMediaMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout logo"><!-- wp:paragraph') && 1 === $richTextMediaAssetCount, 'Passive SVG anchors use the direct RichText save shape with resolved image sizing and a retained materialized asset.');
 $assert(array() === ($richTextMediaAnchor['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()), 'SVG-to-image anchor materialization does not report an intentional media-tag normalization as a topology change.');
 $structuredMediaAnchor = ( new HtmlTransformer() )->transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>')->toArray();
 $structuredMediaBlock = $structuredMediaAnchor['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('inner-blocks' === ($structuredMediaBlock['attrs']['contentMode'] ?? '') && 0 < count($structuredMediaBlock['innerBlocks'] ?? array()) && str_contains((string) ($structuredMediaAnchor['serialized_blocks'] ?? ''), '<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group card"><!-- wp:paragraph'), 'Block-structured anchors retain the PHP InnerBlocks save shape.');
+$assert('inner-blocks' === ($structuredMediaBlock['attrs']['contentMode'] ?? '') && 0 < count($structuredMediaBlock['innerBlocks'] ?? array()) && str_contains((string) ($structuredMediaAnchor['serialized_blocks'] ?? ''), '<a href="/" class="wp-block-blocks-engine-author-layout card"><!-- wp:paragraph'), 'Block-structured anchors retain the PHP InnerBlocks save shape.');
 
 $responsiveDivParagraph = ( new HtmlTransformer() )->transform(
     '<style>div.paragraph{padding-bottom:20px}@media(max-width:600px){div.paragraph{padding-bottom:8px}}</style><main><div class="paragraph"><span>Responsive copy.</span></div></main>'
@@ -1157,7 +1157,7 @@ $canonicalWrapperAttrsResult = ( new HtmlTransformer() )->transform(
     '<main><section class="menu-grid" style="display:grid;gap:2rem"><h2 class="section-title" style="color:red">Menu</h2><p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p></section></main>'
 )->toArray();
 $canonicalWrapperAttrsSerialized = (string) ($canonicalWrapperAttrsResult['serialized_blocks'] ?? '');
-$assert(str_contains($canonicalWrapperAttrsSerialized, '<section class="wp-block-blocks-engine-author-layout wp-block-group menu-grid"'), 'author layout wrappers preserve semantic tags, source classes, and the core Group consumer class without core Group layout classes');
+$assert(str_contains($canonicalWrapperAttrsSerialized, '<section class="wp-block-blocks-engine-author-layout menu-grid"'), 'author layout wrappers preserve semantic tags and source classes without core Group layout classes');
 $assert(! str_contains($canonicalWrapperAttrsSerialized, 'style="display:grid'), 'author layout wrappers leave grid authority in the source stylesheet');
 $assert(str_contains($canonicalWrapperAttrsSerialized, '<h2 class="wp-block-heading has-text-color section-title" style="color:red">Menu</h2>'), 'heading wrappers include canonical and support classes with supported color style');
 $assert(str_contains($canonicalWrapperAttrsSerialized, '<p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p>'), 'paragraph wrappers preserve runtime-addressable classes and supported margin style');
@@ -1249,8 +1249,8 @@ $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
     '<style>.track{display:flex}.token{display:inline-flex;align-items:center;gap:8px}.token svg{width:18px;height:18px}</style><main><div class="track"><span class="token">Open Source <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg></span></div></main>'
 )->toArray();
 $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
-$assert(str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout wp-block-group token') && ! str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain their direct source span instead of gaining a paragraph wrapper');
-$assert(str_contains($inlineFlexSvgMarkup, '<span class="wp-block-blocks-engine-author-layout wp-block-group token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled source span');
+$assert(str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout token') && ! str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain their direct source span instead of gaining a paragraph wrapper');
+$assert(str_contains($inlineFlexSvgMarkup, '<span class="wp-block-blocks-engine-author-layout token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled source span');
 $assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
 $assert('pass' === ($inlineFlexSvgResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline flex SVG paragraph remains editor-valid');
 

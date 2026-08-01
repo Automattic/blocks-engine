@@ -102,7 +102,7 @@ $directControl = $transform('<style>.control-cluster{display:flex;gap:8px}.actio
 $directControlMarkup = (string) ($directControl['serialized_blocks'] ?? '');
 $directControlCss = $css($directControl);
 preg_match('/(blocks-engine-control-[a-f0-9]+-\d+)/', $directControlMarkup, $directControlMarker);
-$assert(str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout wp-block-group control-cluster') && str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout wp-block-group action-control') && str_contains($directControlMarkup, '<a href="/go"') && ! str_contains($directControlMarkup, 'wp-block-button__link'), 'direct source controls retain direct author-layout anchors with the core Group consumer class rather than core/button wrappers');
+$assert(str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout control-cluster') && str_contains($directControlMarkup, 'wp-block-blocks-engine-author-layout action-control') && str_contains($directControlMarkup, '<a href="/go"') && ! str_contains($directControlMarkup, 'wp-block-button__link'), 'direct source controls remain direct author-layout anchors rather than core/button wrappers');
 
 $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:9px 20px;border-radius:6px;background:#e8a020;color:#050d1a}.nav-cta:hover{background:#f0ac22}.nav-cta:focus{outline:2px solid #fff}</style><main><a class="btn btn-primary nav-cta" href="#cta">Get Early Access</a></main>');
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
@@ -198,7 +198,7 @@ $assert(! str_contains($ordinaryInlineMarkup, 'blocks-engine-semantic-') && 'cor
 $gridRichText = $transform('<style>.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > span:not(.card-label){grid-column:2}.artifact-card .card-label{grid-column:1 / -1}</style><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span>styles.css</span><span>assets/</span></div>');
 $gridRichTextMarkup = (string) ($gridRichText['serialized_blocks'] ?? '');
 $gridRichTextCss = $css($gridRichText);
-$assert(str_contains($gridRichTextMarkup, '<div class="wp-block-blocks-engine-author-layout wp-block-group artifact-card">') && ! str_contains($gridRichTextMarkup, '<!-- wp:group') && str_contains($gridRichTextMarkup, 'class="wp-block-blocks-engine-author-layout wp-block-group card-label"') && str_contains($gridRichTextMarkup, '>Input</span>') && str_contains($gridRichTextCss, 'grid-template-columns:1fr auto') && str_contains($gridRichTextCss, 'grid-column:1 / -1') && 'pass' === ($gridRichText['source_reports']['wp_block_validity']['status'] ?? ''), 'grid cards retain selector-addressable direct children in a valid author-layout save shape');
+$assert(str_contains($gridRichTextMarkup, '<div class="wp-block-blocks-engine-author-layout artifact-card">') && ! str_contains($gridRichTextMarkup, '<!-- wp:group') && str_contains($gridRichTextMarkup, 'class="wp-block-blocks-engine-author-layout card-label"') && str_contains($gridRichTextMarkup, '>Input</span>') && str_contains($gridRichTextCss, 'grid-template-columns:1fr auto') && str_contains($gridRichTextCss, 'grid-column:1 / -1') && 'pass' === ($gridRichText['source_reports']['wp_block_validity']['status'] ?? ''), 'grid cards retain selector-addressable direct children in a valid author-layout save shape');
 
 $selectorIdentity = $transform('<style>.roster-card .stamp{color:#6040cc}.roster-card .stamp:hover{color:#123456}.roster-card a.view{display:inline-flex;align-items:center;gap:6px}.roster-card a.view:hover{color:#123456}</style><div class="roster-card"><p><span class="stamp" id="release-stamp" data-kind="release">New</span></p><a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a><a href="/plain">Plain link</a></div>');
 $selectorIdentityMarkup = (string) ($selectorIdentity['serialized_blocks'] ?? '');
@@ -222,7 +222,7 @@ $authorGrid = $transform('<style>.ex-row{display:grid;grid-template-columns:repe
 $authorGridMarkup = (string) ($authorGrid['serialized_blocks'] ?? '');
 $authorGridBlock = $authorGrid['blocks'][0] ?? array();
 $authorDefinition = $authorGrid['source_reports']['generated_blocks'][0] ?? array();
-$assert('blocks-engine/author-layout' === ($authorGridBlock['blockName'] ?? '') && 5 === count($authorGridBlock['innerBlocks'] ?? array()) && str_contains($authorGridMarkup, '<section id="gallery" class="wp-block-blocks-engine-author-layout wp-block-group ex-row" aria-label="Gallery" data-kind="exhibition">') && ! str_contains($css($authorGrid), '--wp--style--block-gap'), 'author grids retain source-owned layout semantics while inheriting the core Group consumer contract');
+$assert('blocks-engine/author-layout' === ($authorGridBlock['blockName'] ?? '') && 5 === count($authorGridBlock['innerBlocks'] ?? array()) && str_contains($authorGridMarkup, '<section id="gallery" class="wp-block-blocks-engine-author-layout ex-row" aria-label="Gallery" data-kind="exhibition">') && ! str_contains((string) ($authorGridBlock['innerHTML'] ?? ''), 'wp-block-group') && ! str_contains($css($authorGrid), '--wp--style--block-gap'), 'author grids use one semantic editable companion wrapper with source CSS as layout authority');
 $assert('blocks-engine/author-layout' === ($authorDefinition['block_json']['name'] ?? '') && false === ($authorDefinition['block_json']['supports']['layout'] ?? true) && false === ($authorDefinition['block_json']['supports']['spacing']['blockGap'] ?? true) && str_contains((string) ($authorDefinition['assets']['index.js'] ?? ''), 'InnerBlocks.Content'), 'author layout companion payload declares editable InnerBlocks and no core layout support');
 
 $cardGrid = $transform('<style>.card{display:grid;grid-template-columns:1fr auto}.card > span{grid-column:2}.card > strong{grid-column:1}</style><div class="card"><span>Label</span><strong>Title</strong><span>Detail</span></div>');
@@ -230,9 +230,9 @@ $cardGridChildren = $cardGrid['blocks'][0]['innerBlocks'] ?? array();
 $assert(
     'blocks-engine/author-layout' === ($cardGrid['blocks'][0]['blockName'] ?? '')
     && array('span', 'strong', 'span') === array_map(static fn (array $block): string => (string) ($block['attrs']['tagName'] ?? ''), $cardGridChildren)
-    && ! str_contains((string) ($cardGrid['serialized_blocks'] ?? ''), '<!-- wp:group')
+    && ! str_contains((string) ($cardGrid['serialized_blocks'] ?? ''), 'wp-block-group')
     && array() === ($cardGrid['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()),
-    'author grid cards retain direct inline child tags and placement selectors without Group block or Paragraph wrappers'
+    'author grid cards retain direct inline child tags and placement selectors without Group or Paragraph wrappers'
 );
 
 $textOnlyLayoutItems = $transform('<style>.grid{display:grid;grid-template-columns:repeat(2,1fr)}</style><div class="grid"><div>One</div><div>Two</div></div>');
@@ -251,11 +251,11 @@ $assert('core/group' === ($ordinaryFlow['blocks'][0]['blockName'] ?? '') && arra
 $unclassedLayout = $transform('<style>header > nav{display:flex;align-items:center;max-width:60rem;margin:0 auto}</style><header><nav><a href="/">Home</a><div>Actions</div></nav></header>');
 $unclassedLayoutMarkup = (string) ($unclassedLayout['serialized_blocks'] ?? '');
 $unclassedLayoutCss = $css($unclassedLayout);
-$assert(preg_match('/<nav class="wp-block-blocks-engine-author-layout wp-block-group (blocks-engine-source-nav-[^"]+)"/', $unclassedLayoutMarkup, $unclassedLayoutMarker) === 1 && str_contains($unclassedLayoutCss, ':where(.' . $unclassedLayoutMarker[1] . ')') && str_contains($unclassedLayoutCss, 'display:flex;align-items:center;max-width:60rem'), 'unclassed author-layout wrappers retain selector-projection provenance hooks');
+$assert(preg_match('/<nav class="wp-block-blocks-engine-author-layout (blocks-engine-source-nav-[^"]+)"/', $unclassedLayoutMarkup, $unclassedLayoutMarker) === 1 && str_contains($unclassedLayoutCss, ':where(.' . $unclassedLayoutMarker[1] . ')') && str_contains($unclassedLayoutCss, 'display:flex;align-items:center;max-width:60rem'), 'unclassed author-layout wrappers retain selector-projection provenance hooks');
 
 $directControls = $transform('<style>.row{display:flex}</style><div class="row" role="list"><a class="item" href="/one" target="_blank" rel="noopener" role="listitem" data-key="one">One</a><button class="item" type="button" role="listitem" aria-label="Two">Two</button></div>');
 $directControlsMarkup = (string) ($directControls['serialized_blocks'] ?? '');
-$assert(str_contains($directControlsMarkup, '<div class="wp-block-blocks-engine-author-layout wp-block-group row" role="list">') && str_contains($directControlsMarkup, 'wp-block-blocks-engine-author-layout wp-block-group item') && str_contains($directControlsMarkup, 'href="/one"') && str_contains($directControlsMarkup, 'type="button"') && str_contains($directControlsMarkup, 'role="listitem"') && ! str_contains($directControlsMarkup, 'wp-block-buttons'), 'author layout controls retain direct anchor and button topology with safe attributes');
+$assert(str_contains($directControlsMarkup, '<div class="wp-block-blocks-engine-author-layout row" role="list">') && str_contains($directControlsMarkup, 'wp-block-blocks-engine-author-layout item') && str_contains($directControlsMarkup, 'href="/one"') && str_contains($directControlsMarkup, 'type="button"') && str_contains($directControlsMarkup, 'role="listitem"') && ! str_contains($directControlsMarkup, 'wp-block-buttons'), 'author layout controls retain direct anchor and button topology with safe attributes');
 $authorLayoutScript = (string) ($directControls['source_reports']['generated_blocks'][0]['assets']['index.js'] ?? '');
 $assert(str_contains($authorLayoutScript, "attributes.contentMode === 'rich-text'") && str_contains($authorLayoutScript, 'RichText.Content') && str_contains($authorLayoutScript, 'InnerBlocks.Content'), 'companion JS save contract selects direct RichText leaves and editable structural InnerBlocks by content mode');
 $assert('rich-text' === ($directControls['blocks'][0]['innerBlocks'][0]['attrs']['contentMode'] ?? '') && array() === ($directControls['blocks'][0]['innerBlocks'][0]['innerBlocks'] ?? array()), 'simple direct controls persist rich-text mode without child blocks');
@@ -265,13 +265,13 @@ $logoBlock = $logoControl['blocks'][0]['innerBlocks'][0] ?? array();
 $logoMarkup = (string) ($logoControl['serialized_blocks'] ?? '');
 $logoContent = (string) ($logoBlock['attrs']['content'] ?? '');
 $logoAssetCount = count(array_filter($logoControl['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? '')));
-$logoDirectSave = 1 === preg_match('~<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group logo"><img[^>]+><span>Logo</span></a>~', $logoMarkup);
+$logoDirectSave = 1 === preg_match('~<a href="/" class="wp-block-blocks-engine-author-layout logo"><img[^>]+><span>Logo</span></a>~', $logoMarkup);
 $assert('rich-text' === ($logoBlock['attrs']['contentMode'] ?? '') && array() === ($logoBlock['innerBlocks'] ?? array()) && str_contains($logoContent, '<img src="assets/materialized-svg/') && str_contains($logoContent, 'style="width:24px;height:18px"') && 1 === $logoAssetCount && $logoDirectSave && ! str_contains($logoMarkup, '<svg') && ! str_contains($logoMarkup, '<a href="/" class="wp-block-blocks-engine-author-layout logo"><!-- wp:paragraph'), 'passive SVG logo controls save direct materialized images and phrasing content through RichText without synthetic wrappers');
 $assert(array() === ($logoControl['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()), 'SVG-to-image materialization preserves author-layout topology without a false wrapper-change diagnostic');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
 $structuredAnchorBlock = $structuredAnchor['blocks'][0]['innerBlocks'][0] ?? array();
-$assert('inner-blocks' === ($structuredAnchorBlock['attrs']['contentMode'] ?? '') && 0 < count($structuredAnchorBlock['innerBlocks'] ?? array()) && str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), '<a href="/" class="wp-block-blocks-engine-author-layout wp-block-group card"><!-- wp:paragraph'), 'block-structured anchor descendants retain the PHP InnerBlocks save contract');
+$assert('inner-blocks' === ($structuredAnchorBlock['attrs']['contentMode'] ?? '') && 0 < count($structuredAnchorBlock['innerBlocks'] ?? array()) && str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), '<a href="/" class="wp-block-blocks-engine-author-layout card"><!-- wp:paragraph'), 'block-structured anchor descendants retain the PHP InnerBlocks save contract');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();

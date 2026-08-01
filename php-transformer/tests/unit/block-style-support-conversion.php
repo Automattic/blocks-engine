@@ -71,8 +71,8 @@ $groupInnerHtml = (string) ($group['innerHTML'] ?? '');
 
 $assert('blocks-engine/author-layout' === ($group['blockName'] ?? ''), '9: horizontal flex rows use the editable author-layout companion', (string) ($group['blockName'] ?? '(none)'));
 $assert(! isset($groupAttrs['layout']), '10: author-layout declares no Gutenberg layout attribute', json_encode($groupAttrs));
-$assert(str_contains($groupInnerHtml, 'wp-block-blocks-engine-author-layout wp-block-group hero-row'), '11: rendered wrapper uses the companion and core Group consumer classes with the source class', $groupInnerHtml);
-$assert(! str_contains($groupInnerHtml, 'is-layout-flex') && ! str_contains($groupInnerHtml, 'wp-block-group-is-layout-'), '12: author layout wrapper inherits the base consumer class without opting into core Group layout CSS', $groupInnerHtml);
+$assert(str_contains($groupInnerHtml, 'wp-block-blocks-engine-author-layout hero-row'), '11: rendered wrapper uses the companion block class and source class', $groupInnerHtml);
+$assert(! str_contains($groupInnerHtml, 'is-layout-flex') && ! str_contains($groupInnerHtml, 'wp-block-group'), '12: author layout wrapper does not opt into core Group layout CSS', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: author layout wrapper stores no blockGap', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: source CSS remains the layout authority', $groupInnerHtml);
 $assert(! isset($groupAttrs['style']), '15: author layout wrapper carries no core style support object', json_encode($groupAttrs));
@@ -218,7 +218,7 @@ $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-blocks-engine-author-layout wp-block-group tier-price'), '27: CSS-owned card price row uses the editable author layout wrapper with the core Group consumer class', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-blocks-engine-author-layout tier-price'), '27: CSS-owned card price row uses the editable author layout wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 
