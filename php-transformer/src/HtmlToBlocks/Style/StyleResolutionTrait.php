@@ -150,7 +150,7 @@ trait StyleResolutionTrait
                 $this->promotedClassName($this->attr($element, 'class')),
                 $this->inlineGeometryClassName($element, $excludedGeometryProperties, $forcedGeometryProperties, $forcedGeometryDeclarations)
             ),
-            'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties),
+            'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties, $forcedGeometryProperties),
             'style'     => $mapped['style'],
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
@@ -348,12 +348,12 @@ trait StyleResolutionTrait
         return implode('/', array_reverse($segments));
     }
 
-    private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array()): string
+    private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array()): string
     {
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $style = array();
         $geometryValues = array();
-        foreach ($this->inlineGeometryProperties() as $property) {
+        foreach (array_values(array_unique(array_merge($this->inlineGeometryProperties(), $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
@@ -428,11 +428,11 @@ trait StyleResolutionTrait
         $declarations = array();
         foreach ( $this->staticStyleRules as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
         }
 
-        return array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+        return $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
     }
 
     /**
@@ -522,7 +522,7 @@ trait StyleResolutionTrait
         $declarations = array();
         foreach ( $this->staticStyleRules as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
         }
 
@@ -531,10 +531,34 @@ trait StyleResolutionTrait
             return $inlineStyle;
         }
 
-        $declarations = array_merge($declarations, $this->cssDeclarations($inlineStyle));
+        $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($inlineStyle));
         $this->mergedPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($declarations);
 
         return $this->mergedPresentationStyleCache[$cacheKey];
+    }
+
+    /**
+     * Preserve declaration order while applying shorthand reset semantics.
+     *
+     * @param array<string, string> $base
+     * @param array<string, string> $incoming
+     * @return array<string, string>
+     */
+    private function mergeCssDeclarationMaps(array $base, array $incoming): array
+    {
+        foreach ( $incoming as $property => $value ) {
+            if ( 'background' === $property ) {
+                foreach ( array_keys($base) as $existing ) {
+                    if ( 'background' === $existing || str_starts_with($existing, 'background-') ) {
+                        unset($base[$existing]);
+                    }
+                }
+            }
+            unset($base[$property]);
+            $base[$property] = $value;
+        }
+
+        return $base;
     }
 
     private function presentationCacheKey(DOMElement $element): string

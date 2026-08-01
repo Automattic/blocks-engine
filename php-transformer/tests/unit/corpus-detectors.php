@@ -89,18 +89,14 @@ $assert(
     (string) $collected['metrics']['richtext_invalid_risk_count']
 );
 
-// A classed inline <a> inside paragraph/list-item content also counts; a plain
-// (attribute-free) span/anchor does not.
+// Link identity is safe RichText content. A classed inline <a> therefore does
+// not count, just like a plain span/anchor.
 $anchorResult = ( new HtmlTransformer() )->transform(
     '<ul><li>See <a class="cta" href="/x" aria-hidden="true">link</a></li><li>plain <span>text</span></li></ul>',
     array()
 )->toArray();
 $anchorRisk = $byDetector(CorpusDetectors::collect($anchorResult)['findings'], 'richtext_invalid_risk');
-$assert(
-    1 === count($anchorRisk) && 'core/list-item' === $anchorRisk[0]['pattern'],
-    '1e: a classed <a> in list-item content is richtext invalid risk; a plain span is not',
-    (string) count($anchorRisk) . ':' . (string) ($anchorRisk[0]['pattern'] ?? '(none)')
-);
+$assert(0 === count($anchorRisk), '1e: classed link identity in list-item RichText is safe; a plain span is also safe', (string) count($anchorRisk));
 
 // ---------------------------------------------------------------------------
 // 2. var density: the custom property is reported as INFORMATIONAL (not a repair

@@ -52,43 +52,54 @@ final class DescriptionListBlockGenerator
         var output = '';
         if ( item.className ) { output += ' class="' + escapeAttribute( item.className ) + '"'; }
         if ( item.style ) { output += ' style="' + escapeAttribute( item.style ) + '"'; }
+        Object.keys( item.attributes || {} ).forEach( function( name ) { output += ' ' + name + '="' + escapeAttribute( item.attributes[ name ] ) + '"'; } );
         return output;
     }
+    function groupItems( group ) { return group.items || [].concat( ( group.terms || [] ).map( function( item ) { return Object.assign( { tagName: 'dt' }, item ); } ), ( group.descriptions || [] ).map( function( item ) { return Object.assign( { tagName: 'dd' }, item ); } ) ); }
     function markup( blockAttributes ) {
         var output = '<dl' + markupAttributes( blockAttributes ) + '>';
         ( blockAttributes.groups || [] ).forEach( function( group ) {
-            ( group.terms || [] ).forEach( function( item ) { output += '<dt' + markupAttributes( item ) + '>' + ( item.content || '' ) + '</dt>'; } );
-            ( group.descriptions || [] ).forEach( function( item ) { output += '<dd' + markupAttributes( item ) + '>' + ( item.content || '' ) + '</dd>'; } );
+            var wrapper = group.wrapper;
+            if ( wrapper ) { output += '<div' + markupAttributes( wrapper ) + '>'; }
+            groupItems( group ).forEach( function( item ) { output += '<' + item.tagName + markupAttributes( item ) + '>' + ( item.content || '' ) + '</' + item.tagName + '>'; } );
+            if ( wrapper ) { output += '</div>'; }
         } );
         return output + '</dl>';
     }
     function updateItem( props, groupIndex, collection, itemIndex, content ) {
         var groups = ( props.attributes.groups || [] ).map( function( group ) {
-            return {
+            var clone = {
                 terms: ( group.terms || [] ).map( function( item ) { return Object.assign( {}, item ); } ),
                 descriptions: ( group.descriptions || [] ).map( function( item ) { return Object.assign( {}, item ); } )
             };
+            if ( group.items ) { clone.items = group.items.map( function( item ) { return Object.assign( {}, item ); } ); }
+            if ( group.wrapper ) { clone.wrapper = Object.assign( {}, group.wrapper ); }
+            return clone;
         } );
         groups[ groupIndex ][ collection ][ itemIndex ].content = content;
         props.setAttributes( { groups: groups } );
     }
+    function updateOrderedItem( props, groupIndex, itemIndex, content ) {
+        var groups = ( props.attributes.groups || [] ).map( function( group ) { return Object.assign( {}, group, { items: ( group.items || [] ).map( function( item ) { return Object.assign( {}, item ); } ) } ); } );
+        groups[ groupIndex ].items[ itemIndex ].content = content;
+        props.setAttributes( { groups: groups } );
+    }
+    function editorAttributes( item ) { return Object.assign( {}, item.attributes || {}, item.className ? { className: item.className } : {} ); }
     function edit( props ) {
         var children = [];
         var scope = 'be-description-list-' + String( props.clientId || 'block' ).replace( /[^a-zA-Z0-9_-]/g, '' );
         var rules = safeCssText( props.attributes.style ) ? '.' + scope + '{' + safeCssText( props.attributes.style ) + '}' : '';
         ( props.attributes.groups || [] ).forEach( function( group, groupIndex ) {
-            ( group.terms || [] ).forEach( function( item, itemIndex ) {
-                var key = 'term-' + groupIndex + '-' + itemIndex;
+            var groupChildren = [];
+            var wrapper = group.wrapper;
+            if ( wrapper && safeCssText( wrapper.style ) ) { rules += '.' + scope + ' [data-be-description-list-group="' + groupIndex + '"]{' + safeCssText( wrapper.style ) + '}'; }
+            groupItems( group ).forEach( function( item, itemIndex ) {
+                var key = item.tagName + '-' + groupIndex + '-' + itemIndex;
                 var css = safeCssText( item.style );
                 if ( css ) { rules += '.' + scope + ' [data-be-description-list-item="' + key + '"]{' + css + '}'; }
-                children.push( createElement( RichText, { tagName: 'dt', value: item.content || '', className: item.className || undefined, 'data-be-description-list-item': key, key: key, onChange: function( content ) { updateItem( props, groupIndex, 'terms', itemIndex, content ); } } ) );
+                groupChildren.push( createElement( RichText, Object.assign( editorAttributes( item ), { tagName: item.tagName, value: item.content || '', 'data-be-description-list-item': key, key: key, onChange: function( content ) { if ( group.items ) { updateOrderedItem( props, groupIndex, itemIndex, content ); } else { updateItem( props, groupIndex, 'dt' === item.tagName ? 'terms' : 'descriptions', 'dt' === item.tagName ? itemIndex : itemIndex - ( group.terms || [] ).length, content ); } } } ) ) );
             } );
-            ( group.descriptions || [] ).forEach( function( item, itemIndex ) {
-                var key = 'description-' + groupIndex + '-' + itemIndex;
-                var css = safeCssText( item.style );
-                if ( css ) { rules += '.' + scope + ' [data-be-description-list-item="' + key + '"]{' + css + '}'; }
-                children.push( createElement( RichText, { tagName: 'dd', value: item.content || '', className: item.className || undefined, 'data-be-description-list-item': key, key: key, onChange: function( content ) { updateItem( props, groupIndex, 'descriptions', itemIndex, content ); } } ) );
-            } );
+            if ( wrapper ) { children.push( createElement( 'div', Object.assign( editorAttributes( wrapper ), { 'data-be-description-list-group': groupIndex, key: 'group-' + groupIndex } ), groupChildren ) ); } else { children = children.concat( groupChildren ); }
         } );
         useEffect( function() {
             if ( ! rules ) { return undefined; }

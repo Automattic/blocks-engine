@@ -22,8 +22,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<mark style=\"display:block;color:#b8893a;--blocks-engine-richtext-marker:blocks-engine-richtext-aa1434d6fce3-3\">Roasters</mark>" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "class=\"accent\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<mark class=\"accent\" style=\"display:block;color:#b8893a;--blocks-engine-richtext-marker:blocks-engine-richtext-aa1434d6fce3-3\">Roasters</mark>" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

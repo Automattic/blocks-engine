@@ -199,7 +199,6 @@ $columnsMaxWidthMarkup = (string) ($columnsMaxWidthResult['serialized_blocks'] ?
 $assert('blocks-engine/author-layout' === ($columnsMaxWidthBlock['blockName'] ?? ''), '24: horizontal flex wrapper uses the author-layout companion', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
 $assert(! isset($columnsMaxWidthAttrs['style']), '25: author layout omits core dimensions support', json_encode($columnsMaxWidthAttrs));
 $assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: author layout leaves unsupported geometry to source CSS', $columnsMaxWidthMarkup);
-
 $gridGeometryHtml = '<div class="layout-grid"><div>Left</div><div>Right</div></div>';
 $gridGeometryResult = ( new HtmlTransformer() )->transform($gridGeometryHtml, array('static_css' => '.layout-grid{display:grid;grid-template-columns:1fr 1fr;max-width:72rem;margin:0 auto;padding:0 2rem}'))->toArray();
 $gridGeometryBlock = $gridGeometryResult['blocks'][0] ?? array();

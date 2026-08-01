@@ -136,6 +136,13 @@ final class FormatBridge
             $output = $from === $to ? $normalizedContent : $targetAdapter->fromBlocks($blocks, $options);
             $assets = is_array($adapterResult['assets'] ?? null) ? $adapterResult['assets'] : array();
             $fallbacks = is_array($adapterResult['fallbacks'] ?? null) ? $adapterResult['fallbacks'] : array();
+            $diagnostics = array_merge(is_array($adapterResult['diagnostics'] ?? null) ? $adapterResult['diagnostics'] : array(), array(
+                array(
+                    'code'    => 'format_bridge_conversion_completed',
+                    'message' => sprintf('Converted %s content to %s through the format bridge.', $from, $to),
+                    'source'  => self::class,
+                ),
+            ));
             $metrics = array(
                 'input_bytes'      => strlen($content),
                 'output_bytes'     => strlen($output),
@@ -143,6 +150,17 @@ final class FormatBridge
                 'fallback_count'   => count($fallbacks),
                 'diagnostic_count' => 1,
             );
+            $status = 'success';
+            if ( $sourceAdapter instanceof HtmlAdapter ) {
+                $status = (string) ($adapterResult['status'] ?? 'success');
+                $metrics = array_merge(is_array($adapterResult['metrics'] ?? null) ? $adapterResult['metrics'] : array(), array(
+                    'input_bytes'      => strlen($content),
+                    'output_bytes'     => strlen($output),
+                    'block_count'      => $this->countBlocks($blocks),
+                    'fallback_count'   => count($fallbacks),
+                    'diagnostic_count' => count($diagnostics),
+                ));
+            }
             $sourceReports = is_array($adapterResult['source_reports'] ?? null) ? $adapterResult['source_reports'] : array();
             $sourceReports['format_bridge'] = array(
                     'source_format' => $from,
@@ -153,6 +171,7 @@ final class FormatBridge
             $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts($from, $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
 
             return new TransformerResult(
+                status: $status,
                 sourceReports: $sourceReports,
                 blocks: $blocks,
                 serializedBlocks: 'blocks' === $to ? $output : '',
@@ -163,13 +182,7 @@ final class FormatBridge
                     ),
                 ),
                 assets: $assets,
-                diagnostics: array_merge(is_array($adapterResult['diagnostics'] ?? null) ? $adapterResult['diagnostics'] : array(), array(
-                    array(
-                        'code'    => 'format_bridge_conversion_completed',
-                        'message' => sprintf('Converted %s content to %s through the format bridge.', $from, $to),
-                        'source'  => self::class,
-                    ),
-                )),
+                diagnostics: $diagnostics,
                 fallbacks: $fallbacks,
                 provenance: $provenance,
                 context: $context,
@@ -219,5 +232,21 @@ final class FormatBridge
             context: $context,
             metrics: $metrics
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function countBlocks(array $blocks): int
+    {
+        $count = 0;
+        foreach ( $blocks as $block ) {
+            ++$count;
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $count += $this->countBlocks($block['innerBlocks']);
+            }
+        }
+
+        return $count;
     }
 }

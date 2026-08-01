@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBui
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use DOMDocument;
 use DOMElement;
@@ -162,6 +163,8 @@ final class ArtifactCompiler
                 'source_hash'   => hash('sha256', $normalized['hash_payload']),
             ),
         );
+        // WordPressSitePlan consumes a canonical result envelope, so give it a
+        // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -170,10 +173,9 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
-
         // Failed compilations have no materializable source identity and no site plan.
         if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
+            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
                     'schema' => TransformerResult::SCHEMA,
@@ -193,8 +195,16 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
             } catch (\InvalidArgumentException $exception) {
-                $sourceReports['wordpress_site_plan_diagnostics'] = array(array('code' => 'wordpress_site_plan_not_self_contained', 'message' => $exception->getMessage()));
+                $diagnostics[] = $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
+        }
+
+        $metrics['diagnostic_count'] = count($diagnostics);
+        $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? '')));
+        if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
+            unset($sourceReports['wordpress_site_plan_diagnostics']);
         }
 
         return new TransformerResult(
@@ -401,7 +411,7 @@ final class ArtifactCompiler
         return array(
             'blocks'            => $result['blocks'],
             'serialized_blocks' => $result['serialized_blocks'],
-            'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
+            'diagnostics'       => $result['diagnostics'],
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],
@@ -457,6 +467,7 @@ final class ArtifactCompiler
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
+            'declarative_state_html'    => $html,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,
@@ -633,18 +644,7 @@ final class ArtifactCompiler
      */
     private function dedupeArrayRows(array $rows): array
     {
-        $deduped = array();
-        $seen = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**
@@ -1191,6 +1191,58 @@ final class ArtifactCompiler
         return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
     }
 
+    private function navigationStructureCompatCss(string $css): string
+    {
+        $rules = $this->navigationStructureCompatRules($css);
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: project source list navigation structure onto core/navigation markup */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function navigationStructureCompatRules(string $css): array
+    {
+        $rules = array();
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            $selectorList = trim($rule['selector']);
+            $body = $rule['body'];
+            if ( '' === $body ) {
+                continue;
+            }
+
+            if ( str_starts_with($selectorList, '@') ) {
+                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
+                    continue;
+                }
+                $nestedRules = $this->navigationStructureCompatRules($body);
+                if ( array() !== $nestedRules ) {
+                    $rules[] = $selectorList . ' {' . implode('', $nestedRules) . '}';
+                }
+                continue;
+            }
+            if ( str_contains(strtolower($body), 'url(') ) {
+                continue;
+            }
+
+            $mappedSelectors = array();
+            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
+                foreach ( $this->mapNavigationStructureSelector($selector, $body) as $mappedSelector ) {
+                    $mappedSelectors[$mappedSelector] = true;
+                }
+            }
+
+            if ( array() !== $mappedSelectors ) {
+                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
+            }
+        }
+
+        return $rules;
+    }
+
     private function navigationContainerCompatCss(string $css): string
     {
         $rules = array();
@@ -1317,8 +1369,45 @@ final class ArtifactCompiler
     private function wordpressCompatCss(string $css, array $files): string
     {
         return $this->navigationContainerCompatCss($css)
+            . $this->navigationStructureCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
-            . $this->rootStartupClassCompatCss($css, $files);
+            . $this->rootStartupClassCompatCss($css, $files)
+            . $this->coreRuntimeCompatCss($css, $files);
+    }
+
+    /** @param array<int, array<string, mixed>> $files */
+    private function coreRuntimeCompatCss(string $css, array $files): string
+    {
+        $rules = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            if ( preg_match('/\baria-current\s*=|\b(?:id|class)\s*=\s*(?:"[^"]*(?:active|current|selected)[^"]*"|\'[^\']*(?:active|current|selected)[^\']*\'|[^\s>]*(?:active|current|selected)[^\s>]*)/i', $file['content']) ) {
+                $rules['current-navigation'] = '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }';
+                break;
+            }
+        }
+
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            if ( str_starts_with(trim($rule['selector']), '@') ) {
+                if ( '' !== $this->coreRuntimeCompatCss($rule['body'], array()) ) {
+                    $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
+                    break;
+                }
+                continue;
+            }
+            if ( str_contains($rule['selector'], '.search-icon')
+                && ! str_contains($rule['selector'], '.wp-block-search')
+                && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $rule['body']) ) {
+                $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
+                break;
+            }
+        }
+
+        return array() === $rules
+            ? ''
+            : "\n\n/* wp-compat: protect core block runtime semantics from source selector collisions */\n" . implode("\n", $rules);
     }
 
     /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
@@ -1348,7 +1437,7 @@ final class ArtifactCompiler
     }
 
     /** @return array<int, array{selector:string,body:string}> */
-    private function topLevelCssRules(string $css): array
+    private function topLevelCssRules(string $css, bool $includeConditionalRules = false): array
     {
         $rules = array();
         $length = strlen($css);
@@ -1404,7 +1493,7 @@ final class ArtifactCompiler
                     $depth--;
                 }
             }
-            if ( '' !== $selector && ! str_starts_with($selector, '@') && 0 === $depth ) {
+            if ( '' !== $selector && ( $includeConditionalRules || ! str_starts_with($selector, '@') ) && 0 === $depth ) {
                 $closingBrace = $index - 1;
                 $rules[] = array(
                     'selector' => $selector,
@@ -1429,6 +1518,35 @@ final class ArtifactCompiler
         $length = strlen($selectorList);
         for ( $i = 0; $i < $length; $i++ ) {
             $char = $selectorList[$i];
+            if ( '\\' === $char && $i + 1 < $length ) {
+                $current .= $char . $selectorList[++$i];
+                continue;
+            }
+            if ( '/' === $char && '*' === ($selectorList[$i + 1] ?? '') ) {
+                $end = strpos($selectorList, '*/', $i + 2);
+                if ( false === $end ) {
+                    $current .= substr($selectorList, $i);
+                    break;
+                }
+                $current .= substr($selectorList, $i, $end + 2 - $i);
+                $i = $end + 1;
+                continue;
+            }
+            if ( in_array($char, array( '"', "'" ), true) ) {
+                $quote = $char;
+                $current .= $char;
+                while ( ++$i < $length ) {
+                    $current .= $selectorList[$i];
+                    if ( '\\' === $selectorList[$i] && $i + 1 < $length ) {
+                        $current .= $selectorList[++$i];
+                        continue;
+                    }
+                    if ( $quote === $selectorList[$i] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
             if ( '(' === $char || '[' === $char ) {
                 $depth++;
             } elseif ( ')' === $char || ']' === $char ) {
@@ -1488,6 +1606,106 @@ final class ArtifactCompiler
         }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mapNavigationStructureSelector(string $selector, string $body): array
+    {
+        $selector = $this->selectorWithoutComments($selector);
+        if ( str_contains($selector, '.wp-block-navigation')
+            || ! preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE) ) {
+            return array();
+        }
+
+        $listClasses = (string) ($listMatch[2][0] ?? '');
+        if ( ! preg_match('/(?:nav|menu)/i', $listClasses) ) {
+            return array();
+        }
+
+        $matchStart = (int) ($listMatch[0][1] ?? 0);
+        $matchLength = strlen((string) ($listMatch[0][0] ?? ''));
+        $prefix = rtrim(substr($selector, 0, $matchStart));
+        $tail = substr($selector, $matchStart + $matchLength);
+        if ( '' === trim($tail) ) {
+            if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
+                || ! preg_match('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', $listClasses) ) {
+                return array();
+            }
+            $stableListClasses = preg_replace('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', '', $listClasses);
+            if ( ! is_string($stableListClasses) || $stableListClasses === $listClasses || ! preg_match('/(?:nav|menu)/i', $stableListClasses) ) {
+                return array();
+            }
+            $listClasses = $stableListClasses;
+        }
+        $tail = preg_replace(
+            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
+            '.wp-block-navigation-item',
+            $tail
+        ) ?? $tail;
+        $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
+        $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
+        $runtimeTail = ' .wp-block-navigation__container' . $tail;
+        $scope = $listClasses . '.wp-block-navigation';
+
+        $selectors = array();
+        if ( '' === $prefix ) {
+            $selectors[$scope . $runtimeTail] = true;
+            return array_keys($selectors);
+        }
+
+        $selectors[$prefix . ' ' . $scope . $runtimeTail] = true;
+        if ( preg_match('/([^\s>+~]+)$/', $prefix, $prefixMatch, PREG_OFFSET_CAPTURE) ) {
+            $compound = (string) ($prefixMatch[1][0] ?? '');
+            $offset = (int) ($prefixMatch[1][1] ?? 0);
+            $pseudoOffset = strpos($compound, ':');
+            $fused = false === $pseudoOffset
+                ? $compound . $listClasses . '.wp-block-navigation'
+                : substr($compound, 0, $pseudoOffset) . $listClasses . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+            $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
+        }
+
+        return array_keys($selectors);
+    }
+
+    private function selectorWithoutComments(string $selector): string
+    {
+        $result = '';
+        $length = strlen($selector);
+        for ( $index = 0; $index < $length; $index++ ) {
+            $char = $selector[$index];
+            if ( '\\' === $char && $index + 1 < $length ) {
+                $result .= $char . $selector[++$index];
+                continue;
+            }
+            if ( in_array($char, array( '"', "'" ), true) ) {
+                $quote = $char;
+                $result .= $char;
+                while ( ++$index < $length ) {
+                    $result .= $selector[$index];
+                    if ( '\\' === $selector[$index] && $index + 1 < $length ) {
+                        $result .= $selector[++$index];
+                        continue;
+                    }
+                    if ( $quote === $selector[$index] ) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ( '/' === $char && '*' === ($selector[$index + 1] ?? '') ) {
+                $end = strpos($selector, '*/', $index + 2);
+                if ( false === $end ) {
+                    break;
+                }
+                $index = $end + 1;
+                continue;
+            }
+            $result .= $char;
+        }
+
+        return trim($result);
     }
 
     private function addNavigationClassToLastPrefixCompound(string $selector, int $anchorStart): ?string
@@ -2220,17 +2438,6 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
-            if ( $path === $entryPath ) {
-                foreach ( $entryShellArtifacts as $shellArtifact ) {
-                    if ( ! is_array($shellArtifact) ) {
-                        continue;
-                    }
-                    $shellMarkup = is_string($shellArtifact['inner_block_markup'] ?? null) ? $shellArtifact['inner_block_markup'] : ($shellArtifact['block_markup'] ?? null);
-                    if ( is_string($shellMarkup) ) {
-                        $blockMarkup = str_replace($shellMarkup, '', $blockMarkup);
-                    }
-                }
-            }
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
@@ -2442,18 +2649,7 @@ final class ArtifactCompiler
      */
     private function dedupeRows(array $rows): array
     {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**

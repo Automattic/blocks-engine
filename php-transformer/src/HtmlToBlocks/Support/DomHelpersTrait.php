@@ -2,6 +2,7 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use DOMElement;
 use DOMNode;
 
@@ -184,10 +185,54 @@ trait DomHelpersTrait
     {
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
-        $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace_callback(
+            '/\s+([a-zA-Z_:][\w:.-]*)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i',
+            function (array $matches): string {
+                $attribute = strtolower($matches[1]);
+                $value = $matches[3] ?? $matches[4] ?? $matches[5] ?? '';
+                return $this->isFallbackUrlAttribute($attribute) && ! $this->safeFallbackUrl($value, $attribute)
+                    ? ''
+                    : $matches[0];
+            },
+            $html
+        ) ?? '';
+        $html = preg_replace_callback('@<meta\b[^>]*>@i', function (array $matches): string {
+            $tag = $matches[0];
+            if ( ! preg_match('/\bhttp-equiv\s*=\s*("refresh"|\'refresh\'|refresh)(?:\s|>)/i', $tag) ) {
+                return $tag;
+            }
+            return preg_match('/\bcontent\s*=\s*("[^\"]*(?:url\s*=\s*)?(?:javascript|vbscript|data|file)\s*:[^\"]*"|\'[^\']*(?:url\s*=\s*)?(?:javascript|vbscript|data|file)\s*:[^\']*\'|[^\s>]*(?:javascript|vbscript|data|file)\s*:)/i', $tag)
+                ? ''
+                : $tag;
+        }, $html) ?? '';
         $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
 
         return trim($html);
+    }
+
+    private function isFallbackUrlAttribute(string $attribute): bool
+    {
+        return in_array($attribute, array(
+            'action', 'archive', 'background', 'cite', 'codebase', 'data', 'formaction',
+            'href', 'longdesc', 'manifest', 'ping', 'poster', 'profile', 'src', 'usemap', 'xlink:href',
+        ), true);
+    }
+
+    private function safeFallbackUrl(string $url, string $attribute): bool
+    {
+        $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        for ( $index = 0; $index < 2 && str_contains($normalized, '%'); ++$index ) {
+            $normalized = rawurldecode($normalized);
+        }
+
+        if ( '' === $normalized || ! preg_match('/^([a-z][a-z0-9+.-]*):/i', $normalized, $scheme) ) {
+            return true;
+        }
+        if ( in_array($scheme[1], array( 'http', 'https', 'mailto', 'tel' ), true) ) {
+            return true;
+        }
+
+        return 'src' === $attribute && (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
     }
 
     /**
@@ -451,17 +496,6 @@ trait DomHelpersTrait
      */
     private function dedupeArrayRows(array $rows): array
     {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 }

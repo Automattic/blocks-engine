@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Specs", "level": 2, "className": "eyebrow", "style": { "color": { "text": "red" } } } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Use <mark>inline</mark> marks." } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/list", "attrs": { "className": "definitions" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<strong>Latency</strong> Low response time" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<strong>Latency</strong> <mark class=\"metric\" style=\"background-color:transparent;color:inherit\">Low</mark> response time" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list-item", "attrs": { "content": "<strong>Fallback</strong> Preserved safely" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "<strong>Studio</strong><br>142 Bay Street<br>Eureka, CA" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
@@ -37,7 +37,7 @@
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<form action=\"/subscribe\">" },
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<input name=\"email\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/subscribe\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<script>alert(1)</script>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<script>alert(1)</script>" },
     { "path": "diagnostics.1.code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
   ]
