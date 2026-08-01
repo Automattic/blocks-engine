@@ -689,7 +689,7 @@ $emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'c
 $assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
 $assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/group' !== ($block['blockName'] ?? '')), 'decorative cluster items retain direct core group blocks');
 $assert(str_contains($emptyVisualCss, 'blocks-engine-semantic-') && str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}') && str_contains($emptyVisualCss, 'background:#ff5f57') && str_contains($emptyVisualCss, 'background:#ffbd2e') && str_contains($emptyVisualCss, 'background:#28ca41'), 'decorative cluster items preserve projected selectors, dimensions, and background paint through author CSS');
-$assert(str_contains($emptyVisualCss, 'blocks-engine-css-owned-flow') && str_contains($emptyVisualCss, 'margin-block-start:0!important'), 'decorative cluster neutralizes only the marked core group flow defaults');
+$assert(str_contains($emptyVisualCss, 'blocks-engine-css-owned-flow') && str_contains($emptyVisualCss, 'margin-block-start:0'), 'decorative cluster neutralizes only the marked core group flow defaults');
 
 $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
