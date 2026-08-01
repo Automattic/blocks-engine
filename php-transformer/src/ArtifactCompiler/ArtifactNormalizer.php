@@ -21,7 +21,7 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, runtime_presentation_evidence:array<int,array<string,mixed>>,runtime_presentation_provenance:array<string,mixed>}
      */
     public function normalize(array $artifact): array
     {
@@ -162,6 +162,9 @@ final class ArtifactNormalizer
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
+        $presentationEvidence = RuntimePresentationEvidence::normalize($artifact, $files);
+        $diagnostics = array_merge($diagnostics, $presentationEvidence['diagnostics']);
+        $rejected += $presentationEvidence['rejected_count'];
         return array(
             'files'          => $files,
             'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
@@ -169,8 +172,10 @@ final class ArtifactNormalizer
             'bytes'          => $bytes,
             'limits'         => $limits,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
-            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations),
+            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations) . (array_key_exists('runtime_presentation_evidence', $artifact) ? "\n" . RuntimeDeclarations::canonicalJson(array('schema' => RuntimePresentationEvidence::SCHEMA, 'provenance' => $presentationEvidence['provenance'], 'observations' => $presentationEvidence['observations'])) : ''),
             'runtime_declarations' => $runtimeDeclarations,
+            'runtime_presentation_evidence' => $presentationEvidence['observations'],
+            'runtime_presentation_provenance' => $presentationEvidence['provenance'],
         );
     }
 

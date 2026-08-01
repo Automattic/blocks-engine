@@ -81,8 +81,8 @@ final class ArtifactCompiler
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
-        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_presentation_evidence']);
+        $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact), $normalized['runtime_presentation_evidence']);
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
@@ -146,6 +146,13 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
+        if (array() !== $normalized['runtime_presentation_evidence']) {
+            $sourceReports['artifact']['runtime_presentation_evidence'] = array(
+                'schema' => RuntimePresentationEvidence::SCHEMA,
+                'provenance' => $normalized['runtime_presentation_provenance'],
+                'observations' => $normalized['runtime_presentation_evidence'],
+            );
+        }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
@@ -415,9 +422,9 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = '', array $runtimePresentationEvidence = array()): array
     {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true, $runtimePresentationEvidence);
 
         return array(
             'blocks'            => $result['blocks'],
@@ -439,7 +446,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
      */
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, array $runtimePresentationEvidence = array()): array
     {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
@@ -486,6 +493,7 @@ final class ArtifactCompiler
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'runtime_presentation_evidence' => array_values(array_filter($runtimePresentationEvidence, static fn (mixed $observation): bool => is_array($observation) && $sourcePath === ($observation['element']['source_path'] ?? null))),
             'generated_block_namespace' => $generatedBlockNamespace,
             'extract_global_shell'       => $extractGlobalShell,
         ))->toArray();
@@ -1079,7 +1087,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<string, array<string, mixed>>
      */
-    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = ''): array
+    private function compileHtmlSourceDocuments(array $files, string $entryPath, string $generatedBlockNamespace = '', array $runtimePresentationEvidence = array()): array
     {
         $documents = array();
         foreach ( $files as $file ) {
@@ -1090,7 +1098,7 @@ final class ArtifactCompiler
             if ( '' === $path || $entryPath === $path ) {
                 continue;
             }
-            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', $generatedBlockNamespace, true);
+            $documents[$path] = $this->compileHtmlDocumentBlocks((string) ($file['content'] ?? ''), $path, $files, 'artifact-document', $generatedBlockNamespace, true, $runtimePresentationEvidence);
         }
         return $documents;
     }
@@ -2612,6 +2620,7 @@ final class ArtifactCompiler
                 'url'       => $path,
                 'path'      => $path,
                 'mime_type' => $mimeType,
+                'hash'      => (string) ($file['provenance']['hash'] ?? ''),
             );
 
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
