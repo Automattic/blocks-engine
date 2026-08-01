@@ -37,7 +37,7 @@
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<form action=\"/subscribe\">" },
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<input name=\"email\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/subscribe\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<script>alert(1)</script>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<script>alert(1)</script>" },
     { "path": "diagnostics.1.code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
   ]

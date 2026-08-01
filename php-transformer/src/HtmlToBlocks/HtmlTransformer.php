@@ -411,6 +411,11 @@ final class HtmlTransformer
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
     private array $sourceRichTextSemanticMarkers = array();
 
+    /** @var array<int, array{selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
+    private array $authorLayoutTopologies = array();
+
+    private bool $authorLayoutBlockGenerated = false;
+
     private string $combinedAuthorCss = '';
 
     private ?DOMElement $authorStyleSourceBody = null;
@@ -519,6 +524,8 @@ final class HtmlTransformer
         $this->sourceTableRepresentability = array();
         $this->sourceTableDescendantPaths = array();
         $this->sourceRichTextSemanticMarkers = array();
+        $this->authorLayoutTopologies = array();
+        $this->authorLayoutBlockGenerated = false;
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
         $this->authorStyleSourceElements = array();
@@ -644,6 +651,18 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        $authorLayoutTopologyFindings = $this->authorLayoutTopologyFindings();
+        foreach ( $authorLayoutTopologyFindings as $finding ) {
+            $diagnostics[] = array(
+                'code' => 'author_layout_topology_changed',
+                'message' => 'Gutenberg block conversion changed the direct-child topology of a CSS-owned layout container.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $finding['selector'],
+                'source_child_count' => $finding['source_child_count'],
+                'block_child_count' => $finding['block_child_count'],
+            );
+        }
         if ( $this->descriptionListBlockGenerated ) {
             $diagnostics[] = array(
                 'code' => 'semantic_description_list_gutenberg_gap',
@@ -685,6 +704,7 @@ final class HtmlTransformer
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
                 'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
                 'gutenberg_incompatibilities' => $this->gutenbergIncompatibilities,
+                'author_layout_topology' => $authorLayoutTopologyFindings,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
@@ -2074,6 +2094,16 @@ final class HtmlTransformer
     {
         $tagName = strtolower($element->tagName);
 
+        if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'a', 'button' ), true) ) {
+            if ( $this->authorLayoutLeafSupportsRichText($element) ) {
+                $leaf = $this->authorLayoutLeafBlockFromElement($element);
+                if ( null !== $leaf ) {
+                    return $leaf;
+                }
+            }
+            return $this->authorLayoutBlockFromElement($element, $fallbacks);
+        }
+
         if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
             return $this->htmlPreservationBlock($element);
         }
@@ -2092,7 +2122,7 @@ final class HtmlTransformer
         }
 
         if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
-            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         $mathBlock = $this->mathPattern->match(
@@ -2111,7 +2141,7 @@ final class HtmlTransformer
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
@@ -2130,7 +2160,7 @@ final class HtmlTransformer
                 $content = $inlineSvgContent;
             }
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
             if ( $this->hasEmptyVisualInlineChild($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
@@ -2177,12 +2207,19 @@ final class HtmlTransformer
 
         if ( $this->isInlineContentElement($tagName) ) {
             if ( $this->isRuntimeDomTarget($element) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
 
             $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
             if ( null !== $inlineSvgTextGroup ) {
                 return $inlineSvgTextGroup;
+            }
+
+            if ( $this->ownsPositioningGeometry($element) ) {
+                $carrier = $this->positionedInlineCarrierBlock($element, $fallbacks);
+                if ( null !== $carrier ) {
+                    return $carrier;
+                }
             }
 
             if ( $this->hasAuthorSemanticMarker($element) ) {
@@ -2465,7 +2502,7 @@ final class HtmlTransformer
         if ( 'table' === $tagName ) {
             $classification = $this->tableClassificationPolicy->classify($element);
             if ( ! $classification['representable'] ) {
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+                return $this->htmlPreservationBlock($element);
             }
 
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
@@ -2585,7 +2622,7 @@ final class HtmlTransformer
                 'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
                 'required_scripts'        => $this->requiredScriptsForElement($element),
             ));
-            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( 'script' === $tagName ) {
@@ -2633,6 +2670,33 @@ final class HtmlTransformer
             }
 
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
+
+            if ( $this->isDirectChildOfAuthorOwnedLayout($element) && '' !== $this->attr($element, 'role') ) {
+                return $this->authorLayoutBlockFromElement($element, $fallbacks);
+            }
+
+            if ( 'button' !== strtolower($this->attr($element, 'role')) && $this->isAuthorOwnedLayout($element) ) {
+                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $inlineContent ) {
+                    return $inlineContent;
+                }
+                $textFlow = $this->textFlowBlockFromElement($element);
+                if ( null !== $textFlow ) {
+                    return $textFlow;
+                }
+                return $this->authorLayoutBlockFromElement($element, $fallbacks);
+            }
+
+            // A direct child of an author-owned layout is itself a layout item.
+            // Keep representable container tags as groups before visual-text and
+            // card heuristics can collapse the source child boundary.
+            if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                $attrs = array() === $children && $this->shouldPreserveEmptyVisualElement($element)
+                    ? $this->emptyVisualElementAttributes($element)
+                    : $this->presentationAttributes($element);
+                return $this->createBlock('core/group', $attrs, $children, $element);
+            }
 
             $logo = $this->logoPattern->match(
                 $element,
@@ -2785,7 +2849,7 @@ final class HtmlTransformer
                 }
             }
             if ( 1 === count($children) ) {
-                if ( $this->shouldPreserveWrapper($element) ) {
+                if ( $this->shouldPreserveWrapper($element) || $this->isDirectChildOfAuthorOwnedLayout($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
                 return $children[0];
@@ -2972,7 +3036,7 @@ final class HtmlTransformer
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
-                return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+                return $this->blockFactory->create('core/html', array( 'content' => $this->safeFallbackHtml($sourceElement) ));
             }
         }
 
@@ -2981,20 +3045,12 @@ final class HtmlTransformer
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
             }
-            if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTagMarkers[$sourceTagName]);
-            }
-            if ( $sourceElement->parentNode instanceof DOMElement
-                && 'body' === strtolower($sourceElement->parentNode->tagName)
-                && array() !== $this->sourceBodyProjectionClasses ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$this->sourceBodyProjectionClasses);
+            $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
+            if ( '' !== $projectionClassName ) {
+                $attrs['className'] = $projectionClassName;
             }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
-            }
-            $semanticMarkers = $this->authorSemanticMarkersForElement($sourceElement);
-            if ( array() !== $semanticMarkers ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ...$semanticMarkers);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
@@ -3033,7 +3089,6 @@ final class HtmlTransformer
                 $attrs['tagName'] = $semanticTag;
             }
         }
-
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
         if ( isset($provenanceId) ) {
             $block['_source_provenance_id'] = $provenanceId;
@@ -3097,6 +3152,24 @@ final class HtmlTransformer
         return array() !== $this->authorSemanticMarkersForElement($element);
     }
 
+    private function sourceProjectionClassName(DOMElement $element, string $className = ''): string
+    {
+        $sourceTagName = strtolower($element->tagName);
+        if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+            $className = $this->mergeClassNames($className, $this->sourceTagMarkers[$sourceTagName]);
+        }
+        if ( $element->parentNode instanceof DOMElement
+            && 'body' === strtolower($element->parentNode->tagName)
+            && array() !== $this->sourceBodyProjectionClasses ) {
+            $className = $this->mergeClassNames($className, ...$this->sourceBodyProjectionClasses);
+        }
+        $semanticMarkers = $this->authorSemanticMarkersForElement($element);
+        if ( array() !== $semanticMarkers ) {
+            $className = $this->mergeClassNames($className, ...$semanticMarkers);
+        }
+        return $className;
+    }
+
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
@@ -3115,6 +3188,10 @@ final class HtmlTransformer
     {
         if ( 'span' !== strtolower($element->tagName) || $this->isRichTextInlineContext($element) ) {
             return false;
+        }
+
+        if ( $this->ownsPositioningGeometry($element) ) {
+            return true;
         }
 
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
@@ -3143,10 +3220,481 @@ final class HtmlTransformer
         return false;
     }
 
+    /**
+     * A positioned inline leaf cannot survive as RichText: its wrapper owns a
+     * containing-block relationship and/or stacking context, rather than text
+     * formatting. Preserve it as a native group carrier before RichText drops
+     * the source class and geometry.
+     */
+    private function ownsPositioningGeometry(DOMElement $element): bool
+    {
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+            return false;
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( $this->hasPositionedInlineDescendant($element) ) {
+            return true;
+        }
+
+        $zIndex = strtolower(trim((string) ($declarations['z-index'] ?? 'auto')));
+        $hasZIndex = ! in_array($zIndex, array( '', 'auto', 'inherit', 'initial', 'unset' ), true);
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return true;
+        }
+
+        if ( 'sticky' === $position ) {
+            return $this->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        if ( 'relative' === $position ) {
+            return $this->hasResolvedInset($declarations) || $hasZIndex;
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasResolvedInset(array $declarations): bool
+    {
+        foreach ( array( 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'right', 'bottom', 'left' ) as $property ) {
+            $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+            if ( ! in_array($value, array( '', 'auto', 'inherit', 'initial', 'unset', '0', '0px', '0rem', '0em', '0%' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPositionedInlineDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->ownsPositioningGeometry($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->hasAuthorDirectChildSelector($element) ) {
+            return $this->positionedInlineHtmlPreservationBlock($element);
+        }
+
+        if ( $this->positionedCarrierHasStructuredContent($element) ) {
+            $children = $this->positionedInlineCarrierChildren($element, $fallbacks);
+            return array() === $children
+                ? null
+                : $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), $children, $element);
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->positionedInlineCarrierAttributes($element), array(
+            $this->createBlock('core/paragraph', array(
+                'content' => $content,
+                'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+            )),
+        ), $element);
+    }
+
+    private function positionedInlineHtmlPreservationBlock(DOMElement $element): array
+    {
+        $preserved = $element->cloneNode(true);
+        if ( $preserved instanceof DOMElement ) {
+            $markers = $this->authorSemanticMarkersForElement($element);
+            if ( array() !== $markers ) {
+                $preserved->setAttribute('class', $this->mergeClassNames($this->attr($preserved, 'class'), ...$markers));
+            }
+            return $this->htmlPreservationBlock($preserved);
+        }
+
+        return $this->htmlPreservationBlock($element);
+    }
+
+    private function hasAuthorDirectChildSelector(DOMElement $element): bool
+    {
+        if ( '' === $this->combinedAuthorCss ) {
+            return false;
+        }
+
+        $directChildren = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $directChildren[] = $child;
+            }
+        }
+        if ( array() === $directChildren ) {
+            return false;
+        }
+
+        $matches = false;
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use ($element, $directChildren, &$matches): string {
+            if ( $matches ) {
+                return $prelude;
+            }
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                // Pseudo-elements describe paint on the direct child rather than
+                // a DOM node of their own. Match their owning element to retain
+                // the source parent/child topology for rules such as
+                // `.overlay > strong::before`.
+                $matchSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
+                $parsed = $this->parsedCssSelector($matchSelector);
+                $last = count($parsed['compounds'] ?? array()) - 1;
+                if ( ! $parsed['supported'] || $last < 1 || '>' !== ($parsed['combinators'][$last - 1] ?? '') ) {
+                    continue;
+                }
+                foreach ( $directChildren as $child ) {
+                    if ( CssSelectorMatcher::matches($child, $parsed, true)['matches'] ) {
+                        $matches = true;
+                        return $prelude;
+                    }
+                }
+            }
+            return $prelude;
+        });
+
+        return $matches;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function positionedInlineCarrierChildren(DOMElement $element, array &$fallbacks): array
+    {
+        $blocks = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $blocks = array_merge($blocks, $this->convertText($text));
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isFormControlElement($child) ) {
+                $blocks[] = $this->htmlPreservationBlock($child);
+                continue;
+            }
+            $block = $this->convertElement($child, $fallbacks, true);
+            if ( null !== $block ) {
+                $blocks[] = $block;
+            }
+        }
+
+        return $blocks;
+    }
+
+    private function positionedCarrierHasStructuredContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            if ( $this->ownsPositioningGeometry($descendant)
+                || ! $this->isInlineContentElement($tagName)
+                || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, mixed> */
+    private function positionedInlineCarrierAttributes(DOMElement $element): array
+    {
+        return $this->presentationAttributes($element, array(), array(
+            'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
+            'inset-block-start', 'inset-block-end', 'inset-inline-start',
+            'inset-inline-end', 'top', 'right', 'bottom', 'left',
+        ));
+    }
+
     private function isStructuralLayoutElement(DOMElement $element): bool
     {
         $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
         return in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    /**
+     * Author CSS owns a container's geometry when it establishes flex or grid.
+     */
+    private function isAuthorOwnedLayout(DOMElement $element): bool
+    {
+        $childCount = $this->childElementCount($element);
+        if ( 0 === $childCount ) {
+            return false;
+        }
+
+        if ( 1 === $childCount ) {
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg' ), true) ) {
+                    return false;
+                }
+            }
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return true;
+        }
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) && in_array(strtolower(trim((string) ($rule['declarations']['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function authorLayoutLeafSupportsRichText(DOMElement $element): bool
+    {
+        $supports = function (DOMElement $candidate) use (&$supports): bool {
+            $tag = strtolower($candidate->tagName);
+            // SVG and img are atomic RichText media. SVG's drawing descendants
+            // belong to the materialized image, not to the phrasing-content test.
+            if ( in_array($tag, array( 'img', 'svg' ), true) ) {
+                return true;
+            }
+            if ( 'br' !== $tag && ! $this->isInlineContentElement($tag) ) {
+                return false;
+            }
+            foreach ( $candidate->childNodes as $child ) {
+                if ( $child instanceof DOMElement && ! $supports($child) ) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! $supports($child) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement && $this->isAuthorOwnedLayout($element->parentNode);
+    }
+
+    /**
+     * @return array<int, array{selector: string, source_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}>
+     */
+    private function authorLayoutTopologyFindings(): array
+    {
+        $findings = array();
+        foreach ( $this->authorLayoutTopologies as $layout ) {
+            if ( $layout['direct_child_count'] === $layout['block_child_count'] && $layout['source_tags'] === $layout['block_tags'] ) {
+                continue;
+            }
+            $findings[] = array(
+                'selector' => $layout['selector'],
+                'source_child_count' => $layout['direct_child_count'],
+                'block_child_count' => $layout['block_child_count'],
+                'source_tags' => $layout['source_tags'],
+                'block_tags' => $layout['block_tags'],
+            );
+        }
+
+        return array_slice($findings, 0, 20);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
+    {
+        $children = $this->convertChildren($element, $fallbacks, true);
+        if ( 'a' === strtolower($element->tagName) ) {
+            $this->stripOuterAnchorFromBlocks($children);
+        }
+        $this->authorLayoutTopologies[] = array(
+            'selector' => $this->elementSelector($element),
+            'direct_child_count' => $this->childElementCount($element),
+            'block_child_count' => count($children),
+            'source_tags' => $this->directChildTags($element),
+            'block_tags' => $this->directBlockTags($children),
+        );
+        if ( ! $this->authorLayoutBlockGenerated ) {
+            $this->generatedBlocks[] = ( new AuthorLayoutBlockGenerator() )->definition();
+            $this->authorLayoutBlockGenerated = true;
+        }
+
+        $sourceTag = strtolower($element->tagName);
+        $tagName = in_array($sourceTag, array( 'a', 'button' ), true) ? $sourceTag : ($this->semanticGroupTagName($element) ?? 'div');
+        $presentationAttrs = $this->presentationAttributes($element);
+        $attrs = array_filter(array(
+            'anchor' => $this->safeAnchor($this->attr($element, 'id')),
+            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
+            'sourceAttributes' => array_merge(
+                $this->authorLayoutSourceAttributes($element),
+                in_array($tagName, array( 'a', 'button' ), true) ? array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' ))) : array()
+            ),
+            'contentMode' => 'inner-blocks',
+            'tagName' => $tagName,
+            'url' => 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '',
+        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
+        $opening = '<' . $tagName . $this->authorLayoutHtmlAttributes($attrs) . '>';
+        $closing = '</' . $tagName . '>';
+
+        $provenanceId = $this->nextSourceProvenanceId++;
+        $this->recordPresentationProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
+        $this->recordStructureProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
+        $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element);
+        $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($element);
+
+        return array(
+            'blockName' => AuthorLayoutBlockGenerator::NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => $children,
+            'innerHTML' => $opening . $closing,
+            'innerContent' => array_merge(array($opening), array_fill(0, count($children), null), array($closing)),
+            '_source_provenance_id' => $provenanceId,
+        );
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function stripOuterAnchorFromBlocks(array &$blocks): void
+    {
+        foreach ($blocks as &$block) {
+            if (! is_array($block)) continue;
+            if (isset($block['attrs']['content']) && is_string($block['attrs']['content'])) {
+                $content = preg_replace('/^<a\b[^>]*>(.*)<\/a>$/is', '$1', $block['attrs']['content']) ?? $block['attrs']['content'];
+                if ($content !== $block['attrs']['content']) $block = $this->rebuildBlock($block, array_merge($block['attrs'], array('content' => $content)));
+            }
+            if (is_string($block['innerHTML'] ?? null)) $block['innerHTML'] = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $block['innerHTML']) ?? $block['innerHTML'];
+            if (is_array($block['innerContent'] ?? null)) foreach ($block['innerContent'] as &$part) if (is_string($part)) $part = preg_replace('/<a\b[^>]*>(<img\b[^>]*>)<\/a>/is', '$1', $part) ?? $part;
+            unset($part);
+            if (is_array($block['innerBlocks'] ?? null)) $this->stripOuterAnchorFromBlocks($block['innerBlocks']);
+        }
+        unset($block);
+    }
+
+    /** @return list<string> */
+    private function directChildTags(DOMElement $element): array
+    {
+        $tags = array();
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) continue;
+            $tag = strtolower($child->tagName);
+            $tags[] = 'svg' === $tag ? 'img' : ('span' === $tag && '' === $this->attr($child, 'class') && '' === $this->attr($child, 'id') && '' === $this->attr($child, 'role') ? 'p' : $tag);
+        }
+        return $tags;
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks @return list<string> */
+    private function directBlockTags(array $blocks): array
+    {
+        $tags = array();
+        foreach ($blocks as $block) {
+            $name = $block['blockName'] ?? '';
+            $attrs = $block['attrs'] ?? array();
+            $tags[] = AuthorLayoutBlockGenerator::NAME === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
+        }
+        return $tags;
+    }
+
+    private function authorLayoutLeafBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->authorLayoutBlockGenerated ) {
+            $this->generatedBlocks[] = ( new AuthorLayoutBlockGenerator() )->definition();
+            $this->authorLayoutBlockGenerated = true;
+        }
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        $content = $this->richTextContentWithMaterializedSvgImages($element, $content);
+        if ( null === $content ) {
+            return null;
+        }
+
+        $tagName = strtolower($element->tagName);
+        $presentationAttrs = $this->presentationAttributes($element);
+        $attrs = array_filter(array(
+            'anchor' => $this->safeAnchor($this->attr($element, 'id')),
+            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
+            'content' => $content,
+            'contentMode' => 'rich-text',
+            'sourceAttributes' => array_filter(array_merge(
+                $this->authorLayoutSourceAttributes($element),
+                array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' )))
+            )),
+            'tagName' => $tagName,
+            'url' => 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '',
+        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
+        $opening = '<' . $tagName . $this->authorLayoutHtmlAttributes($attrs) . '>';
+        $closing = '</' . $tagName . '>';
+
+        $provenanceId = $this->nextSourceProvenanceId++;
+        $this->recordPresentationProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
+        $this->recordStructureProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
+        $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element);
+        $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($element);
+
+        return array(
+            'blockName' => AuthorLayoutBlockGenerator::NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $opening . ($attrs['content'] ?? '') . $closing,
+            'innerContent' => array($opening . ($attrs['content'] ?? '') . $closing),
+            '_source_provenance_id' => $provenanceId,
+        );
+    }
+
+    /** @return array<string, string> */
+    private function authorLayoutSourceAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( ('role' === strtolower($name) || preg_match('/^(?:aria|data)-[a-z0-9_-]+$/i', $name)) && strlen($value) <= 300 ) {
+                $attributes[$name] = $value;
+            }
+        }
+        return $attributes;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function authorLayoutHtmlAttributes(array $attrs): string
+    {
+        $attributes = array();
+        if ( '' !== (string) ($attrs['anchor'] ?? '') ) {
+            $attributes['id'] = (string) $attrs['anchor'];
+        }
+        if ( 'a' === ($attrs['tagName'] ?? '') && '' !== (string) ($attrs['url'] ?? '') ) {
+            $attributes['href'] = (string) $attrs['url'];
+        }
+        $classes = array_filter(array( 'wp-block-blocks-engine-author-layout', (string) ($attrs['className'] ?? '') ));
+        $attributes['class'] = implode(' ', $classes);
+        foreach ( $attrs['sourceAttributes'] ?? array() as $name => $value ) {
+            if ( is_string($name) && is_string($value) ) {
+                $attributes[$name] = $value;
+            }
+        }
+        $html = '';
+        foreach ( $attributes as $name => $value ) {
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -6238,9 +6786,8 @@ final class HtmlTransformer
     }
 
     /**
-     * Preserve a direct, valid description list as a static companion block.
-     * Wrapped or malformed lists deliberately return null for the established
-     * core/list and core/group safety paths below.
+     * Preserve valid direct and div-grouped description lists as a static
+     * companion block while retaining the existing direct-list group schema.
      *
      * @return array<string, mixed>|null
      */
@@ -6258,6 +6805,18 @@ final class HtmlTransformer
             }
 
             $tag = strtolower($child->tagName);
+            if ( 'div' === $tag ) {
+                if ( null !== $group ) {
+                    $groups[] = $group;
+                    $group = null;
+                }
+                $wrappedGroup = $this->descriptionListWrappedGroup($child);
+                if ( null === $wrappedGroup ) {
+                    return null;
+                }
+                $groups[] = $wrappedGroup;
+                continue;
+            }
             if ( ! in_array($tag, array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
                 return null;
             }
@@ -6277,10 +6836,15 @@ final class HtmlTransformer
             $group['descriptions'][] = $this->descriptionListItem($child);
         }
 
-        if ( null === $group || array() === $group['descriptions'] ) {
+        if ( null !== $group ) {
+            if ( array() === $group['descriptions'] ) {
+                return null;
+            }
+            $groups[] = $group;
+        }
+        if ( array() === $groups ) {
             return null;
         }
-        $groups[] = $group;
 
         if ( ! $this->descriptionListBlockGenerated ) {
             $this->generatedBlocks[] = ( new DescriptionListBlockGenerator() )->definition();
@@ -6316,7 +6880,8 @@ final class HtmlTransformer
                 return false;
             }
             foreach ( $child->attributes as $attribute ) {
-                if ( 'a' !== $tag || ! in_array(strtolower($attribute->name), array( 'href', 'target', 'rel' ), true) ) {
+                $attributeName = strtolower($attribute->name);
+                if ( ! ( 'a' === $tag && in_array($attributeName, array( 'href', 'target', 'rel' ), true) ) && ! ( 'time' === $tag && 'datetime' === $attributeName ) ) {
                     return false;
                 }
             }
@@ -6326,6 +6891,45 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function descriptionListWrappedGroup(DOMElement $wrapper): ?array
+    {
+        $items = array();
+        $hasTerm = false;
+        $hasDescription = false;
+        foreach ( $wrapper->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
+                return null;
+            }
+            $tag = strtolower($child->tagName);
+            if ( 'dt' === $tag ) {
+                if ( $hasTerm && ! $hasDescription ) {
+                    // Multiple terms may describe the same following definition.
+                } elseif ( $hasDescription ) {
+                    $hasDescription = false;
+                }
+                $hasTerm = true;
+            } elseif ( ! $hasTerm ) {
+                return null;
+            } else {
+                $hasDescription = true;
+            }
+            $items[] = array_merge(array( 'tagName' => $tag ), $this->descriptionListItem($child));
+        }
+
+        if ( ! $hasDescription ) {
+            return null;
+        }
+
+        return array(
+            'wrapper' => $this->descriptionListWrapper($wrapper),
+            'items' => $items,
+        );
     }
 
     /** @return array<string, string> */
@@ -6338,6 +6942,36 @@ final class HtmlTransformer
         ), static fn (mixed $value): bool => '' !== $value);
     }
 
+    /** @return array<string, mixed> */
+    private function descriptionListWrapper(DOMElement $element): array
+    {
+        $wrapper = array_filter(array(
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+        $attributes = array();
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( $this->descriptionListWrapperAttributeIsSafe($name) ) {
+                $attributes[$name] = $attribute->value;
+            }
+        }
+        if ( array() !== $attributes ) {
+            $wrapper['attributes'] = $attributes;
+        }
+        return $wrapper;
+    }
+
+    private function descriptionListWrapperAttributeIsSafe(string $name): bool
+    {
+        if ( in_array($name, array( 'id', 'role' ), true) || str_starts_with($name, 'aria-') ) {
+            return true;
+        }
+
+        // Keep passive data hooks but exclude WordPress Interactivity API directives.
+        return str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-');
+    }
+
     /** @param array<int, array<string, mixed>> $groups */
     private function descriptionListMarkup(DOMElement $list, array $groups): string
     {
@@ -6346,6 +6980,15 @@ final class HtmlTransformer
             'style' => $list->getAttribute('style'),
         )) . '>';
         foreach ( $groups as $group ) {
+            if ( isset($group['wrapper']) && is_array($group['wrapper']) ) {
+                $markup .= '<div' . $this->descriptionListMarkupAttributes($group['wrapper']) . '>';
+                foreach ( $group['items'] ?? array() as $item ) {
+                    $tag = $item['tagName'] ?? '';
+                    $markup .= '<' . $tag . $this->descriptionListMarkupAttributes($item) . '>' . ($item['content'] ?? '') . '</' . $tag . '>';
+                }
+                $markup .= '</div>';
+                continue;
+            }
             foreach ( $group['terms'] as $term ) {
                 $markup .= '<dt' . $this->descriptionListMarkupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
             }
@@ -6364,6 +7007,9 @@ final class HtmlTransformer
             if ( '' !== (string) ($attributes[$key] ?? '') ) {
                 $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
             }
+        }
+        foreach ( $attributes['attributes'] ?? array() as $name => $value ) {
+            $markup .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $markup;
     }
@@ -8045,7 +8691,7 @@ final class HtmlTransformer
 
     private function htmlPreservationBlock(DOMElement $element): array
     {
-        return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
     }
 
     private function recordRuntimeControlIsland(DOMElement $element): void

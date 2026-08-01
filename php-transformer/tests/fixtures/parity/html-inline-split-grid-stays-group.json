@@ -16,14 +16,14 @@
     "content": "<section class=\"feature-row\" style=\"display:grid;grid-template-columns:520px 520px;gap:64px;align-items:center\"><div class=\"feature-copy\"><h2>Fast setup</h2><p>Start with a stable foundation.</p></div><div class=\"feature-visual\"><p>Preview</p></div></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-row" } },
+    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-row", "tagName": "section" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-copy" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-visual" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-row\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/author-layout {\"className\":\"feature-row\",\"contentMode\":\"inner-blocks\",\"tagName\":\"section\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

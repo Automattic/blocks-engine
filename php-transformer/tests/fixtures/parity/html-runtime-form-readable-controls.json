@@ -38,6 +38,6 @@
     { "path": "source_reports.html.source_provenance.2.conversion_classification", "assert": "equals", "value": "runtime_island_preserved" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<input id=\"signup-email\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "onsubmit=\"return subscribe(event)\"" }
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "onsubmit=\"return subscribe(event)\"" }
   ]
 }

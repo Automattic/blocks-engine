@@ -2439,17 +2439,6 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
-            if ( $path === $entryPath ) {
-                foreach ( $entryShellArtifacts as $shellArtifact ) {
-                    if ( ! is_array($shellArtifact) ) {
-                        continue;
-                    }
-                    $shellMarkup = is_string($shellArtifact['inner_block_markup'] ?? null) ? $shellArtifact['inner_block_markup'] : ($shellArtifact['block_markup'] ?? null);
-                    if ( is_string($shellMarkup) ) {
-                        $blockMarkup = str_replace($shellMarkup, '', $blockMarkup);
-                    }
-                }
-            }
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
