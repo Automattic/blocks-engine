@@ -331,7 +331,14 @@ $centeredImageWrapperMarkup = (string) ($centeredImageWrapperResult['serialized_
 $centeredImageWrapperCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $centeredImageWrapperResult['assets'] ?? array()));
 $assert(str_contains($centeredImageWrapperMarkup, '<div class="wp-block-group portrait be-inline-geometry-') && str_contains($centeredImageWrapperMarkup, '<figure class="wp-block-image"'), 'inline-aligned image wrappers remain editable core/group and core/image blocks');
 $assert(str_contains($centeredImageWrapperCss, 'text-align:center !important'), 'native image wrappers preserve inline centering through deterministic presentation CSS');
+$assert(str_contains($centeredImageWrapperCss, '>.wp-block-image{margin-left:auto!important;margin-right:auto!important}'), 'native image wrappers project centered inline child layout onto their generated core/image figures');
 $assert('pass' === ($centeredImageWrapperResult['source_reports']['wp_block_validity']['status'] ?? ''), 'centered native image wrappers remain editor-valid');
+$stylesheetCenteredImageWrapperResult = ( new HtmlTransformer() )->transform('<style>.testimonial-portraits{text-align:center}</style><div class="testimonial-portraits"><img src="portrait.jpg" alt="Portrait"></div>')->toArray();
+$stylesheetCenteredImageWrapperMarkup = (string) ($stylesheetCenteredImageWrapperResult['serialized_blocks'] ?? '');
+$stylesheetCenteredImageWrapperCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $stylesheetCenteredImageWrapperResult['assets'] ?? array()));
+$assert(str_contains($stylesheetCenteredImageWrapperMarkup, '<div class="wp-block-group testimonial-portraits be-inline-geometry-') && str_contains($stylesheetCenteredImageWrapperMarkup, '<figure class="wp-block-image"'), 'stylesheet-aligned image wrappers retain editable native group and image blocks');
+$assert(str_contains($stylesheetCenteredImageWrapperCss, 'text-align:center !important') && str_contains($stylesheetCenteredImageWrapperCss, '>.wp-block-image{margin-left:auto!important;margin-right:auto!important}'), 'stylesheet-owned wrapper alignment projects onto generated native image children');
+$assert('pass' === ($stylesheetCenteredImageWrapperResult['source_reports']['wp_block_validity']['status'] ?? ''), 'stylesheet-aligned native image wrappers remain editor-valid');
 $maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
 $maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
 $maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));

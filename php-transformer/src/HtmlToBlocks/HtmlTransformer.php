@@ -4679,7 +4679,7 @@ final class HtmlTransformer
 
     private function isImagePresentationWrapper(DOMElement $element): bool
     {
-        $alignment = strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['text-align'] ?? '')));
+        $alignment = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['text-align'] ?? '')));
         if ( ! in_array($alignment, array( 'left', 'center', 'right' ), true) || '' !== trim($element->textContent ?? '') ) {
             return false;
         }
