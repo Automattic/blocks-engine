@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\StaticSite;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 
 final class MaterializationPlanBuilder
 {
@@ -552,17 +553,6 @@ final class MaterializationPlanBuilder
      */
     private function dedupeRows(array $rows): array
     {
-        $deduped = array();
-        $seen = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 }
