@@ -2595,13 +2595,6 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
-            $payload = isset($file['content_base64']) ? base64_decode((string) $file['content_base64'], true) : (string) ($file['content'] ?? '');
-            $dimensions = is_string($payload) && '' !== $payload ? @getimagesizefromstring($payload) : false;
-            if ( is_array($dimensions) ) {
-                $asset['width'] = $dimensions[0];
-                $asset['height'] = $dimensions[1];
-            }
-
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
                 $metadata[$key] = $asset;
             }

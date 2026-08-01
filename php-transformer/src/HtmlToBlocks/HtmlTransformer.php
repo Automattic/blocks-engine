@@ -1171,7 +1171,7 @@ final class HtmlTransformer
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
             $imageRule = '' === $imagePrelude
                 ? ''
-                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude))) . '}';
+                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
             if ( array() === $margins ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
@@ -1439,62 +1439,33 @@ final class HtmlTransformer
 
     /**
      * @param array<string, string> $declarations
-     * @param list<DOMElement> $matches
      */
-    private function imageProjectionBridgeDeclarations(array $declarations, array $matches): string
+    private function imageProjectionBridgeDeclarations(array $declarations): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
         $width = strtolower(trim((string) ($declarations['width'] ?? '')));
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
-        $coverClippedWell = 'auto' === $width && 'auto' === $height && $this->hasUndersizedImageInFixedClippedWell($matches);
-        if ( $ownsBox || $coverClippedWell || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+        if ( $ownsBox || in_array($position, array( 'absolute', 'fixed' ), true) ) {
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
+        } else {
+            // A clipped ancestor describes the viewport, not a request to crop
+            // its media. Keep authored automatic dimensions on the core/image
+            // child so intrinsic media can retain its natural aspect ratio.
+            if ( 'auto' === $width ) {
+                $bridge[] = 'width:auto';
+            }
+            if ( 'auto' === $height ) {
+                $bridge[] = 'height:auto';
+            }
         }
         $bridge[] = 'max-width:100%';
-        $bridge[] = $coverClippedWell ? 'object-fit:cover' : 'object-fit:inherit';
-        if ( $coverClippedWell ) {
-            // Reproduce load-time uniform scaling in a fixed crop well.
-            $bridge[] = 'object-position:50% 0';
-        }
-        if ( ! $coverClippedWell ) {
-            $bridge[] = 'object-position:inherit';
-        }
+        $bridge[] = 'object-fit:inherit';
+        $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
-    }
-
-    /** @param list<DOMElement> $matches */
-    private function hasUndersizedImageInFixedClippedWell(array $matches): bool
-    {
-        foreach ( $matches as $image ) {
-            if ( 'img' !== strtolower($image->tagName) ) {
-                continue;
-            }
-            $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($image, 'src')));
-            $imageWidth = is_numeric($asset['width'] ?? null) ? (float) $asset['width'] : 0;
-            $imageHeight = is_numeric($asset['height'] ?? null) ? (float) $asset['height'] : 0;
-            if ( $imageWidth <= 0 || $imageHeight <= 0 ) {
-                continue;
-            }
-            for ( $ancestor = $image->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-                $style = $this->structuralPresentationDeclarations($ancestor);
-                $overflow = strtolower(trim((string) ($style['overflow'] ?? $style['overflow-x'] ?? '')));
-                $wellWidth = $this->pixelLength($style['width'] ?? '');
-                $wellHeight = $this->pixelLength($style['height'] ?? '');
-                if ( in_array($overflow, array( 'hidden', 'clip' ), true) && null !== $wellWidth && null !== $wellHeight && ($imageWidth < $wellWidth || $imageHeight < $wellHeight) ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private function pixelLength(string $value): ?float
-    {
-        return 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($value), $matches) ? (float) $matches[1] : null;
     }
 
     /** @return array<string, mixed> */

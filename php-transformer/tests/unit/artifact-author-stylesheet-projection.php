@@ -129,22 +129,13 @@ $assert(str_contains($positionedImageCss, 'object-fit:fill !important;object-pos
 $assert(str_contains($positionedImageCss, '.map.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}'), 'nested image fills a wrapper with explicitly owned width and height');
 
 $croppedImage = ( new HtmlTransformer() )->transform(
-    '<style>.well{width:280px;height:280px;overflow:hidden}.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.png" alt="Portrait"></div></main>',
-    array( 'asset_metadata' => array( 'portrait.png' => array( 'url' => 'portrait.png', 'width' => 278, 'height' => 302 ) ) )
+    '<style>.well{width:280px;height:280px;overflow:hidden}.well img{width:auto;height:auto;max-width:100%}</style><main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>',
+    array( 'asset_metadata' => array( 'portrait.gif' => array( 'url' => 'portrait.gif', 'width' => 498, 'height' => 273 ) ) )
 )->toArray();
 $croppedImageCss = implode("\n", array_column($croppedImage['assets'] ?? array(), 'content'));
-$assert(1 === preg_match('/\.well\s+:where\(figure\).*\.wp-block-image > img\{display:block;width:100%;height:100%;max-width:100%;object-fit:cover;object-position:50% 0;border-radius:inherit\}/', $croppedImageCss), 'undersized intrinsic images in fixed clipped wells fold deterministic cover sizing into the canonical image bridge');
-$assert('pass' === ($croppedImage['source_reports']['wp_block_validity']['status'] ?? ''), 'folded fixed-well image sizing preserves valid core/image markup');
-
-$compiledCroppedImage = ( new ArtifactCompiler() )->compile(array(
-    'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="well.css"><main><div class="well"><img src="portrait.png" alt="Portrait"></div></main>' ),
-        array( 'path' => 'well.css', 'kind' => 'css', 'content' => '.well{width:280px;height:280px;overflow:hidden}.well img{width:auto;height:auto}' ),
-        array( 'path' => 'portrait.png', 'kind' => 'image', 'mime_type' => 'image/png', 'content_base64' => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2Nk+M/wHwAF/gL+0iLK5wAAAABJRU5ErkJggg==' ),
-    ),
-) )->toArray();
-$compiledCroppedImageCss = implode("\n", array_column($compiledCroppedImage['assets'] ?? array(), 'content'));
-$assert(str_contains($compiledCroppedImageCss, 'object-fit:cover;object-position:50% 0'), 'artifact compilation supplies intrinsic asset dimensions to deterministic fixed-well image sizing');
+$assert(1 === preg_match('/\.well\s+:where\(figure\).*\.wp-block-image > img\{display:block;width:auto;height:auto;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit\}/', $croppedImageCss), 'fixed clipped wells retain authored automatic image geometry on the canonical core/image child');
+$assert(! str_contains($croppedImageCss, 'object-fit:cover'), 'fixed clipped wells do not infer a square crop from intrinsic media dimensions');
+$assert('pass' === ($croppedImage['source_reports']['wp_block_validity']['status'] ?? ''), 'automatic fixed-well image geometry preserves valid core/image markup');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
