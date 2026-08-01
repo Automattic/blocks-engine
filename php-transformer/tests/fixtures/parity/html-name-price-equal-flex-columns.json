@@ -18,7 +18,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/author-layout {\"className\":\"menu-row\",\"contentMode\":\"inner-blocks\",\"tagName\":\"div\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-blocks-engine-author-layout detail-pair\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-blocks-engine-author-layout wp-block-group detail-pair\">" },
     { "path": "source_reports.generated_blocks.0.block_json.name", "assert": "equals", "value": "blocks-engine/author-layout" },
     { "path": "source_reports.generated_blocks.0.block_json.supports.layout", "assert": "equals", "value": false },
     { "path": "blocks", "assert": "count", "count": 2 },

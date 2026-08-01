@@ -22,8 +22,8 @@
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout release-grid\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout cover-wrap\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout wp-block-group release-grid\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout wp-block-group cover-wrap\"" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stop-color=\"#000000\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "margin-right:auto" },

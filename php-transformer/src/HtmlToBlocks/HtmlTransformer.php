@@ -3681,7 +3681,9 @@ final class HtmlTransformer
         if ( 'a' === ($attrs['tagName'] ?? '') && '' !== (string) ($attrs['url'] ?? '') ) {
             $attributes['href'] = (string) $attrs['url'];
         }
-        $classes = array_filter(array( 'wp-block-blocks-engine-author-layout', (string) ($attrs['className'] ?? '') ));
+        // The companion retains source-only tags and child topology, while the
+        // core Group class preserves the supported consumer's base block chrome.
+        $classes = array_filter(array( 'wp-block-blocks-engine-author-layout', 'wp-block-group', (string) ($attrs['className'] ?? '') ));
         $attributes['class'] = implode(' ', $classes);
         foreach ( $attrs['sourceAttributes'] ?? array() as $name => $value ) {
             if ( is_string($name) && is_string($value) ) {

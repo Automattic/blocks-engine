@@ -23,8 +23,8 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-blocks-engine-author-layout cta-row\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/music\" class=\"wp-block-blocks-engine-author-layout btn btn-primary\"><span>Listen Now</span></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-blocks-engine-author-layout wp-block-group cta-row\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/music\" class=\"wp-block-blocks-engine-author-layout wp-block-group btn btn-primary\"><span>Listen Now</span></a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button__link" }
   ]
 }
