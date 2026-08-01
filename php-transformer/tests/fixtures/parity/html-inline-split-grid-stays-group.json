@@ -17,8 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-row", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-copy" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-visual" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-copy", "tagName": "div" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-visual", "tagName": "div" } }
   ],
   "expected_fallbacks": [],
   "expect": [

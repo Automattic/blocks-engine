@@ -2073,7 +2073,12 @@ final class HtmlTransformer
     {
         $tagName = strtolower($element->tagName);
 
-        if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'a', 'button' ), true) ) {
+        // Direct children are the layout items. Preserve their source elements
+        // before core block conversions introduce wrapper topology or margins.
+        if ( $this->isDirectChildOfAuthorOwnedLayout($element)
+            && ! in_array($tagName, array( 'img', 'svg', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true)
+            && ( $this->isInlineContentElement($tagName) || in_array($tagName, array( 'a', 'button' ), true) )
+        ) {
             if ( $this->authorLayoutLeafSupportsRichText($element) ) {
                 $leaf = $this->authorLayoutLeafBlockFromElement($element);
                 if ( null !== $leaf ) {
@@ -2644,11 +2649,10 @@ final class HtmlTransformer
             }
 
             // A direct child of an author-owned layout is itself a layout item.
-            // Keep representable container tags as groups before visual-text and
-            // card heuristics can collapse the source child boundary.
+            // Keep its semantic container instead of allowing a core Group to
+            // contribute flow layout defaults to the author-owned parent.
             if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
             $logo = $this->logoPattern->match(
@@ -3225,7 +3229,7 @@ final class HtmlTransformer
         $tagName = in_array($sourceTag, array( 'a', 'button' ), true) ? $sourceTag : ($this->semanticGroupTagName($element) ?? 'div');
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'className' => $this->mergeClassNames($this->promotedClassName($this->attr($element, 'class')), ...$this->authorSemanticMarkersForElement($element)),
             'sourceAttributes' => array_merge(
                 $this->authorLayoutSourceAttributes($element),
                 in_array($tagName, array( 'a', 'button' ), true) ? array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' ))) : array()
@@ -3277,7 +3281,7 @@ final class HtmlTransformer
         foreach ($element->childNodes as $child) {
             if (! $child instanceof DOMElement) continue;
             $tag = strtolower($child->tagName);
-            $tags[] = 'svg' === $tag ? 'img' : ('span' === $tag && '' === $this->attr($child, 'class') && '' === $this->attr($child, 'id') && '' === $this->attr($child, 'role') ? 'p' : $tag);
+            $tags[] = 'svg' === $tag ? 'img' : $tag;
         }
         return $tags;
     }
@@ -3309,7 +3313,7 @@ final class HtmlTransformer
         $tagName = strtolower($element->tagName);
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'className' => $this->mergeClassNames($this->promotedClassName($this->attr($element, 'class')), ...$this->authorSemanticMarkersForElement($element)),
             'content' => $content,
             'contentMode' => 'rich-text',
             'sourceAttributes' => array_filter(array_merge(

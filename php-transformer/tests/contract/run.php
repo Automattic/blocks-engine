@@ -670,7 +670,7 @@ $emptyVisualCluster = ( new HtmlTransformer() )->transform(
 $emptyVisualItems = $emptyVisualCluster['blocks'][0]['innerBlocks'] ?? array();
 $emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyVisualCluster['assets'] ?? array()));
 $assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
-$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/group' !== ($block['blockName'] ?? '')), 'decorative cluster items use native core/group blocks');
+$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'blocks-engine/author-layout' !== ($block['blockName'] ?? '') || 'span' !== ($block['attrs']['tagName'] ?? '')), 'decorative cluster items retain direct editable span blocks');
 $assert(str_contains($emptyVisualCss, 'blocks-engine-semantic-') && str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}') && str_contains($emptyVisualCss, 'background:#ff5f57') && str_contains($emptyVisualCss, 'background:#ffbd2e') && str_contains($emptyVisualCss, 'background:#28ca41'), 'decorative cluster items preserve projected selectors, dimensions, and background paint through author CSS');
 $assert(! str_contains($emptyVisualCss, '!important'), 'decorative cluster translation does not introduce important declarations');
 
@@ -828,7 +828,7 @@ $boundedColumnBlock = $boundedColumn['blocks'][0]['innerBlocks'][0] ?? array();
 $boundedColumnAttrs = $boundedColumnBlock['attrs'] ?? array();
 $boundedColumnMarkup = (string) ($boundedColumn['serialized_blocks'] ?? '');
 $boundedColumnCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $boundedColumn['assets'] ?? array()));
-$assert('core/group' === ($boundedColumnBlock['blockName'] ?? '') && 'bounded-column' === ($boundedColumnAttrs['className'] ?? '') && 'article' === ($boundedColumnAttrs['tagName'] ?? ''), 'CSS-owned flex rows retain semantic article children instead of replacing them with column wrappers');
+$assert('blocks-engine/author-layout' === ($boundedColumnBlock['blockName'] ?? '') && 'bounded-column' === ($boundedColumnAttrs['className'] ?? '') && 'article' === ($boundedColumnAttrs['tagName'] ?? ''), 'CSS-owned flex rows retain semantic article children without Group layout defaults');
 $assert(! isset($boundedColumnAttrs['style']['dimensions']['maxWidth']) && ! str_contains($boundedColumnMarkup, 'max-width:var(--measure)'), 'column omits max-width unsupported by its canonical Gutenberg save wrapper');
 $assert(str_contains($boundedColumnCss, '.bounded-column{max-width:var(--measure);padding:1rem}'), 'generated stylesheet retains the exact class-owned column max-width geometry');
 $assert('pass' === ($boundedColumn['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded column serialization passes canonical Gutenberg wrapper validity');
@@ -1183,8 +1183,8 @@ $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
     '<style>.track{display:flex}.token{display:inline-flex;align-items:center;gap:8px}.token svg{width:18px;height:18px}</style><main><div class="track"><span class="token">Open Source <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></svg></span></div></main>'
 )->toArray();
 $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? '');
-$assert(str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph {"className":"token'), 'inline flex text and SVG collapse to one styled native paragraph instead of a one-child group');
-$assert(str_contains($inlineFlexSvgMarkup, '<p class="token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled paragraph');
+$assert(str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout token') && ! str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain their direct source span instead of gaining a paragraph wrapper');
+$assert(str_contains($inlineFlexSvgMarkup, '<span class="wp-block-blocks-engine-author-layout token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image remain direct children of the styled source span');
 $assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
 $assert('pass' === ($inlineFlexSvgResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline flex SVG paragraph remains editor-valid');
 

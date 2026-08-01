@@ -17,10 +17,10 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cols" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "c" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "c", "tagName": "div" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "A", "level": 2 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "one" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "c" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "c", "tagName": "div" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "B", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "two" } }
   ],

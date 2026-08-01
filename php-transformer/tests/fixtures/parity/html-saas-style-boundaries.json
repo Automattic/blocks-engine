@@ -27,7 +27,7 @@
     { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "beta-badge" } },
     { "path": "blocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading" },
     { "path": "blocks.1.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "trusted-by", "tagName": "section" } },
-    { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "trusted-card", "tagName": "article" } },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "trusted-card", "tagName": "article" } },
     { "path": "blocks.1.innerBlocks.2.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "width": 100 } }
   ],
   "expected_fallbacks": [],

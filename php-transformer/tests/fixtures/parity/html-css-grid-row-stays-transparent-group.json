@@ -17,8 +17,8 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "event-row", "tagName": "div" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "date" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "venue" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "date", "tagName": "div" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "venue", "tagName": "div" } },
     { "path": "blocks.0.innerBlocks.2", "name": "blocks-engine/author-layout", "attrs": { "className": "btn", "tagName": "a", "content": "Tickets" } }
   ],
   "expected_fallbacks": [],

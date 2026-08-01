@@ -17,13 +17,13 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "release-grid", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "cover-wrap" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cover-wrap", "tagName": "div" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover", "alt": "EP cover" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout release-grid\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cover-wrap\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-blocks-engine-author-layout cover-wrap\"" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stop-color=\"#000000\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "margin-right:auto" },

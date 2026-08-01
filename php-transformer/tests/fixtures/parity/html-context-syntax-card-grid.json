@@ -19,8 +19,8 @@
     { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cards-grid", "tagName": "section" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Features", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-js", "content": "<span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "feature-card" } },
-    { "path": "blocks.0.innerBlocks.3", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-card", "tagName": "article" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "blocks-engine/author-layout", "attrs": { "className": "feature-card", "tagName": "article" } },
     { "path": "blocks.1", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "<cite>Casey</cite> Engineer" } }
   ],
   "expected_fallbacks": [

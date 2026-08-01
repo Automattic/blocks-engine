@@ -142,7 +142,7 @@ $assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 't
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
-$assert(3 === substr_count($inlineMarkup, '<div class="wp-block-group blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain independent native wrapper identities and projected selector paths without HTML fallback');
+$assert(3 === substr_count($inlineMarkup, '"tagName":"span"') && 5 === substr_count($inlineMarkup, 'wp-block-blocks-engine-author-layout') && 3 <= substr_count($inlineMarkup, 'blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain direct source tags and projected selector paths without Group wrappers or HTML fallback');
 
 $repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
 $repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
@@ -209,6 +209,16 @@ $authorGridBlock = $authorGrid['blocks'][0] ?? array();
 $authorDefinition = $authorGrid['source_reports']['generated_blocks'][0] ?? array();
 $assert('blocks-engine/author-layout' === ($authorGridBlock['blockName'] ?? '') && 5 === count($authorGridBlock['innerBlocks'] ?? array()) && str_contains($authorGridMarkup, '<section id="gallery" class="wp-block-blocks-engine-author-layout ex-row" aria-label="Gallery" data-kind="exhibition">') && ! str_contains((string) ($authorGridBlock['innerHTML'] ?? ''), 'wp-block-group') && ! str_contains($css($authorGrid), '--wp--style--block-gap'), 'author grids use one semantic editable companion wrapper with source CSS as layout authority');
 $assert('blocks-engine/author-layout' === ($authorDefinition['block_json']['name'] ?? '') && false === ($authorDefinition['block_json']['supports']['layout'] ?? true) && false === ($authorDefinition['block_json']['supports']['spacing']['blockGap'] ?? true) && str_contains((string) ($authorDefinition['assets']['index.js'] ?? ''), 'InnerBlocks.Content'), 'author layout companion payload declares editable InnerBlocks and no core layout support');
+
+$cardGrid = $transform('<style>.card{display:grid;grid-template-columns:1fr auto}.card > span{grid-column:2}.card > strong{grid-column:1}</style><div class="card"><span>Label</span><strong>Title</strong><span>Detail</span></div>');
+$cardGridChildren = $cardGrid['blocks'][0]['innerBlocks'] ?? array();
+$assert(
+    'blocks-engine/author-layout' === ($cardGrid['blocks'][0]['blockName'] ?? '')
+    && array('span', 'strong', 'span') === array_map(static fn (array $block): string => (string) ($block['attrs']['tagName'] ?? ''), $cardGridChildren)
+    && ! str_contains((string) ($cardGrid['serialized_blocks'] ?? ''), 'wp-block-group')
+    && array() === ($cardGrid['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()),
+    'author grid cards retain direct inline child tags and placement selectors without Group or Paragraph wrappers'
+);
 
 $mediaLayout = $transform('<style>@media (min-width:700px){@supports (display:grid){.responsive-row{display:grid;gap:2rem}}}</style><div class="responsive-row"><div>One</div><div>Two</div></div>');
 $flowLayout = $transform('<style>.flow-row{display:flex}@media (max-width:700px){.flow-row{display:block}}</style><div class="flow-row"><div>One</div><div>Two</div></div>');
