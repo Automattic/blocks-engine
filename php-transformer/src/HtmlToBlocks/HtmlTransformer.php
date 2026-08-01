@@ -32,6 +32,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTra
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -53,6 +54,19 @@ final class HtmlTransformer
     use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
+
+    private const MAX_FORM_TOPOLOGY_DEPTH = 8;
+
+    private const MAX_FORM_TOPOLOGY_NODES = 128;
+
+    private const MAX_FORM_TOPOLOGY_CLASSES = 8;
+
+    /** @var array<int, string> */
+    private const FORM_TOPOLOGY_WRAPPER_TAGS = array(
+        'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
+        'label', 'li', 'main', 'nav', 'ol', 'p', 'section', 'span', 'table', 'tbody',
+        'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
+    );
 
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
@@ -419,6 +433,8 @@ final class HtmlTransformer
     /** @var list<array{path: string, content: string, source_hash: string}> */
     private array $authorStylesheetAssets = array();
 
+    private string $formLayoutCss = '';
+
     /** A collision-checked custom element used solely to retain type specificity. */
     private string $authorSpecificityShim = '';
 
@@ -512,6 +528,7 @@ final class HtmlTransformer
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
         $this->authorStylesheetAssets = array();
+        $this->formLayoutCss = '';
         $this->authorSpecificityShim = '';
         $this->authorClassSpecificityShim = '';
         $this->authorIdSpecificityShim = '';
@@ -803,6 +820,15 @@ final class HtmlTransformer
     private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
     {
         $cssParts = array();
+        $authorCss = '';
+        if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
+            $authorCss = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
+            $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
+            if ( '' !== trim($split['preamble']) ) {
+                $cssParts[] = $split['preamble'];
+            }
+            $authorCss = $split['stylesheet'];
+        }
         $geometryCss = $this->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
@@ -830,8 +856,8 @@ final class HtmlTransformer
         if ( array() !== $this->nativeSearchTriggerCssRules ) {
             $cssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
         }
-        if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
-            $cssParts[] = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
+        if ( '' !== trim($authorCss) ) {
+            $cssParts[] = $authorCss;
         }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
@@ -880,6 +906,7 @@ final class HtmlTransformer
         $this->combinedAuthorCss = array() === $this->authorStylesheetAssets
             ? $this->combinedAuthorStylesheet($html, $staticCss)
             : implode("\n\n", array_column($this->authorStylesheetAssets, 'content'));
+        $this->formLayoutCss = $this->combinedAuthorCss;
         // Ignore already-generated-looking markers when seeding so collision
         // avoidance remains deterministic even when source CSS contains one.
         $seedInput = preg_replace('/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
@@ -1069,7 +1096,7 @@ final class HtmlTransformer
         return trim(implode("\n\n", $cssParts));
     }
 
-    /** @param array<string, mixed> $options @return list<array{path: string, content: string, source_hash: string}> */
+    /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
     private function authorStylesheetAssetsFromOptions(array $options): array
     {
         if ( ! is_array($options['author_stylesheet_assets'] ?? null) ) {
@@ -1080,7 +1107,7 @@ final class HtmlTransformer
             if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || '' === $asset['path'] || ! is_string($asset['content'] ?? null) ) {
                 continue;
             }
-            $assets[] = array( 'path' => $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']) );
+            $assets[] = array( 'path' => $asset['path'], 'source_path' => is_string($asset['source_path'] ?? null) ? $asset['source_path'] : $asset['path'], 'content' => $asset['content'], 'source_hash' => is_string($asset['source_hash'] ?? null) ? $asset['source_hash'] : hash('sha256', $asset['content']), 'media' => is_string($asset['media'] ?? null) ? $asset['media'] : '' );
         }
         return $assets;
     }
@@ -1093,7 +1120,8 @@ final class HtmlTransformer
         foreach ( $this->authorStylesheetAssets as $asset ) {
             $content = $this->rewriteAuthorStylesheet($asset['content']);
             if ( '' !== $markerReset ) {
-                $content = $markerReset . "\n" . $content;
+                $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($content);
+                $content = $split['preamble'] . $markerReset . "\n" . $split['stylesheet'];
                 $markerReset = '';
             }
             $hash = hash('sha256', $content);
@@ -2584,6 +2612,11 @@ final class HtmlTransformer
             if ( null !== $navigation ) {
                 return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
+
+            $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
+            if ( null !== $inlineNavigation ) {
+                return $inlineNavigation;
+            }
         }
 
         if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
@@ -2678,7 +2711,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
             if ( null !== $columns ) {
@@ -3091,6 +3124,12 @@ final class HtmlTransformer
         }
 
         $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        // A grid placement belongs to this inline node. Keep phrasing-only grid
+        // siblings in one RichText container rather than replacing their direct
+        // grid items with Group/Paragraph wrappers.
+        if ( 'grid' === strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
+            return false;
+        }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
             return true;
@@ -3228,23 +3267,18 @@ final class HtmlTransformer
         $hoistedDeclarations = array();
 
         // Peel a single styling-hook span wrapping the whole content, hoisting it
-        // onto the block. Nested wrappers are peeled across iterations.
+        // onto the block. A source identity needs to remain on the inline node so
+        // author selectors continue to address the saved RichText carrier.
         while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) ) {
+                break;
+            }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
             $wrapperStyle   = trim($this->attr($wrapper, 'style'));
             if ( '' !== $wrapperStyle ) {
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
             }
             $this->unwrapElement($wrapper);
-        }
-
-        $soleAnchor = $this->soleRichTextAnchor($body);
-        if ( $soleAnchor instanceof DOMElement ) {
-            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($soleAnchor, 'class'));
-            $anchorStyle    = trim($this->attr($soleAnchor, 'style'));
-            if ( '' !== $anchorStyle ) {
-                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($anchorStyle));
-            }
         }
 
         // Unwrap any remaining styling hooks (sibling / partial content) unless
@@ -3259,7 +3293,6 @@ final class HtmlTransformer
         }
 
         foreach ( $this->richTextAnchors($body) as $anchor ) {
-            $anchor->removeAttribute('class');
             $anchor->removeAttribute('style');
         }
 
@@ -3326,9 +3359,9 @@ final class HtmlTransformer
     }
 
     /**
-     * A `<span>` whose only attributes are class and/or style (at least one
-     * non-empty). These are presentational styling hooks RichText cannot store,
-     * not semantic spans (a span carrying id, data-, or role is left intact).
+     * A `<span>` whose attributes can be represented by a semantic RichText
+     * carrier. Class/id/data identity and inline styles move together onto a
+     * `<mark>` so selector hooks survive without storing an invalid span.
      */
     private function isStylingHookSpan(DOMElement $element): bool
     {
@@ -3339,10 +3372,10 @@ final class HtmlTransformer
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
-            if ( ! in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) ) {
+            if ( ! in_array($attributeName, array( 'class', 'id', 'style', 'data-blocks-engine-richtext-marker' ), true) && ! str_starts_with($attributeName, 'data-') ) {
                 return false;
             }
-            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+            if ( in_array($attributeName, array( 'class', 'style', 'data-blocks-engine-richtext-marker' ), true) && '' !== trim($attribute->nodeValue ?? '') ) {
                 $hasStyling = true;
             }
         }
@@ -3428,6 +3461,30 @@ final class HtmlTransformer
         }
 
         return $anchors;
+    }
+
+    /**
+     * Source identity that RichText can retain on a semantic inline carrier.
+     * Classes, safe ids, and data attributes are selector hooks, unlike an
+     * arbitrary inline style that RichText cannot safely round-trip.
+     *
+     * @return array<string, string>
+     */
+    private function richTextSafeIdentityAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 'class' === $name && '' !== trim($attribute->nodeValue ?? '') ) {
+                $attributes['class'] = $attribute->nodeValue ?? '';
+            } elseif ( 'id' === $name && '' !== $this->safeAnchor($attribute->nodeValue ?? '') ) {
+                $attributes['id'] = $this->safeAnchor($attribute->nodeValue ?? '');
+            } elseif ( str_starts_with($name, 'data-') && 'data-blocks-engine-richtext-marker' !== $name ) {
+                $attributes[$name] = $attribute->nodeValue ?? '';
+            }
+        }
+
+        return $attributes;
     }
 
     private function richTextRequiresHtmlFallback(string $content): bool
@@ -3545,7 +3602,22 @@ final class HtmlTransformer
             $declarations['color'] = 'transparent';
         }
 
-        return array_intersect_key($declarations, $allowed);
+        $declarations = array_intersect_key($declarations, $allowed);
+        if ( in_array(strtolower($element->tagName), array( 'em', 'i' ), true) ) {
+            if ( 'italic' === strtolower((string) ($declarations['font-style'] ?? '')) ) {
+                unset($declarations['font-style']);
+            }
+            if ( 'inherit' === strtolower((string) ($declarations['font-weight'] ?? '')) ) {
+                unset($declarations['font-weight']);
+            }
+            foreach ( array( 'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top', 'padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top' ) as $property ) {
+                if ( isset($declarations[$property]) && ! $this->cssValueIsNonZero($declarations[$property]) ) {
+                    unset($declarations[$property]);
+                }
+            }
+        }
+
+        return $declarations;
     }
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
@@ -3557,7 +3629,7 @@ final class HtmlTransformer
         $declarations = $this->richTextInlineVisualDeclarations($element);
         $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
-        if ( '' === $marker && array() === $declarations ) {
+        if ( '' === $marker && array() === $declarations && array() === $this->richTextSafeIdentityAttributes($element) ) {
             return false;
         }
 
@@ -3578,6 +3650,9 @@ final class HtmlTransformer
         }
 
         $mark = $document->createElement('mark');
+        foreach ( $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
+            $mark->setAttribute($name, $value);
+        }
         $mark->setAttribute('style', $this->cssDeclarationString($declarations));
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
@@ -4439,9 +4514,9 @@ final class HtmlTransformer
             return null;
         }
 
-        // A CSS-addressed inline leaf needs an independent native wrapper. Do
-        // not absorb it into this parent RichText paragraph, where its selector
-        // path and flex/grid item geometry would be lost.
+        // A lone marked descendant needs an independent carrier. Phrasing-only
+        // sibling runs remain together in this RichText block so authored
+        // flex/grid child geometry is not replaced with block wrappers.
         if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }
@@ -4460,6 +4535,25 @@ final class HtmlTransformer
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
+    private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+            return null;
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
+        if ( null !== $inlineSvgContent ) {
+            $content = $inlineSvgContent;
+        }
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+            return null;
+        }
+
+        $paragraph = $this->createBlock('core/paragraph', array( 'content' => $content ));
+        return $this->createBlock('core/group', $this->presentationAttributes($element), array( $paragraph ), $element);
     }
 
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
@@ -7265,6 +7359,106 @@ final class HtmlTransformer
     }
 
     /**
+     * Preserve only control-bearing wrapper ancestry. The node table is bounded,
+     * source ordered, and references the compatibility controls by flat index.
+     *
+     * @return array<string, mixed>
+     */
+    private function formControlTopology(DOMElement $form): array
+    {
+        $controlIndexes = array();
+        $relevantElements = array();
+        foreach ( $this->formControlElements($form) as $index => $control ) {
+            $controlIndexes[$control->getNodePath()] = $index;
+            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && $ancestor !== $form; $ancestor = $ancestor->parentNode ) {
+                $relevantElements[$ancestor->getNodePath()] = true;
+            }
+        }
+
+        $nodes = array();
+        $wrapperIndex = 0;
+        $truncated = false;
+        $order = 0;
+        foreach ( $form->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) continue;
+            if ( $this->appendFormTopologyNode($child, null, $order, 0, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$order;
+        }
+
+        return array(
+            'schema'    => 'generic/form-control-topology/v1',
+            'max_depth' => self::MAX_FORM_TOPOLOGY_DEPTH,
+            'max_nodes' => self::MAX_FORM_TOPOLOGY_NODES,
+            'nodes'     => $nodes,
+            'truncated' => $truncated,
+        );
+    }
+
+    /**
+     * @param array<string, int> $controlIndexes
+     * @param array<string, bool> $relevantElements
+     * @param array<int, array<string, mixed>> $nodes
+     */
+    private function appendFormTopologyNode(DOMElement $element, ?string $parent, int $order, int $depth, array $controlIndexes, array $relevantElements, array &$nodes, int &$wrapperIndex, bool &$truncated): bool
+    {
+        $nodePath = $element->getNodePath();
+        if ( ! isset($controlIndexes[$nodePath]) && ! isset($relevantElements[$nodePath]) ) return false;
+        if ( $depth > self::MAX_FORM_TOPOLOGY_DEPTH || count($nodes) >= self::MAX_FORM_TOPOLOGY_NODES ) {
+            $truncated = true;
+            return false;
+        }
+
+        if ( isset($controlIndexes[$nodePath]) ) {
+            $controlIndex = $controlIndexes[$nodePath];
+            $nodes[] = array_filter(array(
+                'id'      => 'control-' . $controlIndex,
+                'kind'    => 'control',
+                'parent'  => $parent,
+                'order'   => $order,
+                'depth'   => $depth,
+                'control' => $controlIndex,
+            ), static fn (mixed $value): bool => null !== $value);
+            return true;
+        }
+
+        $id = 'wrapper-' . $wrapperIndex++;
+        $nodes[] = array_filter(array_merge(array(
+            'id'     => $id,
+            'kind'   => 'wrapper',
+            'parent' => $parent,
+            'order'  => $order,
+            'depth'  => $depth,
+        ), $this->formTopologyPresentation($element)), static fn (mixed $value): bool => null !== $value && '' !== $value);
+
+        $childOrder = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) continue;
+            if ( $this->appendFormTopologyNode($child, $id, $childOrder, $depth + 1, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$childOrder;
+        }
+
+        return true;
+    }
+
+    /** @return array<string, string> */
+    private function formTopologyPresentation(DOMElement $element): array
+    {
+        $tag = strtolower($element->tagName);
+        $presentation = array();
+        if ( in_array($tag, self::FORM_TOPOLOGY_WRAPPER_TAGS, true) ) $presentation['tag'] = $tag;
+
+        $id = trim($this->attr($element, 'id'));
+        if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $id) ) $presentation['source_id'] = $id;
+
+        $classes = array();
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( count($classes) >= self::MAX_FORM_TOPOLOGY_CLASSES ) break;
+            if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
+        }
+        if ( array() !== $classes ) $presentation['class'] = implode(' ', $classes);
+
+        return $presentation;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function formMetadata(DOMElement $form): array
@@ -8035,6 +8229,8 @@ final class HtmlTransformer
     private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
     {
         $controls = $this->formControls($element);
+        $controlTopology = $this->formControlTopology($element);
+        $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStylesheetAssets, $this->formLayoutCss);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
@@ -8059,6 +8255,8 @@ final class HtmlTransformer
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
             'binding'         => $this->blockBinding($bindingMarkup, 'form', $supersededRuntimeSelectors),
             'controls'        => $controls,
+            'control_topology' => $controlTopology,
+            'layout_graph'     => $layoutGraph,
             'control_count'   => count($controls),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),

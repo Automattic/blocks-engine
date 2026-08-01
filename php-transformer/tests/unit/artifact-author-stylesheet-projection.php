@@ -52,6 +52,14 @@ $richText = ( new ArtifactCompiler() )->compile(array(
 $richTextAssets = $richText['assets'] ?? array();
 $assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
 
+$importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><p><span class="accent">Text</span></p></body></html>' ),
+    array( 'path' => 'style.css', 'kind' => 'css', 'content' => '@import url("https://fonts.googleapis.com/css2?family=Inter");.accent{color:red}' ),
+) ) )->toArray();
+$importedFontAssets = array_column($importedFont['assets'] ?? array(), null, 'path');
+$importedFontCss = (string) ($importedFontAssets['style.css']['content'] ?? '');
+$assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && strpos($importedFontCss, '@import') < strpos($importedFontCss, ':where(mark)'), 'author stylesheet imports remain before generated marker and geometry rules');
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),

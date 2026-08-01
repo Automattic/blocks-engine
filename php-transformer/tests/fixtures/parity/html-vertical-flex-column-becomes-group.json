@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero", "layout": { "type": "flex", "orientation": "vertical" } } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "New", "className": "eyebrow" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<mark class=\"eyebrow\" style=\"background-color:transparent;color:inherit\">New</mark>" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Title", "level": 1 } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Subhead" } },
     { "path": "blocks.0.innerBlocks.3", "name": "core/buttons" },

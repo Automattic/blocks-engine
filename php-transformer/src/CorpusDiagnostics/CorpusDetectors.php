@@ -149,7 +149,7 @@ final class CorpusDetectors
             'invalid_block_count'         => $validityReport['invalid_block_count'],
             // The authoritative "the editor would flag this as invalid/unexpected
             // content" signal: blocks whose RichText content carries a
-            // class/style-bearing inline <span>/<a> that RichText will not
+            // class/style-bearing inline <span> or a styled <a> that RichText will not
             // preserve on parse.
             'richtext_invalid_risk_count' => count($richTextRisk),
             'svg_content_lost_count'      => count($svgLost),
@@ -319,9 +319,10 @@ final class CorpusDetectors
 
     /**
      * RichText editor-invalidity risk: paragraph/heading/list-item blocks whose
-     * RichText `content` carries an inline <span> or <a> that bears a class or
-     * style attribute. RichText normalizes such content on parse — it strips the
-     * unsupported class/style off inline formats it does not model — so the
+     * RichText `content` carries an inline <span> with a class or style attribute,
+     * or an inline <a> with a style attribute. RichText normalizes unsupported
+     * span attributes on parse, while source identity is safely retained on links.
+     * The resulting mismatch means the
      * editor shows "unexpected/invalid content" even though the structural
      * serialization round-trip (wp_block_validity) reports the block as valid.
      *
@@ -346,7 +347,7 @@ final class CorpusDetectors
             if ( '' === $content ) {
                 continue;
             }
-            if ( preg_match('/<(?:span|a)\b[^>]*\s(?:class|style)\s*=/i', $content) ) {
+            if ( preg_match('/<span\b[^>]*\s(?:class|style)\s*=|<a\b[^>]*\sstyle\s*=/i', $content) ) {
                 $findings[] = array(
                     'source'        => 'detector',
                     'detector'      => 'richtext_invalid_risk',

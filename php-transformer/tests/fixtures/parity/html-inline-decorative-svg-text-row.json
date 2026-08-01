@@ -16,7 +16,7 @@
     "content": "<div class=\"utility-left\"><span class=\"utility-current\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle></svg> Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></span></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "utility-left blocks-engine-synthetic-paragraph utility-current", "content": "Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a>" } }
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "utility-left blocks-engine-synthetic-paragraph", "content": "<mark class=\"utility-current\" style=\"background-color:transparent;color:inherit\">Current patient? Call <a href=\"tel:+15035551870\">(503) 555-1870</a></mark>" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -24,6 +24,6 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"utility-left blocks-engine-synthetic-paragraph utility-current\",\"content\":\"Current patient? Call" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"utility-left blocks-engine-synthetic-paragraph\",\"content\":\"<mark class=\\\"utility-current\\\"" }
   ]
 }

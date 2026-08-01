@@ -54,7 +54,7 @@ trait ButtonLinkDispatchTrait
         }
 
         if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            return $this->createBlock('core/paragraph', array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
         }
 
         if ( '' === trim($element->textContent ?? '') ) {
@@ -71,7 +71,31 @@ trait ButtonLinkDispatchTrait
         // A non-button anchor has no native width support. Promote its source
         // presentation to the paragraph wrapper so generated geometry remains
         // attached to the rendered block rather than being silently discarded.
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+        // Its id remains on the inner link, the node that source selectors and
+        // fragment navigation actually address.
+        return $this->createBlock('core/paragraph', array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+    }
+
+    /** @return array<string, mixed> */
+    private function nonButtonAnchorWrapperAttributes(DOMElement $anchor): array
+    {
+        $attrs = $this->presentationAttributes($anchor);
+        unset($attrs['anchor']);
+
+        // Source class identity belongs exclusively to the saved link. Keep only
+        // generated geometry classes and mapped presentation on its paragraph host.
+        $sourceClasses = preg_split('/\s+/', trim($this->attr($anchor, 'class'))) ?: array();
+        $classes = array_values(array_filter(
+            preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
+            static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
+        ));
+        if ( array() === $classes ) {
+            unset($attrs['className']);
+        } else {
+            $attrs['className'] = implode(' ', $classes);
+        }
+
+        return $attrs;
     }
 
     /**

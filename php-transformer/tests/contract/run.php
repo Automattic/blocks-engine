@@ -561,6 +561,58 @@ $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
+$boundedTopologyHtml = static function (int $extraControls): string {
+    $controls = '';
+    for ( $index = 0; $index < 63; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
+    $controls .= '<input name="standalone"><button type="submit">Send</button>';
+    for ( $index = 0; $index < $extraControls; ++$index ) $controls .= '<input name="extra-' . $index . '">';
+    return '<main><form>' . $controls . '</form></main>';
+};
+$exactTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(0))->toArray()['fallbacks'][0]['control_topology'] ?? array();
+$overflowTopology = ( new HtmlTransformer() )->transform($boundedTopologyHtml(1))->toArray()['fallbacks'][0]['control_topology'] ?? array();
+$assert(128 === count($exactTopology['nodes'] ?? array()) && false === ($exactTopology['truncated'] ?? null), 'form control topology retains exactly the configured node limit without reporting truncation');
+$assert(128 === count($overflowTopology['nodes'] ?? array()) && true === ($overflowTopology['truncated'] ?? null), 'form control topology truncates deterministically when one source-ordered control exceeds the node limit');
+$assert(64 === ($overflowTopology['nodes'][127]['control'] ?? null), 'node-limit truncation preserves the last in-bounds flat control reference');
+$presentationTopology = ( new HtmlTransformer() )->transform('<main><form><custom-element id="bad id" class="safe bad/token one two three four five six seven eight nine ' . str_repeat('x', 81) . '"><input name="safe"></custom-element><button type="submit">Send</button></form></main>')->toArray()['fallbacks'][0]['control_topology']['nodes'][0] ?? array();
+$assert(! isset($presentationTopology['tag']) && ! isset($presentationTopology['source_id']), 'form topology omits unsupported wrapper tags and malformed source IDs');
+$assert('safe one two three four five six seven' === ($presentationTopology['class'] ?? ''), 'form topology retains only the first eight bounded safe class tokens');
+$layoutGraphHtml = '<main><form class="form"><div class="row-2"><div class="field"><input name="first"></div><div class="field"><input name="last"></div></div><button type="submit">Send</button></form></main>';
+$layoutGraphCss = '.form{display:grid;grid-template-columns:1fr;gap:1rem}.form .row-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.field{display:flex;flex-direction:column;gap:.3rem}@media (max-width:640px){.form .row-2{grid-template-columns:1fr}}@container form-shell (max-width:30rem){.field{gap:.5rem}}@supports (display:grid){.form{align-content:start}}';
+$layoutGraphFallback = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => $layoutGraphCss))->toArray()['fallbacks'][0] ?? array();
+$layoutGraph = $layoutGraphFallback['layout_graph'] ?? array();
+$layoutNodes = array_column($layoutGraph['nodes'] ?? array(), null, 'id');
+$assert('generic/computed-layout-graph/v1' === ($layoutGraph['schema'] ?? null) && 'source_css_cascade' === ($layoutGraph['basis'] ?? null), 'form fallback emits the versioned declared-CSS layout graph contract');
+$assert('grid' === ($layoutNodes['form']['layout']['display'] ?? null) && '1fr 1fr' === ($layoutNodes['wrapper-0']['layout']['columns'] ?? null) && 'flex' === ($layoutNodes['wrapper-1']['layout']['display'] ?? null), 'layout graph preserves form, row, and field layout facts in source order');
+$assert('form' === ($layoutNodes['wrapper-0']['parent'] ?? null) && 'wrapper-0' === ($layoutNodes['wrapper-1']['parent'] ?? null), 'layout graph preserves deterministic source parentage without inferring Columns');
+$layoutVariantKinds = array_values(array_unique(array_column(array_column($layoutGraph['variants'] ?? array(), 'condition'), 'kind'))); sort($layoutVariantKinds, SORT_STRING);
+$assert(array('container', 'media', 'supports') === $layoutVariantKinds, 'layout graph preserves media, container, and supports declarations as conditional variants');
+$malformedLayoutGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => '.form{display:grid'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(in_array('malformed_stylesheet:inline-style', $malformedLayoutGraph['diagnostics'] ?? array(), true), 'layout graph reports malformed source stylesheets instead of guessing layout facts');
+$cascadeGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => '.form{display:flex;display:grid!important;display:block}.field{display:flex}@media (max-width:50rem){@supports (display:grid){.field{gap:1rem}}}.form button[type="submit"]{order:2}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$cascadeNodes = array_column($cascadeGraph['nodes'] ?? array(), null, 'id');
+$cascadeVariant = $cascadeGraph['variants'][0] ?? array();
+$assert('grid' === ($cascadeNodes['form']['layout']['display'] ?? null) && !isset($cascadeNodes['control-2']['layout']['order']) && in_array('unsupported_selector:.form button[type="submit"]', $cascadeGraph['diagnostics'] ?? array(), true), 'layout graph resolves duplicate same-rule declarations by declaration order and !important, and reports unsupported attribute selector semantics explicitly');
+$assert('all' === ($cascadeVariant['condition']['kind'] ?? null) && $cascadeVariant['condition'] === ($cascadeVariant['provenance'][0]['condition'] ?? null), 'layout graph retains nested condition chains and conditional provenance exactly.');
+$conditionalOnlyGraph = (new HtmlTransformer())->transform('<form><div class="field"><input name="x"></div><button type="submit">Send</button></form>', array('static_css' => '@media (max-width:50rem){.field{display:flex;flex-direction:column;align-items:flex-start}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$conditionalOnlyNode = array_column($conditionalOnlyGraph['nodes'] ?? array(), null, 'id')['wrapper-0'] ?? array(); $conditionalOnlyVariant = $conditionalOnlyGraph['variants'][0] ?? array();
+$conditionalOnlyProperties = $conditionalOnlyVariant['provenance'][0]['properties'] ?? array();
+$assert(array() === ($conditionalOnlyNode['layout'] ?? null) && array() === ($conditionalOnlyNode['provenance'] ?? null) && 'column' === ($conditionalOnlyVariant['layout_patch']['direction'] ?? null) && 'flex-start' === ($conditionalOnlyVariant['layout_patch']['align_items'] ?? null) && isset($conditionalOnlyVariant['precedence']['flex-direction'], $conditionalOnlyVariant['precedence']['align-items']) && in_array('flex-direction', $conditionalOnlyProperties, true) && in_array('align-items', $conditionalOnlyProperties, true), 'conditional-only layout nodes retain explicit empty base facts and canonical normalized-key to CSS-property correspondence.');
+$inlineGraph = (new HtmlTransformer())->transform('<form class="form" style="display:flex"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$inlineNode = array_column($inlineGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
+$assert('flex' === ($inlineNode['layout']['display'] ?? null) && 'inline-style' === ($inlineNode['provenance'][0]['source_path'] ?? null) && '[style]' === ($inlineNode['provenance'][0]['selector'] ?? null), 'layout graph gives inline declarations highest normal author specificity and source order.');
+$assert(is_int($cascadeVariant['precedence']['gap']['source_order'] ?? null) && is_int($cascadeVariant['precedence']['gap']['specificity'] ?? null) && is_bool($cascadeVariant['precedence']['gap']['important'] ?? null), 'conditional variants carry deterministic cascade precedence rather than implying independent winners.');
+$crossConditionGraph = (new HtmlTransformer())->transform('<form id="active" class="form"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid!important}@media (max-width:50rem){.form{display:flex}}@media (min-width:40rem){.form#active{display:flex!important}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$crossConditionVariants = $crossConditionGraph['variants'] ?? array();
+$assert(1 === count($crossConditionVariants) && 'flex' === ($crossConditionVariants[0]['layout_patch']['display'] ?? null) && true === ($crossConditionVariants[0]['precedence']['display']['important'] ?? null), 'conditional graph patches exclude weaker declarations that cannot override unconditional winners while retaining effective important variants.');
+$nestedConditions = str_repeat('@media (min-width:1px){', 9) . '.form{display:grid}' . str_repeat('}', 9); $nestedGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => $nestedConditions))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(true === ($nestedGraph['truncated'] ?? null) && in_array('condition_depth_limit', $nestedGraph['diagnostics'] ?? array(), true), 'layout graph bounds nested conditional at-rule recursion before parsing deeper rules.');
+$ancestryGraph = (new HtmlTransformer())->transform('<form><div><div class="field"><input name="x"></div></div><button type="submit">Send</button></form>', array('static_css' => '.field{display:flex}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$ancestryIds = array_flip(array_column($ancestryGraph['nodes'] ?? array(), 'id')); foreach ($ancestryGraph['nodes'] ?? array() as $node) $assert(null === ($node['parent'] ?? null) || isset($ancestryIds[$node['parent']]), 'layout graph emits deterministic ancestry instead of dangling parents.');
+$boundedCss = str_repeat('.form{display:grid}', 600); $boundedGraph = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => $boundedCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(true === ($boundedGraph['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $boundedGraph['diagnostics'] ?? array(), true), 'layout graph bounds CSS parsing and rule matching work with explicit diagnostics.');
+$invalidLayoutGraph = $layoutGraph; $invalidLayoutGraph['nodes'][0]['id'] = 'wrapper-0'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($invalidLayoutGraph); $assert(false, 'layout graph validation rejects duplicate node identities'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects duplicate node identities'); }
+$unsafeGraph = $layoutGraph; $unsafeGraph['nodes'][0]['provenance'][0]['source_path'] = '../../untrusted.css'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($unsafeGraph); $assert(false, 'layout graph validation rejects unsafe provenance traversal paths'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unsafe provenance traversal paths'); }
+$semanticGraph = $layoutGraph; $semanticGraph['nodes'][0]['layout']['unknown_layout'] = 'value'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($semanticGraph); $assert(false, 'layout graph validation rejects unknown semantic layout keys'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unknown semantic layout keys'); }
 
 $newsletterFallback = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
@@ -705,10 +757,24 @@ $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
 $assert(! str_contains($classOwnedGridMarkup, 'is-layout-grid'), 'class-owned CSS grid avoids WP layout classes that override exact source tracks');
 
+$explicitGridPlacement = ( new HtmlTransformer() )->transform('<style>.essay{display:grid;grid-template-columns:1fr minmax(0,900px) 320px;gap:3rem}.essay__body{grid-column:2}.essay__side{grid-column:3}</style><main><div class="essay"><article class="essay__body">Body</article><aside class="essay__side">Sidebar</aside></div></main>')->toArray();
+$explicitGridPlacementMarkup = (string) ($explicitGridPlacement['serialized_blocks'] ?? '');
+$assert(str_contains($explicitGridPlacementMarkup, '<div class="wp-block-group essay"'), 'explicitly positioned grid children retain their native group track container');
+$assert(! str_contains($explicitGridPlacementMarkup, '<!-- wp:columns'), 'explicitly positioned grid children do not become flex-based core columns');
+
 $classOwnedFlex = ( new HtmlTransformer() )->transform('<style>.hero{display:flex;align-items:center;min-height:100vh}</style><main><section class="hero"><div>Text</div></section></main>')->toArray();
 $classOwnedFlexMarkup = (string) ($classOwnedFlex['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps the source class');
 $assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
+
+$inlineBreadcrumb = ( new HtmlTransformer() )->transform(
+    '<style>.crumb{padding:20px 0 0}.crumb .sep{margin:0 .6rem}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
+)->toArray();
+$inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? '');
+$inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
+$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb"'), 'inline-only semantic navigation retains its nav group wrapper');
+$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<!-- wp:paragraph'), 'inline-only semantic navigation keeps one RichText flow instead of stacking each token');
+$assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
@@ -1050,7 +1116,6 @@ $linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
 $assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
 $assert(str_contains($linkedLogoSerialized, '<p class="site-logo blocks-engine-synthetic-paragraph"><a href="/">Mara Vale</a></p>'), 'linked logo paragraph hoists link styling hooks to its marginless synthetic wrapper and keeps valid anchor markup');
-$assert(! str_contains($linkedLogoSerialized, '<a class="site-logo"'), 'linked logo paragraph does not leave className on the RichText anchor');
 $assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
 $assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
 
@@ -1161,7 +1226,7 @@ $paragraphSvgBlock = $paragraphSvgResult['blocks'][0] ?? array();
 $paragraphSvgSerialized = (string) ($paragraphSvgResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph content with a safe inline SVG remains a native RichText paragraph');
 $assert(str_contains($paragraphSvgSerialized, '<!-- wp:paragraph'), 'paragraph inline SVG serializes as a native paragraph block');
-$assert(str_contains($paragraphSvgSerialized, '<a href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object');
+$assert(str_contains($paragraphSvgSerialized, '<a class="social-link" href="#" aria-label="Follow"><img src="assets/materialized-svg/'), 'paragraph inline SVG materializes as a linked RichText image object with its source link identity');
 $assert(! str_contains($paragraphSvgSerialized, '<svg'), 'paragraph inline SVG is not stored as unsupported SVG RichText markup');
 
 $inlineFlexSvgResult = ( new HtmlTransformer() )->transform(
@@ -1181,12 +1246,12 @@ $coffeeStylesheetCss = implode("\n", array_map(static fn (array $asset): string 
 $coffeeRiskCount = 0;
 if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
     foreach ( $coffeeBlocks as $coffeeBlock ) {
-        if ( preg_match('/<(?:span|a)\b[^>]*(?:class|style)=|<svg\b/i', $coffeeBlock[2]) ) {
+        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[2]) ) {
             ++$coffeeRiskCount;
         }
     }
 }
-$assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no class/style anchors/spans or SVG inside RichText core blocks', (string) $coffeeRiskCount);
+$assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no unsupported styled RichText nodes or SVG', (string) $coffeeRiskCount);
 $assert('pass' === ($coffeeResult['source_reports']['wp_block_validity']['status'] ?? ''), '2-onepager-coffee generated block serialization remains valid after stylesheet materialization');
 $assert(str_contains($coffeeStylesheetCss, '.about-section'), '2-onepager-coffee materializes source About-section CSS as class-owned theme CSS');
 $assert(str_contains($coffeeStylesheetCss, '.about-title'), '2-onepager-coffee materializes Born from Fog & Flame heading paint/spacing CSS without group style attrs');

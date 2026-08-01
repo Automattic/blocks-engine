@@ -71,6 +71,15 @@ final class ColumnsPattern
             return null;
         }
 
+        // Explicit grid placement depends on the source parent's track model.
+        // core/columns replaces that model with flex and cannot preserve it.
+        foreach ( $elementChildren as $child ) {
+            $childStyle = strtolower(trim($resolvedStyle($child) . ';' . $this->attr($child, 'style')));
+            if ( preg_match('/(?:^|;)\s*grid-(?:column|row|area)\s*:/', $childStyle) ) {
+                return null;
+            }
+        }
+
         $columns = array();
         $columnFallbacks = array();
         foreach ( $elementChildren as $child ) {

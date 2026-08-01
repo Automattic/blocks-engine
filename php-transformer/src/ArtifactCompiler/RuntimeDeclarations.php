@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use InvalidArgumentException;
 use JsonException;
 
@@ -65,6 +66,7 @@ final class RuntimeDeclarations
                 try { $encoded = self::canonicalJson($payload); } catch (InvalidArgumentException) { throw new InvalidArgumentException("Runtime declaration {$index} payload is not serializable."); }
                 if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} payload exceeds the byte limit.");
                 $normalized['payload'] = $payload;
+                if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['layout_graph'])) { if (!is_array($entity['layout_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form layout graph must be an object."); FormLayoutGraphBuilder::assertValid($entity['layout_graph']); }
             }
             if ('entity_collection' === $kind && (!isset($normalized['type'], $normalized['payload']['entities']) || !array_is_list($normalized['payload']['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
             if (isset($declaration['required_for'])) {
