@@ -235,6 +235,9 @@ $assert(
     'author grid cards retain direct inline child tags and placement selectors without Group or Paragraph wrappers'
 );
 
+$textOnlyLayoutItems = $transform('<style>.grid{display:grid;grid-template-columns:repeat(2,1fr)}</style><div class="grid"><div>One</div><div>Two</div></div>');
+$assert(array() === ($textOnlyLayoutItems['source_reports']['html']['author_layout_topology'] ?? array()), 'text-only author-layout leaves do not report an element-topology change');
+
 $mediaLayout = $transform('<style>@media (min-width:700px){@supports (display:grid){.responsive-row{display:grid;gap:2rem}}}</style><div class="responsive-row"><div>One</div><div>Two</div></div>');
 $flowLayout = $transform('<style>.flow-row{display:flex}@media (max-width:700px){.flow-row{display:block}}</style><div class="flow-row"><div>One</div><div>Two</div></div>');
 $assert('blocks-engine/author-layout' === ($mediaLayout['blocks'][0]['blockName'] ?? '') && 'blocks-engine/author-layout' === ($flowLayout['blocks'][0]['blockName'] ?? ''), 'media-only, nested-condition, and flow-reverting CSS layouts retain the same author layout island');

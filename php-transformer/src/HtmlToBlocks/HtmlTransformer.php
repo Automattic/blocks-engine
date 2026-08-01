@@ -3499,6 +3499,11 @@ final class HtmlTransformer
     {
         $findings = array();
         foreach ( $this->authorLayoutTopologies as $layout ) {
+            // Text-only leaves have no element-child topology to compare. Their
+            // text may become a paragraph, but that is not a container loss.
+            if ( 0 === $layout['direct_child_count'] ) {
+                continue;
+            }
             if ( $layout['direct_child_count'] === $layout['block_child_count'] && $layout['source_tags'] === $layout['block_tags'] ) {
                 continue;
             }
@@ -3521,13 +3526,15 @@ final class HtmlTransformer
         if ( 'a' === strtolower($element->tagName) ) {
             $this->stripOuterAnchorFromBlocks($children);
         }
-        $this->authorLayoutTopologies[] = array(
-            'selector' => $this->elementSelector($element),
-            'direct_child_count' => $this->childElementCount($element),
-            'block_child_count' => count($children),
-            'source_tags' => $this->directChildTags($element),
-            'block_tags' => $this->directBlockTags($children),
-        );
+        if ( $this->isAuthorOwnedLayout($element) ) {
+            $this->authorLayoutTopologies[] = array(
+                'selector' => $this->elementSelector($element),
+                'direct_child_count' => $this->childElementCount($element),
+                'block_child_count' => count($children),
+                'source_tags' => $this->directChildTags($element),
+                'block_tags' => $this->directBlockTags($children),
+            );
+        }
         if ( ! $this->authorLayoutBlockGenerated ) {
             $this->generatedBlocks[] = ( new AuthorLayoutBlockGenerator() )->definition();
             $this->authorLayoutBlockGenerated = true;

@@ -1559,6 +1559,12 @@ $outerGapNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert('1rem' === ($outerGapNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'outer navigation gap takes precedence over direct list gap');
 
+$brandedListNavigation = ( new HtmlTransformer() )->transform(
+    '<style>nav{display:flex}.links{display:flex}</style><nav><a class="brand" href="/">Brand</a><ul class="links"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul><a class="cta" href="/start">Start</a></nav>'
+)->toArray();
+$assert('pass' === ($brandedListNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'navigation parity counts a direct list menu without counting brand and CTA siblings');
+$assert(2 === ($brandedListNavigation['source_reports']['semantic_parity']['navigation_menus']['source'][0]['item_count'] ?? null), 'source navigation menu uses the direct list item count when sibling controls are present');
+
 $footerNavigationSections = ( new HtmlTransformer() )->transform(
     '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
 )->toArray();

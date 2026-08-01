@@ -250,6 +250,25 @@ final class SemanticParityReporter
             return $this->sourceNavigationMenuItemsFromSignaledContainers($element);
         }
 
+        // A list directly inside a navigation landmark is the menu when the
+        // landmark also contains branding or a CTA. Core/navigation represents
+        // that list, not its sibling controls.
+        if ( $this->hasDirectNavigationBrandOrAction($element) ) {
+            $listItems = array();
+            foreach ( $element->childNodes as $child ) {
+                if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                    continue;
+                }
+                $items = $this->sourceNavigationMenuItems($child);
+                if ( array() !== $items ) {
+                    $listItems = array_merge($listItems, $items);
+                }
+            }
+            if ( array() !== $listItems ) {
+                return $listItems;
+            }
+        }
+
         $items = array();
         foreach ( $element->getElementsByTagName('a') as $anchor ) {
             if ( ! $anchor instanceof DOMElement || $this->isSourceNavigationChromeAnchor($anchor) ) {
@@ -266,6 +285,23 @@ final class SemanticParityReporter
         }
 
         return $items;
+    }
+
+    private function hasDirectNavigationBrandOrAction(DOMElement $element): bool
+    {
+        $hasBrand = false;
+        $hasAction = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $tokens = strtolower($this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'aria-label'));
+            $hasBrand = $hasBrand || (bool) preg_match('/(?:^|[^a-z0-9])(?:brand|logo|site-title|site-name|home-link|home-logo)(?:[^a-z0-9]|$)/', $tokens);
+            $hasAction = $hasAction || (bool) preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action)(?:[^a-z0-9]|$)/', $tokens);
+        }
+
+        return $hasBrand && $hasAction;
     }
 
     /**
