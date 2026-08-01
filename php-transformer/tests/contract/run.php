@@ -326,6 +326,19 @@ $paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td
 $paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
 $assert(str_contains($paddedTableCss, 'width:50%!important;padding:0 15px!important'), 'native table geometry CSS preserves authored cell width and padding together');
 $assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native table images remain editor-valid');
+$centeredImageWrapperResult = ( new HtmlTransformer() )->transform('<div class="portrait" style="text-align:center"><img src="portrait.jpg" alt="Portrait"></div>')->toArray();
+$centeredImageWrapperMarkup = (string) ($centeredImageWrapperResult['serialized_blocks'] ?? '');
+$centeredImageWrapperCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $centeredImageWrapperResult['assets'] ?? array()));
+$assert(str_contains($centeredImageWrapperMarkup, '<div class="wp-block-group portrait be-inline-geometry-') && str_contains($centeredImageWrapperMarkup, '<figure class="wp-block-image"'), 'inline-aligned image wrappers remain editable core/group and core/image blocks');
+$assert(str_contains($centeredImageWrapperCss, 'text-align:center !important'), 'native image wrappers preserve inline centering through deterministic presentation CSS');
+$assert(str_contains($centeredImageWrapperCss, '>.wp-block-image{margin-left:auto!important;margin-right:auto!important}'), 'native image wrappers project centered inline child layout onto their generated core/image figures');
+$assert('pass' === ($centeredImageWrapperResult['source_reports']['wp_block_validity']['status'] ?? ''), 'centered native image wrappers remain editor-valid');
+$stylesheetCenteredImageWrapperResult = ( new HtmlTransformer() )->transform('<style>.testimonial-portraits{text-align:center}</style><div class="testimonial-portraits"><img src="portrait.jpg" alt="Portrait"></div>')->toArray();
+$stylesheetCenteredImageWrapperMarkup = (string) ($stylesheetCenteredImageWrapperResult['serialized_blocks'] ?? '');
+$stylesheetCenteredImageWrapperCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $stylesheetCenteredImageWrapperResult['assets'] ?? array()));
+$assert(str_contains($stylesheetCenteredImageWrapperMarkup, '<div class="wp-block-group testimonial-portraits be-inline-geometry-') && str_contains($stylesheetCenteredImageWrapperMarkup, '<figure class="wp-block-image"'), 'stylesheet-aligned image wrappers retain editable native group and image blocks');
+$assert(str_contains($stylesheetCenteredImageWrapperCss, 'text-align:center !important') && str_contains($stylesheetCenteredImageWrapperCss, '>.wp-block-image{margin-left:auto!important;margin-right:auto!important}'), 'stylesheet-owned wrapper alignment projects onto generated native image children');
+$assert('pass' === ($stylesheetCenteredImageWrapperResult['source_reports']['wp_block_validity']['status'] ?? ''), 'stylesheet-aligned native image wrappers remain editor-valid');
 $maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
 $maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
 $maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));
@@ -754,6 +767,15 @@ $assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group fo
 $assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
+$alignedStyleOnlyShell = ( new HtmlTransformer() )->transform(
+    '<main><div class="shell"><div style="text-align:center"><a class="brand" href="/">Pathway</a></div></div></main>'
+)->toArray();
+$alignedStyleOnlyShellMarkup = (string) ($alignedStyleOnlyShell['serialized_blocks'] ?? '');
+$alignedStyleOnlyShellCss = implode("\n", array_column(array_filter($alignedStyleOnlyShell['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(str_contains($alignedStyleOnlyShellMarkup, '<div class="wp-block-group be-inline-geometry-') && str_contains($alignedStyleOnlyShellMarkup, '>Pathway<'), 'style-only child alignment retains its source wrapper around editable content');
+$assert(str_contains($alignedStyleOnlyShellCss, 'text-align:center !important'), 'style-only child alignment projects through a generated presentation carrier');
+$assert('pass' === ($alignedStyleOnlyShell['source_reports']['wp_block_validity']['status'] ?? ''), 'style-only child alignment preserves valid block markup');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
@@ -800,7 +822,7 @@ $assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validit
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
-$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
 $assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
 $assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
@@ -1152,6 +1174,34 @@ $responsiveDivParagraphCss = implode("\n", array_column(array_filter($responsive
 $assert(preg_match('/<p class="paragraph blocks-engine-synthetic-paragraph (blocks-engine-source-div-[^"]+)"><span>Responsive copy\.<\/span><\/p>/', $responsiveDivParagraphMarkup, $responsiveDivParagraphMarker) === 1, 'div-backed native paragraphs retain source-div selector provenance');
 $assert(str_contains($responsiveDivParagraphCss, ':where(.' . ($responsiveDivParagraphMarker[1] ?? '') . ')') && str_contains($responsiveDivParagraphCss, 'padding-bottom:20px') && str_contains($responsiveDivParagraphCss, 'padding-bottom:8px'), 'source div selectors preserve responsive paragraph spacing after the native tag changes');
 $assert('pass' === ($responsiveDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'source-div paragraph selector projection preserves valid block markup');
+
+$boxedDivParagraph = ( new HtmlTransformer() )->transform(
+    '<style>div.paragraph{padding-bottom:20px}</style><main><div class="paragraph" style="text-align:center">Boxed copy.</div></main>'
+)->toArray();
+$boxedDivParagraphMarkup = (string) ($boxedDivParagraph['serialized_blocks'] ?? '');
+$boxedDivParagraphCss = implode("\n", array_column(array_filter($boxedDivParagraph['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$boxedDivParagraphBlock = $boxedDivParagraph['blocks'][0]['innerBlocks'][0] ?? array();
+$assert(str_contains($boxedDivParagraphMarkup, '<div class="wp-block-group paragraph') && str_contains($boxedDivParagraphMarkup, '<p class="has-text-align-center blocks-engine-synthetic-paragraph">Boxed copy.</p>'), 'box-chrome text wrappers propagate supported text alignment to their generated inner paragraphs');
+$assert('center' === ($boxedDivParagraphBlock['attrs']['align'] ?? ''), 'box-chrome wrapper alignment uses native paragraph align support');
+$assert(! str_contains((string) ($boxedDivParagraphBlock['attrs']['className'] ?? ''), 'blocks-engine-source-div-'), 'generated inner paragraphs retain distinct source-tag semantics');
+$assert(str_contains($boxedDivParagraphCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}'), 'box-chrome text wrappers emit the synthetic paragraph margin reset');
+$assert('pass' === ($boxedDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'box-chrome text wrappers preserve valid generated paragraph markup');
+
+$explicitDescendantAlignment = ( new HtmlTransformer() )->transform(
+    '<main><div class="paragraph" style="padding-bottom:20px;text-align:center"><p style="text-align:left">Explicit copy.</p></div></main>'
+)->toArray();
+$explicitDescendantBlock = $explicitDescendantAlignment['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('left' === ($explicitDescendantBlock['attrs']['align'] ?? ''), 'explicit descendant paragraph alignment wins over wrapper alignment');
+$assert(str_contains((string) ($explicitDescendantAlignment['serialized_blocks'] ?? ''), '<p class="has-text-align-left">Explicit copy.</p>'), 'explicit descendant alignment retains native paragraph save markup');
+
+$tableCellSourceDiv = ( new HtmlTransformer() )->transform(
+    '<style>div.paragraph{padding-bottom:20px}</style><main><table><tbody><tr><td><div class="paragraph">Table copy.</div></td></tr></tbody></table></main>'
+)->toArray();
+$tableCellSourceDivMarkup = (string) ($tableCellSourceDiv['serialized_blocks'] ?? '');
+$tableCellSourceDivCss = implode("\n", array_column(array_filter($tableCellSourceDiv['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Table copy\.<\/div>/', $tableCellSourceDivMarkup, $tableCellSourceDivMarker) === 1, 'native table cell rich HTML retains source-div selector provenance');
+$assert(str_contains($tableCellSourceDivCss, ':where(.' . ($tableCellSourceDivMarker[1] ?? '') . ')') && str_contains($tableCellSourceDivCss, 'padding-bottom:20px'), 'source div selectors continue matching preserved native table cell content');
+$assert('pass' === ($tableCellSourceDiv['source_reports']['wp_block_validity']['status'] ?? ''), 'source-tag markers preserve valid native table markup');
 
 $canonicalWrapperAttrsResult = ( new HtmlTransformer() )->transform(
     '<main><section class="menu-grid" style="display:grid;gap:2rem"><h2 class="section-title" style="color:red">Menu</h2><p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p></section></main>'
@@ -1564,6 +1614,17 @@ $brandedListNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert('pass' === ($brandedListNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'navigation parity counts a direct list menu without counting brand and CTA siblings');
 $assert(2 === ($brandedListNavigation['source_reports']['semantic_parity']['navigation_menus']['source'][0]['item_count'] ?? null), 'source navigation menu uses the direct list item count when sibling controls are present');
+$wrappedListGapNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><div class="menu-wrap"><ul class="menu-list" style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$wrappedListGapNavigationBlock = $wrappedListGapNavigation['blocks'][0] ?? array();
+$assert('0' === ($wrappedListGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'wrapper-originated navigation list gap projects onto core/navigation');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'wrapper-originated navigation list gap serializes to a valid WordPress block');
+
+$wrappedAuthoredNavigationGap = ( new HtmlTransformer() )->transform(
+    '<nav><div class="menu-wrap"><ul class="menu-list" style="gap:2px"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$assert('2px' === ($wrappedAuthoredNavigationGap['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'wrapper-originated navigation preserves an authored nonzero list gap');
 
 $footerNavigationSections = ( new HtmlTransformer() )->transform(
     '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
@@ -1829,6 +1890,8 @@ $authoredNavigationGap = ( new HtmlTransformer() )->transform(
 $authoredNavigationGapAttrs = $authoredNavigationGap['blocks'][0]['attrs'] ?? array();
 $authoredNavigationGapCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $authoredNavigationGap['assets'] ?? array()));
 $assert('2px' === ($authoredNavigationGapAttrs['style']['spacing']['blockGap'] ?? ''), 'list navigation preserves an authored gap as native block spacing');
+$assert(str_contains((string) ($authoredNavigationGapAttrs['className'] ?? ''), 'blocks-engine-navigation-list-') && ! str_contains((string) ($authoredNavigationGapAttrs['className'] ?? ''), 'nav-links'), 'list navigation keeps source list selectors off the outer core navigation flex item');
+$assert(str_contains($authoredNavigationGapCss, '.blocks-engine-navigation-list-d66bb2eab67a.wp-block-navigation) .wp-block-navigation__container') && ! str_contains($authoredNavigationGapCss, '.nav-links{'), 'list navigation projects authored list layout onto core navigation\'s inner list');
 $assert(! str_contains($authoredNavigationGapCss, '.wp-block-navigation__container{gap:'), 'list navigation does not override an authored gap with generated runtime CSS');
 
 $leadingStyleRules = implode('', array_map(static fn (int $index): string => '.rule-' . $index . '{color:#111}', range(1, 201)));
@@ -2031,18 +2094,27 @@ $unknownIframe = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
-$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
-$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
-$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
-$unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
-$assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
-$assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownIframeBlock = $unknownIframe['blocks'][0]['innerBlocks'][2] ?? array();
+$assert('core/html' === ($unknownIframeBlock['blockName'] ?? ''), 'bounded unknown iframe becomes a core/html block');
+$assert(array() === $unknownIframeDiagnostics, 'bounded unknown iframe does not emit fallback metadata');
+$assert(array() === ($unknownIframe['fallbacks'] ?? array()), 'bounded unknown iframe does not lose content to fallbacks');
 $unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
 $assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, '<!-- wp:html'), 'bounded unknown iframe materializes as editor-safe HTML');
+$assert(str_contains($unknownSerialized, 'width="640" height="360"'), 'bounded unknown iframe retains explicit dimensions');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+
+$weeblyMapIframe = ( new HtmlTransformer() )->transform(
+    '<main><div class="wsite-map"><iframe allowtransparency="true" frameborder="0" scrolling="no" style="width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;" src="//www.weebly.com/weebly/apps/generateMap.php?map=google"></iframe></div><p>123 Wall St.</p></main>'
+)->toArray();
+$weeblyMapSerialized = (string) ($weeblyMapIframe['serialized_blocks'] ?? '');
+$assert(str_contains($weeblyMapSerialized, '<!-- wp:html'), 'protocol-relative map iframe materializes as editor-safe HTML');
+$assert(str_contains($weeblyMapSerialized, 'src="//www.weebly.com/weebly/apps/generateMap.php?map=google"'), 'protocol-relative map iframe source is preserved');
+$assert(str_contains($weeblyMapSerialized, 'width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;'), 'map iframe retains bounded dimensions and vertical margins');
+$assert(array() === ($weeblyMapIframe['fallbacks'] ?? array()), 'map iframe does not lose content to fallback metadata');
+$assert(str_contains($weeblyMapSerialized, '123 Wall St.'), 'content after map iframe remains in document flow');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
@@ -2356,17 +2428,18 @@ $artifactNavStructureCss = $compiler->compile(
 )->toArray();
 $artifactNavStructureMarkup = (string) ($artifactNavStructureCss['serialized_blocks'] ?? '');
 $artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation promotes source list classes onto the core navigation wrapper');
+$artifactNavListMarker = 'blocks-engine-navigation-list-' . substr(hash('sha256', 'site-menu'), 0, 12);
+$assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, $artifactNavListMarker) && ! str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation projects source list classes without applying them to the core navigation wrapper');
 $assert(str_contains($artifactNavStructureStaticCss, '@media screen and (min-width:1025px)'), 'artifact navigation projection preserves its authored responsive condition');
-$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items', $artifactNavStructureStaticCss);
-$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, '.wp-block-navigation-item__content { font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px }'), 'artifact CSS projects source list anchor typography onto core navigation content');
-$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.' . $artifactNavListMarker . '.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items', $artifactNavStructureStaticCss);
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.' . $artifactNavListMarker . '.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, '.wp-block-navigation-item__content { font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px }'), 'artifact CSS projects source list anchor typography onto core navigation content');
+$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.' . $artifactNavListMarker . '.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
 $assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
 $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: project source list navigation structure');
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
-$assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
+$assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.' . $artifactNavListMarker . '.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }') && ! str_contains($artifactNavStructureCompatCss, '.site-menu.wp-block-navigation'), 'artifact navigation projection materializes the source list stable visible state without applying its selectors to the outer navigation item', $artifactNavStructureCompatCss);
 
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
@@ -3896,7 +3969,7 @@ assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Forma
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
-assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+assertStringContains('.logo{display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve authored structured-logo stylesheet assets on the source anchor.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',

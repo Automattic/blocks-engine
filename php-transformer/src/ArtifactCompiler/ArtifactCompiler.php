@@ -1647,7 +1647,7 @@ final class ArtifactCompiler
         $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
         $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
         $runtimeTail = ' .wp-block-navigation__container' . $tail;
-        $scope = $listClasses . '.wp-block-navigation';
+        $scope = $this->navigationListProjectionScope($listClasses) . '.wp-block-navigation';
 
         $selectors = array();
         if ( '' === $prefix ) {
@@ -1661,12 +1661,24 @@ final class ArtifactCompiler
             $offset = (int) ($prefixMatch[1][1] ?? 0);
             $pseudoOffset = strpos($compound, ':');
             $fused = false === $pseudoOffset
-                ? $compound . $listClasses . '.wp-block-navigation'
-                : substr($compound, 0, $pseudoOffset) . $listClasses . '.wp-block-navigation' . substr($compound, $pseudoOffset);
+                ? $compound . $this->navigationListProjectionScope($listClasses) . '.wp-block-navigation'
+                : substr($compound, 0, $pseudoOffset) . $this->navigationListProjectionScope($listClasses) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
             $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
         }
 
         return array_keys($selectors);
+    }
+
+    private function navigationListProjectionScope(string $listClasses): string
+    {
+        preg_match_all('/\.((?:\\\\.|[A-Za-z0-9_-])+)/', $listClasses, $matches);
+        $classes = array();
+        foreach ( $matches[1] ?? array() as $class ) {
+            $class = preg_replace('/\\\\([^\r\n])/', '$1', (string) $class) ?? (string) $class;
+            $classes[] = '.blocks-engine-navigation-list-' . substr(hash('sha256', $class), 0, 12);
+        }
+
+        return implode('', array_values(array_unique($classes)));
     }
 
     private function selectorWithoutComments(string $selector): string
@@ -2595,7 +2607,6 @@ final class ArtifactCompiler
                 'path'      => $path,
                 'mime_type' => $mimeType,
             );
-
             foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
                 $metadata[$key] = $asset;
             }

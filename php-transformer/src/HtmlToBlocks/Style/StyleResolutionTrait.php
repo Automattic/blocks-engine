@@ -290,6 +290,11 @@ trait StyleResolutionTrait
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
+        // Text alignment belongs to a container with element children, not its
+        // converted child blocks. Preserve that relationship with a carrier rule.
+        if (0 < $this->directElementChildCount($element)) {
+            $properties[] = 'text-align';
+        }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
             && ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
@@ -313,6 +318,19 @@ trait StyleResolutionTrait
             }
         }
 
+        // Block conversion turns inline images into block-level figures. Project
+        // non-responsive author-owned alignment onto that native child so the
+        // source wrapper's inline formatting context still reaches browser layout.
+        if (0 < $this->directElementChildCount($element)
+            && ! isset($geometry['text-align'])
+            && ! $this->hasConditionalStyleFamily($element, 'text-align')
+        ) {
+            $alignment = trim((string) ($this->structuralPresentationDeclarations($element)['text-align'] ?? ''));
+            if ('' !== $alignment && ! preg_match('/[{}<>;]/', $alignment)) {
+                $geometry['text-align'] = $alignment;
+            }
+        }
+
         if (array() === $geometry) {
             return '';
         }
@@ -327,9 +345,25 @@ trait StyleResolutionTrait
         }
         $rule = implode(';', $declarations);
         $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
-        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}' . $this->nativeImageAlignmentRule($className, $geometry['text-align'] ?? '');
 
         return $className;
+    }
+
+    private function nativeImageAlignmentRule(string $className, string $alignment): string
+    {
+        $alignment = strtolower(trim($alignment));
+        if ('center' === $alignment) {
+            return '.' . $className . '>.wp-block-image{margin-left:auto!important;margin-right:auto!important}';
+        }
+        if ('right' === $alignment) {
+            return '.' . $className . '>.wp-block-image{margin-left:auto!important;margin-right:0!important}';
+        }
+        if ('left' === $alignment) {
+            return '.' . $className . '>.wp-block-image{margin-left:0!important;margin-right:auto!important}';
+        }
+
+        return '';
     }
 
     private function geometryStructuralPath(DOMElement $element): string
@@ -939,6 +973,9 @@ trait StyleResolutionTrait
             'max-width',
             'min-height',
             'min-width',
+            'overflow',
+            'overflow-x',
+            'overflow-y',
             'padding',
             'padding-bottom',
             'padding-left',

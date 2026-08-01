@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-embed-iframe-bounded-visual",
+  "description": "Preserves safe, explicitly sized external iframe content as sanitized editor HTML while retaining geometry and rejecting unsafe iframe sources to fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-embed-iframe-bounded-visual.json",
+    "notes": "Product-neutral bounded visual iframe coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<iframe frameborder=\"0\" scrolling=\"no\" style=\"width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;\" src=\"//example.test/map\"></iframe><iframe src=\"javascript:alert(1)\" width=\"640\" height=\"360\"></iframe>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html", "attrs": { "content": "<iframe frameborder=\"0\" scrolling=\"no\" style=\"width: 100%; height: 250px; margin-top: 10px; margin-bottom: 10px;\" src=\"//example.test/map\"></iframe>" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "iframe_embed_fallback", "tag": "iframe", "selector": "iframe:nth-of-type(2)" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html " },
+    { "path": "serialized_blocks", "assert": "contains", "value": "height: 250px; margin-top: 10px; margin-bottom: 10px;" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "javascript:" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
