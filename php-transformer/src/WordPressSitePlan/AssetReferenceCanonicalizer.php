@@ -136,6 +136,8 @@ final class AssetReferenceCanonicalizer
     {
         $normalized = array();
         foreach ($segments as $segment) {
+			$segment = rawurldecode($segment);
+			if (str_contains($segment, '/') || str_contains($segment, '\\')) return '';
             if ('' === $segment || '.' === $segment) continue;
             if ('..' === $segment) {
                 if (array() === $normalized) return '';
