@@ -45,6 +45,10 @@ $innerSurfaceCss = $css($innerSurface);
 $innerSurfaceMarkup = (string) ($innerSurface['serialized_blocks'] ?? '');
 $assert(str_contains($innerSurfaceCss, '> :where(.wp-block-button__link)::after{content:" \\2192";display:inline}') && ! str_contains($innerSurfaceCss, '.cta-inner::after') && str_contains($innerSurfaceCss, '> :where(.wp-block-button__link){display:block;min-width:170px;padding:22px 26px;background:#fff;color:#000}') && str_contains($innerSurfaceMarkup, '<a class="wp-block-button__link') && ! str_contains($innerSurfaceMarkup, '<span class="cta-inner"') && str_contains($innerSurfaceMarkup, '<a href="/plain">Plain</a>') && 'pass' === ($innerSurface['source_reports']['wp_block_validity']['status'] ?? ''), 'single inner button surfaces project generated content and geometry to the core/button link without changing unrelated anchors');
 
+$innerSurfaceMargin = $transform('<style>.button-surface{display:inline-block;min-width:170px;padding:22px 26px;background:#fff;color:#000}.button-surface:after{content:" \\2192";display:inline-block;margin-left:12px}</style><a class="button-shell" href="/go"><span class="button-surface">Go</span></a>');
+$innerSurfaceMarginCss = $css($innerSurfaceMargin);
+$assert('core/buttons' === ($innerSurfaceMargin['blocks'][0]['blockName'] ?? '') && str_contains($innerSurfaceMarginCss, '> :where(.wp-block-button__link):after{content:" \\2192";display:inline-block;margin-left:12px}') && ! preg_match('/\.wp-block-buttons\):after\{[^}]*margin-left:12px/', $innerSurfaceMarginCss) && 'pass' === ($innerSurfaceMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'inner-surface generated-content margins remain on the native button link pseudo-element rather than the core/buttons wrapper');
+
 $order = $transform('<style>a.cta:hover{color:red}a.cta:hover{color:blue}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $orderCss = $css($order);
 $assert(strpos($orderCss, 'color:red') < strpos($orderCss, 'color:blue'), 'projected selectors preserve authored rule order for cascade precedence');

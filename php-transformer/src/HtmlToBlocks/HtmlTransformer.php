@@ -1172,7 +1172,9 @@ final class HtmlTransformer
             $imageRule = '' === $imagePrelude
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude))) . '}';
-            if ( array() === $margins ) {
+            // Margins on generated content belong to the generated box. Moving
+            // them to core/buttons would attach an arrow offset to the wrapper.
+            if ( array() === $margins || $this->authorSelectorTargetsGeneratedPseudoElement($prelude) ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
 
@@ -1182,6 +1184,22 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
         });
+    }
+
+    private function authorSelectorTargetsGeneratedPseudoElement(string $prelude): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return false;
+        }
+
+        foreach ( $selectors as $selector ) {
+            if ( preg_match('/:{1,2}(?:before|after)\s*$/i', trim($selector)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function rewriteAuthorStyleRule(string $prelude, string $body): string
