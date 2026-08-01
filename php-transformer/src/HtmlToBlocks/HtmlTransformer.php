@@ -4720,6 +4720,25 @@ final class HtmlTransformer
         return false;
     }
 
+    private function isStructuredLogoAnchor(DOMElement $anchor): bool
+    {
+        if ( 'a' !== strtolower($anchor->tagName)
+            || ! ($this->hasLogoBrandSignal($anchor) || preg_match('/(?:^|[^a-z0-9])site-(?:logo|title)(?:[^a-z0-9]|$)/i', $this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id'))) ) {
+            return false;
+        }
+
+        foreach ( $anchor->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( '' !== trim($this->attr($child, 'class')) || 'svg' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('svg')->length ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<string, mixed>|null
      */

@@ -3964,7 +3964,7 @@ assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Forma
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
-assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+assertStringContains('.logo{display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve authored structured-logo stylesheet assets on the source anchor.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',

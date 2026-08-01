@@ -17,8 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "/" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "site-logo", "contentMode": "rich-text", "tagName": "a", "url": "/" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav blocks-engine-list-navigation" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "url": "/docs", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "url": "/pricing", "kind": "custom" } },
@@ -38,7 +37,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 4 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/\"><img" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/\" class=\"wp-block-blocks-engine-author-layout site-logo\"><img" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<span>Acme</span></a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
