@@ -1153,6 +1153,24 @@ $assert(preg_match('/<p class="paragraph blocks-engine-synthetic-paragraph (bloc
 $assert(str_contains($responsiveDivParagraphCss, ':where(.' . ($responsiveDivParagraphMarker[1] ?? '') . ')') && str_contains($responsiveDivParagraphCss, 'padding-bottom:20px') && str_contains($responsiveDivParagraphCss, 'padding-bottom:8px'), 'source div selectors preserve responsive paragraph spacing after the native tag changes');
 $assert('pass' === ($responsiveDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'source-div paragraph selector projection preserves valid block markup');
 
+$boxedDivParagraph = ( new HtmlTransformer() )->transform(
+    '<style>div.paragraph{padding-bottom:20px}</style><main><div class="paragraph" style="text-align:center">Boxed copy.</div></main>'
+)->toArray();
+$boxedDivParagraphMarkup = (string) ($boxedDivParagraph['serialized_blocks'] ?? '');
+$boxedDivParagraphCss = implode("\n", array_column(array_filter($boxedDivParagraph['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(str_contains($boxedDivParagraphMarkup, '<div class="wp-block-group paragraph') && str_contains($boxedDivParagraphMarkup, '<p class="blocks-engine-synthetic-paragraph">Boxed copy.</p>'), 'box-chrome text wrappers neutralize margins on their generated inner paragraphs');
+$assert(str_contains($boxedDivParagraphCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}'), 'box-chrome text wrappers emit the synthetic paragraph margin reset');
+$assert('pass' === ($boxedDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'box-chrome text wrappers preserve valid generated paragraph markup');
+
+$tableCellSourceDiv = ( new HtmlTransformer() )->transform(
+    '<style>div.paragraph{padding-bottom:20px}</style><main><table><tbody><tr><td><div class="paragraph">Table copy.</div></td></tr></tbody></table></main>'
+)->toArray();
+$tableCellSourceDivMarkup = (string) ($tableCellSourceDiv['serialized_blocks'] ?? '');
+$tableCellSourceDivCss = implode("\n", array_column(array_filter($tableCellSourceDiv['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Table copy\.<\/div>/', $tableCellSourceDivMarkup, $tableCellSourceDivMarker) === 1, 'native table cell rich HTML retains source-div selector provenance');
+$assert(str_contains($tableCellSourceDivCss, ':where(.' . ($tableCellSourceDivMarker[1] ?? '') . ')') && str_contains($tableCellSourceDivCss, 'padding-bottom:20px'), 'source div selectors continue matching preserved native table cell content');
+$assert('pass' === ($tableCellSourceDiv['source_reports']['wp_block_validity']['status'] ?? ''), 'source-tag markers preserve valid native table markup');
+
 $canonicalWrapperAttrsResult = ( new HtmlTransformer() )->transform(
     '<main><section class="menu-grid" style="display:grid;gap:2rem"><h2 class="section-title" style="color:red">Menu</h2><p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p></section></main>'
 )->toArray();

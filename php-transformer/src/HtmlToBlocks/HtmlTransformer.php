@@ -4959,7 +4959,10 @@ final class HtmlTransformer
         return $this->createBlock(
             'core/group',
             $this->presentationAttributes($element),
-            array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+            array( $this->createBlock('core/paragraph', array(
+                'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+                'content'   => $content,
+            )) ),
             $element
         );
     }
@@ -6741,6 +6744,15 @@ final class HtmlTransformer
         foreach ( $row->childNodes as $cell ) {
             if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
+            }
+            foreach ( $cell->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $sourceTagName = strtolower($descendant->tagName);
+                if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $this->sourceTagMarkers[$sourceTagName]));
+                }
             }
             $cells[] = array(
                 'content' => $this->innerHtml($cell),
