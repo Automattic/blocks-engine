@@ -882,7 +882,7 @@ final class HtmlTransformer
             : implode("\n\n", array_column($this->authorStylesheetAssets, 'content'));
         // Ignore already-generated-looking markers when seeding so collision
         // avoidance remains deterministic even when source CSS contains one.
-        $seedInput = preg_replace('/blocks-engine-(?:source-p|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
+        $seedInput = preg_replace('/blocks-engine-(?:source-[a-z][a-z0-9-]*|control|table|specificity(?:-(?:class|id))?)-[a-f0-9]+-\d+/', '', $html . "\0" . $this->combinedAuthorCss) ?? '';
         $this->authorMarkerSeed = substr(hash('sha256', $seedInput), 0, 12);
         $this->authorMarkerCollisionText = $html . "\0" . $this->combinedAuthorCss;
         $this->authorSpecificityShim = $this->allocateAuthorMarker('specificity');
@@ -906,7 +906,7 @@ final class HtmlTransformer
                 $parsed = $this->parsedCssSelector($selector);
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
                     $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'li', 'nav', 'p' ), true) ) {
+                    if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
                         $sourceTagSelectorNames[ $tagName ] = true;
                     }
                 }
