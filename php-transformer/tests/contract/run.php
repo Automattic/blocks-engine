@@ -317,6 +317,21 @@ $assert(str_contains($styledTableCss, ':hover{color:#456}') && str_contains($sty
 $assert(str_contains($styledTableCss, '>table>tbody>tr:nth-child(2)>td:nth-child(1)') && str_contains($styledTableCss, '{background:#eee}'), 'section-position selectors retain the matched source rows when native table bodies merge');
 $assert(3 === count(array_unique(array_map(static fn (array $block): string => (string) ($block['attrs']['className'] ?? ''), $styledTableResult['blocks'] ?? array()))), 'table projection markers isolate same-shaped native tables');
 $assert('pass' === ($styledTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'structurally projected native tables remain editor-valid');
+$inlineWidthTableResult = ( new HtmlTransformer() )->transform('<table class="layout-table"><tbody><tr><td style="width:27.5%">Left</td><td style="width:45%">Center</td><td style="width:27.5%">Right</td></tr></tbody></table>')->toArray();
+$inlineWidthTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineWidthTableResult['assets'] ?? array()));
+$assert('core/table' === ($inlineWidthTableResult['blocks'][0]['blockName'] ?? null), 'layout tables with authored cell widths remain editable native tables');
+$assert(str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(1){width:27.5%!important}') && str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-child(2){width:45%!important}'), 'native table geometry CSS preserves authored cell proportions');
+$assert('pass' === ($inlineWidthTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline-width native tables remain editor-valid');
+$paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td style="width:50%;padding:0 15px"><div style="text-align:center"><img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%"></div></td><td style="width:50%;padding:0 15px">Copy</td></tr></tbody></table>')->toArray();
+$paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
+$assert(str_contains($paddedTableCss, 'width:50%!important;padding:0 15px!important'), 'native table geometry CSS preserves authored cell width and padding together');
+$assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native table images remain editor-valid');
+$maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
+$maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
+$maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));
+$assert(! str_contains($maxWidthImageMarkup, 'style="max-width:100%"'), 'native image save markup omits unsupported max-width block support');
+$assert(str_contains($maxWidthImageCss, 'max-width:100%'), 'native image max-width remains in its generated geometry carrier');
+$assert('pass' === ($maxWidthImageResult['source_reports']['wp_block_validity']['status'] ?? ''), 'max-width native image remains editor-valid');
 $nestedTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>Outer<table><tr><td>Inner</td></tr></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'descendant table falls back to core/html');
 $assert(str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<table><tr><td>Outer<table>'), 'descendant table fallback preserves nested table markup');
@@ -729,6 +744,14 @@ $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
 $assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
 
+$styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
+    '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
+)->toArray();
+$styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
+$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group footer-wrap"'), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
+$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
+$assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
@@ -762,6 +785,39 @@ $assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'out
 $assert(str_contains($outlineButtonMarkup, 'border-radius:0'), 'outline button with no source radius emits square radius to suppress default rounded inner button chrome');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
+
+$descendantSurfaceButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;box-sizing:border-box;min-width:170px;padding:22px 26px;background:#fff;color:#000;font:700 16px/16px Montserrat}</style><div style="text-align:center"><a class="cta" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+)->toArray();
+$descendantSurfaceButtonMarkup = (string) ($descendantSurfaceButton['serialized_blocks'] ?? '');
+$descendantSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $descendantSurfaceButton['assets'] ?? array()));
+$assert(str_contains($descendantSurfaceButtonMarkup, '<!-- wp:button') && str_contains($descendantSurfaceButtonMarkup, '"justifyContent":"center"'), 'composite button surfaces remain native and inherit source wrapper alignment');
+$assert(str_contains($descendantSurfaceButtonCss, '> :where(.wp-block-button__link)') && str_contains($descendantSurfaceButtonCss, 'min-width:170px') && str_contains($descendantSurfaceButtonCss, 'padding:22px 26px'), 'composite button descendant selectors project their complete painted geometry onto the native link');
+$assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validity']['status'] ?? ''), 'composite button surface conversion remains editor-valid');
+
+$contextualSurfaceButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+)->toArray();
+$contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
+$assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
+$assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
+$assert(! str_contains((string) ($contextualSurfaceButtonAttrs['className'] ?? ''), 'cta-inner'), 'descendant presentation classes do not paint the structural core button wrapper');
+$assert(str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important') && str_contains($contextualSurfaceButtonCss, 'color:#000!important'), 'native button control rule protects resolved source paint from theme defaults');
+
+$declarativeCounter = ( new HtmlTransformer() )->transform(
+    '<div id="element-counter-one"><div class="counter-number"><div class="content-number-bold"></div></div><div>YEARS</div></div><script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":1350,"duration":2}); _Element.prototype.element_id = "counter-one";</script>'
+)->toArray();
+$assert(str_contains((string) ($declarativeCounter['serialized_blocks'] ?? ''), '>1350<'), 'bounded declarative counter settings materialize their final numeric state as editable content');
+$externalDeclarativeCounter = ( new HtmlTransformer() )->transform(
+    '<div id="element-counter-two"><div class="content-number-bold"></div><div>CLIENTS</div></div>',
+    array( 'declarative_state_html' => '<script>var PlatformElementSettings = true; _Element.prototype.settings = new PlatformElementSettings({"end":27000}); _Element.prototype.element_id = "counter-two";</script>' )
+)->toArray();
+$assert(str_contains((string) ($externalDeclarativeCounter['serialized_blocks'] ?? ''), '>27000<'), 'declarative counter state materializes when artifact safety removes executable scripts before conversion');
+
+$unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"><a><img src="testimonial.jpg" alt="Clients"></a><div class="caption"></div></div>')->toArray();
+$unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');
+$assert(str_contains($unlinkedWrappedImageMarkup, '<!-- wp:image') && str_contains($unlinkedWrappedImageMarkup, 'src="testimonial.jpg"'), 'image-only anchors without href preserve their image as a native block');
 
 $roundedOutlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;border-radius:12px;background:transparent;color:#eee" href="/tickets">Tickets</a></main>'
@@ -1071,6 +1127,15 @@ $syntheticInlineCss = implode("\n", array_column(array_filter($syntheticInlinePa
 $assert(4 === substr_count($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($syntheticInlineMarkup, '<p class="brand blocks-engine-synthetic-paragraph"') && str_contains($syntheticInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><span>Portable input.</span></p>'), 'standalone inline anchor and span receive marginless synthetic paragraph wrappers');
 $assert(str_contains($syntheticInlineCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && strpos($syntheticInlineCss, ':where(.blocks-engine-synthetic-paragraph)') < strpos($syntheticInlineCss, ':where(.blocks-engine-source-p-'), 'synthetic paragraph reset precedes projected author CSS so explicit source margins retain cascade precedence');
 $assert(preg_match('/<p class="blocks-engine-source-p-[^"]+">Source paragraph\.<\/p>/', $syntheticInlineMarkup) === 1 && ! str_contains($syntheticInlineMarkup, 'blocks-engine-synthetic-paragraph blocks-engine-source-p-') && 'pass' === ($syntheticInlineParagraphs['source_reports']['wp_block_validity']['status'] ?? ''), 'source paragraphs retain source-p selector provenance without the synthetic inline wrapper reset');
+
+$responsiveDivParagraph = ( new HtmlTransformer() )->transform(
+    '<style>div.paragraph{padding-bottom:20px}@media(max-width:600px){div.paragraph{padding-bottom:8px}}</style><main><div class="paragraph"><span>Responsive copy.</span></div></main>'
+)->toArray();
+$responsiveDivParagraphMarkup = (string) ($responsiveDivParagraph['serialized_blocks'] ?? '');
+$responsiveDivParagraphCss = implode("\n", array_column(array_filter($responsiveDivParagraph['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<p class="paragraph blocks-engine-synthetic-paragraph (blocks-engine-source-div-[^"]+)"><span>Responsive copy\.<\/span><\/p>/', $responsiveDivParagraphMarkup, $responsiveDivParagraphMarker) === 1, 'div-backed native paragraphs retain source-div selector provenance');
+$assert(str_contains($responsiveDivParagraphCss, ':where(.' . ($responsiveDivParagraphMarker[1] ?? '') . ')') && str_contains($responsiveDivParagraphCss, 'padding-bottom:20px') && str_contains($responsiveDivParagraphCss, 'padding-bottom:8px'), 'source div selectors preserve responsive paragraph spacing after the native tag changes');
+$assert('pass' === ($responsiveDivParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'source-div paragraph selector projection preserves valid block markup');
 
 $canonicalWrapperAttrsResult = ( new HtmlTransformer() )->transform(
     '<main><section class="menu-grid" style="display:grid;gap:2rem"><h2 class="section-title" style="color:red">Menu</h2><p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p></section></main>'
@@ -1538,6 +1603,10 @@ $nestedStyledLogo = ( new HtmlTransformer() )->transform(
 )->toArray();
 $nestedStyledLogoSerialized = (string) ($nestedStyledLogo['serialized_blocks'] ?? '');
 $assert(str_contains($nestedStyledLogoSerialized, '<a href="/"><mark style="') && str_contains($nestedStyledLogoSerialized, 'Nested Brand</mark></a>'), 'nested logo chrome unwraps presentational containers while preserving the styled semantic label and link');
+$assert(str_contains($nestedStyledLogoSerialized, '"margin":{"top":"0","right":"0","bottom":"0","left":"0"}'), 'div-based logos neutralize core paragraph margins that the source element did not have');
+$explicitLogoMargin = ( new HtmlTransformer() )->transform('<div class="logo" style="margin-bottom:4px"><a href="/">Brand</a></div>')->toArray();
+$explicitLogoMarginSerialized = (string) ($explicitLogoMargin['serialized_blocks'] ?? '');
+$assert(str_contains($explicitLogoMarginSerialized, '"margin":{"top":"0","right":"0","bottom":"4px","left":"0"}'), 'div-based logo margin defaults preserve explicitly authored source sides');
 
 $brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
@@ -1708,9 +1777,11 @@ $activeNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
 )->toArray();
 $activeNavigationLinks = $activeNavigation['blocks'][0]['innerBlocks'] ?? array();
-$assert('underline' === ($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration'] ?? ''), 'active navigation link carries native underline style intent');
+$assert('0px' === ($activeNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'list navigation neutralizes the core default gap when the source has no authored gap');
+$assert(str_contains((string) ($activeNavigationLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-item'), 'active navigation link carries a frontend current-item styling marker');
+$assert(! isset($activeNavigationLinks[0]['attrs']['style']['typography']['textDecoration']), 'current navigation signals do not invent an underline absent source styling');
 $assert(! isset($activeNavigationLinks[1]['attrs']['style']['typography']['textDecoration']), 'inactive navigation link does not get active underline styling');
-$assert(str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'active navigation underline intent is serialized into the dynamic navigation-link block attrs');
+$assert(! str_contains((string) ($activeNavigation['serialized_blocks'] ?? ''), '"textDecoration":"underline"'), 'unstyled current navigation remains visually faithful in serialized block attrs');
 
 $activeNavigationColor = ( new HtmlTransformer() )->transform(
     '<style>.nav-links a{color:var(--bone);font-family:monospace;font-size:12px;line-height:1.65;letter-spacing:.05em}.nav-links a.active{color:var(--bone);text-decoration:underline}.nav-links a.active::after{content:"";display:block;background:var(--ember);height:2px;width:100%}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav>'
@@ -1720,14 +1791,23 @@ $activeNavigationColorAttrs = $activeNavigationColor['blocks'][0]['attrs'] ?? ar
 $activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
 $activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $activeNavigationColor['assets'] ?? array()));
 $assert('var(--bone)' === ($activeNavigationColorLinks[0]['attrs']['style']['color']['text'] ?? ''), 'navigation link carries source anchor text color as a native block attribute');
+$assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
 $assert('var(--bone)' === ($activeNavigationColorAttrs['customTextColor'] ?? '') && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation'), 'list navigation keeps source container typography separate from anchor styling while retaining shared color context');
-$assert(str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation preserves source list-item and inline-anchor formatting semantics');
+$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
 $assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
 $assert(str_contains($activeNavigationColorSerialized, '"textDecorationColor":"var(--ember)"'), 'active navigation underline color is serialized into the dynamic navigation-link block attrs');
 $assert(! str_contains($activeNavigationColorSerialized, '<li class="wp-block-navigation-item'), 'active navigation color serialization emits no invalid static navigation item markup');
+
+$authoredNavigationGap = ( new HtmlTransformer() )->transform(
+    '<style>.nav-links{display:flex;gap:2px}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/">Product</a></li><li><a href="/features">Features</a></li></ul></nav>'
+)->toArray();
+$authoredNavigationGapAttrs = $authoredNavigationGap['blocks'][0]['attrs'] ?? array();
+$authoredNavigationGapCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $authoredNavigationGap['assets'] ?? array()));
+$assert('2px' === ($authoredNavigationGapAttrs['style']['spacing']['blockGap'] ?? ''), 'list navigation preserves an authored gap as native block spacing');
+$assert(! str_contains($authoredNavigationGapCss, '.wp-block-navigation__container{gap:'), 'list navigation does not override an authored gap with generated runtime CSS');
 
 $leadingStyleRules = implode('', array_map(static fn (int $index): string => '.rule-' . $index . '{color:#111}', range(1, 201)));
 $lateNavigationStyle = ( new HtmlTransformer() )->transform(
@@ -1747,9 +1827,53 @@ $headerClusterParity = $headerCluster['source_reports']['semantic_parity'] ?? ar
 $assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/search/CTA clusters preserve source navigation semantic parity');
 $assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
 $assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
-$assert(str_contains($headerClusterSerialized, '<form class="site-search"'), 'header cluster preserves arbitrary search form markup instead of invalid static core/search');
-$assert(! str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster does not emit static core/search markup for arbitrary HTML search forms');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts a constrained GET search form to native core/search');
+$assert(str_contains($headerClusterSerialized, '"className":"site-search"'), 'header search conversion preserves the source form class');
+$assert(str_contains($headerClusterSerialized, '"label":"Search"') && str_contains($headerClusterSerialized, '"showLabel":true'), 'header search conversion preserves its visible label');
+$assert(str_contains($headerClusterSerialized, '"placeholder":"Search docs"') && str_contains($headerClusterSerialized, '"buttonText":"Search"'), 'header search conversion preserves placeholder and submit text');
+$assert(! str_contains($headerClusterSerialized, '<form class="site-search"'), 'native search conversion emits no invalid static form payload');
 $assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
+
+$expandableHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<style>.search-icon{display:none;height:80px}.search-icon.visible{display:block}</style><script>document.querySelector(".search-icon").classList.add("visible")</script><header><div class="site-utils"><span class="provider-search"><form id="provider-search" action="/apps/search" method="get"><input type="text" name="q" placeholder="Search"></form></span><button class="search-icon"><svg width="12px" height="13px" viewBox="0 0 12 13"><path d="M1 1"></path></svg></button><button class="search-close">close</button></div></header>'
+)->toArray();
+$expandableHeaderSearchSerialized = (string) ($expandableHeaderSearch['serialized_blocks'] ?? '');
+$expandableHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $expandableHeaderSearch['assets'] ?? array()));
+$assert(str_contains($expandableHeaderSearchSerialized, '<!-- wp:search'), 'provider search cluster migrates to native WordPress search');
+$assert(str_contains($expandableHeaderSearchSerialized, '"buttonPosition":"button-only"') && str_contains($expandableHeaderSearchSerialized, '"buttonUseIcon":true'), 'adjacent icon trigger maps to expandable icon-only core/search');
+$assert(str_contains($expandableHeaderSearchSerialized, '"text":"#000000"') && str_contains($expandableHeaderSearchSerialized, '"background":"transparent"') && str_contains($expandableHeaderSearchSerialized, '"width":"0px"'), 'expandable native search preserves borderless black icon treatment');
+$assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && str_contains($expandableHeaderSearchSerialized, '"placeholder":"Search"'), 'provider search cluster uses an accessible hidden label and preserves placeholder text');
+$assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
+$assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrappers while carrying the trigger presentation onto core search');
+$assert(str_contains($expandableHeaderSearchCss, 'flex:0 0 24px!important;width:24px!important;height:80px!important') && str_contains($expandableHeaderSearchCss, 'width:12px;height:13px') && str_contains($expandableHeaderSearchCss, 'data:image/svg+xml,'), 'native icon search replays the source trigger flex geometry and exact SVG artwork');
+
+$viewBoxOnlyHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<header><form role="search"><input name="s" type="search"></form><button class="search-trigger"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button></header>'
+)->toArray();
+$viewBoxOnlyHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $viewBoxOnlyHeaderSearch['assets'] ?? array()));
+$assert(str_contains($viewBoxOnlyHeaderSearchCss, 'width:12px;height:13px'), 'native icon search derives intrinsic dimensions from an HTML-normalized lowercase viewBox attribute');
+
+$cssSizedHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<style>.search-trigger{width:48px;height:32px}.search-trigger svg{width:20px;height:21px}</style><header><form role="search"><input name="s" type="search"></form><button class="search-trigger"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button></header>'
+)->toArray();
+$cssSizedHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedHeaderSearch['assets'] ?? array()));
+$assert(str_contains($cssSizedHeaderSearchCss, 'width:48px!important;height:32px!important') && str_contains($cssSizedHeaderSearchCss, 'width:20px;height:21px'), 'native icon search honors authored trigger and SVG dimensions before intrinsic dimensions');
+
+$emptyFlexUtility = ( new HtmlTransformer() )->transform(
+    '<style>.utils{display:flex}.placeholder{visibility:hidden;height:80px}</style><div class="utils"><span>Action</span><div class="placeholder"></div></div>'
+)->toArray();
+$emptyFlexUtilitySerialized = (string) ($emptyFlexUtility['serialized_blocks'] ?? '');
+$emptyFlexUtilityCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyFlexUtility['assets'] ?? array()));
+$assert(str_contains($emptyFlexUtilitySerialized, 'placeholder blocks-engine-empty-flex-item'), 'preserved empty flex children carry a zero-intrinsic-size compatibility marker');
+$assert(str_contains($emptyFlexUtilityCss, 'flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important'), 'empty flex compatibility CSS prevents core group chrome and margins from adding a source-absent footprint');
+
+$boundedHeaderSearch = ( new HtmlTransformer() )->transform(
+    '<header><div class="site-utils"><div class="search-shell">Search our catalog<form role="search"><input type="search" name="s"></form></div><button class="search-help" aria-label="Search help"><svg viewBox="0 0 10 10"><path d="M1 1"></path></svg></button></div></header>'
+)->toArray();
+$boundedHeaderSearchSerialized = (string) ($boundedHeaderSearch['serialized_blocks'] ?? '');
+$assert(str_contains($boundedHeaderSearchSerialized, 'Search our catalog'), 'search conversion preserves meaningful wrapper text');
+$assert(str_contains($boundedHeaderSearchSerialized, 'search-shell'), 'search conversion preserves a non-cluster wrapper presentation hook');
+$assert(str_contains($boundedHeaderSearchSerialized, 'search-help'), 'search conversion preserves unrelated adjacent icon-only search utility controls');
 
 $arbitrarySearchForm = ( new HtmlTransformer() )->transform(
     '<form class="catalog-filter" role="search" action="/products" method="post" data-endpoint="catalog"><input type="hidden" name="token" value="abc"><label for="term">Find</label><input id="term" type="search" name="term" value="chairs"><select name="category"><option>All</option></select><button type="submit" data-track="filter">Go</button></form>'
@@ -2198,6 +2322,42 @@ $assert(str_contains($artifactNavAnchorStaticCss, '.site-header .subnav.wp-block
 $assert(! str_contains($artifactNavAnchorStaticCss, '.site-header.wp-block-navigation .subnav'), 'artifact static CSS does not attach core/navigation to the wrong ancestor selector');
 $artifactNavAnchorRepairCss = (string) ($artifactNavAnchorCss['source_reports']['compiled_site']['visual_repair']['css'] ?? '');
 $assert(str_contains($artifactNavAnchorRepairCss, '.site-header .subnav.wp-block-navigation .wp-block-navigation-item__content, .site-header .subnav .wp-block-navigation .wp-block-navigation-item__content { color:#31251c;text-decoration:none;border-color:#31251c }'), 'artifact visual repair CSS carries nav anchor replay for downstream theme materializers');
+
+$artifactNavStructureCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body class="menu-ready"><header><nav class="desktop-nav"><ul class="site-menu"><li><a href="#one">One</a></li></ul></nav></header></body></html>',
+            'styles.css' => '@media screen and (min-width:1025px){body.menu-ready .desktop-nav ul.site-menu{visibility:hidden;opacity:0}body.menu-ready .desktop-nav ul.site-menu.visible{visibility:visible;opacity:1}body.menu-ready .desktop-nav/* menu, desktop */ ul.site-menu>li{display:flex;align-items:center;margin-right:30px}body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}.nav\\,alternate ul.site-menu>li{gap:4px}.desktop-nav ul.site-menu:has([data-kind="/* promoted */"])>li{order:2}}',
+        ),
+    )
+)->toArray();
+$artifactNavStructureMarkup = (string) ($artifactNavStructureCss['serialized_blocks'] ?? '');
+$artifactNavStructureStaticCss = (string) ($artifactNavStructureCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactNavStructureMarkup, 'desktop-nav') && str_contains($artifactNavStructureMarkup, 'site-menu') && str_contains($artifactNavStructureMarkup, 'blocks-engine-list-navigation'), 'list navigation promotes source list classes onto the core navigation wrapper');
+$assert(str_contains($artifactNavStructureStaticCss, '@media screen and (min-width:1025px)'), 'artifact navigation projection preserves its authored responsive condition');
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'display:flex;align-items:center') && str_contains($artifactNavStructureStaticCss, 'margin-right:30px'), 'artifact CSS projects source navigation item geometry onto core navigation items', $artifactNavStructureStaticCss);
+$assert(str_contains($artifactNavStructureStaticCss, '.desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, '.wp-block-navigation-item__content { font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px }'), 'artifact CSS projects source list anchor typography onto core navigation content');
+$assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu.wp-block-navigation .wp-block-navigation__container>') && str_contains($artifactNavStructureStaticCss, 'gap:4px'), 'artifact navigation projection preserves escaped selector punctuation');
+$assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
+$artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: project source list navigation structure');
+$artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+$assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
+$assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
+$assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
+
+$artifactHeaderRuntimeCss = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header><nav><ul><li id=selected><a href="/">Home</a></li></ul></nav><div class="site-utils"><span class="wsite-search"><form action="/apps/search" method="get"><input name="q" type="text"></form></span><button class="search-icon"><svg></svg></button></div></header></body></html>',
+            'styles.css' => '@media (min-width:1px){.site-utils .search-icon{display:none;height:80px}}',
+        ),
+    )
+)->toArray();
+$artifactHeaderRuntimeStaticCss = (string) ($artifactHeaderRuntimeCss['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactHeaderRuntimeStaticCss, '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }'), 'artifact CSS renders only source-authored current navigation underlines on core navigation links');
+$assert(str_contains($artifactHeaderRuntimeStaticCss, '.wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }'), 'artifact CSS protects the core search SVG from colliding source search-icon hidden states');
 
 $artifactNavContainerCss = $compiler->compile(
     array(

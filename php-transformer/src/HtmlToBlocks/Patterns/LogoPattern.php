@@ -57,7 +57,18 @@ final class LogoPattern
             return null;
         }
 
-        return $createBlock('core/paragraph', array_merge($presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        $attrs = $presentationAttributes($element);
+        if ( 'div' === $tagName ) {
+            $attrs = array_replace_recursive(array(
+                'style' => array(
+                    'spacing' => array(
+                        'margin' => array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ),
+                    ),
+                ),
+            ), $attrs);
+        }
+
+        return $createBlock('core/paragraph', array_merge($attrs, array( 'content' => $content )), array(), $element);
     }
 
     /** @param callable(DOMElement, string): ?string $materializeSvgImages */

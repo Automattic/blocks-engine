@@ -34,6 +34,11 @@ trait ButtonLinkDispatchTrait
             return $logo;
         }
 
+        $linkedImage = $this->imageBlockFromAnchor($element);
+        if ( null !== $linkedImage ) {
+            return $linkedImage;
+        }
+
         $button = $this->buttonsPattern->matchAnchor(
             $element,
             fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
