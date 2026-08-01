@@ -30,6 +30,12 @@ final class ArtifactCompiler
      */
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
+	/** @var array<string, string> */
+	private array $themeStaticCssCache = array();
+
+	/** @var array<string, string> */
+	private array $wordpressCompatCssCache = array();
+
     /**
      * Resolve the runtime selector context used when a caller converts one
      * source document or landmark separately from full artifact compilation.
@@ -57,6 +63,8 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $startedAt = hrtime(true);
+		$this->themeStaticCssCache = array();
+		$this->wordpressCompatCssCache = array();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
@@ -1120,6 +1128,10 @@ final class ArtifactCompiler
      */
     private function themeStaticCss(array $files, bool $includeNavigationCompat = true): string
     {
+		$cacheKey = $includeNavigationCompat ? 'with-compat' : 'without-compat';
+		if ( array_key_exists($cacheKey, $this->themeStaticCssCache) ) {
+			return $this->themeStaticCssCache[$cacheKey];
+		}
         $blocks = array();
         foreach ( $files as $file ) {
             $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
@@ -1145,11 +1157,10 @@ final class ArtifactCompiler
         $css = implode("\n", array_keys($blocks));
 
         if ( ! $includeNavigationCompat ) {
-            return $css;
+			return $this->themeStaticCssCache[$cacheKey] = $css;
         }
 
-        return $css
-            . $this->wordpressCompatCss($css, $files);
+		return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1369,7 +1380,11 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function wordpressCompatCss(string $css, array $files): string
     {
-        return $this->navigationContainerCompatCss($css)
+		$cacheKey = hash('sha256', $css);
+		if ( array_key_exists($cacheKey, $this->wordpressCompatCssCache) ) {
+			return $this->wordpressCompatCssCache[$cacheKey];
+		}
+		return $this->wordpressCompatCssCache[$cacheKey] = $this->navigationContainerCompatCss($css)
             . $this->navigationStructureCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
             . $this->rootStartupClassCompatCss($css, $files)
