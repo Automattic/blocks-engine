@@ -3057,6 +3057,12 @@ final class HtmlTransformer
         }
 
         $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        // A grid placement belongs to this inline node. Keep phrasing-only grid
+        // siblings in one RichText container rather than replacing their direct
+        // grid items with Group/Paragraph wrappers.
+        if ( 'grid' === strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
+            return false;
+        }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
             return true;
@@ -4392,9 +4398,9 @@ final class HtmlTransformer
             return null;
         }
 
-        // A CSS-addressed inline leaf needs an independent native wrapper. Do
-        // not absorb it into this parent RichText paragraph, where its selector
-        // path and flex/grid item geometry would be lost.
+        // A lone marked descendant needs an independent carrier. Phrasing-only
+        // sibling runs remain together in this RichText block so authored
+        // flex/grid child geometry is not replaced with block wrappers.
         if ( $this->hasAuthorSemanticMarkedChild($element) || ( $this->hasRichTextMarkedDescendant($element) && 2 > $this->childElementCount($element) ) ) {
             return null;
         }

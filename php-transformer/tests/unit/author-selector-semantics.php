@@ -195,6 +195,11 @@ $ordinaryInline = $transform('<style>span{color:red}</style><p>Read <span>this</
 $ordinaryInlineMarkup = (string) ($ordinaryInline['serialized_blocks'] ?? '');
 $assert(! str_contains($ordinaryInlineMarkup, 'blocks-engine-semantic-') && 'core/paragraph' === ($ordinaryInline['blocks'][0]['blockName'] ?? '') && 'pass' === ($ordinaryInline['source_reports']['wp_block_validity']['status'] ?? ''), 'ordinary inline span styling remains RichText flow rather than becoming a group wrapper');
 
+$gridRichText = $transform('<style>.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > span:not(.card-label){grid-column:2}.artifact-card .card-label{grid-column:1 / -1}</style><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span>styles.css</span><span>assets/</span></div>');
+$gridRichTextMarkup = (string) ($gridRichText['serialized_blocks'] ?? '');
+$gridRichTextCss = $css($gridRichText);
+$assert(1 === substr_count($gridRichTextMarkup, '<!-- wp:paragraph') && ! str_contains($gridRichTextMarkup, '<!-- wp:group') && str_contains($gridRichTextMarkup, '<p class="artifact-card blocks-engine-synthetic-paragraph">') && str_contains($gridRichTextMarkup, '<mark class="card-label"') && 1 === substr_count($gridRichTextMarkup, '--blocks-engine-richtext-marker:') && str_contains($gridRichTextCss, 'grid-template-columns:1fr auto') && str_contains($gridRichTextCss, 'grid-column:1 / -1') && 'pass' === ($gridRichText['source_reports']['wp_block_validity']['status'] ?? ''), 'phrasing-only grid cards retain selector-addressable inline children in one valid RichText save shape');
+
 $selectorIdentity = $transform('<style>.roster-card .stamp{color:#6040cc}.roster-card .stamp:hover{color:#123456}.roster-card a.view{display:inline-flex;align-items:center;gap:6px}.roster-card a.view:hover{color:#123456}</style><div class="roster-card"><p><span class="stamp" id="release-stamp" data-kind="release">New</span></p><a class="view" id="view-release" data-kind="release-link" href="/release" target="_blank" rel="noopener">View release</a><a href="/plain">Plain link</a></div>');
 $selectorIdentityMarkup = (string) ($selectorIdentity['serialized_blocks'] ?? '');
 $selectorIdentityCss = $css($selectorIdentity);
