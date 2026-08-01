@@ -525,12 +525,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                continue;
-            }
-
-            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($child));
+        $list = $this->navigationSourceList($element);
+        if ( $list instanceof DOMElement ) {
+            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
                 $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
@@ -540,10 +537,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' !== $listGap ) {
                 $attrs['style']['spacing']['blockGap'] = $listGap;
             }
-            break;
         }
 
-        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+        if ( $list instanceof DOMElement && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             // Core navigation adds its own default gap; source lists do not.
             $attrs['style']['spacing']['blockGap'] = '0px';
         }
@@ -553,17 +549,33 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isListNavigationSource(DOMElement $element): bool
     {
+        return $this->navigationSourceList($element) instanceof DOMElement;
+    }
+
+    private function navigationSourceList(DOMElement $element): ?DOMElement
+    {
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return true;
+            return $element;
         }
 
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                return true;
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return $child;
+            }
+
+            if ( $this->isNavigationWrapperElement($child) ) {
+                $list = $this->navigationSourceList($child);
+                if ( $list instanceof DOMElement ) {
+                    return $list;
+                }
             }
         }
 
-        return false;
+        return null;
     }
 
     /**

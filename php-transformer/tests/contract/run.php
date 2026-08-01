@@ -1577,6 +1577,18 @@ $outerGapNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert('1rem' === ($outerGapNavigation['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'outer navigation gap takes precedence over direct list gap');
 
+$wrappedListGapNavigation = ( new HtmlTransformer() )->transform(
+    '<nav><div class="menu-wrap"><ul class="menu-list" style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$wrappedListGapNavigationBlock = $wrappedListGapNavigation['blocks'][0] ?? array();
+$assert('0' === ($wrappedListGapNavigationBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'wrapper-originated navigation list gap projects onto core/navigation');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'wrapper-originated navigation list gap serializes to a valid WordPress block');
+
+$wrappedAuthoredNavigationGap = ( new HtmlTransformer() )->transform(
+    '<nav><div class="menu-wrap"><ul class="menu-list" style="gap:2px"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$assert('2px' === ($wrappedAuthoredNavigationGap['blocks'][0]['attrs']['style']['spacing']['blockGap'] ?? ''), 'wrapper-originated navigation preserves an authored nonzero list gap');
+
 $footerNavigationSections = ( new HtmlTransformer() )->transform(
     '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
 )->toArray();
