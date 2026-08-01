@@ -139,6 +139,9 @@ final class ArtifactNormalizer
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
             }
+            if ( is_array($file['metadata'] ?? null) && is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
+                $normalized['metadata'] = array('route_path' => trim($file['metadata']['route_path']));
+            }
             foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
                     $normalized[$field] = (string) $file[$field];
