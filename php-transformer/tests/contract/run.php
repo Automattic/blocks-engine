@@ -1794,12 +1794,20 @@ $assert('var(--bone)' === ($activeNavigationColorLinks[0]['attrs']['style']['col
 $assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
 $assert('var(--bone)' === ($activeNavigationColorAttrs['customTextColor'] ?? '') && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation'), 'list navigation keeps source container typography separate from anchor styling while retaining shared color context');
-$assert(str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:0!important}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation neutralizes core runtime gap while preserving source list-item and inline-anchor formatting semantics');
+$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
 $assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
 $assert(str_contains($activeNavigationColorSerialized, '"textDecorationColor":"var(--ember)"'), 'active navigation underline color is serialized into the dynamic navigation-link block attrs');
 $assert(! str_contains($activeNavigationColorSerialized, '<li class="wp-block-navigation-item'), 'active navigation color serialization emits no invalid static navigation item markup');
+
+$authoredNavigationGap = ( new HtmlTransformer() )->transform(
+    '<style>.nav-links{display:flex;gap:2px}</style><nav aria-label="Primary"><ul class="nav-links"><li><a href="/">Product</a></li><li><a href="/features">Features</a></li></ul></nav>'
+)->toArray();
+$authoredNavigationGapAttrs = $authoredNavigationGap['blocks'][0]['attrs'] ?? array();
+$authoredNavigationGapCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $authoredNavigationGap['assets'] ?? array()));
+$assert('2px' === ($authoredNavigationGapAttrs['style']['spacing']['blockGap'] ?? ''), 'list navigation preserves an authored gap as native block spacing');
+$assert(! str_contains($authoredNavigationGapCss, '.wp-block-navigation__container{gap:'), 'list navigation does not override an authored gap with generated runtime CSS');
 
 $leadingStyleRules = implode('', array_map(static fn (int $index): string => '.rule-' . $index . '{color:#111}', range(1, 201)));
 $lateNavigationStyle = ( new HtmlTransformer() )->transform(

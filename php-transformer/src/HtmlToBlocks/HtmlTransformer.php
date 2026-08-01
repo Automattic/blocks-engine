@@ -849,8 +849,7 @@ final class HtmlTransformer
             $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation,.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{gap:0!important}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
         if ( array() !== $this->nativeSearchTriggerCssRules ) {
