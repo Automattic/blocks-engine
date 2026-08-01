@@ -3630,6 +3630,61 @@ $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are re
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
 $assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
 
+$octetStreamGif = ( new ArtifactNormalizer() )->normalize(
+    array(
+        'files' => array(
+            array(
+                'path' => 'uploads/animated-avatar.gif',
+                'type' => 'application/octet-stream',
+                'content_base64' => base64_encode('GIF89a'),
+            ),
+        ),
+    )
+);
+$assert('image/gif' === ($octetStreamGif['files'][0]['mime_type'] ?? ''), 'generic binary MIME declarations defer to the GIF path extension');
+$assert('image' === ($octetStreamGif['files'][0]['role'] ?? ''), 'extension-resolved GIF assets retain their image role');
+
+// Browser-derived media evidence is optional. Accepted observations are bound to
+// both a source DOM identity and the normalized artifact asset hash before they
+// can change the media-well projection.
+$mediaAssetHash = hash('sha256', base64_encode('GIF89a'));
+$mediaEvidence = array(
+	'schema' => 'blocks-engine/php-transformer/runtime-presentation-evidence/v1',
+	'provenance' => array(
+		'browser' => array('name' => 'Chromium', 'version' => '126.0'),
+		'viewport' => array('width' => 1280, 'height' => 720, 'device_scale_factor' => 1),
+		'lifecycle' => array('phase' => 'network-idle'),
+	),
+	'observations' => array(array(
+		'element' => array('source_path' => 'index.html', 'selector' => 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(1)'),
+		'asset_hash' => $mediaAssetHash,
+		'intrinsic' => array('width' => 498, 'height' => 273),
+		'rendered' => array('width' => 498, 'height' => 273),
+		'transform' => array('matrix' => array(1, 0, 0, 1, 0, 0), 'origin' => array('x' => 249, 'y' => 136.5)),
+		'clip' => array('x' => 0, 'y' => 0, 'width' => 280, 'height' => 280),
+	)),
+);
+$browserMedia = $compiler->compile(array(
+	'files' => array(
+		array('path' => 'index.html', 'kind' => 'html', 'content' => '<style>.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>'),
+		array('path' => 'portrait.gif', 'kind' => 'image', 'content' => 'GIF89a'),
+	),
+	'runtime_presentation_evidence' => $mediaEvidence,
+))->toArray();
+$browserMediaCss = implode("\n", array_column($browserMedia['assets'] ?? array(), 'content'));
+$assert(str_contains($browserMediaCss, 'object-fit:cover;object-position:50% 0'), 'accepted browser evidence activates deterministic clipped media-well projection');
+$acceptedEvidence = $browserMedia['source_reports']['artifact']['runtime_presentation_evidence'] ?? array();
+$assert('network-idle' === ($acceptedEvidence['provenance']['lifecycle']['phase'] ?? '') && 1 === count($acceptedEvidence['observations'] ?? array()) && $mediaAssetHash === ($acceptedEvidence['observations'][0]['asset_hash'] ?? ''), 'accepted browser evidence and its provenance are exposed in the artifact report');
+
+$rejectedEvidence = $mediaEvidence;
+$rejectedEvidence['observations'][0]['asset_hash'] = str_repeat('0', 64);
+$rejectedMedia = $compiler->compile(array(
+	'files' => array('index.html' => '<main><img src="portrait.gif"></main>', 'portrait.gif' => 'GIF89a'),
+	'runtime_presentation_evidence' => $rejectedEvidence,
+))->toArray();
+$assert(in_array('runtime_presentation_evidence_asset_hash_mismatch', array_column($rejectedMedia['diagnostics'] ?? array(), 'code'), true), 'unbound browser evidence has a deterministic rejection diagnostic');
+$assert(1 === ($rejectedMedia['source_reports']['artifact']['rejected_count'] ?? 0), 'rejected browser evidence increments artifact rejection accounting');
+
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
 assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 level should be preserved.');

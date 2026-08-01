@@ -308,6 +308,9 @@ final class HtmlTransformer
      */
     private array $assetMetadata = array();
 
+    /** @var array<string,array<string,mixed>> Accepted browser observations keyed by source selector. */
+    private array $runtimePresentationEvidence = array();
+
     /**
      * @var array<string, array<string, mixed>>
      */
@@ -509,6 +512,7 @@ final class HtmlTransformer
         $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
+        $this->runtimePresentationEvidence = $this->runtimePresentationEvidenceFromOptions($options);
         $this->generatedAssets = array();
         $this->nativeSearchTriggerCssRules = array();
         $this->nativeButtonStyleRules = array();
@@ -700,6 +704,7 @@ final class HtmlTransformer
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
             'html' => array(
+                'runtime_presentation_evidence' => array_values($this->runtimePresentationEvidence),
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
                 'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
@@ -1171,7 +1176,7 @@ final class HtmlTransformer
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
             $imageRule = '' === $imagePrelude
                 ? ''
-                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude))) . '}';
             if ( array() === $margins ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
@@ -1437,15 +1442,19 @@ final class HtmlTransformer
         return implode(',', array_values(array_unique($projected)));
     }
 
-    /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations): string
+    /**
+     * @param array<string, string> $declarations
+     * @param list<DOMElement> $matches
+     */
+    private function imageProjectionBridgeDeclarations(array $declarations, array $matches): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
         $width = strtolower(trim((string) ($declarations['width'] ?? '')));
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
-        if ( $ownsBox || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+        $coverClippedWell = 'auto' === $width && 'auto' === $height && ($this->hasFixedClippedImageWell($matches) || $this->hasObservedClippedImageWell($matches));
+        if ( $ownsBox || $coverClippedWell || in_array($position, array( 'absolute', 'fixed' ), true) ) {
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
         }
@@ -1454,6 +1463,43 @@ final class HtmlTransformer
         $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function hasFixedClippedImageWell(array $matches): bool
+    {
+        foreach ( $matches as $image ) {
+            if ( 'img' !== strtolower($image->tagName) ) {
+                continue;
+            }
+            for ( $ancestor = $image->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                $style = $this->structuralPresentationDeclarations($ancestor);
+                $overflow = strtolower(trim((string) ($style['overflow'] ?? $style['overflow-x'] ?? '')));
+                if ( in_array($overflow, array( 'hidden', 'clip' ), true) && null !== $this->pixelLength($style['width'] ?? '') && null !== $this->pixelLength($style['height'] ?? '') ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** @param list<DOMElement> $matches */
+    private function hasObservedClippedImageWell(array $matches): bool
+    {
+        foreach ($matches as $image) {
+            if ('img' !== strtolower($image->tagName)) continue;
+            $observation = $this->runtimePresentationEvidence[$this->elementSelector($image)] ?? null;
+            $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($image, 'src')));
+            if (!is_array($observation) || !is_array($asset) || ($observation['asset_hash'] ?? null) !== ($asset['hash'] ?? null)) continue;
+            $clip = $observation['clip'] ?? array(); $rendered = $observation['rendered'] ?? array();
+            if (($clip['width'] ?? 0) < ($rendered['width'] ?? 0) || ($clip['height'] ?? 0) < ($rendered['height'] ?? 0)) return true;
+        }
+        return false;
+    }
+
+    private function pixelLength(string $value): ?float
+    {
+        return 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($value), $matches) ? (float) $matches[1] : null;
     }
 
     /** @return array<string, mixed> */
@@ -10499,6 +10545,19 @@ final class HtmlTransformer
         }
 
         return $metadata;
+    }
+
+    /** @param array<string,mixed> $options @return array<string,array<string,mixed>> */
+    private function runtimePresentationEvidenceFromOptions(array $options): array
+    {
+        $evidence = array();
+        if (!is_array($options['runtime_presentation_evidence'] ?? null)) return $evidence;
+        foreach ($options['runtime_presentation_evidence'] as $observation) {
+            if (!is_array($observation) || !is_string($observation['element']['selector'] ?? null) || !is_string($observation['asset_hash'] ?? null) || !is_array($observation['clip'] ?? null) || !is_array($observation['rendered'] ?? null)) continue;
+            $evidence[$observation['element']['selector']] = $observation;
+        }
+        ksort($evidence, SORT_STRING);
+        return $evidence;
     }
 
     /**
