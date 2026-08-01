@@ -3892,6 +3892,20 @@ assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format brid
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
 assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
+$strictHtmlResult = $bridge->convertResult(
+    '<main><applet code="clock.class"></applet></main>',
+    'html',
+    'blocks',
+    array('context' => array('strict' => true, 'allow_fallbacks' => false))
+)->toArray();
+assertSame('failed', $strictHtmlResult['status'], 'Strict unsupported HTML conversion should remain failed through the format bridge.');
+assertSame(count($strictHtmlResult['diagnostics']), $strictHtmlResult['metrics']['diagnostic_count'], 'HTML bridge diagnostics metric should include the completion diagnostic.');
+assertSame($strictHtmlResult['metrics'], $strictHtmlResult['source_reports']['conversion_report']['metrics'], 'HTML bridge conversion-report metrics should match top-level metrics.');
+$nestedHtml = '<main><h2>Nested</h2><p>Content</p></main>';
+$nestedHtmlTransformerResult = ( new HtmlTransformer() )->transform($nestedHtml)->toArray();
+$nestedHtmlBridgeResult = $bridge->convertResult($nestedHtml, 'html', 'blocks')->toArray();
+$assert($nestedHtmlBridgeResult['metrics']['block_count'] > count($nestedHtmlBridgeResult['blocks']), 'HTML bridge metrics should recursively count nested blocks.');
+assertSame($nestedHtmlTransformerResult['metrics']['block_count'], $nestedHtmlBridgeResult['metrics']['block_count'], 'HTML bridge should preserve the transformer recursive block count.');
 $unsupportedSourceResult = $bridge->convertResult('<p>Hello</p>', 'xml', 'html')->toArray();
 assertSame('failed', $unsupportedSourceResult['status'], 'Unsupported source formats should fail through diagnostics.');
 assertSame('unsupported_source_format', $unsupportedSourceResult['diagnostics'][0]['code'], 'Unsupported source diagnostics should identify the source format.');
