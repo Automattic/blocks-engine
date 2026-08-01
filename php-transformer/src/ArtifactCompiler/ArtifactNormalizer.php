@@ -444,7 +444,11 @@ final class ArtifactNormalizer
             return array('accepted' => true, 'content' => $binary ? '' : $decoded, 'content_base64' => $base64, 'encoding' => 'base64', 'binary' => $binary, 'bytes' => strlen($decoded), 'diagnostics' => $diagnostics);
         }
 
-        $content = $this->normalizeContent($file['content'] ?? $file['body'] ?? $file['text'] ?? '');
+        $contentKey = array_key_exists('content', $file) ? 'content' : (array_key_exists('body', $file) ? 'body' : (array_key_exists('text', $file) ? 'text' : null));
+        if (null === $contentKey || !is_string($file[$contentKey])) {
+            return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('missing_file_payload', 'warning', 'An artifact file was ignored because it has no explicit text or base64 payload.', array('path' => $path))));
+        }
+        $content = $this->normalizeContent($file[$contentKey]);
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
     }
 

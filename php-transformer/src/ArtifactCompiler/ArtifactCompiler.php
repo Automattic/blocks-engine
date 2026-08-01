@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use DOMDocument;
 use DOMElement;
 
@@ -193,7 +194,7 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
             } catch (\InvalidArgumentException $exception) {
-                $sourceReports['wordpress_site_plan_diagnostics'] = array(array('code' => 'wordpress_site_plan_not_self_contained', 'message' => $exception->getMessage()));
+                $sourceReports['wordpress_site_plan_diagnostics'] = array($exception instanceof ValidationException ? $exception->diagnostic() : array('code' => 'wordpress_site_plan_not_self_contained', 'message' => $exception->getMessage()));
             }
         }
 
@@ -2926,7 +2927,8 @@ final class ArtifactCompiler
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
                 ),
-                static fn (mixed $value): bool => null !== $value && '' !== $value
+                static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
+                ARRAY_FILTER_USE_BOTH
             ),
             $assets
         ));
