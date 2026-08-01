@@ -133,9 +133,8 @@ $croppedImage = ( new HtmlTransformer() )->transform(
     array( 'asset_metadata' => array( 'portrait.gif' => array( 'url' => 'portrait.gif', 'width' => 498, 'height' => 273 ) ) )
 )->toArray();
 $croppedImageCss = implode("\n", array_column($croppedImage['assets'] ?? array(), 'content'));
-$assert(1 === preg_match('/\.well\s+:where\(figure\).*\.wp-block-image > img\{display:block;width:auto;height:auto;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit\}/', $croppedImageCss), 'fixed clipped wells retain authored automatic image geometry on the canonical core/image child');
-$assert(! str_contains($croppedImageCss, 'object-fit:cover'), 'fixed clipped wells do not infer a square crop from intrinsic media dimensions');
-$assert('pass' === ($croppedImage['source_reports']['wp_block_validity']['status'] ?? ''), 'automatic fixed-well image geometry preserves valid core/image markup');
+$assert(1 === preg_match('/\.well\s+:where\(figure\).*\.wp-block-image > img\{display:block;width:100%;height:100%;max-width:100%;object-fit:cover;object-position:50% 0;border-radius:inherit\}/', $croppedImageCss), 'fixed clipped wells project a top-centered cover crop onto the canonical core/image child');
+$assert('pass' === ($croppedImage['source_reports']['wp_block_validity']['status'] ?? ''), 'fixed-well image geometry preserves valid core/image markup');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
