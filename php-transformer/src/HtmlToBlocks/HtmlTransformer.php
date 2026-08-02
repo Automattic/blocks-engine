@@ -1020,14 +1020,17 @@ final class HtmlTransformer
                     continue;
                 }
                 foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                    if ( 'span' !== strtolower($element->tagName) ) {
+                    $inlineTag = strtolower($element->tagName);
+                    $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
+                    $directAuthorLayoutItem = $directChildSelector && $this->isDirectChildOfAuthorOwnedLayout($element);
+                    if ( ! $this->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
                         continue;
                     }
                     $path = $this->sourceElementIdentity($element);
                     if ( '' === $path ) {
                         continue;
                     }
-                    if ( $this->requiresIndependentSemanticWrapper($element) ) {
+                    if ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
                         if ( '' !== $path ) {
                             $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
                         }
@@ -3171,7 +3174,7 @@ final class HtmlTransformer
     {
         $markers = array();
         $path = $this->sourceElementIdentity($element);
-        if ( 'span' === strtolower($element->tagName) && isset($this->sourceSemanticMarkers[$path]) ) {
+        if ( isset($this->sourceSemanticMarkers[$path]) ) {
             $markers[] = $this->sourceSemanticMarkers[$path];
         }
         if ( isset($this->sourceRootChildMarkers[$path]) ) {

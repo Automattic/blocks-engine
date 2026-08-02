@@ -85,7 +85,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'not_classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -126,6 +126,21 @@ final class CssSelectorMatcher
                     }
                     $compound['nth_child'] = (int) $argument;
                     $offset = $closing + 1;
+                    $hasSimple = true;
+                    continue;
+                }
+                if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                    ++$offset;
+                    if ( '.' !== ($source[ $offset ] ?? '') ) {
+                        return null;
+                    }
+                    ++$offset;
+                    $class = self::identifier($source, $offset);
+                    if ( null === $class || ')' !== ($source[ $offset ] ?? '') ) {
+                        return null;
+                    }
+                    ++$offset;
+                    $compound['not_classes'][] = $class;
                     $hasSimple = true;
                     continue;
                 }
@@ -417,6 +432,11 @@ final class CssSelectorMatcher
         $classes = preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array();
         foreach ( $compound['classes'] as $class ) {
             if ( ! in_array($class, $classes, true) ) {
+                return false;
+            }
+        }
+        foreach ( $compound['not_classes'] ?? array() as $class ) {
+            if ( in_array($class, $classes, true) ) {
                 return false;
             }
         }
