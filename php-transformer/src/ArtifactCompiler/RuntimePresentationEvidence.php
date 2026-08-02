@@ -73,19 +73,19 @@ final class RuntimePresentationEvidence
     /** @return array<string,mixed>|null */
     private static function observation(mixed $value): ?array
     {
-        if (!is_array($value) || !is_array($value['element'] ?? null) || !self::text($value['element']['source_path'] ?? null, 1024) || !self::text($value['element']['selector'] ?? null, 2048) || !is_string($value['asset_hash'] ?? null) || 1 !== preg_match('/^[a-f0-9]{64}$/', $value['asset_hash']) || !self::dimensions($value['intrinsic'] ?? null) || !self::dimensions($value['rendered'] ?? null) || !self::transform($value['transform'] ?? null) || !self::clip($value['clip'] ?? null)) return null;
+        if (!is_array($value) || !is_array($value['element'] ?? null) || !self::text($value['element']['source_path'] ?? null, 1024) || !self::text($value['element']['selector'] ?? null, 2048) || !is_string($value['asset_hash'] ?? null) || 1 !== preg_match('/^[a-f0-9]{64}$/', $value['asset_hash']) || !self::dimensions($value['intrinsic'] ?? null) || !self::rectangle($value['rendered'] ?? null) || !self::transform($value['transform'] ?? null) || !self::rectangle($value['clip'] ?? null)) return null;
         return array(
             'element' => array('source_path' => $value['element']['source_path'], 'selector' => $value['element']['selector']),
             'asset_hash' => $value['asset_hash'],
             'intrinsic' => self::numbers($value['intrinsic'], array('width', 'height')),
-            'rendered' => self::numbers($value['rendered'], array('width', 'height')),
+            'rendered' => self::numbers($value['rendered'], array('x', 'y', 'width', 'height')),
             'transform' => array('matrix' => array_values($value['transform']['matrix']), 'origin' => self::numbers($value['transform']['origin'], array('x', 'y'))),
             'clip' => self::numbers($value['clip'], array('x', 'y', 'width', 'height')),
         );
     }
 
     private static function dimensions(mixed $value): bool { return is_array($value) && self::positive($value['width'] ?? null) && self::positive($value['height'] ?? null); }
-    private static function clip(mixed $value): bool { return is_array($value) && self::number($value['x'] ?? null) && self::number($value['y'] ?? null) && self::positive($value['width'] ?? null) && self::positive($value['height'] ?? null); }
+    private static function rectangle(mixed $value): bool { return is_array($value) && self::number($value['x'] ?? null) && self::number($value['y'] ?? null) && self::positive($value['width'] ?? null) && self::positive($value['height'] ?? null); }
     private static function transform(mixed $value): bool { if (!is_array($value) || !is_array($value['matrix'] ?? null) || 6 !== count($value['matrix']) || !is_array($value['origin'] ?? null)) return false; foreach ($value['matrix'] as $number) if (!self::number($number)) return false; return self::number($value['origin']['x'] ?? null) && self::number($value['origin']['y'] ?? null); }
     private static function text(mixed $value, int $max): bool { return is_string($value) && '' !== trim($value) && strlen($value) <= $max && !preg_match('/[\x00-\x1f\x7f]/', $value); }
     private static function number(mixed $value): bool { return (is_int($value) || is_float($value)) && is_finite((float) $value); }

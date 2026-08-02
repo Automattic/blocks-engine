@@ -3711,8 +3711,8 @@ $mediaEvidence = array(
 	'observations' => array(array(
 		'element' => array('source_path' => 'index.html', 'selector' => 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(1)'),
 		'asset_hash' => $mediaAssetHash,
-		'intrinsic' => array('width' => 498, 'height' => 273),
-		'rendered' => array('width' => 498, 'height' => 273),
+		'intrinsic' => array('width' => 278, 'height' => 302),
+		'rendered' => array('x' => 0, 'y' => 0, 'width' => 280, 'height' => 304),
 		'transform' => array('matrix' => array(1, 0, 0, 1, 0, 0), 'origin' => array('x' => 249, 'y' => 136.5)),
 		'clip' => array('x' => 0, 'y' => 0, 'width' => 280, 'height' => 280),
 	)),
@@ -3725,9 +3725,42 @@ $browserMedia = $compiler->compile(array(
 	'runtime_presentation_evidence' => $mediaEvidence,
 ))->toArray();
 $browserMediaCss = implode("\n", array_column($browserMedia['assets'] ?? array(), 'content'));
-$assert(str_contains($browserMediaCss, 'object-fit:cover;object-position:50% 0'), 'accepted browser evidence activates deterministic clipped media-well projection');
+$assert(str_contains($browserMediaCss, 'width:100%;height:auto;max-width:100%;object-fit:inherit'), 'accepted browser evidence preserves aligned vertical image overflow inside a clipped media well');
 $acceptedEvidence = $browserMedia['source_reports']['artifact']['runtime_presentation_evidence'] ?? array();
 $assert('network-idle' === ($acceptedEvidence['provenance']['lifecycle']['phase'] ?? '') && 1 === count($acceptedEvidence['observations'] ?? array()) && $mediaAssetHash === ($acceptedEvidence['observations'][0]['asset_hash'] ?? ''), 'accepted browser evidence and its provenance are exposed in the artifact report');
+
+$horizontalEvidence = $mediaEvidence;
+$horizontalEvidence['observations'][0]['intrinsic'] = array('width' => 302, 'height' => 278);
+$horizontalEvidence['observations'][0]['rendered'] = array('x' => 0, 'y' => 0, 'width' => 304, 'height' => 280);
+$horizontalMedia = $compiler->compile(array(
+	'files' => array(
+		array('path' => 'index.html', 'kind' => 'html', 'content' => '<style>.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>'),
+		array('path' => 'portrait.gif', 'kind' => 'image', 'content' => 'GIF89a'),
+	),
+	'runtime_presentation_evidence' => $horizontalEvidence,
+))->toArray();
+$horizontalMediaCss = implode("\n", array_column($horizontalMedia['assets'] ?? array(), 'content'));
+$assert(str_contains($horizontalMediaCss, 'width:auto;height:100%;max-width:none;object-fit:inherit'), 'accepted browser evidence preserves aligned horizontal image overflow inside a clipped media well');
+
+$offsetEvidence = $horizontalEvidence;
+$offsetEvidence['observations'][0]['rendered']['x'] = -12;
+$offsetMedia = $compiler->compile(array(
+	'files' => array(
+		array('path' => 'index.html', 'kind' => 'html', 'content' => '<style>.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>'),
+		array('path' => 'portrait.gif', 'kind' => 'image', 'content' => 'GIF89a'),
+	),
+	'runtime_presentation_evidence' => $offsetEvidence,
+))->toArray();
+$offsetMediaCss = implode("\n", array_column($offsetMedia['assets'] ?? array(), 'content'));
+$assert(str_contains($offsetMediaCss, 'width:auto!important;height:100%!important;max-width:none!important;object-fit:inherit!important') && str_contains($offsetMediaCss, 'position:relative!important;left:-12px!important;top:0px!important'), 'offset clipping preserves natural horizontal overflow and its element-specific source offset');
+
+$incompleteRectangleEvidence = $mediaEvidence;
+unset($incompleteRectangleEvidence['observations'][0]['rendered']['x']);
+$incompleteRectangleMedia = $compiler->compile(array(
+	'files' => array('index.html' => '<main><img src="portrait.gif"></main>', 'portrait.gif' => 'GIF89a'),
+	'runtime_presentation_evidence' => $incompleteRectangleEvidence,
+))->toArray();
+$assert(in_array('runtime_presentation_evidence_invalid_observation', array_column($incompleteRectangleMedia['diagnostics'] ?? array(), 'code'), true), 'browser evidence without a complete rendered rectangle is rejected');
 
 $rejectedEvidence = $mediaEvidence;
 $rejectedEvidence['observations'][0]['asset_hash'] = str_repeat('0', 64);

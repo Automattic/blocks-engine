@@ -402,6 +402,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
     private array $sourceRootChildMarkers = array();
 
+    /** @var array<string, string> Browser-observed images that need element-specific projection. */
+    private array $sourceImageEvidenceMarkers = array();
+
     /** @var list<string> Source body-state classes referenced by authored CSS. */
     private array $sourceBodyProjectionClasses = array();
 
@@ -544,6 +547,7 @@ final class HtmlTransformer
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
         $this->sourceRootChildMarkers = array();
+        $this->sourceImageEvidenceMarkers = array();
         $this->sourceBodyProjectionClasses = array();
         $this->sourceTableMarkers = array();
         $this->sourceTableRepresentability = array();
@@ -1019,7 +1023,22 @@ final class HtmlTransformer
 		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
 		$this->discoverAuthorRootChildPaths($authorSelectors);
 		$this->discoverAuthorTablePaths($authorSelectors);
+        $this->discoverRuntimePresentationImagePaths();
         $this->sourceBodyProjectionClasses = $this->referencedSourceBodyClasses($sourceBody);
+    }
+
+    private function discoverRuntimePresentationImagePaths(): void
+    {
+        foreach ($this->authorStyleSourceElements as $element) {
+            if ('img' !== strtolower($element->tagName)) continue;
+            $observation = $this->runtimePresentationEvidence[$this->elementSelector($element)] ?? null;
+            $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($element, 'src')));
+            if (!is_array($observation) || !is_array($asset) || ($observation['asset_hash'] ?? null) !== ($asset['hash'] ?? null)) continue;
+            $identity = $this->sourceElementIdentity($element);
+            if ('' === $identity) continue;
+            $marker = $this->sourceImageEvidenceMarkers[$identity] ??= $this->allocateAuthorMarker('runtime-image');
+            $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+        }
     }
 
     /** @return list<string> */
@@ -1221,7 +1240,10 @@ final class HtmlTransformer
             $imageRule = '' === $imagePrelude
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude))) . '}';
-            if ( array() === $margins ) {
+            $imageRule .= $this->runtimePresentationImageProjectionRules($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude)));
+            // Margins on generated content belong to the generated box. Moving
+            // them to core/buttons would attach an arrow offset to the wrapper.
+            if ( array() === $margins || $this->authorSelectorTargetsGeneratedPseudoElement($prelude) ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
 
@@ -1497,16 +1519,57 @@ final class HtmlTransformer
         $width = strtolower(trim((string) ($declarations['width'] ?? '')));
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
-        $coverClippedWell = 'auto' === $width && 'auto' === $height && ($this->hasFixedClippedImageWell($matches) || $this->hasObservedClippedImageWell($matches));
-        if ( $ownsBox || $coverClippedWell || in_array($position, array( 'absolute', 'fixed' ), true) ) {
+        $observedMode = $this->observedClippedImageWellMode($matches);
+        $naturalVerticalOverflow = 'auto' === $width && 'auto' === $height && 'vertical' === $observedMode;
+        $naturalHorizontalOverflow = 'auto' === $width && 'auto' === $height && 'horizontal' === $observedMode;
+        $coverClippedWell = 'auto' === $width && 'auto' === $height && ('cover' === $observedMode || (null === $observedMode && $this->hasFixedClippedImageWell($matches)));
+        if ( $naturalVerticalOverflow ) {
+            $bridge[] = 'width:100%';
+            $bridge[] = 'height:auto';
+        } elseif ( $naturalHorizontalOverflow ) {
+            $bridge[] = 'width:auto';
+            $bridge[] = 'height:100%';
+        } elseif ( $ownsBox || $coverClippedWell || in_array($position, array( 'absolute', 'fixed' ), true) ) {
             $bridge[] = 'width:100%';
             $bridge[] = 'height:100%';
         }
-        $bridge[] = 'max-width:100%';
-        $bridge[] = 'object-fit:inherit';
-        $bridge[] = 'object-position:inherit';
+        $bridge[] = $naturalHorizontalOverflow ? 'max-width:none' : 'max-width:100%';
+        $bridge[] = $coverClippedWell ? 'object-fit:cover' : 'object-fit:inherit';
+        $bridge[] = $coverClippedWell ? 'object-position:50% 0' : 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
+    }
+
+    /** @param array<string,string> $declarations @param list<DOMElement> $matches */
+    private function runtimePresentationImageProjectionRules(array $declarations, array $matches): string
+    {
+        $rules = array();
+        foreach ($matches as $image) {
+            if ('img' !== strtolower($image->tagName)) continue;
+            $marker = $this->sourceImageEvidenceMarkers[$this->sourceElementIdentity($image)] ?? '';
+            if ('' === $marker) continue;
+            $mode = $this->observedClippedImageWellMode(array($image));
+            if (!in_array($mode, array('vertical', 'horizontal'), true)) continue;
+            $bridge = $this->imageProjectionBridgeDeclarations($declarations, array($image));
+            $observation = $this->runtimePresentationEvidence[$this->elementSelector($image)] ?? array();
+            $rendered = is_array($observation['rendered'] ?? null) ? $observation['rendered'] : array();
+            $clip = is_array($observation['clip'] ?? null) ? $observation['clip'] : array();
+            $offsetX = (float) ($rendered['x'] ?? 0) - (float) ($clip['x'] ?? 0);
+            $offsetY = (float) ($rendered['y'] ?? 0) - (float) ($clip['y'] ?? 0);
+            if (abs($offsetX) >= 0.01 || abs($offsetY) >= 0.01) {
+                $bridge .= ';position:relative;left:' . $this->compactCssNumber($offsetX) . 'px;top:' . $this->compactCssNumber($offsetY) . 'px';
+            }
+            $important = implode(';', array_map(static fn(string $declaration): string => $declaration . '!important', array_filter(explode(';', $bridge))));
+            $selector = 'img.' . $marker . '.' . $marker . ',.wp-block-image.' . $marker . '.' . $marker . '>img';
+            $rules[] = $selector . '{' . $important . '}';
+        }
+        return implode('', $rules);
+    }
+
+    private function compactCssNumber(float $value): string
+    {
+        $formatted = rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
+        return '-0' === $formatted || '' === $formatted ? '0' : $formatted;
     }
 
     /** @param list<DOMElement> $matches */
@@ -1528,17 +1591,27 @@ final class HtmlTransformer
     }
 
     /** @param list<DOMElement> $matches */
-    private function hasObservedClippedImageWell(array $matches): bool
+    private function observedClippedImageWellMode(array $matches): ?string
     {
+        $modes = array();
         foreach ($matches as $image) {
             if ('img' !== strtolower($image->tagName)) continue;
             $observation = $this->runtimePresentationEvidence[$this->elementSelector($image)] ?? null;
             $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($image, 'src')));
             if (!is_array($observation) || !is_array($asset) || ($observation['asset_hash'] ?? null) !== ($asset['hash'] ?? null)) continue;
             $clip = $observation['clip'] ?? array(); $rendered = $observation['rendered'] ?? array();
-            if (($clip['width'] ?? 0) < ($rendered['width'] ?? 0) || ($clip['height'] ?? 0) < ($rendered['height'] ?? 0)) return true;
+            $clipWidth = (float) ($clip['width'] ?? 0); $clipHeight = (float) ($clip['height'] ?? 0);
+            $renderedWidth = (float) ($rendered['width'] ?? 0); $renderedHeight = (float) ($rendered['height'] ?? 0);
+            $clipsWidth = $clipWidth + 0.5 < $renderedWidth; $clipsHeight = $clipHeight + 0.5 < $renderedHeight;
+            if (!$clipsWidth && !$clipsHeight) { $modes['none'] = true; continue; }
+            if ($clipsHeight && !$clipsWidth && abs($clipWidth - $renderedWidth) < 0.5) { $modes['vertical'] = true; continue; }
+            if ($clipsWidth && !$clipsHeight && abs($clipHeight - $renderedHeight) < 0.5) { $modes['horizontal'] = true; continue; }
+            $modes['cover'] = true;
         }
-        return false;
+        if (isset($modes['cover']) || (isset($modes['vertical']) && isset($modes['horizontal']))) return 'cover';
+        if (isset($modes['vertical'])) return 'vertical';
+        if (isset($modes['horizontal'])) return 'horizontal';
+        return isset($modes['none']) ? 'none' : null;
     }
 
     private function pixelLength(string $value): ?float
@@ -11016,6 +11089,10 @@ final class HtmlTransformer
         $attrs = $this->presentationAttributes($figure ?? $image);
         if ( $figure instanceof DOMElement ) {
             $attrs['className'] = $this->mergeClassNames($this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image));
+        }
+        $marker = $this->sourceImageEvidenceMarkers[$this->sourceElementIdentity($image)] ?? '';
+        if ('' !== $marker) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $marker);
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
