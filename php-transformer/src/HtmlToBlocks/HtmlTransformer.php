@@ -7231,19 +7231,11 @@ final class HtmlTransformer
     private function nestedListRoots(DOMElement $item): array
     {
         $lists = array();
-        $visit = static function (DOMNode $node) use (&$visit, &$lists): void {
-            foreach ( $node->childNodes as $child ) {
-                if ( ! $child instanceof DOMElement ) {
-                    continue;
-                }
-                if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                    $lists[] = $child;
-                    continue;
-                }
-                $visit($child);
+        foreach ( $item->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $lists[] = $child;
             }
-        };
-        $visit($item);
+        }
 
         return $lists;
     }
@@ -7255,14 +7247,26 @@ final class HtmlTransformer
             return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
         }
 
-        $nestedLists = array();
-        foreach ( $content->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'ul', 'ol' ), true) ) {
-                $nestedLists[] = $descendant;
+        $directLists = array();
+        foreach ( $content->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $directLists[] = $child;
             }
         }
-        foreach ( $nestedLists as $nestedList ) {
-            $nestedList->parentNode?->removeChild($nestedList);
+        foreach ( $directLists as $directList ) {
+            $content->removeChild($directList);
+        }
+
+        // Wrapped lists remain native HTML in RichText so their authored wrapper
+        // topology survives. The author stylesheet rewrites `li` selectors to a
+        // provenance class, which must be carried by those retained leaves.
+        $listItemMarker = $this->sourceTagMarkers['li'] ?? '';
+        if ( '' !== $listItemMarker ) {
+            foreach ( $content->getElementsByTagName('li') as $nestedItem ) {
+                if ( $nestedItem instanceof DOMElement ) {
+                    $nestedItem->setAttribute('class', $this->mergeClassNames($this->attr($nestedItem, 'class'), $listItemMarker));
+                }
+            }
         }
 
         return $this->innerHtml($content);
