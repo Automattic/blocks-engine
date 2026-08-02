@@ -163,7 +163,7 @@ $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-
 $listStyles = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><ul class="check-list"><li>Verified delivery</li></ul><ul class="chips"><li>News</li></ul></main>' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><ol class="pipeline"><li class="stage"><div class="stage-copy">Build source<ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>' ),
         array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.check-list li::before{content:"x";position:absolute;left:0}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}.chips li:hover{color:#123456}' ),
     ),
 ) )->toArray();
@@ -183,13 +183,17 @@ $findBlocks = static function (array $blocks, string $name) use (&$findBlocks): 
 $listStyleItems = $findBlocks($listStyles['blocks'] ?? array(), 'core/list-item');
 $listStyleCss = implode("\n", array_column($listStyles['assets'] ?? array(), 'content'));
 $listStyleMarkup = (string) ($listStyles['serialized_blocks'] ?? '');
-$assert(2 === count($findBlocks($listStyles['blocks'] ?? array(), 'core/list')) && 2 === count($listStyleItems) && ! str_contains($listStyleMarkup, '<!-- wp:html'), 'external checklist and chip rules retain native core/list and core/list-item output without fallback wrappers');
-$assert('1.75rem' === ($listStyleItems[0]['attrs']['style']['spacing']['padding']['left'] ?? null) && '.75rem' === ($listStyleItems[0]['attrs']['style']['spacing']['margin']['bottom'] ?? null) && '1.125rem' === ($listStyleItems[0]['attrs']['style']['typography']['fontSize'] ?? null) && '1.5' === ($listStyleItems[0]['attrs']['style']['typography']['lineHeight'] ?? null), 'external checklist selectors resolve supported spacing and typography onto the native list item');
-$assert('.75rem' === ($listStyleItems[1]['attrs']['style']['spacing']['padding']['right'] ?? null) && '.5rem' === ($listStyleItems[1]['attrs']['style']['spacing']['margin']['right'] ?? null) && '.875rem' === ($listStyleItems[1]['attrs']['style']['typography']['fontSize'] ?? null), 'external chip selectors resolve supported spacing and typography onto the native list item');
+$assert(3 === count($findBlocks($listStyles['blocks'] ?? array(), 'core/list')) && 3 === count($listStyleItems) && ! str_contains($listStyleMarkup, '<!-- wp:html'), 'nested checklist and chip rules retain native core/list and core/list-item output without fallback wrappers');
+$outerListItem = $listStyleItems[0] ?? array();
+$chipListItem = $listStyleItems[1] ?? array();
+$checkListItem = $listStyleItems[2] ?? array();
+$assert('1.75rem' === ($checkListItem['attrs']['style']['spacing']['padding']['left'] ?? null) && '.75rem' === ($checkListItem['attrs']['style']['spacing']['margin']['bottom'] ?? null) && '1.125rem' === ($checkListItem['attrs']['style']['typography']['fontSize'] ?? null) && '1.5' === ($checkListItem['attrs']['style']['typography']['lineHeight'] ?? null), 'nested checklist selectors resolve supported spacing and typography onto the native nested list item');
+$assert('.75rem' === ($chipListItem['attrs']['style']['spacing']['padding']['right'] ?? null) && '.5rem' === ($chipListItem['attrs']['style']['spacing']['margin']['right'] ?? null) && '.875rem' === ($chipListItem['attrs']['style']['typography']['fontSize'] ?? null), 'nested chip selectors resolve supported spacing and typography onto the native nested list item');
+$assert(! isset($outerListItem['attrs']['style']['spacing']['padding']['left']) && ! isset($outerListItem['attrs']['style']['typography']['fontSize']) && str_contains((string) ($chipListItem['attrs']['className'] ?? ''), 'blocks-engine-source-li-') && str_contains((string) ($checkListItem['attrs']['className'] ?? ''), 'blocks-engine-source-li-'), 'nested list leaves, rather than the outer pipeline item, carry source list identity and resolved styles');
 $assert(str_contains($listStyleCss, ':where(.blocks-engine-source-li-') && str_contains($listStyleCss, 'position:relative') && str_contains($listStyleCss, '.check-list li::before') && str_contains($listStyleCss, ':hover{color:#123456}'), 'projected list-item markers retain external position and pseudo-selector addressability');
 $assert(isset($listStyles['source_reports']['wordpress_site_plan']) && str_contains((string) ($listStyles['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:list-item'), 'external list-item styling survives artifact compilation into the canonical WordPress site plan');
 $listStyleValidity = ( new HtmlTransformer() )->transform(
-    '<main><ul class="check-list"><li>Verified delivery</li></ul><ul class="chips"><li>News</li></ul></main>',
+    '<main><ol class="pipeline"><li class="stage"><div class="stage-copy">Build source<ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>',
     array( 'static_css' => '.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}' )
 )->toArray();
 $assert('pass' === ($listStyleValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'resolved external list-item styles serialize as Gutenberg-valid native blocks');

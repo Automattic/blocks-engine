@@ -7209,16 +7209,14 @@ final class HtmlTransformer
             }
 
             $nested = array();
-            foreach ( $child->childNodes as $itemChild ) {
-                if ( $itemChild instanceof DOMElement && in_array(strtolower($itemChild->tagName), array( 'ul', 'ol' ), true) ) {
-                    $nestedBlock = $this->convertElement($itemChild, $fallbacks, true);
-                    if ( null !== $nestedBlock ) {
-                        $nested[] = $nestedBlock;
-                    }
+            foreach ( $this->nestedListRoots($child) as $nestedList ) {
+                $nestedBlock = $this->convertElement($nestedList, $fallbacks, true);
+                if ( null !== $nestedBlock ) {
+                    $nested[] = $nestedBlock;
                 }
             }
 
-            $content = $this->innerHtmlWithoutTags($child, array( 'ul', 'ol' ));
+            $content = $this->listItemContentWithoutNestedLists($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
                 continue;
             }
@@ -7227,6 +7225,47 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /** @return list<DOMElement> */
+    private function nestedListRoots(DOMElement $item): array
+    {
+        $lists = array();
+        $visit = static function (DOMNode $node) use (&$visit, &$lists): void {
+            foreach ( $node->childNodes as $child ) {
+                if ( ! $child instanceof DOMElement ) {
+                    continue;
+                }
+                if ( in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                    $lists[] = $child;
+                    continue;
+                }
+                $visit($child);
+            }
+        };
+        $visit($item);
+
+        return $lists;
+    }
+
+    private function listItemContentWithoutNestedLists(DOMElement $item): string
+    {
+        $content = $item->cloneNode(true);
+        if ( ! $content instanceof DOMElement ) {
+            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
+        }
+
+        $nestedLists = array();
+        foreach ( $content->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'ul', 'ol' ), true) ) {
+                $nestedLists[] = $descendant;
+            }
+        }
+        foreach ( $nestedLists as $nestedList ) {
+            $nestedList->parentNode?->removeChild($nestedList);
+        }
+
+        return $this->innerHtml($content);
     }
 
     /**
