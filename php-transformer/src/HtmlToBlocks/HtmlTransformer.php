@@ -1241,9 +1241,7 @@ final class HtmlTransformer
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude))) . '}';
             $imageRule .= $this->runtimePresentationImageProjectionRules($declarations, $this->matchingAuthorSourceElements($prelude, $this->parsedCssSelector($prelude)));
-            // Margins on generated content belong to the generated box. Moving
-            // them to core/buttons would attach an arrow offset to the wrapper.
-            if ( array() === $margins || $this->authorSelectorTargetsGeneratedPseudoElement($prelude) ) {
+            if ( array() === $margins ) {
                 return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
             }
 
@@ -1647,7 +1645,8 @@ final class HtmlTransformer
 	private function authorSelectorCandidates(array $parsed): array
 	{
 		$compounds = $parsed['compounds'] ?? array();
-		$rightmost = $compounds[array_key_last($compounds)] ?? array();
+		$rightmostKey = array_key_last($compounds);
+		$rightmost = null === $rightmostKey ? array() : ($compounds[$rightmostKey] ?? array());
 		$candidates = array();
 		foreach ( $rightmost['ids'] ?? array() as $id ) {
 			$candidates[] = $this->authorStyleSourceElementsById[$id] ?? array();
