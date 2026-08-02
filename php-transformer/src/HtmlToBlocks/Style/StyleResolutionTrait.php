@@ -905,8 +905,10 @@ trait StyleResolutionTrait
             'border-radius',
             'border-style',
             'border-bottom-width',
+            'border-collapse',
             'border-left-width',
             'border-right-width',
+            'border-spacing',
             'border-top-width',
             'border-width',
             'box-shadow',
@@ -949,6 +951,7 @@ trait StyleResolutionTrait
             'text-align',
             'text-decoration',
             'text-transform',
+            'table-layout',
             'width',
             'z-index',
         ));

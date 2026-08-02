@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
@@ -254,6 +255,8 @@ $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact pat
 $assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
+$assert('assets/JOHN-OATES-‘ARKANSAS.jpg' === ArtifactPath::resolveRelativePath('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'artifact references resolve percent-encoded Unicode path segments to canonical artifact paths');
+$assert('' === ArtifactPath::resolveRelativePath('../assets%2flogo.png', 'pages/home.html'), 'artifact references reject encoded path separators');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
@@ -307,6 +310,9 @@ $assert(true === ($spanningTableClassification['signals']['has_colspan'] ?? null
 $simpleDataTableResult = ( new HtmlTransformer() )->transform('<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><tr><td>Ada</td><td>Engineer</td></tr></tbody></table>')->toArray();
 $assert('core/table' === ($simpleDataTableResult['blocks'][0]['blockName'] ?? null), 'simple data table converts to native core/table');
 $assert(str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), '<!-- wp:table'), 'simple data table serializes native table markup');
+$assert(false === ($simpleDataTableResult['blocks'][0]['attrs']['hasFixedLayout'] ?? null) && str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), '<table>') && ! str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), 'has-fixed-layout'), 'source-auto tables retain native automatic column sizing');
+$fixedSourceTableResult = ( new HtmlTransformer() )->transform('<style>table{table-layout:fixed}</style><table><tbody><tr><td>Fixed</td><td>Columns</td></tr></tbody></table>')->toArray();
+$assert(true === ($fixedSourceTableResult['blocks'][0]['attrs']['hasFixedLayout'] ?? null) && str_contains((string) ($fixedSourceTableResult['serialized_blocks'] ?? ''), '<table class="has-fixed-layout">'), 'explicit source fixed table layout retains native fixed layout');
 $styledTableResult = ( new HtmlTransformer() )->transform('<style>.services-table td.feature{width:40%;color:#123}.services-table tbody tr:last-child td:first-child{padding:12px}.services-table td.feature:hover{color:#456}.team-table th.role{font-weight:700}.multi-body tbody:nth-child(2) td{background:#eee}</style><table class="services-table"><tbody><tr><td>Label</td><td class="feature">Value</td></tr><tr><td>Last</td><td>Row</td></tr></tbody></table><table class="team-table"><thead><tr><th>Name</th><th class="role">Role</th></tr></thead></table><table class="multi-body"><tbody><tr><td>First</td></tr></tbody><tbody><tr><td>Second</td></tr></tbody></table>')->toArray();
 $styledTableMarkup = (string) ($styledTableResult['serialized_blocks'] ?? '');
 $styledTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $styledTableResult['assets'] ?? array()));
@@ -405,6 +411,24 @@ $assert('core/accordion' === (($detailsAccordionResult['blocks'][0] ?? array())[
 $assert(true === ($detailsAccordionItems[0]['attrs']['openByDefault'] ?? null), 'details open state maps to accordion item open state');
 $assert('Can I reschedule?' === ($detailsAccordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'details summary text maps to accordion heading');
 $assert('Yes, with notice.' === ($detailsAccordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'details body text maps to accordion panel');
+
+$openDetailsResult = ( new HtmlTransformer() )->transform('<details open><summary>Open summary</summary><p>Open content.</p></details>')->toArray();
+$openDetailsBlock = $openDetailsResult['blocks'][0] ?? array();
+$openDetailsMarkup = (string) ($openDetailsResult['serialized_blocks'] ?? '');
+$assert('core/details' === ($openDetailsBlock['blockName'] ?? null), 'open native details converts to core/details');
+$assert(true === ($openDetailsBlock['attrs']['showContent'] ?? null), 'open native details maps to the core/details showContent attribute');
+$assert(str_contains($openDetailsMarkup, '<details class="wp-block-details" open><summary>Open summary</summary>'), 'open native details serializes the frontend open attribute before its summary');
+$assert(strpos($openDetailsMarkup, '<summary>Open summary</summary>') < strpos($openDetailsMarkup, '<p>Open content.</p>'), 'open native details preserves summary before content through final serialization');
+$assert('pass' === ($openDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'open native details serialization remains Gutenberg-valid');
+
+$closedDetailsResult = ( new HtmlTransformer() )->transform('<details><summary>Closed summary</summary><p>Closed content.</p></details>')->toArray();
+$closedDetailsBlock = $closedDetailsResult['blocks'][0] ?? array();
+$closedDetailsMarkup = (string) ($closedDetailsResult['serialized_blocks'] ?? '');
+$assert('core/details' === ($closedDetailsBlock['blockName'] ?? null), 'closed native details converts to core/details');
+$assert(false === ($closedDetailsBlock['attrs']['showContent'] ?? false), 'closed native details keeps the core/details default closed state');
+$assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><summary>Closed summary</summary>'), 'closed native details serializes without the frontend open attribute');
+$assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
+$assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
 
 // A single disclosure widget (toggle control + collapsible region) carries no
 // faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
@@ -654,6 +678,19 @@ $contactLayout = ( new HtmlTransformer() )->transform(
 $assert(array() === ($contactLayout['fallbacks'] ?? array()), 'static contact layout decomposes without fallback diagnostics');
 $assert(0 === substr_count((string) ($contactLayout['serialized_blocks'] ?? ''), '<!-- wp:html'), 'static contact layout emits native blocks only');
 
+$canonicalLinkUrls = ( new HtmlTransformer() )->transform(
+    '<main><p><a href="hello@richlynngroup.com&nbsp;">Entity whitespace</a><a href="hello@richlynngroup.com' . "\xC2\xA0" . '">Literal whitespace</a><a href="mailto:hello@richlynngroup.com?subject=Hello">Mail query</a><a href="martinguitar.com">Bare domain</a><a href="https://example.test/?x=&amp;copy;">Literal entity query</a><a href="&quot;quoted.local&quot;@example.test">Quoted mailbox</a><a href="δοκιμή@παράδειγμα.δοκιμή">Unicode mailbox</a><a href="members/hello@richlynngroup.com/profile">Relative path</a><a href="java&#x0A;script&#58;alert(1)">Obfuscated script</a><a href="data&#58;text/plain,unsafe">Data</a><a href="vbscript&#58;msgbox(1)">VBScript</a></p><nav><a href="hello@richlynngroup.com">Email</a></nav></main>'
+)->toArray();
+$canonicalLinkMarkup = (string) ($canonicalLinkUrls['serialized_blocks'] ?? '');
+$canonicalNavigation = $canonicalLinkUrls['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['url'] ?? null;
+$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && str_contains($canonicalLinkMarkup, 'href="mailto:%22quoted.local%22@example.test"') && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, supports quoted and Unicode mailboxes, and rejects unsafe schemes');
+$assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
+$assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
+$safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
+foreach ( $safeLinkProtocols as $protocol ) $assert($protocol . ':value' === LinkUrlSanitizer::sanitize($protocol . ':value'), 'link sanitization permits WordPress-safe explicit scheme ' . $protocol);
+foreach ( array( '/relative/path', '../relative', '//example.test/path', '#fragment', '?query=value' ) as $relativeUrl ) $assert($relativeUrl === LinkUrlSanitizer::sanitize($relativeUrl), 'link sanitization preserves relative, protocol-relative, fragment, and query URLs');
+foreach ( array( 'data:text/plain,unsafe', 'vbscript:msgbox(1)', 'javascript:alert(1)', 'unknown:value', "java\nscript:alert(1)" ) as $unsafeUrl ) $assert('' === LinkUrlSanitizer::sanitize($unsafeUrl), 'link sanitization rejects unsafe or unknown explicit schemes and scheme obfuscation');
+
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
 )->toArray();
@@ -687,7 +724,7 @@ $emptyVisualCluster = ( new HtmlTransformer() )->transform(
 $emptyVisualItems = $emptyVisualCluster['blocks'][0]['innerBlocks'] ?? array();
 $emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyVisualCluster['assets'] ?? array()));
 $assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
-$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/group' !== ($block['blockName'] ?? '')), 'decorative cluster items use native core/group blocks');
+$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/spacer' !== ($block['blockName'] ?? '') || '10px' !== ($block['attrs']['height'] ?? '') || '10px' !== ($block['attrs']['width'] ?? '')), 'decorative cluster items use direct native spacer carriers with source dimensions');
 $assert(str_contains($emptyVisualCss, 'blocks-engine-semantic-') && str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}') && str_contains($emptyVisualCss, 'background:#ff5f57') && str_contains($emptyVisualCss, 'background:#ffbd2e') && str_contains($emptyVisualCss, 'background:#28ca41'), 'decorative cluster items preserve projected selectors, dimensions, and background paint through author CSS');
 $assert(! str_contains($emptyVisualCss, '!important'), 'decorative cluster translation does not introduce important declarations');
 
@@ -846,7 +883,7 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
 $assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), '100% source button width maps to the native core/button width attribute');
-$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta">'), '100% source button width emits canonical core/button width wrapper classes');
+$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta blocks-engine-native-button-'), '100% source button width emits canonical core/button width wrapper classes plus its scoped native style marker');
 $assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
 
 $cssVariableButton = ( new HtmlTransformer() )->transform(
@@ -1087,6 +1124,18 @@ $rubyQuote = $rubyResult['blocks'][0] ?? array();
 $assert(array() === ($rubyResult['fallbacks'] ?? array()), 'ruby phrasing content does not create unsupported fallbacks');
 $assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content remains inside quote block');
 $assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
+
+$quoteMarginResult = ( new HtmlTransformer() )->transform(
+    '<blockquote>Direct quote.</blockquote><blockquote><p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p></blockquote>'
+)->toArray();
+$directQuote = $quoteMarginResult['blocks'][0] ?? array();
+$sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
+$quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
+$quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"content":"Direct quote.","className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$assert(str_contains($quoteMarginCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
+$assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');
 
 $plaintextResult = ( new HtmlTransformer() )->transform(
     '<p>Before</p><PLAINTEXT>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</PLAINTEXT><p>After</p>'
@@ -3629,6 +3678,24 @@ $tooLarge = $compiler->compile(
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
 $assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
+
+$negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
+    'compiler_limits' => array(
+        'max_files' => PHP_INT_MAX,
+        'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+        'max_total_bytes' => PHP_INT_MAX,
+    ),
+    'files' => array(
+        'index.html' => '<main>OK</main>',
+        'large.txt' => str_repeat('x', ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1),
+    ),
+));
+$assert(2 === count($negotiatedLimits['files']), 'artifact compiler accepts files within explicitly negotiated limits');
+$assert(array(
+    'max_files' => ArtifactNormalizer::MAX_FILES,
+    'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+    'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
+) === ($negotiatedLimits['limits'] ?? null), 'artifact compiler clamps negotiated limits to hard resource ceilings');
 
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
