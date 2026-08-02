@@ -3932,7 +3932,8 @@ final class HtmlTransformer
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
         while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) ) {
+            $wrapperDeclarations = $this->cssDeclarations($this->attr($wrapper, 'style'));
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
@@ -4154,9 +4155,12 @@ final class HtmlTransformer
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
     }
 
-    private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
+    /**
+     * @param array<int, string> $excludedTags
+     */
+    private function richTextContentWithMaterializedInlineStyles(DOMElement $element, array $excludedTags = array()): string
     {
-        $content = $this->innerHtml($element);
+        $content = array() === $excludedTags ? $this->innerHtml($element) : $this->innerHtmlWithoutTags($element, $excludedTags);
         if ( '' === $content || ! preg_match('/<(?:span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
@@ -4175,6 +4179,11 @@ final class HtmlTransformer
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
             if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+                for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
+                    if ( in_array(strtolower($parent->tagName), $excludedTags, true) ) {
+                        continue 2;
+                    }
+                }
                 $sourceInlines[] = $sourceInline;
             }
         }
@@ -7341,7 +7350,7 @@ final class HtmlTransformer
                 }
             }
 
-            $content = $this->innerHtmlWithoutTags($child, array( 'ul', 'ol' ));
+            $content = $this->richTextContentWithMaterializedInlineStyles($child, array( 'ul', 'ol' ));
             if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
                 continue;
             }

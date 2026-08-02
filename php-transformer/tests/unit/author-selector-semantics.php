@@ -144,6 +144,16 @@ $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
 $assert(3 === substr_count($inlineMarkup, '<div class="wp-block-group blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain independent native wrapper identities and projected selector paths without HTML fallback');
 
+$groupInlineLeaves = $transform('<style>.stage-output{display:grid}.stage-output span{font-size:13px;display:inline-block;margin:2px}.stage-output strong{font-size:15px;display:block;margin:4px}</style><div class="stage-output"><span>Label</span><strong>Value</strong></div>');
+$groupInlineMarkup = (string) ($groupInlineLeaves['serialized_blocks'] ?? '');
+$groupInlineCss = $css($groupInlineLeaves);
+$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{margin:2px}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{margin:4px}'), 'native Group inline leaves retain projected typography, display, and margin declarations through their valid paragraph carriers');
+
+$listInlineLeaves = $transform('<style>.maintenance-loop{display:grid}.maintenance-loop li > span{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e8a020}</style><ul class="maintenance-loop"><li><span>Build</span></li><li><span>Verify</span><ul><li><span>Nested</span></li></ul></li></ul>');
+$listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
+$listInlineCss = $css($listInlineLeaves);
+$assert(3 === substr_count($listInlineMarkup, '--blocks-engine-richtext-marker:') && str_contains($listInlineCss, 'width:10px;height:10px;border-radius:50%;background:#e8a020') && 3 === substr_count($listInlineCss, 'mark[style*="--blocks-engine-richtext-marker:') && str_contains($listInlineMarkup, '>Build</mark>') && str_contains($listInlineMarkup, '>Verify</mark><!-- wp:list -->') && str_contains($listInlineMarkup, '>Nested</mark>') && 'pass' === ($listInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'native List/Grid direct span circles retain projected selector markers while nested list content stays in its own list item');
+
 $repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
 $repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
 $repeatedCss = $css($repeatedParents);
