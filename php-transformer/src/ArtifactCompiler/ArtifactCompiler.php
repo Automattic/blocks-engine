@@ -1640,7 +1640,7 @@ final class ArtifactCompiler
             $listClasses = $stableListClasses;
         }
         $tail = preg_replace(
-            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(\.blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
+            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
             '.wp-block-navigation-item',
             $tail
         ) ?? $tail;

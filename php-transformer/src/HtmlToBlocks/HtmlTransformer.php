@@ -1533,7 +1533,10 @@ final class HtmlTransformer
         }
 
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . '>table>' . $path . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
+        // Use the real isolated table marker rather than :where() so the exact
+        // cell path beats core's .wp-block-table td/th defaults without a global
+        // Gutenberg override.
+        return '.' . $marker . '>table>' . $path . $this->selectorSpecificityShims($parsed) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1680,7 +1683,7 @@ final class HtmlTransformer
 
     private function typeSpecificityShim(): string
     {
-        return '' === $this->authorSpecificityShim ? '' : ':not(.' . $this->authorSpecificityShim . ')';
+        return '' === $this->authorSpecificityShim ? '' : ':not(' . $this->authorSpecificityShim . ')';
     }
 
     /** @param array<string, mixed> $parsed */
