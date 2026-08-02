@@ -362,6 +362,19 @@ $assert(! str_contains((string) ($base64Plan['pages'][0]['canonical_block_markup
 $assert('base64' === ($base64Writes['assets/website/files/theme/images/default-bg.jpg']['payload']['encoding'] ?? null) && $base64Binary === base64_decode((string) ($base64Writes['assets/website/files/theme/images/default-bg.jpg']['payload']['data'] ?? ''), true), 'Base64-transported binary assets remain byte-for-byte base64 writes.');
 $assert('base64' === ($base64Writes['assets/website/files/app.js']['payload']['encoding'] ?? null) && 'const replacement = "$1";' === base64_decode((string) ($base64Writes['assets/website/files/app.js']['payload']['data'] ?? ''), true), 'Base64-transported scripts retain their opaque transport and bytes.');
 $assert('utf8' === ($base64Writes['assets/website/files/plain.js']['payload']['encoding'] ?? null), 'UTF-8 scripts remain materializable without applying HTML and CSS reference parsing to JavaScript syntax.');
+$emptyVisualLeaves = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => array(
+    'website/index.html' => '<link rel="stylesheet" href="css/site.css"><main><div class="fallback-model"><div><span class="signal green"></span><strong>Green</strong></div><div><span class="signal amber"></span><strong>Amber</strong></div><div><span class="signal purple"></span><strong>Purple</strong></div><div><span class="signal red"></span><strong>Red</strong></div><span class="transparent-noise"></span><span class="zero-size-noise"></span><span class="transparent-border-noise"></span></div></main>',
+    'website/css/site.css' => '.fallback-model{display:grid}.signal{display:block;width:24px;height:4px;border-radius:999px}.signal.green{background:#1f6b4f}.signal.amber{background:#ff8d62}.signal.purple{background:#7866d5}.signal.red{background:#d85f56}.transparent-noise{display:block;width:24px;height:4px;background:transparent}.zero-size-noise{display:block;width:0;height:4px;background:#111}.transparent-border-noise{display:block;width:24px;height:4px;border:1px solid transparent}',
+)))->toArray();
+$emptyVisualLeavesPlan = $emptyVisualLeaves['source_reports']['wordpress_site_plan'] ?? array();
+$emptyVisualLeavesMarkup = (string) ($emptyVisualLeavesPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(4 === substr_count($emptyVisualLeavesMarkup, 'wp-block-group signal'), 'Linked stylesheet preserves each bounded, painted empty visual leaf without class-name heuristics.');
+$assert(str_contains($emptyVisualLeavesMarkup, 'signal green') && str_contains($emptyVisualLeavesMarkup, 'signal amber') && str_contains($emptyVisualLeavesMarkup, 'signal purple') && str_contains($emptyVisualLeavesMarkup, 'signal red'), 'Linked stylesheet preserves the final native save shape for each visual leaf.');
+$assert(! str_contains($emptyVisualLeavesMarkup, 'transparent-noise'), 'Transparent empty leaves remain dropped.');
+$assert(! str_contains($emptyVisualLeavesMarkup, 'zero-size-noise'), 'Zero-size empty leaves remain dropped.');
+$assert(! str_contains($emptyVisualLeavesMarkup, 'transparent-border-noise'), 'Transparent-border empty leaves remain dropped.');
+$assert(! str_contains($emptyVisualLeavesMarkup, '<!-- wp:html'), 'Bounded visual leaves retain native Gutenberg blocks without core/html fallback.');
+WordPressSitePlan::assertValid($emptyVisualLeavesPlan);
 $rootResolved = (new WordPressSitePlanResolver())->resolve($rootPlan, array('theme_uri' => 'https://example.test/wp-content/themes/root'));
 $assert(true === (static function () use ($rootResolved): bool { WordPressSitePlan::assertValid($rootResolved); return true; })(), 'Public validation accepts root-relative metadata resolutions with query and fragment suffixes.');
 $rootResolvedPage = $rootResolved['pages'][0] ?? array();
