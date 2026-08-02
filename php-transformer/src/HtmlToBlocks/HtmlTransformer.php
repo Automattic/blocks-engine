@@ -3558,8 +3558,7 @@ final class HtmlTransformer
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
-        if ( ! $this->isDirectChildOfStructuralLayout($element)
-            || ! $this->isInlineContentElement(strtolower($element->tagName))
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName))
             || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
             return false;
         }
@@ -3576,6 +3575,10 @@ final class HtmlTransformer
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( 'block' === $display ) {
             return true;
+        }
+
+        if ( ! $this->isDirectChildOfStructuralLayout($element) ) {
+            return false;
         }
 
         foreach ( array( 'grid-column', 'grid-row', 'order', 'align-self', 'justify-self', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $property ) {
