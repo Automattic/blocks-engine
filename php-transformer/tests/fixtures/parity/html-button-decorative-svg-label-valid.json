@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-phone", "url": "tel:+16165550182" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-phone blocks-engine-native-button-alignment-start", "url": "tel:+16165550182" } }
   ],
   "expected_fallbacks": [],
   "expect": [

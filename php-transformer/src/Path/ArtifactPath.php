@@ -37,6 +37,10 @@ final class ArtifactPath
         $base = '' === $sourcePath || ! str_contains($sourcePath, '/') ? '' : dirname($sourcePath) . '/';
         $parts = array();
         foreach ( explode('/', $base . $reference) as $part ) {
+			$part = rawurldecode($part);
+			if ( str_contains($part, '/') || str_contains($part, '\\') ) {
+				return '';
+			}
             if ( '' === $part || '.' === $part ) {
                 continue;
             }

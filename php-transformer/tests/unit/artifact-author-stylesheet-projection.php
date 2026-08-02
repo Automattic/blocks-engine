@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
@@ -83,7 +84,7 @@ $standaloneFallback = ( new ArtifactCompiler() )->compile(array( 'files' => arra
 $standaloneFallbackMarkup = (string) ($standaloneFallback['serialized_blocks'] ?? '');
 $standaloneFallbackCss = implode("\n", array_column(array_filter($standaloneFallback['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $standaloneFallbackValidity = ( new HtmlTransformer() )->transform('<style>.card-grid{display:grid}.fallback-card > strong{display:block;margin:12px 0 4.8px}</style><div class="card-grid"><div class="fallback-card"><strong>index.html</strong></div></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>')->toArray();
-$assert(str_contains($standaloneFallbackMarkup, '<div class="wp-block-group fallback-card"><!-- wp:paragraph {"className":"blocks-engine-inline-layout-carrier"') && str_contains($standaloneFallbackMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>index.html</strong></p>') && ! str_contains($standaloneFallbackMarkup, '<p class="fallback-card"') && ! str_contains($standaloneFallbackMarkup, 'wp:html'), 'ordinary fallback cards retain their direct standalone strong in a core paragraph carrier when only a grandparent establishes grid');
+$assert(str_contains($standaloneFallbackMarkup, '<div class="wp-block-group fallback-card blocks-engine-css-owned-layout"><!-- wp:paragraph {"className":"blocks-engine-inline-layout-carrier"') && str_contains($standaloneFallbackMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>index.html</strong></p>') && ! str_contains($standaloneFallbackMarkup, '<p class="fallback-card"') && ! str_contains($standaloneFallbackMarkup, 'wp:html'), 'ordinary fallback cards retain CSS-owned group behavior and their direct standalone strong in a core paragraph carrier when only a grandparent establishes grid');
 $assert(str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{display:block}') && str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{margin:12px 0 4.8px}') && str_contains($standaloneFallbackCss, ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}') && str_contains($standaloneFallbackMarkup, '<p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>') && 'pass' === ($standaloneFallbackValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone fallback carrier preserves authored block margins while ordinary prose remains valid native RichText');
 
 $standaloneAnchorCarriers = ( new ArtifactCompiler() )->compile(array( 'files' => array(
@@ -183,6 +184,33 @@ $multiPageAuthorAssets = array_values(array_filter($multiPage['assets'] ?? array
 $assert(1 === count($multiPageAuthorAssets), 'identical generated author stylesheets are emitted once across HTML routes');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
+$externalLayouts = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="styles.css"><main><div class="hero-visual"><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span>styles.css</span><span>assets/</span></div></div></main>' ),
+        array( 'path' => 'styles.css', 'kind' => 'css', 'content' => '.hero-visual{display:grid;gap:2rem}.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > span:not(.card-label){grid-column:2}.artifact-card > strong{grid-column:1}.artifact-card .card-label{grid-column:1 / -1}' ),
+    ),
+) )->toArray();
+$externalLayoutPage = (string) ($externalLayouts['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
+$externalLayoutCard = $externalLayouts['blocks'][0]['innerBlocks'][0] ?? array();
+$externalLayoutCardChildren = $externalLayoutCard['innerBlocks'] ?? array();
+$externalLayoutCss = implode("\n", array_column($externalLayouts['assets'] ?? array(), 'content'));
+$assert(
+    str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-flow')
+    && str_contains($externalLayoutPage, 'artifact-card blocks-engine-css-owned-layout')
+    && ! str_contains($externalLayoutPage, 'is-layout-grid')
+    && 4 === count($externalLayoutCard['innerBlocks'] ?? array())
+    && 'core/paragraph' === ($externalLayoutCardChildren[0]['blockName'] ?? '')
+    && 'core/group' === ($externalLayoutCardChildren[1]['blockName'] ?? '')
+    && str_contains((string) ($externalLayoutCardChildren[1]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
+    && 'core/paragraph' === ($externalLayoutCardChildren[1]['innerBlocks'][0]['blockName'] ?? '')
+    && 4 <= substr_count($externalLayoutPage, 'blocks-engine-semantic-')
+    && str_contains($externalLayoutCss, ':where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
+    && ! str_contains($externalLayoutCss, '.artifact-card > span:not(.card-label)')
+    && ! str_contains($externalLayoutCss, '.artifact-card > strong'),
+    'linked implicit and explicit grids retain valid semantic layout-item carriers with neutralized generated paragraph flow in canonical site-plan markup'
+);
+
 // Collapsed-paragraph cascade isolation via the source-`p` tag marker. A shared
 // stylesheet carries a descendant-`p` body-copy rule (`.page-header p`) and an
 // eyebrow (`.label`) that collapses to a paragraph. The projected `.page-header
@@ -202,6 +230,83 @@ $collapseCss = implode("\n", array_map(static fn (array $asset): string => (stri
 $assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
 $assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
 $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
+$listStyles = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><ol class="pipeline maintenance-loop"><li class="stage"><div class="stage-copy">Build source<p>Maintenance detail</p><ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.stage-copy{display:grid}.maintenance-loop li > div > p{margin:.25rem 0 0;color:#c8ded3;font-size:.78rem}.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.check-list li::before{content:"x";position:absolute;left:0}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}.chips li:hover{color:#123456}' ),
+    ),
+) )->toArray();
+$findBlocks = static function (array $blocks, string $name) use (&$findBlocks): array {
+    $found = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( $name === ($block['blockName'] ?? '') ) {
+            $found[] = $block;
+        }
+        $found = array_merge($found, $findBlocks($block['innerBlocks'] ?? array(), $name));
+    }
+    return $found;
+};
+$listStyleItems = $findBlocks($listStyles['blocks'] ?? array(), 'core/list-item');
+$listStyleCss = implode("\n", array_column($listStyles['assets'] ?? array(), 'content'));
+$listStyleMarkup = (string) ($listStyles['serialized_blocks'] ?? '');
+$assert(1 === count($findBlocks($listStyles['blocks'] ?? array(), 'core/list')) && 1 === count($listStyleItems) && ! str_contains($listStyleMarkup, '<!-- wp:html'), 'wrapped nested lists remain inside the native outer list item without sibling core/list extraction');
+$outerListItem = $listStyleItems[0] ?? array();
+$outerContent = (string) ($outerListItem['attrs']['content'] ?? '');
+$assert(! isset($outerListItem['attrs']['style']['spacing']['padding']['left']) && ! isset($outerListItem['attrs']['style']['typography']['fontSize']) && preg_match('/<div class="stage-copy blocks-engine-source-div-[a-f0-9]+-\d+">Build source<p class="blocks-engine-source-p-[a-f0-9]+-\d+">Maintenance detail<\/p><ul class="chips"><li class="blocks-engine-source-li-[a-f0-9]+-\d+">HTML<\/li><\/ul><ul class="check-list"><li class="blocks-engine-source-li-[a-f0-9]+-\d+">Verified delivery<\/li><\/ul><\/div>/', $outerContent) === 1, 'wrapped source-tag descendants retain provenance inside the stage-copy topology rather than moving beside it');
+$assert(str_contains($listStyleCss, '.stage-copy{display:grid}') && str_contains($listStyleCss, ':where(.blocks-engine-source-p-') && str_contains($listStyleCss, 'margin:.25rem 0 0') && str_contains($listStyleCss, ':where(.blocks-engine-source-li-') && str_contains($listStyleCss, 'position:relative') && str_contains($listStyleCss, '.check-list :where(.blocks-engine-source-li-') && str_contains($listStyleCss, '::before') && str_contains($listStyleCss, ':hover{color:#123456}'), 'projected author CSS continues to address retained rich descendants, nested list leaves, and pseudo-elements');
+$assert(isset($listStyles['source_reports']['wordpress_site_plan']) && str_contains((string) ($listStyles['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:list-item'), 'external list-item styling survives artifact compilation into the canonical WordPress site plan');
+$listStyleValidity = ( new HtmlTransformer() )->transform(
+    '<main><ol class="pipeline maintenance-loop"><li class="stage"><div class="stage-copy">Build source<p>Maintenance detail</p><ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>',
+    array( 'static_css' => '.stage-copy{display:grid}.maintenance-loop li > div > p{margin:.25rem 0 0;color:#c8ded3;font-size:.78rem}.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}' )
+)->toArray();
+$assert('pass' === ($listStyleValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'resolved external list-item styles serialize as Gutenberg-valid native blocks');
+$directNestedList = ( new HtmlTransformer() )->transform('<ol><li>Stage<ul><li>Leaf</li></ul></li></ol>')->toArray();
+$assert(2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list')) && 2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list-item')), 'direct-child nested lists continue to serialize as native nested list blocks');
+
+$nativeTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><thead><tr><th>Layer</th><th>Owns</th></tr></thead><tbody><tr><th>Blocks Engine</th><td>Compilation</td></tr><tr><th>Importer</th><td><div class="paragraph">Materialization</div></td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'th,td{padding:1.35rem 1rem;vertical-align:top}thead th{font-size:.66rem;text-transform:uppercase}tbody th{width:22%;font-size:.9rem}tbody td{width:39%;color:#4c5851;font-size:.86rem}div.paragraph{padding-bottom:20px}' ),
+    ),
+) )->toArray();
+$nativeTableMarkup = (string) ($nativeTable['serialized_blocks'] ?? '');
+$nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'table.css' === ($asset['path'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)"><table/', $nativeTableMarkup, $nativeTableMarker) === 1 && str_contains($nativeTableMarkup, '<!-- wp:table'), 'external table stylesheet retains a native core/table with an isolated projection marker');
+$assert(str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(1)>th:nth-child(1):not(blocks-engine-specificity-') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2):not(blocks-engine-specificity-') && ! str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors use an isolated table class and exact path that beats .wp-block-table td/th defaults');
+$assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativeTableCss, 'width:22%') && str_contains($nativeTableCss, 'width:39%'), 'thead and tbody cell selectors retain their external stylesheet presentation');
+$assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
+
+$tableNormalization = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><div class="table-wrap"><table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Body</td></tr></tbody></table></div></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => '.table-wrap{margin-bottom:2rem}table{margin:3rem 0;border-collapse:collapse;border-spacing:0}th,td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?? '');
+$tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
+$tableCellReset = '.' . ($tableNormalizationMarker[1] ?? '') . '>table th,.' . ($tableNormalizationMarker[1] ?? '') . '>table td{border:0}';
+$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(1)';
+$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableBottomBorder) < strpos($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides while the more-specific projected bottom-only rules restore the source geometry');
+$assert(str_contains($tableNormalizationCss, '.table-wrap{margin-bottom:2rem}') && str_contains($tableNormalizationCss, 'table{margin:3rem 0}') && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain in the source stylesheet rather than becoming a broad table override');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');
+
+$borderedTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><tbody><tr><td>Framed</td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'table{border:2px solid #123456;border-collapse:collapse}td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$borderedTableMarkup = (string) ($borderedTable['serialized_blocks'] ?? '');
+$borderedTableCss = implode("\n", array_column(array_filter($borderedTable['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $borderedTableMarkup, $borderedTableMarker) === 1 && str_contains($borderedTableCss, '.' . ($borderedTableMarker[1] ?? '') . '>table th,.' . ($borderedTableMarker[1] ?? '') . '>table td{border:0}') && str_contains($borderedTableCss, 'table{border:2px solid #123456;border-collapse:collapse}'), 'authored table borders retain their outer frame while generated cell borders are reset');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($borderedTableMarkup)['status'], 'authored bordered tables remain editor-valid');
 
 if ( $failures > 0 ) {
     exit(1);

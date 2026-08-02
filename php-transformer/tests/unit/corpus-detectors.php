@@ -199,15 +199,15 @@ $assert(0 === count($vetoed), '4d: a vertical-flex candidate that does not becom
 
 // 4e. Regression guard for the fix: the live transformer must route a vertical
 //     flex container (display:flex; flex-direction:column) to a vertical
-//     editable author-layout block, not a horizontal core/columns. With the real transformer as
+//     core/group block, not a horizontal core/columns. With the real transformer as
 //     the verifier the detector therefore finds nothing.
 $verticalBlocks = ( new HtmlTransformer() )->transform($verticalFlex, array())->toArray()['blocks'] ?? array();
 $assert(
-    'blocks-engine/author-layout' === ($verticalBlocks[0]['blockName'] ?? ''),
-    '4e: live transformer emits an author layout block for a vertical flex container',
+    'core/group' === ($verticalBlocks[0]['blockName'] ?? ''),
+    '4e: live transformer emits a core group block for a vertical flex container',
     (string) ($verticalBlocks[0]['blockName'] ?? '(none)')
 );
-$assert(! isset($verticalBlocks[0]['attrs']['layout']), '4e: author layout carries no core layout orientation');
+$assert(! isset($verticalBlocks[0]['attrs']['layout']), '4e: CSS-owned group carries no core layout orientation');
 $liveLayout = CorpusDetectors::layoutDirectionMisrecognition(
     $verticalFlex,
     static function (string $fragment): bool {
@@ -218,11 +218,11 @@ $liveLayout = CorpusDetectors::layoutDirectionMisrecognition(
 );
 $assert(0 === count($liveLayout), '4e: detector reports no misrecognition once the transformer stacks the flex column vertically', 'got ' . count($liveLayout));
 
-// 4f. Horizontal flex is also source CSS-owned and uses the same companion.
+// 4f. Horizontal flex is also source CSS-owned and uses the same core group contract.
 $horizontalColumns = '<div style="display:flex; gap:1rem;"><div><h2>A</h2><p>one</p></div><div><h2>B</h2><p>two</p></div></div>';
 $horizontalBlocks = ( new HtmlTransformer() )->transform($horizontalColumns, array())->toArray()['blocks'] ?? array();
 $assert(
-    'blocks-engine/author-layout' === ($horizontalBlocks[0]['blockName'] ?? ''),
+    'core/group' === ($horizontalBlocks[0]['blockName'] ?? ''),
     '4f: live transformer keeps horizontal flex under author CSS ownership',
     (string) ($horizontalBlocks[0]['blockName'] ?? '(none)')
 );

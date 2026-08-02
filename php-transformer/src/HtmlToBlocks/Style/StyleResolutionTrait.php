@@ -905,8 +905,10 @@ trait StyleResolutionTrait
             'border-radius',
             'border-style',
             'border-bottom-width',
+            'border-collapse',
             'border-left-width',
             'border-right-width',
+            'border-spacing',
             'border-top-width',
             'border-width',
             'box-shadow',
@@ -944,12 +946,14 @@ trait StyleResolutionTrait
             'padding-left',
             'padding-right',
             'padding-top',
+            'place-items',
             'position',
             'row-gap',
             'text-align',
             'text-decoration',
             'text-decoration-line',
             'text-transform',
+            'table-layout',
             'width',
             'z-index',
         ));
@@ -1091,7 +1095,7 @@ trait StyleResolutionTrait
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && preg_match('/(?:^|;)\s*grid-template-columns\s*:/', $style) ) {
+            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
 

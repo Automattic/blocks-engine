@@ -13,6 +13,20 @@ final class CssSelectorMatcher
      * @return array{supported: bool, reason: string|null, compounds: list<array<string, mixed>>, combinators: list<string>, type_spans: list<array{start: int, end: int, name: string, compound: int}>, rightmost_compound_span: array{start: int, end: int}|null, pseudo_state_suffix_span: array{start: int, end: int}|null, rightmost_rewrite_end: int|null}
      */
     public static function parse(string $selector): array
+	{
+		static $cache = array();
+		if ( array_key_exists($selector, $cache) ) {
+			return $cache[$selector];
+		}
+		$parsed = self::parseUncached($selector);
+		if ( count($cache) < 10000 ) {
+			$cache[$selector] = $parsed;
+		}
+		return $parsed;
+	}
+
+	/** @return array<string, mixed> */
+	private static function parseUncached(string $selector): array
     {
         if ( 1 !== preg_match('//u', $selector) ) {
             return self::unsupported('invalid-utf8');

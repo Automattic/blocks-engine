@@ -37,6 +37,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageE
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -383,11 +384,15 @@ final class HtmlTransformer
 
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
+    private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
+
+    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
 
-    private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+    private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
@@ -430,6 +435,24 @@ final class HtmlTransformer
 
     /** @var list<DOMElement> */
     private array $authorStyleSourceElements = array();
+
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsByTag = array();
+
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsById = array();
+
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsByClass = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceTags = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceIds = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceClasses = array();
 
     /** @var array<string, list<DOMElement>> */
     private array $authorSourceSelectorMatches = array();
@@ -537,6 +560,12 @@ final class HtmlTransformer
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
         $this->authorStyleSourceElements = array();
+		$this->authorStyleSourceElementsByTag = array();
+		$this->authorStyleSourceElementsById = array();
+		$this->authorStyleSourceElementsByClass = array();
+		$this->authorStyleSourceTags = array();
+		$this->authorStyleSourceIds = array();
+		$this->authorStyleSourceClasses = array();
         $this->authorSourceSelectorMatches = array();
         $this->parsedCssSelectors = array();
         $this->authorMarkerSeed = '';
@@ -881,8 +910,23 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $cssParts[] = ':where(.' . self::CSS_OWNED_FLOW_CLASS . ')>p{margin-top:0;margin-bottom:0}';
         }
+        if ( str_contains($serializedBlocks, self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
+            // Positioned fragment links retain their source anchor and selectors;
+            // their valid paragraph host must not create a line box in document flow.
+            $cssParts[] = ':where(.' . self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
+        }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
+            // Core flow spacing is not part of a source grid or flex contract.
+            // This precedes author CSS so source child margins remain authoritative.
+            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
+            // A semantic Group used as a direct grid/flex item contains native
+            // paragraph blocks. Neutralize only those generated inner defaults.
+            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
@@ -956,32 +1000,48 @@ final class HtmlTransformer
         }
 
         $this->authorStyleSourceBody = $sourceBody;
+		for ( $ancestor = $sourceBody; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+			$this->recordAuthorSelectorSignals($ancestor);
+		}
         foreach ( $sourceBody->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement ) {
                 $this->authorStyleSourceElements[] = $element;
+				$this->recordAuthorSelectorSignals($element);
+				$this->authorStyleSourceElementsByTag[strtolower($element->tagName)][] = $element;
+				$id = $this->attr($element, 'id');
+				if ( '' !== $id ) {
+					$this->authorStyleSourceElementsById[$id][] = $element;
+				}
+				foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+					if ( '' !== $class ) {
+						$this->authorStyleSourceElementsByClass[$class][] = $element;
+					}
+				}
             }
         }
 
-        $sourceTagSelectorNames = array();
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
-                foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
-                    $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
-                        $sourceTagSelectorNames[ $tagName ] = true;
-                    }
-                }
-            }
-            return $prelude;
-        });
+		$sourceTagSelectorNames = array();
+		$authorSelectors = array();
+		( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames, &$authorSelectors): string {
+			foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+				$parsed = $this->parsedCssSelector($selector);
+				$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
+				foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
+					$tagName = strtolower($typeSpan['name']);
+					if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
+						$sourceTagSelectorNames[$tagName] = true;
+					}
+				}
+			}
+			return $prelude;
+		});
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
-        $this->discoverAuthorControlPaths();
-        $this->discoverAuthorInlineSemanticPaths();
-        $this->discoverAuthorRootChildPaths();
-        $this->discoverAuthorTablePaths();
+		$this->discoverAuthorControlPaths($authorSelectors);
+		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
+		$this->discoverAuthorRootChildPaths($authorSelectors);
+		$this->discoverAuthorTablePaths($authorSelectors);
         $this->sourceBodyProjectionClasses = $this->referencedSourceBodyClasses($sourceBody);
     }
 
@@ -994,11 +1054,12 @@ final class HtmlTransformer
         }));
     }
 
-    private function discoverAuthorControlPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorControlPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
@@ -1013,28 +1074,35 @@ final class HtmlTransformer
                         $this->sourceControlPaths[$path] = true;
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorInlineSemanticPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorInlineSemanticPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
                 foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                    if ( 'span' !== strtolower($element->tagName) ) {
+                    $inlineTag = strtolower($element->tagName);
+                    $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
+                    $directAuthorLayoutItem = $directChildSelector && $this->isDirectChildOfAuthorOwnedLayout($element);
+                    if ( ! $this->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
                         continue;
                     }
                     $path = $this->sourceElementIdentity($element);
                     if ( '' === $path ) {
                         continue;
                     }
-                    if ( $this->requiresIndependentSemanticWrapper($element) ) {
+                    // list-item content serializes through RichText, so direct layout
+                    // children need a marker carrier that survives its normalization.
+                    if ( $this->ancestorElement($element, 'li') instanceof DOMElement && $this->richTextSelectorNeedsHook($parsed) ) {
+                        $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
+                        $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                    } elseif ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
                         if ( '' !== $path ) {
                             $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
                         }
@@ -1045,16 +1113,15 @@ final class HtmlTransformer
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorRootChildPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorRootChildPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] || ! $this->isRootChildSelector($parsed) ) {
                     continue;
                 }
@@ -1067,16 +1134,15 @@ final class HtmlTransformer
                         $this->sourceRootChildMarkers[$path] ??= $this->allocateAuthorMarker('root-child');
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorTablePaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorTablePaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
@@ -1096,9 +1162,7 @@ final class HtmlTransformer
                         $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1490,14 +1554,74 @@ final class HtmlTransformer
         if ( array_key_exists($selector, $this->authorSourceSelectorMatches) ) {
             return $this->authorSourceSelectorMatches[$selector];
         }
+		if ( ! $this->authorSelectorCanMatch($parsed) ) {
+			return $this->authorSourceSelectorMatches[$selector] = array();
+		}
         $matches = array();
-        foreach ( $this->authorStyleSourceElements as $element ) {
+        foreach ( $this->authorSelectorCandidates($parsed) as $element ) {
             if ( CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
                 $matches[] = $element;
             }
         }
         return $this->authorSourceSelectorMatches[$selector] = $matches;
     }
+
+	/** @param array<string, mixed> $parsed @return list<DOMElement> */
+	private function authorSelectorCandidates(array $parsed): array
+	{
+		$compounds = $parsed['compounds'] ?? array();
+		$rightmost = $compounds[array_key_last($compounds)] ?? array();
+		$candidates = array();
+		foreach ( $rightmost['ids'] ?? array() as $id ) {
+			$candidates[] = $this->authorStyleSourceElementsById[$id] ?? array();
+		}
+		foreach ( $rightmost['classes'] ?? array() as $class ) {
+			$candidates[] = $this->authorStyleSourceElementsByClass[$class] ?? array();
+		}
+		if ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
+			$candidates[] = $this->authorStyleSourceElementsByTag[strtolower($rightmost['type'])] ?? array();
+		}
+		if ( array() === $candidates ) {
+			return $this->authorStyleSourceElements;
+		}
+		usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
+		return $candidates[0];
+	}
+
+	/** @param array<string, mixed> $parsed */
+	private function authorSelectorCanMatch(array $parsed): bool
+	{
+		foreach ( $parsed['compounds'] ?? array() as $compound ) {
+			if ( is_string($compound['type'] ?? null) && '' !== $compound['type'] && ! isset($this->authorStyleSourceTags[strtolower($compound['type'])]) ) {
+				return false;
+			}
+			foreach ( $compound['ids'] ?? array() as $id ) {
+				if ( ! isset($this->authorStyleSourceIds[$id]) ) {
+					return false;
+				}
+			}
+			foreach ( $compound['classes'] ?? array() as $class ) {
+				if ( ! isset($this->authorStyleSourceClasses[$class]) ) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	private function recordAuthorSelectorSignals(DOMElement $element): void
+	{
+		$this->authorStyleSourceTags[strtolower($element->tagName)] = true;
+		$id = $this->attr($element, 'id');
+		if ( '' !== $id ) {
+			$this->authorStyleSourceIds[$id] = true;
+		}
+		foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+			if ( '' !== $class ) {
+				$this->authorStyleSourceClasses[$class] = true;
+			}
+		}
+	}
 
     /** @param array<string, mixed> $parsed */
     private function rewriteSourceTagTypes(string $selector, array $parsed, string $rightmostInsertion = ''): string
@@ -1568,7 +1692,10 @@ final class HtmlTransformer
         }
 
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . '>table>' . $path . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
+        // Use the real isolated table marker rather than :where() so the exact
+        // cell path beats core's .wp-block-table td/th defaults without a global
+        // Gutenberg override.
+        return '.' . $marker . '>table>' . $path . $this->selectorSpecificityShims($parsed) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1593,6 +1720,14 @@ final class HtmlTransformer
                     $attributes[$attribute['name']] = true;
                 }
             }
+        }
+
+        // core/table serializes anonymous cells directly instead of through
+        // createBlock(), so scope bare th/td selectors to their native position.
+        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true)
+            && array() === $classes && array() === $ids && array() === $attributes
+        ) {
+            return true;
         }
 
         for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
@@ -2129,16 +2264,6 @@ final class HtmlTransformer
     {
         $tagName = strtolower($element->tagName);
 
-        if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'a', 'button' ), true) ) {
-            if ( $this->authorLayoutLeafSupportsRichText($element) ) {
-                $leaf = $this->authorLayoutLeafBlockFromElement($element);
-                if ( null !== $leaf ) {
-                    return $leaf;
-                }
-            }
-            return $this->authorLayoutBlockFromElement($element, $fallbacks);
-        }
-
         // A direct phrasing child participates in its parent's flex or grid
         // layout. Preserve that source element as the editable leaf rather
         // than introducing a paragraph wrapper with core paragraph margins.
@@ -2207,7 +2332,7 @@ final class HtmlTransformer
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
             }
-            if ( $this->hasEmptyVisualInlineChild($element) ) {
+            if ( $this->hasEmptyVisualInlineChild($element) && $this->hasBoxChromeWrapperStyling($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
@@ -2310,7 +2435,7 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                    return $this->emptyVisualSpacerBlock($element);
                 }
 
                 return null;
@@ -2720,32 +2845,26 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            if ( 'button' !== strtolower($this->attr($element, 'role')) && $this->isAuthorOwnedLayout($element) ) {
-                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
-                if ( null !== $inlineContent ) {
-                    return $inlineContent;
-                }
+            if ( 'button' !== strtolower($this->attr($element, 'role'))
+                && ! $this->hasClass($element, 'wp-block-columns')
+                && $this->isAuthorOwnedLayout($element)
+            ) {
                 if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
                     $attrs = $this->presentationAttributes($element);
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_CLASS, self::CSS_OWNED_FLOW_CLASS);
                     return $this->createBlock('core/group', $attrs, $this->convertChildren($element, $fallbacks, true), $element);
                 }
-                $textFlow = $this->textFlowBlockFromElement($element);
-                if ( null !== $textFlow ) {
-                    return $textFlow;
-                }
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
             // A direct child of an author-owned layout is itself a layout item.
-            // Keep representable container tags as groups before visual-text and
-            // card heuristics can collapse the source child boundary.
+            // Keep its semantic container instead of allowing a core Group to
+            // contribute flow layout defaults to the author-owned parent.
             if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                $attrs = array() === $children && $this->shouldPreserveEmptyVisualElement($element)
-                    ? $this->emptyVisualElementAttributes($element)
-                    : $this->presentationAttributes($element);
-                return $this->createBlock('core/group', $attrs, $children, $element);
+                if ( 0 === $this->childElementCount($element) && '' === trim($element->textContent) && $this->shouldPreserveEmptyVisualElement($element) ) {
+                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                }
+                return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
             $logo = $this->logoPattern->match(
@@ -2908,7 +3027,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                return $this->emptyVisualSpacerBlock($element);
             }
             return null;
         }
@@ -3106,26 +3225,51 @@ final class HtmlTransformer
             if ( '' !== $projectionClassName ) {
                 $attrs['className'] = $projectionClassName;
             }
+            if ( 'core/group' === $name
+                && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                && $this->hasAuthorSemanticMarker($sourceElement)
+            ) {
+                $attrs['className'] = $this->mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    self::CSS_OWNED_LAYOUT_ITEM_CLASS
+                );
+            }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
-            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
-                $path = $logicalControl->getNodePath() ?? '';
-                if ( '' !== $path && ! isset($this->sourceControlMarkers[$path]) ) {
-                    $this->sourceControlMarkers[$path] = $this->allocateAuthorMarker('control');
+            $logicalControlPath = $logicalControl->getNodePath() ?? '';
+            $nativeButtonTextAlignment = '';
+            $hasNativeButtonColor = false;
+            $hasNativeButtonStyle = false;
+            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) ) {
+                $existingTextColor = (string) ($attrs['style']['color']['text'] ?? '');
+                $nativeButtonTextAlignment = $this->applyNativeButtonInheritedStyle($logicalControl, $attrs, 'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl));
+                $hasNativeButtonColor = $existingTextColor !== (string) ($attrs['style']['color']['text'] ?? '');
+                $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
+            }
+            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControlPath]) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
+                if ( '' !== $logicalControlPath && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                    $this->sourceControlMarkers[$logicalControlPath] = $this->allocateAuthorMarker('control');
                 }
-                if ( isset($this->sourceControlMarkers[$path]) ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                if ( isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$logicalControlPath]);
                     if ( 'core/button' === $name ) {
-                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$path], $attrs);
+                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $attrs, $nativeButtonTextAlignment);
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
-                if ( '' !== $presentationPath && $presentationPath !== $path ) {
-                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
-                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
+                if ( '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
+                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
+                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
                 }
+            }
+            if ( 'core/button' === $name && $hasNativeButtonStyle && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                $nativeButtonMarker = $hasNativeButtonColor
+                    ? $this->allocateAuthorMarker('native-button')
+                    : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
+                $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
             }
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -3154,8 +3298,59 @@ final class HtmlTransformer
         return $block;
     }
 
+    /**
+     * Project the inherited foreground because core/button supplies a default link
+     * color. Text alignment uses the same scoped link rule for direct and inherited
+     * values, so a local anchor declaration remains authoritative.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs, bool $useInitialTextAlignment): string
+    {
+        $anchorDeclarations = $this->presentationDeclarations($anchor);
+        $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
+        $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
+        $inheritedColor = '';
+        $inheritedTextAlignment = '';
+
+        for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $declarations = $this->presentationDeclarations($ancestor);
+            if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
+                $inheritedColor = (string) $declarations['color'];
+            }
+            if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
+                $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
+            }
+            if ( '' !== $inheritedColor && '' !== $inheritedTextAlignment ) {
+                break;
+            }
+        }
+
+        if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
+            $mappedColor = $this->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
+            if ( '' !== trim((string) $mappedColor) ) {
+                $attrs['style']['color']['text'] = $mappedColor;
+            }
+        }
+
+        $textAlignment = $anchorTextAlignmentInherits
+            ? $inheritedTextAlignment
+            : strtolower(trim((string) $anchorDeclarations['text-align']));
+        if ( '' === $textAlignment || 'initial' === $textAlignment ) {
+            return $useInitialTextAlignment ? 'start' : '';
+        }
+        return in_array($textAlignment, array( 'start', 'end', 'left', 'center', 'right' ), true)
+            ? $textAlignment
+            : '';
+    }
+
+    private function isInheritedCssWideValue(string $value): bool
+    {
+        return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
+    }
+
     /** @param array<string, mixed> $attrs */
-    private function registerNativeButtonStyleRule(string $marker, array $attrs): void
+    private function registerNativeButtonStyleRule(string $marker, array $attrs, string $inheritedTextAlignment = ''): void
     {
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $declarations = array();
@@ -3180,6 +3375,9 @@ final class HtmlTransformer
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $declarations[] = $property . ':' . $value . '!important';
             }
+        }
+        if ( '' !== $inheritedTextAlignment ) {
+            $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
         }
         if ( array() === $declarations ) {
             return;
@@ -3255,7 +3453,7 @@ final class HtmlTransformer
     {
         $markers = array();
         $path = $this->sourceElementIdentity($element);
-        if ( 'span' === strtolower($element->tagName) && isset($this->sourceSemanticMarkers[$path]) ) {
+        if ( isset($this->sourceSemanticMarkers[$path]) ) {
             $markers[] = $this->sourceSemanticMarkers[$path];
         }
         if ( isset($this->sourceRootChildMarkers[$path]) ) {
@@ -3519,19 +3717,9 @@ final class HtmlTransformer
      */
     private function isAuthorOwnedLayout(DOMElement $element): bool
     {
-        $childCount = $this->childElementCount($element);
-        if ( 0 === $childCount ) {
+        if ( 0 === $this->childElementCount($element) ) {
             return false;
         }
-
-        if ( 1 === $childCount ) {
-            foreach ( $element->childNodes as $child ) {
-                if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg' ), true) ) {
-                    return false;
-                }
-            }
-        }
-
         $declarations = $this->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? '')));
         if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
@@ -3653,6 +3841,11 @@ final class HtmlTransformer
     {
         $findings = array();
         foreach ( $this->authorLayoutTopologies as $layout ) {
+            // Text-only leaves have no element-child topology to compare. Their
+            // text may become a paragraph, but that is not a container loss.
+            if ( 0 === $layout['direct_child_count'] ) {
+                continue;
+            }
             if ( $layout['direct_child_count'] === $layout['block_child_count'] && $layout['source_tags'] === $layout['block_tags'] ) {
                 continue;
             }
@@ -3672,52 +3865,52 @@ final class HtmlTransformer
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
-        if ( 'a' === strtolower($element->tagName) ) {
-            $this->stripOuterAnchorFromBlocks($children);
+        if ( $this->isAuthorOwnedLayout($element) ) {
+            $this->authorLayoutTopologies[] = array(
+                'selector' => $this->elementSelector($element),
+                'direct_child_count' => $this->childElementCount($element),
+                'block_child_count' => count($children),
+                'source_tags' => $this->directChildTags($element),
+                'block_tags' => $this->directBlockTags($children),
+            );
         }
-        $this->authorLayoutTopologies[] = array(
-            'selector' => $this->elementSelector($element),
-            'direct_child_count' => $this->childElementCount($element),
-            'block_child_count' => count($children),
-            'source_tags' => $this->directChildTags($element),
-            'block_tags' => $this->directBlockTags($children),
+        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element), $children, $element);
+    }
+
+    /** @return array<string, mixed> */
+    private function cssOwnedGroupAttributes(DOMElement $element): array
+    {
+        $attrs = $this->presentationAttributes($element);
+        unset($attrs['layout']);
+        $attrs['className'] = $this->mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            self::CSS_OWNED_LAYOUT_CLASS
         );
-        if ( ! $this->authorLayoutBlockGenerated ) {
-            $this->generatedBlocks[] = ( new AuthorLayoutBlockGenerator() )->definition();
-            $this->authorLayoutBlockGenerated = true;
+        if ( ! $this->authorOwnsChildFlowSpacing($element) ) {
+            return $attrs;
+        }
+        $attrs['className'] = $this->mergeClassNames(
+            (string) $attrs['className'],
+            self::CSS_OWNED_FLOW_CLASS
+        );
+        $attrs['style'] = array_merge(
+            is_array($attrs['style'] ?? null) ? $attrs['style'] : array(),
+            array( 'spacing' => array( 'blockGap' => '0' ) )
+        );
+
+        return $attrs;
+    }
+
+    private function authorOwnsChildFlowSpacing(DOMElement $element): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($element);
+        foreach ( array( 'gap', 'row-gap', 'column-gap' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
         }
 
-        $sourceTag = strtolower($element->tagName);
-        $tagName = in_array($sourceTag, array( 'a', 'button' ), true) ? $sourceTag : ($this->semanticGroupTagName($element) ?? 'div');
-        $presentationAttrs = $this->presentationAttributes($element);
-        $attrs = array_filter(array(
-            'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
-            'sourceAttributes' => array_merge(
-                $this->authorLayoutSourceAttributes($element),
-                in_array($tagName, array( 'a', 'button' ), true) ? array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' ))) : array()
-            ),
-            'contentMode' => 'inner-blocks',
-            'tagName' => $tagName,
-            'url' => 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '',
-        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
-        $opening = '<' . $tagName . $this->authorLayoutHtmlAttributes($attrs) . '>';
-        $closing = '</' . $tagName . '>';
-
-        $provenanceId = $this->nextSourceProvenanceId++;
-        $this->recordPresentationProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
-        $this->recordStructureProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
-        $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element);
-        $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($element);
-
-        return array(
-            'blockName' => AuthorLayoutBlockGenerator::NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => $children,
-            'innerHTML' => $opening . $closing,
-            'innerContent' => array_merge(array($opening), array_fill(0, count($children), null), array($closing)),
-            '_source_provenance_id' => $provenanceId,
-        );
+        return false;
     }
 
     /** @param array<int, array<string, mixed>> $blocks */
@@ -3744,7 +3937,7 @@ final class HtmlTransformer
         foreach ($element->childNodes as $child) {
             if (! $child instanceof DOMElement) continue;
             $tag = strtolower($child->tagName);
-            $tags[] = 'svg' === $tag ? 'img' : ('span' === $tag && '' === $this->attr($child, 'class') && '' === $this->attr($child, 'id') && '' === $this->attr($child, 'role') ? 'p' : $tag);
+            $tags[] = 'svg' === $tag ? 'img' : $tag;
         }
         return $tags;
     }
@@ -3924,10 +4117,9 @@ final class HtmlTransformer
      * the sole content wrapper, or dropped when they are partial-content hooks.
      * RichText's link format round-trips href/target/rel, not source CSS hooks.
      *
-     * A list item whose content carries block-level children (an image/heading/
-     * paragraph "card", e.g. a commerce product grid) is left untouched here:
-     * that is not flowing RichText, so it stays the job of the structured-card
-     * decomposition path and the commerce path rather than per-span unwrapping.
+     * A list item whose content carries block-level children keeps that topology:
+     * its inline hooks still become RichText-safe marks, but no wrapper is
+     * hoisted onto the list item.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -3954,9 +4146,7 @@ final class HtmlTransformer
             return $attrs;
         }
 
-        if ( 'core/list-item' === $name && $this->hasBlockContentChildren($body) ) {
-            return $attrs;
-        }
+        $listItemHasBlockContent = 'core/list-item' === $name && $this->hasBlockContentChildren($body);
 
         $hoistedClasses      = '';
         $hoistedDeclarations = array();
@@ -3964,7 +4154,7 @@ final class HtmlTransformer
         // Peel a single styling-hook span wrapping the whole content, hoisting it
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
-        while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+        while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
             $wrapperDeclarations = $this->cssDeclarations($this->attr($wrapper, 'style'));
             if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
@@ -4231,6 +4421,11 @@ final class HtmlTransformer
         foreach ( $targetInlines as $index => $targetInline ) {
             $sourceInline = $sourceInlines[$index] ?? null;
             if ( ! $sourceInline instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( '' === trim($sourceInline->textContent ?? '') && 0 === $this->childElementCount($sourceInline) && ! $this->isRuntimeDomTarget($sourceInline) && ! $this->shouldPreserveEmptyVisualElement($sourceInline) ) {
+                $targetInline->parentNode?->removeChild($targetInline);
                 continue;
             }
 
@@ -4627,14 +4822,7 @@ final class HtmlTransformer
             return false;
         }
 
-        $declarations = $this->presentationDeclarations($element);
-        foreach ( array( 'background', 'background-color', 'border', 'border-color', 'border-width', 'border-radius', 'box-shadow', 'width', 'height', 'min-width', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return true;
     }
 
     private function renderedTextContent(DOMElement $element): string
@@ -4686,17 +4874,104 @@ final class HtmlTransformer
         return $attrs;
     }
 
+    /** @return array<string, mixed> */
+    private function emptyVisualSpacerBlock(DOMElement $element): array
+    {
+        $attrs = $this->emptyVisualElementAttributes($element);
+        if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+            return $this->createBlock('core/group', $attrs, array(), $element);
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $paint = $this->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
+            'background',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
+        ))));
+        $attrs = array_merge($attrs, $paint['attrs']);
+        if ( array() !== $paint['style'] ) {
+            $attrs['style'] = array_replace_recursive($attrs['style'] ?? array(), $paint['style']);
+        }
+        $attrs['height'] = $this->resolveCssVariablesInValue($declarations['height']);
+        $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
+
+        return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool
     {
         if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
             return false;
         }
 
-        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
-        if ( '' === $tokens && $element->parentNode instanceof DOMElement ) {
-            $tokens = strtolower(trim($this->attr($element->parentNode, 'class') . ' ' . $this->attr($element->parentNode, 'id')));
+        $declarations = $this->structuralPresentationDeclarations($element);
+        return $this->hasExplicitEmptyVisualDimensions($declarations) && $this->hasVisibleEmptyVisualPaint($declarations);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasExplicitEmptyVisualDimensions(array $declarations): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            if ( ! isset($declarations[$property]) || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return false;
+            }
         }
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:badges?|chips?|pills?|status|indicators?|markers?|dots?|orbs?|icons?)(?:[^a-z0-9]|$)/', $tokens);
+
+        return true;
+    }
+
+    private function isPositiveCssLength(string $value): bool
+    {
+        if ( ! preg_match('/^([+]?(?:\d+(?:\.\d+)?|\.\d+))(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)$/i', trim($value), $matches) ) {
+            return false;
+        }
+
+        return (float) $matches[1] > 0;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasVisibleEmptyVisualPaint(array $declarations): bool
+    {
+        foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return true;
+            }
+        }
+
+        foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return true;
+            }
+        }
+
+        return isset($declarations['border-color'], $declarations['border-width'])
+            && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations['border-color']))
+            && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations['border-width']));
+    }
+
+    private function isVisibleEmptyVisualPaint(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
+            return false;
+        }
+
+        return ! preg_match('/^#[0-9a-f]{4}$|^#[0-9a-f]{8}$/i', $value) || ! str_ends_with($value, '0');
+    }
+
+    private function isVisibleEmptyVisualBorder(string $value): bool
+    {
+        return ! str_contains(strtolower($value), 'transparent')
+            && ! preg_match('/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/i', $value)
+            && $this->isVisibleEmptyVisualPaint($value)
+            && ! preg_match('/(?:^|\s)0(?:\.0+)?(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)?(?:\s|$)/i', trim($value));
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
@@ -5075,6 +5350,14 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasEmptyVisualInlineChild($element) ) {
+            $fallbacks = array();
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+        }
+
         $content = $this->richTextContentWithMaterializedInlineStyles($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallback($content) ) {
             return null;
@@ -5226,6 +5509,14 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasEmptyVisualInlineChild($element) ) {
+            $fallbacks = array();
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+        }
+
         // A lone marked descendant needs an independent carrier. Phrasing-only
         // sibling runs remain together in this RichText block so authored
         // flex/grid child geometry is not replaced with block wrappers.
@@ -5282,7 +5573,7 @@ final class HtmlTransformer
     private function hasRichTextMarkedDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('span') as $span ) {
-            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) ) {
+            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) && ! $this->shouldPreserveEmptyVisualElement($span) ) {
                 return true;
             }
         }
@@ -6744,7 +7035,10 @@ final class HtmlTransformer
      */
     private function tableAttributes(DOMElement $table): array
     {
-        $attrs = array();
+        $attrs = array(
+            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
+        );
+        $this->registerTablePresentationNormalization($table);
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
@@ -6788,6 +7082,41 @@ final class HtmlTransformer
         return $attrs;
     }
 
+    private function registerTablePresentationNormalization(DOMElement $table): void
+    {
+        $path = $this->sourceElementIdentity($table);
+        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $tableDeclarations = $this->structuralPresentationDeclarations($table);
+        // A single marker class ties core's .wp-block-table margin while later
+        // source classes promoted onto the figure retain their authored margins.
+        $rules = array( '.' . $marker . '{margin:0}' );
+        $borderModel = array();
+        foreach ( array( 'border-collapse', 'border-spacing' ) as $property ) {
+            $value = trim((string) ($tableDeclarations[$property] ?? ''));
+            if ( '' !== $value ) {
+                $borderModel[] = $property . ':' . $value;
+            }
+        }
+        if ( array() !== $borderModel ) {
+            $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
+        }
+
+        // Core supplies borders on every cell. Clear them before projected author
+        // CSS restores only the source-declared cell sides.
+        $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{border:0}';
+
+        $head = $this->firstChildElement($table, 'thead');
+        if ( $head instanceof DOMElement ) {
+            $headDeclarations = $this->structuralPresentationDeclarations($head);
+            if ( ! isset($headDeclarations['border']) && ! isset($headDeclarations['border-bottom']) && ! isset($headDeclarations['border-bottom-width']) ) {
+                // core/table adds a 3px header separator that did not exist in source.
+                $rules[] = '.' . $marker . '>table>thead{border-bottom:0}';
+            }
+        }
+
+        $this->generatedGeometryRules[$marker] = implode("\n", $rules);
+    }
+
     private function registerTableCellGeometry(DOMElement $table): void
     {
         $rules = array();
@@ -6829,7 +7158,10 @@ final class HtmlTransformer
         $path = $this->sourceElementIdentity($table);
         $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
-        $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
+        $this->generatedGeometryRules[$marker] = implode("\n", array_filter(array(
+            $this->generatedGeometryRules[$marker] ?? '',
+            implode("\n", $scopedRules),
+        )));
     }
 
     private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
@@ -6906,6 +7238,15 @@ final class HtmlTransformer
         foreach ( $row->childNodes as $cell ) {
             if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
+            }
+            foreach ( $cell->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $sourceTagName = strtolower($descendant->tagName);
+                if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $this->sourceTagMarkers[$sourceTagName]));
+                }
             }
             $cells[] = array(
                 'content' => $this->innerHtml($cell),
@@ -7374,16 +7715,14 @@ final class HtmlTransformer
             }
 
             $nested = array();
-            foreach ( $child->childNodes as $itemChild ) {
-                if ( $itemChild instanceof DOMElement && in_array(strtolower($itemChild->tagName), array( 'ul', 'ol' ), true) ) {
-                    $nestedBlock = $this->convertElement($itemChild, $fallbacks, true);
-                    if ( null !== $nestedBlock ) {
-                        $nested[] = $nestedBlock;
-                    }
+            foreach ( $this->nestedListRoots($child) as $nestedList ) {
+                $nestedBlock = $this->convertElement($nestedList, $fallbacks, true);
+                if ( null !== $nestedBlock ) {
+                    $nested[] = $nestedBlock;
                 }
             }
 
-            $content = $this->richTextContentWithMaterializedInlineStyles($child, array( 'ul', 'ol' ));
+            $content = $this->listItemContentWithoutNestedLists($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
                 continue;
             }
@@ -7392,6 +7731,52 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /** @return list<DOMElement> */
+    private function nestedListRoots(DOMElement $item): array
+    {
+        $lists = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $lists[] = $child;
+            }
+        }
+
+        return $lists;
+    }
+
+    private function listItemContentWithoutNestedLists(DOMElement $item): string
+    {
+        $content = $item->cloneNode(true);
+        if ( ! $content instanceof DOMElement ) {
+            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
+        }
+
+        $directLists = array();
+        foreach ( $content->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $directLists[] = $child;
+            }
+        }
+        foreach ( $directLists as $directList ) {
+            $content->removeChild($directList);
+        }
+
+        // Wrapped rich HTML remains inside core/list-item content so its authored
+        // topology survives. Materialize every source-tag marker that author CSS
+        // rewrites, not just nested list leaves.
+        foreach ( $content->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $marker = $this->sourceTagMarkers[strtolower($descendant->tagName)] ?? '';
+            if ( '' !== $marker ) {
+                $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $marker));
+            }
+        }
+
+        return $this->richTextContentWithMaterializedInlineStyles($content);
     }
 
     /**
@@ -10190,12 +10575,7 @@ final class HtmlTransformer
 
     private function safeLinkUrl(string $url): string
     {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
+        return LinkUrlSanitizer::sanitize($url);
     }
 
     /**

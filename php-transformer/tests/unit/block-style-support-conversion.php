@@ -69,14 +69,14 @@ $group = $groupResult['blocks'][0] ?? array();
 $groupAttrs = is_array($group['attrs'] ?? null) ? $group['attrs'] : array();
 $groupInnerHtml = (string) ($group['innerHTML'] ?? '');
 
-$assert('blocks-engine/author-layout' === ($group['blockName'] ?? ''), '9: horizontal flex rows use the editable author-layout companion', (string) ($group['blockName'] ?? '(none)'));
-$assert(! isset($groupAttrs['layout']), '10: author-layout declares no Gutenberg layout attribute', json_encode($groupAttrs));
-$assert(str_contains($groupInnerHtml, 'wp-block-blocks-engine-author-layout hero-row'), '11: rendered wrapper uses the companion block class and source class', $groupInnerHtml);
-$assert(! str_contains($groupInnerHtml, 'is-layout-flex') && ! str_contains($groupInnerHtml, 'wp-block-group'), '12: author layout wrapper does not opt into core Group layout CSS', $groupInnerHtml);
+$assert('core/group' === ($group['blockName'] ?? ''), '9: horizontal flex rows retain the supported core/group contract', (string) ($group['blockName'] ?? '(none)'));
+$assert(! isset($groupAttrs['layout']), '10: CSS-owned layout does not opt into Gutenberg layout metadata', json_encode($groupAttrs));
+$assert(str_contains($groupInnerHtml, 'wp-block-group') && str_contains($groupInnerHtml, 'hero-row') && str_contains($groupInnerHtml, 'blocks-engine-css-owned-layout'), '11: rendered wrapper uses core Group with the CSS-owned marker', $groupInnerHtml);
+$assert(! str_contains($groupInnerHtml, 'is-layout-flex'), '12: CSS-owned layout does not opt into core flex layout CSS', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'gap:1rem'), '13: author layout wrapper stores no blockGap', $groupInnerHtml);
 $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($groupInnerHtml, 'justify-content:center'), '14: source CSS remains the layout authority', $groupInnerHtml);
-$assert(! isset($groupAttrs['style']), '15: author layout wrapper carries no core style support object', json_encode($groupAttrs));
-$assert(! str_contains($groupInnerHtml, 'min-height:100svh'), '16: author layout wrapper does not serialize core dimensions support', $groupInnerHtml);
+$assert(! isset($groupAttrs['style']['spacing']['blockGap']), '15: core group save omits block gap without a core layout attribute', json_encode($groupAttrs));
+$assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: core group retains supported dimensions', $groupInnerHtml);
 
 $cardHtml = '<section class="pricing-shell" style="max-width:1120px;margin:0 auto;padding:5rem 2rem"><article class="pricing-card" style="max-width:360px;padding:2rem;background:#fff"><h2>Team</h2><p>Scale every launch.</p></article></section>';
 $cardResult = ( new HtmlTransformer() )->transform($cardHtml, array())->toArray();
@@ -196,9 +196,20 @@ $columnsMaxWidthBlock = $columnsMaxWidthResult['blocks'][0] ?? array();
 $columnsMaxWidthAttrs = is_array($columnsMaxWidthBlock['attrs'] ?? null) ? $columnsMaxWidthBlock['attrs'] : array();
 $columnsMaxWidthMarkup = (string) ($columnsMaxWidthResult['serialized_blocks'] ?? '');
 
-$assert('blocks-engine/author-layout' === ($columnsMaxWidthBlock['blockName'] ?? ''), '24: horizontal flex wrapper uses the author-layout companion', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
-$assert(! isset($columnsMaxWidthAttrs['style']), '25: author layout omits core dimensions support', json_encode($columnsMaxWidthAttrs));
-$assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: author layout leaves unsupported geometry to source CSS', $columnsMaxWidthMarkup);
+$assert('core/group' === ($columnsMaxWidthBlock['blockName'] ?? ''), '24: horizontal flex wrapper retains the core/group consumer contract', (string) ($columnsMaxWidthBlock['blockName'] ?? '(none)'));
+$assert(! isset($columnsMaxWidthAttrs['style']['dimensions']), '25: CSS-owned group omits unsupported core dimensions support', json_encode($columnsMaxWidthAttrs));
+$assert(! str_contains($columnsMaxWidthMarkup, 'max-width:var(--max-w)'), '26: CSS-owned group leaves unsupported geometry to source CSS', $columnsMaxWidthMarkup);
+$gridGeometryHtml = '<div class="layout-grid"><div>Left</div><div>Right</div></div>';
+$gridGeometryResult = ( new HtmlTransformer() )->transform($gridGeometryHtml, array('static_css' => '.layout-grid{display:grid;grid-template-columns:1fr 1fr;max-width:72rem;margin:0 auto;padding:0 2rem}'))->toArray();
+$gridGeometryBlock = $gridGeometryResult['blocks'][0] ?? array();
+$gridGeometryMarkup = (string) ($gridGeometryResult['serialized_blocks'] ?? '');
+$assert('core/group' === ($gridGeometryBlock['blockName'] ?? ''), '27: CSS-owned grids stay core/group instead of core Columns', (string) ($gridGeometryBlock['blockName'] ?? '(none)'));
+$assert(! str_contains($gridGeometryMarkup, '<!-- wp:columns') && ! str_contains($gridGeometryMarkup, 'max-width:72rem'), '28: CSS-owned grid geometry never enters a core Columns save wrapper', $gridGeometryMarkup);
+
+$nativeColumnsHtml = '<div class="wp-block-columns"><div class="wp-block-column"><p>Left</p></div><div class="wp-block-column"><p>Right</p></div></div>';
+$nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumnsHtml, array('static_css' => '.wp-block-columns{display:flex}'))->toArray();
+$nativeColumnsBlock = $nativeColumnsResult['blocks'][0] ?? array();
+$assert('core/columns' === ($nativeColumnsBlock['blockName'] ?? ''), '29: explicit native Columns markup remains core Columns', (string) ($nativeColumnsBlock['blockName'] ?? '(none)'));
 
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
@@ -207,7 +218,7 @@ $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
 
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
-$assert(str_contains($labelMarkup, '<p class="tier-price blocks-engine-synthetic-paragraph"'), '27: phrasing-only card price rows retain source-owned flex layout on one editable RichText block', $labelMarkup);
+$assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price blocks-engine-css-owned-layout'), '27: CSS-owned card price row uses the marked core group wrapper', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 

@@ -20,7 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "pricing-card featured-tier" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "tier-price-row" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-button", "text": "Get started", "url": "/checkout/pro" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-button blocks-engine-native-button-alignment-start", "text": "Get started", "url": "/checkout/pro" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "tier-price-row" } }
   ],
   "expected_fallbacks": [],

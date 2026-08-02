@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use DOMDocument;
 use DOMElement;
 
@@ -29,6 +30,12 @@ final class ArtifactCompiler
      * @var array<int, string>
      */
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
+
+	/** @var array<string, string> */
+	private array $themeStaticCssCache = array();
+
+	/** @var array<string, string> */
+	private array $wordpressCompatCssCache = array();
 
     /**
      * Resolve the runtime selector context used when a caller converts one
@@ -57,6 +64,8 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $startedAt = hrtime(true);
+		$this->themeStaticCssCache = array();
+		$this->wordpressCompatCssCache = array();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
@@ -122,9 +131,9 @@ final class ArtifactCompiler
                 'files_by_source' => $this->countBy($normalized['files'], 'source'),
                 'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
                 'limits'          => array(
-                    'max_files'       => ArtifactNormalizer::DEFAULT_MAX_FILES,
-                    'max_file_bytes'  => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES,
-                    'max_total_bytes' => ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES,
+                    'max_files'       => $normalized['limits']['max_files'],
+                    'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
+                    'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
                 'source_hash'     => hash('sha256', $normalized['hash_payload']),
                 'html'            => array(
@@ -195,14 +204,16 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
             } catch (\InvalidArgumentException $exception) {
-                $diagnostics[] = $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
+                $diagnostics[] = $exception instanceof ValidationException
+                    ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
+                    : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
         }
 
         $metrics['diagnostic_count'] = count($diagnostics);
         $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
-        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? '')));
+        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_')));
         if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
             unset($sourceReports['wordpress_site_plan_diagnostics']);
         }
@@ -1119,6 +1130,10 @@ final class ArtifactCompiler
      */
     private function themeStaticCss(array $files, bool $includeNavigationCompat = true): string
     {
+		$cacheKey = $includeNavigationCompat ? 'with-compat' : 'without-compat';
+		if ( array_key_exists($cacheKey, $this->themeStaticCssCache) ) {
+			return $this->themeStaticCssCache[$cacheKey];
+		}
         $blocks = array();
         foreach ( $files as $file ) {
             $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
@@ -1144,11 +1159,10 @@ final class ArtifactCompiler
         $css = implode("\n", array_keys($blocks));
 
         if ( ! $includeNavigationCompat ) {
-            return $css;
+			return $this->themeStaticCssCache[$cacheKey] = $css;
         }
 
-        return $css
-            . $this->wordpressCompatCss($css, $files);
+		return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1368,7 +1382,11 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function wordpressCompatCss(string $css, array $files): string
     {
-        return $this->navigationContainerCompatCss($css)
+		$cacheKey = hash('sha256', $css);
+		if ( array_key_exists($cacheKey, $this->wordpressCompatCssCache) ) {
+			return $this->wordpressCompatCssCache[$cacheKey];
+		}
+		return $this->wordpressCompatCssCache[$cacheKey] = $this->navigationContainerCompatCss($css)
             . $this->navigationStructureCompatCss($css)
             . $this->navigationAnchorCompatCss($css)
             . $this->rootStartupClassCompatCss($css, $files)
@@ -2450,7 +2468,7 @@ final class ArtifactCompiler
                     'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
                     'slug'           => $slug,
                     'title'          => $title,
-                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
+                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array()),
                     'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
@@ -2904,7 +2922,8 @@ final class ArtifactCompiler
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
                 ),
-                static fn (mixed $value): bool => null !== $value && '' !== $value
+                static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
+                ARRAY_FILTER_USE_BOTH
             ),
             $assets
         ));
