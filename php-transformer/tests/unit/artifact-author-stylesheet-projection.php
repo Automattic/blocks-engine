@@ -5,6 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -83,6 +85,24 @@ $standaloneFallbackCss = implode("\n", array_column(array_filter($standaloneFall
 $standaloneFallbackValidity = ( new HtmlTransformer() )->transform('<style>.card-grid{display:grid}.fallback-card > strong{display:block;margin:12px 0 4.8px}</style><div class="card-grid"><div class="fallback-card"><strong>index.html</strong></div></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>')->toArray();
 $assert(str_contains($standaloneFallbackMarkup, '<div class="wp-block-group fallback-card"><!-- wp:paragraph {"className":"blocks-engine-inline-layout-carrier"') && str_contains($standaloneFallbackMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>index.html</strong></p>') && ! str_contains($standaloneFallbackMarkup, '<p class="fallback-card"') && ! str_contains($standaloneFallbackMarkup, 'wp:html'), 'ordinary fallback cards retain their direct standalone strong in a core paragraph carrier when only a grandparent establishes grid');
 $assert(str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{display:block}') && str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{margin:12px 0 4.8px}') && str_contains($standaloneFallbackCss, ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}') && str_contains($standaloneFallbackMarkup, '<p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>') && 'pass' === ($standaloneFallbackValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone fallback carrier preserves authored block margins while ordinary prose remains valid native RichText');
+
+$standaloneAnchorCarriers = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><a class="flex-link" href="/flex">Flex link</a><a class="grid-link" href="/grid">Grid link</a><a class="standalone-link" href="/standalone">Standalone link</a><a class="standalone-link explicit-none" href="/none">No underline</a><p>Normal <a href="/prose">prose link</a>.</p>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.flex-link{display:flex}.grid-link{display:grid}.standalone-link{display:block}.explicit-none{text-decoration:none}' ),
+) ) )->toArray();
+$standaloneAnchorMarkup = (string) ($standaloneAnchorCarriers['serialized_blocks'] ?? '');
+$standaloneAnchorCss = implode("\n", array_column(array_filter($standaloneAnchorCarriers['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$standaloneAnchorCandidate = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($standaloneAnchorMarkup);
+$standaloneAnchorProbes = ( new StaticStyleParityProbe() )->extract($standaloneAnchorCandidate, $standaloneAnchorCss)['probes'] ?? array();
+$standaloneAnchorDecorations = array();
+foreach ( $standaloneAnchorProbes as $probe ) {
+    if ( 'a' === ($probe['tag'] ?? '') ) {
+        $standaloneAnchorDecorations[(string) ($probe['text'] ?? '')] = (string) ($probe['style']['text-decoration'] ?? '');
+    }
+}
+$standaloneAnchorValidity = ( new HtmlTransformer() )->transform('<style>.flex-link{display:flex}.grid-link{display:grid}.standalone-link{display:block}.explicit-none{text-decoration:none}</style><a class="flex-link" href="/flex">Flex link</a><a class="grid-link" href="/grid">Grid link</a><a class="standalone-link" href="/standalone">Standalone link</a><a class="standalone-link explicit-none" href="/none">No underline</a><p>Normal <a href="/prose">prose link</a>.</p>')->toArray();
+$assert(4 === substr_count($standaloneAnchorMarkup, '<p class=') && str_contains($standaloneAnchorMarkup, '<p>Normal <a href="/prose">prose link</a>.</p>') && ! str_contains($standaloneAnchorMarkup, 'wp:html'), 'direct flex, grid, and standalone anchors retain native editable links in synthetic paragraph carriers without changing normal prose links or using HTML fallback');
+$assert(str_contains($standaloneAnchorCss, ':where(p.blocks-engine-synthetic-paragraph)>a{text-decoration:underline}') && 'none' === ($standaloneAnchorDecorations['No underline'] ?? '') && 'pass' === ($standaloneAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'rendered static carrier CSS restores the browser underline baseline while author text-decoration:none remains effective and saved blocks stay valid');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
