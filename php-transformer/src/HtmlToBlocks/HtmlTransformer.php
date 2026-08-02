@@ -3776,10 +3776,9 @@ final class HtmlTransformer
      * the sole content wrapper, or dropped when they are partial-content hooks.
      * RichText's link format round-trips href/target/rel, not source CSS hooks.
      *
-     * A list item whose content carries block-level children (an image/heading/
-     * paragraph "card", e.g. a commerce product grid) is left untouched here:
-     * that is not flowing RichText, so it stays the job of the structured-card
-     * decomposition path and the commerce path rather than per-span unwrapping.
+     * A list item whose content carries block-level children keeps that topology:
+     * its inline hooks still become RichText-safe marks, but no wrapper is
+     * hoisted onto the list item.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -3806,9 +3805,7 @@ final class HtmlTransformer
             return $attrs;
         }
 
-        if ( 'core/list-item' === $name && $this->hasBlockContentChildren($body) ) {
-            return $attrs;
-        }
+        $listItemHasBlockContent = 'core/list-item' === $name && $this->hasBlockContentChildren($body);
 
         $hoistedClasses      = '';
         $hoistedDeclarations = array();
@@ -3816,8 +3813,9 @@ final class HtmlTransformer
         // Peel a single styling-hook span wrapping the whole content, hoisting it
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
-        while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) ) {
+        while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            $wrapperDeclarations = $this->cssDeclarations($this->attr($wrapper, 'style'));
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
@@ -7270,7 +7268,7 @@ final class HtmlTransformer
             }
         }
 
-        return $this->innerHtml($content);
+        return $this->richTextContentWithMaterializedInlineStyles($content);
     }
 
     /**
