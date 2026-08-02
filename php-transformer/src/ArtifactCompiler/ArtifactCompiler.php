@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBui
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use DOMDocument;
@@ -171,6 +172,8 @@ final class ArtifactCompiler
                 'source_hash'   => hash('sha256', $normalized['hash_payload']),
             ),
         );
+        // WordPressSitePlan consumes a canonical result envelope, so give it a
+        // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -179,10 +182,9 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
-
         // Failed compilations have no materializable source identity and no site plan.
         if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
+            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
                     'schema' => TransformerResult::SCHEMA,
@@ -202,8 +204,18 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
             } catch (\InvalidArgumentException $exception) {
-                $sourceReports['wordpress_site_plan_diagnostics'] = array($exception instanceof ValidationException ? $exception->diagnostic() : array('code' => 'wordpress_site_plan_not_self_contained', 'message' => $exception->getMessage()));
+                $diagnostics[] = $exception instanceof ValidationException
+                    ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
+                    : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
+        }
+
+        $metrics['diagnostic_count'] = count($diagnostics);
+        $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_')));
+        if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
+            unset($sourceReports['wordpress_site_plan_diagnostics']);
         }
 
         return new TransformerResult(
@@ -410,7 +422,7 @@ final class ArtifactCompiler
         return array(
             'blocks'            => $result['blocks'],
             'serialized_blocks' => $result['serialized_blocks'],
-            'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
+            'diagnostics'       => $result['diagnostics'],
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],
@@ -466,6 +478,7 @@ final class ArtifactCompiler
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
+            'declarative_state_html'    => $html,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,
@@ -642,18 +655,7 @@ final class ArtifactCompiler
      */
     private function dedupeArrayRows(array $rows): array
     {
-        $deduped = array();
-        $seen = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**
@@ -1400,7 +1402,7 @@ final class ArtifactCompiler
                 continue;
             }
             if ( preg_match('/\baria-current\s*=|\b(?:id|class)\s*=\s*(?:"[^"]*(?:active|current|selected)[^"]*"|\'[^\']*(?:active|current|selected)[^\']*\'|[^\s>]*(?:active|current|selected)[^\s>]*)/i', $file['content']) ) {
-                $rules['current-navigation'] = '.blocks-engine-current-navigation-item>.wp-block-navigation-item__content { text-decoration:underline }';
+                $rules['current-navigation'] = '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }';
                 break;
             }
         }
@@ -2454,17 +2456,6 @@ final class ArtifactCompiler
                 }
             }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
-            if ( $path === $entryPath ) {
-                foreach ( $entryShellArtifacts as $shellArtifact ) {
-                    if ( ! is_array($shellArtifact) ) {
-                        continue;
-                    }
-                    $shellMarkup = is_string($shellArtifact['inner_block_markup'] ?? null) ? $shellArtifact['inner_block_markup'] : ($shellArtifact['block_markup'] ?? null);
-                    if ( is_string($shellMarkup) ) {
-                        $blockMarkup = str_replace($shellMarkup, '', $blockMarkup);
-                    }
-                }
-            }
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
@@ -2676,18 +2667,7 @@ final class ArtifactCompiler
      */
     private function dedupeRows(array $rows): array
     {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
+        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**

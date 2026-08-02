@@ -16,14 +16,15 @@
     "content": "<!doctype html><html><head><style>:root{--ember:#b8552a;--bone:#e6d8c5}.cta-row{display:flex;gap:1rem}.btn{display:inline-flex;padding:.8rem 1.8rem;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;border:1px solid}.btn-primary{border-color:var(--ember);color:var(--bone)}</style></head><body><main><div class=\"cta-row\"><a href=\"/music\" class=\"btn btn-primary\"><span>Listen Now</span></a><a href=\"/tour\" class=\"btn btn-primary\"><span>Tour Dates</span></a></div></main></body></html>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Listen Now", "url": "/music", "style": { "color": { "text": "#e6d8c5", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "#b8552a", "radius": "0" }, "spacing": { "padding": { "top": ".8rem", "right": "1.8rem", "bottom": ".8rem", "left": "1.8rem" } }, "typography": { "fontSize": ".7rem", "letterSpacing": ".16em", "textTransform": "uppercase" } } } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Tour Dates", "url": "/tour", "style": { "color": { "text": "#e6d8c5", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "#b8552a", "radius": "0" }, "spacing": { "padding": { "top": ".8rem", "right": "1.8rem", "bottom": ".8rem", "left": "1.8rem" } }, "typography": { "fontSize": ".7rem", "letterSpacing": ".16em", "textTransform": "uppercase" } } } }
+    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cta-row", "tagName": "div" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "btn btn-primary", "tagName": "a", "content": "<span>Listen Now</span>", "contentMode": "rich-text", "url": "/music" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/author-layout", "attrs": { "className": "btn btn-primary", "tagName": "a", "content": "<span>Tour Dates</span>", "contentMode": "rich-text", "url": "/tour" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline blocks-engine-control-" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button__link has-text-color has-background has-border-color has-custom-font-size wp-element-button btn btn-primary" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-blocks-engine-author-layout cta-row\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/music\" class=\"wp-block-blocks-engine-author-layout btn btn-primary\"><span>Listen Now</span></a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button__link" }
   ]
 }

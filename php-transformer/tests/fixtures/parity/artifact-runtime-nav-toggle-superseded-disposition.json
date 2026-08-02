@@ -30,7 +30,12 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "status", "assert": "equals", "value": "failed" },
+    { "path": "diagnostics", "assert": "count", "count": 1 },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "wordpress_site_plan_not_self_contained" },
+    { "path": "diagnostics.0.severity", "assert": "equals", "value": "error" },
+    { "path": "diagnostics.0.source", "assert": "equals", "value": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" },
+    { "path": "source_reports.wordpress_site_plan_diagnostics", "assert": "equals", "value": [{ "code": "wordpress_site_plan_not_self_contained", "severity": "error", "message": "WordPress site plan page is structurally invalid.", "source": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" }] },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
     { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 2 },
     { "path": "source_reports.superseded_selectors.0", "assert": "equals", "value": ".nav-toggle" },

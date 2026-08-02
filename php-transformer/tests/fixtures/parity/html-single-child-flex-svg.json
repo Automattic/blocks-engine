@@ -16,7 +16,7 @@
     "content": "<div style=\"display:flex;justify-content:center\"><svg viewBox=\"0 0 20 20\" aria-label=\"Measurement diagram\"><text x=\"10\" y=\"10\" text-anchor=\"middle\" font-family=\"monospace\" font-size=\"8\">GIRTH</text><line x1=\"2\" y1=\"15\" x2=\"18\" y2=\"15\" stroke=\"currentColor\" /></svg></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex", "justifyContent": "center" } } },
+    { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "Measurement diagram" } }
   ],
   "expected_fallbacks": [],

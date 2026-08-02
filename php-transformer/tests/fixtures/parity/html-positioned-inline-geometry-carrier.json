@@ -1,0 +1,55 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-fixture-37-positioned-photo-corner",
+  "description": "Preserves Fixture 37-style positioned photo-corner overlays as class-addressable native carriers while keeping no-op inline positioning and structured descendants canonical.",
+  "source_reference": {
+    "repo": "blocks-engine",
+    "path": "fixtures/websites/37-art-gallery-exhibition/current-exhibition.html",
+    "notes": "Covers the fixture's .photo__corner and .photo__corner--mag overlay classes, nested containing blocks, interactive descendants, no-op static stacking, relative no-ops, and inline positioning geometry."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Positioned inline carrier is a native-block materialization primitive."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.photo{position:relative;aspect-ratio:21 / 9}.photo__corner{position:absolute;top:.75rem;left:.75rem;z-index:2}.photo__corner--mag{color:#d62874}.x{position:absolute}.x > strong::before{content:'*';backdrop-filter:blur(1px)}</style></head><body><main><div class=\"photo\"><span class=\"photo__corner photo__corner--mag\">Installation view</span><strong>Regular inline text</strong><span class=\"inline-overlay\" style=\"position:absolute;inset:1rem auto auto 2rem;z-index:3\">Inline overlay</span><span class=\"relative-parent\" style=\"position:relative;top:1px\"><span class=\"nested-overlay\" style=\"position:absolute;top:1px;z-index:4\">Nested overlay</span></span><span class=\"action-overlay\" style=\"position:absolute;top:2px\"><button type=\"button\">Open</button></span><span class=\"control-overlay\" style=\"position:absolute;top:3px\"><input type=\"email\" name=\"email\" value=\"artist@example.com\" onfocus=\"steal()\"><select name=\"view\" onchange=\"steal()\"><option value=\"grid\">Grid</option></select><textarea name=\"note\" oninput=\"steal()\">Curator note</textarea></span><span class=\"x\" style=\"position:absolute;top:4px\" onclick=\"steal()\"><strong>Direct child</strong><a href=\"javascript:steal()\">Unsafe link</a><script>alert(1)</script></span><span class=\"static-stack\" style=\"position:static;z-index:9\">Static stack</span><span class=\"relative-noop\" style=\"position:relative\">Relative no-op</span></div></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "blocks-engine-synthetic-paragraph" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "photo__corner photo__corner--mag blocks-engine-semantic-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-synthetic-paragraph\">Installation view</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Regular inline text" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group relative-parent" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group nested-overlay" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Nested overlay" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\">Open</button>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><button" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<input type=\"email\" name=\"email\" value=\"artist@example.com\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<select name=\"view\"><option value=\"grid\">Grid</option></select>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea name=\"note\">Curator note</textarea>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"x blocks-engine-semantic-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<strong>Direct child</strong>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-group static-stack" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-group relative-noop" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-richtext-marker" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "steal()" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<script" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:" },
+    { "path": "assets.0.content", "assert": "contains", "value": "position:absolute" },
+    { "path": "assets.0.content", "assert": "contains", "value": "z-index:2" },
+    { "path": "assets.0.content", "assert": "contains", "value": "inset:1rem auto auto 2rem !important" },
+    { "path": "assets.0.content", "assert": "contains", "value": "margin-top:0;margin-bottom:0" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-semantic-" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".x > strong::before{content:" },
+    { "path": "assets.0.content", "assert": "contains", "value": "backdrop-filter:blur(1px)" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "fallbacks", "assert": "count", "count": 1 }
+  ]
+}

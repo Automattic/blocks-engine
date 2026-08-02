@@ -89,18 +89,14 @@ $assert(
     (string) $collected['metrics']['richtext_invalid_risk_count']
 );
 
-// A classed inline <a> inside paragraph/list-item content also counts; a plain
-// (attribute-free) span/anchor does not.
+// Link identity is safe RichText content. A classed inline <a> therefore does
+// not count, just like a plain span/anchor.
 $anchorResult = ( new HtmlTransformer() )->transform(
     '<ul><li>See <a class="cta" href="/x" aria-hidden="true">link</a></li><li>plain <span>text</span></li></ul>',
     array()
 )->toArray();
 $anchorRisk = $byDetector(CorpusDetectors::collect($anchorResult)['findings'], 'richtext_invalid_risk');
-$assert(
-    1 === count($anchorRisk) && 'core/list-item' === $anchorRisk[0]['pattern'],
-    '1e: a classed <a> in list-item content is richtext invalid risk; a plain span is not',
-    (string) count($anchorRisk) . ':' . (string) ($anchorRisk[0]['pattern'] ?? '(none)')
-);
+$assert(0 === count($anchorRisk), '1e: classed link identity in list-item RichText is safe; a plain span is also safe', (string) count($anchorRisk));
 
 // ---------------------------------------------------------------------------
 // 2. var density: the custom property is reported as INFORMATIONAL (not a repair
@@ -203,19 +199,15 @@ $assert(0 === count($vetoed), '4d: a vertical-flex candidate that does not becom
 
 // 4e. Regression guard for the fix: the live transformer must route a vertical
 //     flex container (display:flex; flex-direction:column) to a vertical
-//     core/group, not a horizontal core/columns. With the real transformer as
+//     editable author-layout block, not a horizontal core/columns. With the real transformer as
 //     the verifier the detector therefore finds nothing.
 $verticalBlocks = ( new HtmlTransformer() )->transform($verticalFlex, array())->toArray()['blocks'] ?? array();
 $assert(
-    'core/group' === ($verticalBlocks[0]['blockName'] ?? ''),
-    '4e: live transformer emits core/group for a vertical flex container',
+    'blocks-engine/author-layout' === ($verticalBlocks[0]['blockName'] ?? ''),
+    '4e: live transformer emits an author layout block for a vertical flex container',
     (string) ($verticalBlocks[0]['blockName'] ?? '(none)')
 );
-$assert(
-    'vertical' === ($verticalBlocks[0]['attrs']['layout']['orientation'] ?? ''),
-    '4e: the vertical flex group carries an explicit vertical flex orientation',
-    (string) ($verticalBlocks[0]['attrs']['layout']['orientation'] ?? '(none)')
-);
+$assert(! isset($verticalBlocks[0]['attrs']['layout']), '4e: author layout carries no core layout orientation');
 $liveLayout = CorpusDetectors::layoutDirectionMisrecognition(
     $verticalFlex,
     static function (string $fragment): bool {
@@ -226,13 +218,12 @@ $liveLayout = CorpusDetectors::layoutDirectionMisrecognition(
 );
 $assert(0 === count($liveLayout), '4e: detector reports no misrecognition once the transformer stacks the flex column vertically', 'got ' . count($liveLayout));
 
-// 4f. Horizontal flex still becomes core/columns — the fix must not disturb
-//     legitimate horizontal column layouts.
+// 4f. Horizontal flex is also source CSS-owned and uses the same companion.
 $horizontalColumns = '<div style="display:flex; gap:1rem;"><div><h2>A</h2><p>one</p></div><div><h2>B</h2><p>two</p></div></div>';
 $horizontalBlocks = ( new HtmlTransformer() )->transform($horizontalColumns, array())->toArray()['blocks'] ?? array();
 $assert(
-    'core/columns' === ($horizontalBlocks[0]['blockName'] ?? ''),
-    '4f: live transformer keeps horizontal flex as core/columns',
+    'blocks-engine/author-layout' === ($horizontalBlocks[0]['blockName'] ?? ''),
+    '4f: live transformer keeps horizontal flex under author CSS ownership',
     (string) ($horizontalBlocks[0]['blockName'] ?? '(none)')
 );
 

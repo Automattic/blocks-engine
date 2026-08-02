@@ -138,7 +138,7 @@ final class CorpusDiagnosticsRunner
             $totals['finding_count']
         );
         $lines[] = sprintf(
-            'EDITOR-INVALID RISK: richtext_invalid_risk=%d block(s) — class/style-bearing inline <span>/<a> that RichText drops.',
+            'EDITOR-INVALID RISK: richtext_invalid_risk=%d block(s) — unsupported styled inline RichText nodes.',
             (int) ($totals['richtext_invalid_risk_count'] ?? 0)
         );
         $lines[] = sprintf(

@@ -417,9 +417,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
-            $baseAttrs['style']['typography']['textDecoration'] = 'underline';
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
-            if ( '' === $decorationColor ) {
+            $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
+            if ( 'underline' === $sourceDecoration || '' !== $decorationColor ) {
+                $itemAttrs['className'] .= ' blocks-engine-current-navigation-underline';
+                $baseAttrs['style']['typography']['textDecoration'] = 'underline';
+            }
+            if ( '' === $decorationColor && 'underline' === $sourceDecoration ) {
                 $decorationColor = $this->activeNavigationUnderlineColor($anchorAttrs, $itemAttrs);
             }
             if ( '' !== $decorationColor ) {
@@ -533,6 +537,11 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $attrs['style']['spacing']['blockGap'] = $listGap;
             }
             break;
+        }
+
+        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+            // Core navigation adds its own default gap; source lists do not.
+            $attrs['style']['spacing']['blockGap'] = '0px';
         }
 
         return $attrs;

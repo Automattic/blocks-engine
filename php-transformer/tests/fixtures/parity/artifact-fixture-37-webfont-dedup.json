@@ -13,7 +13,7 @@
     "artifact": {
       "entrypoint": "index.html",
       "files": [
-        { "path": "index.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"css/style.css\"></head><body><main>Beton Galerie</main></body></html>", "kind": "html", "role": "entry" },
+        { "path": "index.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"css/style.css\"></head><body><main><svg xmlns=\"http://www.w3.org/2000/svg\"><text font-family=\"Inter, sans-serif\">Beton Galerie</text></svg><svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0h1v1z\"/></svg></main></body></html>", "kind": "html", "role": "entry" },
         { "path": "artists.html", "content": "<!doctype html><html><head><link rel=\"stylesheet\" href=\"css/style.css\"></head><body><main>Artists</main></body></html>", "kind": "html" },
         { "path": "css/style.css", "content": "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');:root{--font:'Inter',system-ui,sans-serif}body{font-family:var(--font)}", "kind": "css", "mime_type": "text/css" }
       ]
@@ -24,6 +24,7 @@
     { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.schema", "assert": "equals", "value": "blocks-engine/webfont-materialization/v1" },
     { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.imports", "assert": "count", "count": 1 },
     { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.faces", "assert": "count", "count": 9 },
-    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.receipts", "assert": "count", "count": 9 }
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.receipts", "assert": "count", "count": 9 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.webfont_contract.svg_consumers", "assert": "count", "count": 1 }
   ]
 }

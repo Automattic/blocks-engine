@@ -35,11 +35,12 @@ final class ButtonsPattern
             return $fileBlock;
         }
 
-        if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor)) ) {
+        $surface = $this->buttonSurfaceElement($anchor);
+        if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
             return null;
         }
 
-        return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock) ), $anchor);
+        return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes, $resolvedStyle), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock) ), $anchor);
     }
 
     /**
@@ -59,7 +60,7 @@ final class ButtonsPattern
         }
         $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
 
-        return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes), array(
+        return $createBlock('core/buttons', $this->buttonWrapperAttributes($button, $presentationAttributes, $resolvedStyle), array(
             $createBlock('core/button', array_filter(array_merge(
                 $attrs,
                 $this->buttonRuntimeAttributes($button),
@@ -85,12 +86,13 @@ final class ButtonsPattern
     {
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, (string) $resolvedStyle($element)) ) {
-            return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock, $element) ), $element);
+            return $createBlock('core/buttons', $this->buttonWrapperAttributes($element, $presentationAttributes, $resolvedStyle), array( $this->buttonBlockFromAnchor($wrappedAnchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock, $element) ), $element);
         }
 
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && $this->hasButtonSignal($child, (string) $resolvedStyle($child)) ) {
+            $surface = $child instanceof DOMElement ? $this->buttonSurfaceElement($child) : null;
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && $this->hasButtonSignal($child, (string) $resolvedStyle($child), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
                 $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock);
             }
         }
@@ -113,15 +115,23 @@ final class ButtonsPattern
      */
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock, ?DOMElement $presentationElement = null): array
     {
-        $presentationElement ??= $anchor;
+        $presentationElement ??= $this->buttonSurfaceElement($anchor) ?? $anchor;
         $resolvedPresentation = trim((string) $resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $presentationAttributes, $resolvedStyle);
+        if ( $presentationElement !== $anchor ) {
+            $anchorStyle = (string) $resolvedStyle($anchor);
+            if ( preg_match('/(?:^|;)\s*border\s*:\s*(?!0(?:;|$)|none(?:;|$))[^;]+/i', $anchorStyle)
+                && ! preg_match('/(?:^|;)\s*border-radius\s*:/i', $anchorStyle)
+            ) {
+                $attrs['style']['border']['radius'] = '0';
+            }
+        }
         // The canonical core/button wrapper is structural. A source control's
         // classes would otherwise let an unprojected stylesheet paint that outer
         // div instead of the link that Gutenberg actually renders as the button.
-        if ( $presentationElement === $anchor && $hasAuthoredStyleRules ) {
-            $this->removeSourceControlClasses($attrs, $anchor);
+        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
+            $this->removeSourceControlClasses($attrs, $presentationElement);
         }
 
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
@@ -137,14 +147,60 @@ final class ButtonsPattern
      * External spacing belongs to the core/buttons flex item, not its child link.
      *
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @return array<string, mixed>
      */
-    private function buttonWrapperAttributes(DOMElement $element, callable $presentationAttributes): array
+    private function buttonWrapperAttributes(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle): array
     {
-        $margin = $presentationAttributes($element)['style']['spacing']['margin'] ?? null;
-        return is_array($margin) && array() !== $margin
-            ? array( 'style' => array( 'spacing' => array( 'margin' => $margin ) ) )
-            : array();
+        $presentation = $presentationAttributes($element);
+        $attrs = array();
+        $margin = $presentation['style']['spacing']['margin'] ?? null;
+        if ( is_array($margin) && array() !== $margin ) {
+            $attrs['style']['spacing']['margin'] = $margin;
+        }
+
+        $alignment = $this->textAlignment((string) $resolvedStyle($element));
+        if ( '' === $alignment && $element->parentNode instanceof DOMElement ) {
+            $alignment = $this->textAlignment((string) $resolvedStyle($element->parentNode));
+        }
+        if ( in_array($alignment, array( 'left', 'center', 'right' ), true) ) {
+            $attrs['layout'] = array(
+                'type'           => 'flex',
+                'justifyContent' => $alignment,
+            );
+        }
+
+        return $attrs;
+    }
+
+    private function textAlignment(string $style): string
+    {
+        if ( preg_match_all('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $style, $matches) < 1 ) {
+            return '';
+        }
+
+        return strtolower((string) end($matches[1]));
+    }
+
+    private function buttonSurfaceElement(DOMElement $anchor): ?DOMElement
+    {
+        $surface = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || null !== $surface ) {
+                return null;
+            }
+            $surface = $child;
+        }
+
+        $hasPresentationIdentity = $surface instanceof DOMElement
+            && ( $surface->hasAttribute('class') || $surface->hasAttribute('id') || $surface->hasAttribute('style') );
+
+        return $hasPresentationIdentity && in_array(strtolower($surface->tagName), array( 'div', 'span' ), true)
+            ? $surface
+            : null;
     }
 
     /** @param callable(DOMElement, string): ?string $materializeSvgImages */
@@ -378,9 +434,14 @@ final class ButtonsPattern
         return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
     }
 
-    private function hasButtonSignal(DOMElement $anchor, string $resolvedStyle = ''): bool
+    private function hasButtonSignal(DOMElement $anchor, string $resolvedStyle = '', string $surfaceStyle = ''): bool
     {
-        return $this->signalClassifier->hasTransformSignal($anchor, $resolvedStyle);
+        if ( $this->signalClassifier->hasTransformSignal($anchor, $resolvedStyle) ) {
+            return true;
+        }
+
+        $surface = $this->buttonSurfaceElement($anchor);
+        return null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $surfaceStyle);
     }
 
     private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool

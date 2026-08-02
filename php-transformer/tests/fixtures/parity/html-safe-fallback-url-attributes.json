@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-safe-fallback-url-attributes",
+  "description": "Sanitizes unsafe URL schemes from fallback URL attributes while retaining safe navigation and image sources.",
+  "source_reference": {
+    "repo": "blocks-engine",
+    "path": "tests/fixtures/parity/html-safe-fallback-url-attributes.json",
+    "notes": "Exercises form, button, object, SVG, and meta-refresh fallback markup."
+  },
+  "legacy_comparison": { "skip": true, "reason": "Shared fallback sanitization is a safety contract." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div data-widget><form action=\"javascript:steal()\" onsubmit=\"steal()\"><button formaction=\"vbscript:steal()\">Send</button><button formaction=\"mailto:team@example.com\">Contact</button><object data=\"file:///etc/passwd\"></object></form><a href=\"javascript:steal()\">Bad</a><a href=\"https://example.com\">Good</a><img src=\"data:text/html;base64,PHNjcmlwdD4=\"><img src=\"data:image/png;base64,aGVsbG8=\"><svg><use xlink:href=\"javascript:steal()\"></use></svg><meta http-equiv=\"refresh\" content=\"0;url=javascript:steal()\"><form action=\"/contact\"><button formaction=\"tel:+15551212\">Call</button></form></div>",
+    "options": { "runtime_dom_selectors": ["[data-widget]"] }
+  },
+  "expected_blocks": [ { "path": "blocks.0", "name": "core/html" } ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data:image/png;base64,aGVsbG8=" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "action=\"/contact\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "formaction=\"mailto:team@example.com\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "formaction=\"tel:+15551212\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "vbscript:" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "file:" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data:text/html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "http-equiv=\"refresh\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "onsubmit=" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}
