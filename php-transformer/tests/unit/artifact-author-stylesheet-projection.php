@@ -183,9 +183,20 @@ $tableNormalization = ( new ArtifactCompiler() )->compile(array(
 $tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?? '');
 $tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
-$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}'), 'unmargined native table wrappers tie core figure spacing while preserving source border-collapse geometry');
+$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead>tr:first-child>th{border-top:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table tr>:first-child{border-left:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table tr>:last-child{border-right:0}'), 'borderless source tables remove only core outer cell edges while preserving source border-collapse geometry');
 $assert(str_contains($tableNormalizationCss, '.table-wrap{margin-bottom:2rem}') && str_contains($tableNormalizationCss, 'table{margin:3rem 0}') && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain in the source stylesheet rather than becoming a broad table override');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');
+
+$borderedTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><tbody><tr><td>Framed</td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'table{border:2px solid #123456;border-collapse:collapse}td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$borderedTableMarkup = (string) ($borderedTable['serialized_blocks'] ?? '');
+$borderedTableCss = implode("\n", array_column(array_filter($borderedTable['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $borderedTableMarkup, $borderedTableMarker) === 1 && ! str_contains($borderedTableCss, '.' . ($borderedTableMarker[1] ?? '') . '>table tr>:first-child{border-left:0}') && str_contains($borderedTableCss, 'table{border:2px solid #123456;border-collapse:collapse}'), 'authored table borders retain their outer frame without generated edge resets');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($borderedTableMarkup)['status'], 'authored bordered tables remain editor-valid');
 
 if ( $failures > 0 ) {
     exit(1);

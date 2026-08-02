@@ -6656,6 +6656,25 @@ final class HtmlTransformer
             $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
         }
 
+        $hasTableBorder = false;
+        foreach ( array( 'border', 'border-width', 'border-style', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+            if ( '' !== trim((string) ($tableDeclarations[$property] ?? '')) ) {
+                $hasTableBorder = true;
+                break;
+            }
+        }
+        if ( ! $hasTableBorder ) {
+            $firstSection = $this->firstChildElement($table, 'thead') instanceof DOMElement
+                ? 'thead'
+                : 'tbody';
+            // Core supplies a border on every cell. Remove only its outer edge
+            // where source has no table frame; authored cell borders load later.
+            $rules[] = '.' . $marker . '>table>' . $firstSection . '>tr:first-child>th{border-top:0}';
+            $rules[] = '.' . $marker . '>table>' . $firstSection . '>tr:first-child>td{border-top:0}';
+            $rules[] = '.' . $marker . '>table tr>:first-child{border-left:0}';
+            $rules[] = '.' . $marker . '>table tr>:last-child{border-right:0}';
+        }
+
         $head = $this->firstChildElement($table, 'thead');
         if ( $head instanceof DOMElement ) {
             $headDeclarations = $this->structuralPresentationDeclarations($head);
