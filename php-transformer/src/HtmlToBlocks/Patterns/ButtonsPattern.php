@@ -35,6 +35,10 @@ final class ButtonsPattern
             return $fileBlock;
         }
 
+        if ( $this->isPositionedFragmentNavigation($anchor, (string) $resolvedStyle($anchor)) ) {
+            return null;
+        }
+
         $surface = $this->buttonSurfaceElement($anchor);
         if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
             return null;
@@ -92,7 +96,7 @@ final class ButtonsPattern
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
             $surface = $child instanceof DOMElement ? $this->buttonSurfaceElement($child) : null;
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && $this->hasButtonSignal($child, (string) $resolvedStyle($child), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, (string) $resolvedStyle($child)) && $this->hasButtonSignal($child, (string) $resolvedStyle($child), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
                 $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock);
             }
         }
@@ -442,6 +446,16 @@ final class ButtonsPattern
 
         $surface = $this->buttonSurfaceElement($anchor);
         return null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $surfaceStyle);
+    }
+
+    private function isPositionedFragmentNavigation(DOMElement $anchor, string $resolvedStyle): bool
+    {
+        $href = trim($anchor->getAttribute('href'));
+        if ( ! str_starts_with($href, '#') || '#' === $href || 'button' === strtolower($anchor->getAttribute('role')) ) {
+            return false;
+        }
+
+        return preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/i', $resolvedStyle) === 1;
     }
 
     private function hasWrapperButtonSignal(DOMElement $element, string $resolvedStyle): bool

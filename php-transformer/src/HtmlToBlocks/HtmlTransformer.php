@@ -379,6 +379,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
+    private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
+
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -864,6 +866,11 @@ final class HtmlTransformer
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
+        }
+        if ( str_contains($serializedBlocks, self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
+            // Positioned fragment links retain their source anchor and selectors;
+            // their valid paragraph host must not create a line box in document flow.
+            $cssParts[] = ':where(.' . self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
