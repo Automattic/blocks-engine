@@ -49,6 +49,35 @@ $assert(str_contains($themedMarkup, 'background:linear-gradient(135deg,#2c63ff,#
 $assert(str_contains($themedMarkup, 'color:#1d2230'), 'default root custom properties are not replaced by conditional theme overrides', $themedMarkup);
 $assert(! str_contains($themedMarkup, 'color:#f3f1ea'), 'inactive dark-theme custom properties do not leak into canonical button paint', $themedMarkup);
 
+$inheritedHeaderButton = ( new HtmlTransformer() )->transform(
+    '<header style="color:#f8fff9;text-align:start"><a class="button" style="padding:10px 18px;background:#1d2230" href="/start">Start</a></header>'
+)->toArray();
+$inheritedHeaderMarkup = (string) ($inheritedHeaderButton['serialized_blocks'] ?? '');
+$inheritedHeaderCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inheritedHeaderButton['assets'] ?? array()));
+$assert(str_contains($inheritedHeaderMarkup, 'color:#f8fff9'), 'header-inherited button foreground maps to canonical core/button color', $inheritedHeaderMarkup);
+$assert(str_contains($inheritedHeaderCss, 'text-align:start!important'), 'header-inherited start alignment overrides the core/button link default', $inheritedHeaderCss);
+$assert('pass' === ($inheritedHeaderButton['source_reports']['wp_block_validity']['status'] ?? ''), 'header-inherited native button remains editor-valid', json_encode($inheritedHeaderButton['source_reports']['wp_block_validity'] ?? array()));
+$assert(! str_contains($inheritedHeaderMarkup, '<!-- wp:html'), 'header-inherited native button needs no HTML fallback', $inheritedHeaderMarkup);
+
+$inheritedFooterButton = ( new HtmlTransformer() )->transform(
+    '<footer style="color:#d4e5ff;text-align:end"><a class="button" style="padding:8px 14px;background:#18212b" href="/">Brand</a></footer>'
+)->toArray();
+$inheritedFooterMarkup = (string) ($inheritedFooterButton['serialized_blocks'] ?? '');
+$inheritedFooterCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inheritedFooterButton['assets'] ?? array()));
+$assert(str_contains($inheritedFooterMarkup, 'color:#d4e5ff'), 'footer-inherited button foreground maps to canonical core/button color', $inheritedFooterMarkup);
+$assert(str_contains($inheritedFooterCss, 'text-align:end!important'), 'footer-inherited end alignment overrides the core/button link default', $inheritedFooterCss);
+$assert('pass' === ($inheritedFooterButton['source_reports']['wp_block_validity']['status'] ?? ''), 'footer-inherited native button remains editor-valid', json_encode($inheritedFooterButton['source_reports']['wp_block_validity'] ?? array()));
+
+$explicitButton = ( new HtmlTransformer() )->transform(
+    '<header style="color:#f8fff9;text-align:start"><a class="button" style="padding:10px 18px;background:#1d2230;color:#102030;text-align:end" href="/start">Start</a></header>'
+)->toArray();
+$explicitMarkup = (string) ($explicitButton['serialized_blocks'] ?? '');
+$explicitCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $explicitButton['assets'] ?? array()));
+$explicitButtonAttrs = $explicitButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$assert('#102030' === ($explicitButtonAttrs['style']['color']['text'] ?? null), 'explicit anchor color remains authoritative over inherited color', $explicitMarkup);
+$assert(str_contains($explicitCss, 'text-align:end!important') && ! str_contains($explicitCss, 'text-align:start!important'), 'explicit anchor alignment remains authoritative over inherited alignment', $explicitCss);
+$assert('pass' === ($explicitButton['source_reports']['wp_block_validity']['status'] ?? ''), 'explicit native button remains editor-valid', json_encode($explicitButton['source_reports']['wp_block_validity'] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);
