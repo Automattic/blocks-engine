@@ -2277,7 +2277,7 @@ final class HtmlTransformer
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
             }
-            if ( $this->hasEmptyVisualInlineChild($element) ) {
+            if ( $this->hasEmptyVisualInlineChild($element) && $this->hasBoxChromeWrapperStyling($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
@@ -2380,7 +2380,7 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                    return $this->emptyVisualSpacerBlock($element);
                 }
 
                 return null;
@@ -2973,7 +2973,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                return $this->emptyVisualSpacerBlock($element);
             }
             return null;
         }
@@ -4192,6 +4192,11 @@ final class HtmlTransformer
                 continue;
             }
 
+            if ( '' === trim($sourceInline->textContent ?? '') && 0 === $this->childElementCount($sourceInline) && ! $this->isRuntimeDomTarget($sourceInline) && ! $this->shouldPreserveEmptyVisualElement($sourceInline) ) {
+                $targetInline->parentNode?->removeChild($targetInline);
+                continue;
+            }
+
             $inline = $this->richTextInlineVisualDeclarations($sourceInline);
             $marker = $this->richTextMarkerForElement($sourceInline);
             if ( '' !== $marker ) {
@@ -4585,14 +4590,7 @@ final class HtmlTransformer
             return false;
         }
 
-        $declarations = $this->presentationDeclarations($element);
-        foreach ( array( 'background', 'background-color', 'border', 'border-color', 'border-width', 'border-radius', 'box-shadow', 'width', 'height', 'min-width', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return true;
     }
 
     private function renderedTextContent(DOMElement $element): string
@@ -4644,17 +4642,104 @@ final class HtmlTransformer
         return $attrs;
     }
 
+    /** @return array<string, mixed> */
+    private function emptyVisualSpacerBlock(DOMElement $element): array
+    {
+        $attrs = $this->emptyVisualElementAttributes($element);
+        if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+            return $this->createBlock('core/group', $attrs, array(), $element);
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $paint = $this->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
+            'background',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
+        ))));
+        $attrs = array_merge($attrs, $paint['attrs']);
+        if ( array() !== $paint['style'] ) {
+            $attrs['style'] = array_replace_recursive($attrs['style'] ?? array(), $paint['style']);
+        }
+        $attrs['height'] = $this->resolveCssVariablesInValue($declarations['height']);
+        $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
+
+        return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool
     {
         if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
             return false;
         }
 
-        $tokens = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
-        if ( '' === $tokens && $element->parentNode instanceof DOMElement ) {
-            $tokens = strtolower(trim($this->attr($element->parentNode, 'class') . ' ' . $this->attr($element->parentNode, 'id')));
+        $declarations = $this->structuralPresentationDeclarations($element);
+        return $this->hasExplicitEmptyVisualDimensions($declarations) && $this->hasVisibleEmptyVisualPaint($declarations);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasExplicitEmptyVisualDimensions(array $declarations): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            if ( ! isset($declarations[$property]) || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return false;
+            }
         }
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:badges?|chips?|pills?|status|indicators?|markers?|dots?|orbs?|icons?)(?:[^a-z0-9]|$)/', $tokens);
+
+        return true;
+    }
+
+    private function isPositiveCssLength(string $value): bool
+    {
+        if ( ! preg_match('/^([+]?(?:\d+(?:\.\d+)?|\.\d+))(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)$/i', trim($value), $matches) ) {
+            return false;
+        }
+
+        return (float) $matches[1] > 0;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasVisibleEmptyVisualPaint(array $declarations): bool
+    {
+        foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return true;
+            }
+        }
+
+        foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                return true;
+            }
+        }
+
+        return isset($declarations['border-color'], $declarations['border-width'])
+            && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations['border-color']))
+            && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations['border-width']));
+    }
+
+    private function isVisibleEmptyVisualPaint(string $value): bool
+    {
+        $value = strtolower(trim($value));
+        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
+            return false;
+        }
+
+        return ! preg_match('/^#[0-9a-f]{4}$|^#[0-9a-f]{8}$/i', $value) || ! str_ends_with($value, '0');
+    }
+
+    private function isVisibleEmptyVisualBorder(string $value): bool
+    {
+        return ! str_contains(strtolower($value), 'transparent')
+            && ! preg_match('/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/i', $value)
+            && $this->isVisibleEmptyVisualPaint($value)
+            && ! preg_match('/(?:^|\s)0(?:\.0+)?(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)?(?:\s|$)/i', trim($value));
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
@@ -5033,6 +5118,14 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasEmptyVisualInlineChild($element) ) {
+            $fallbacks = array();
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+        }
+
         $content = $this->richTextContentWithMaterializedInlineStyles($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallback($content) ) {
             return null;
@@ -5176,6 +5269,14 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasEmptyVisualInlineChild($element) ) {
+            $fallbacks = array();
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+        }
+
         // A lone marked descendant needs an independent carrier. Phrasing-only
         // sibling runs remain together in this RichText block so authored
         // flex/grid child geometry is not replaced with block wrappers.
@@ -5232,7 +5333,7 @@ final class HtmlTransformer
     private function hasRichTextMarkedDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('span') as $span ) {
-            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) ) {
+            if ( $span instanceof DOMElement && '' !== $this->richTextMarkerForElement($span) && ! $this->shouldPreserveEmptyVisualElement($span) ) {
                 return true;
             }
         }
