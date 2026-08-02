@@ -341,6 +341,18 @@ $assert(! str_contains($css($second), 'blocks-engine-source-p-') && 1 === substr
 $third = $instance->transform('<style>.cta:hover{color:red}</style><p>Read <span class="cta">this</span>.</p>')->toArray();
 $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains($css($third), '> :where(.wp-block-button__link)'), 'repeated selector text resolves against each transform source DOM');
 
+$customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
+$customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
+$assert(str_contains($customPropertyCardsMarkup, 'style="--tone:#f06"') && str_contains($customPropertyCardsMarkup, 'style="--tone:#0af"') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values without unused-property or cross-card leakage');
+
+$pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";background:var(--accent)}</style><div class="tour-card" style="width:344px;height:430px;--accent:#fc0;--unused:discard">Card</div>');
+$pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');
+$assert(str_contains($pseudoCustomPropertyMarkup, 'style="--accent:#fc0"') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed inline custom properties');
+
+$geometryCustomProperty = $transform('<div style="width:var(--card-width);height:430px;--card-width:344px;--unused:discard">Card</div>');
+$geometryCustomPropertyMarkup = (string) ($geometryCustomProperty['serialized_blocks'] ?? '');
+$assert(str_contains($geometryCustomPropertyMarkup, 'style="--card-width:344px"') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard'), 'inline geometry retains only its referenced custom property');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
