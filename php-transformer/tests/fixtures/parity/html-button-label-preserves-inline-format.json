@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn", "text": "<strong>Go</strong> now", "url": "/go" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn blocks-engine-native-button-alignment-start", "text": "<strong>Go</strong> now", "url": "/go" } }
   ],
   "expected_fallbacks": [],
   "expect": [

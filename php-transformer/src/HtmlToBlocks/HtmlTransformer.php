@@ -3168,22 +3168,38 @@ final class HtmlTransformer
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
-            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControl->getNodePath() ?? '']) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
-                $path = $logicalControl->getNodePath() ?? '';
-                if ( '' !== $path && ! isset($this->sourceControlMarkers[$path]) ) {
-                    $this->sourceControlMarkers[$path] = $this->allocateAuthorMarker('control');
+            $logicalControlPath = $logicalControl->getNodePath() ?? '';
+            $nativeButtonTextAlignment = '';
+            $hasNativeButtonColor = false;
+            $hasNativeButtonStyle = false;
+            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) ) {
+                $existingTextColor = (string) ($attrs['style']['color']['text'] ?? '');
+                $nativeButtonTextAlignment = $this->applyNativeButtonInheritedStyle($logicalControl, $attrs, 'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl));
+                $hasNativeButtonColor = $existingTextColor !== (string) ($attrs['style']['color']['text'] ?? '');
+                $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
+            }
+            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControlPath]) || ( '' !== $this->combinedAuthorCss && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
+                if ( '' !== $logicalControlPath && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                    $this->sourceControlMarkers[$logicalControlPath] = $this->allocateAuthorMarker('control');
                 }
-                if ( isset($this->sourceControlMarkers[$path]) ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$path]);
+                if ( isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$logicalControlPath]);
                     if ( 'core/button' === $name ) {
-                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$path], $attrs);
+                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $attrs, $nativeButtonTextAlignment);
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
-                if ( '' !== $presentationPath && $presentationPath !== $path ) {
-                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
-                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$path];
+                if ( '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
+                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
+                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
                 }
+            }
+            if ( 'core/button' === $name && $hasNativeButtonStyle && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+                $nativeButtonMarker = $hasNativeButtonColor
+                    ? $this->allocateAuthorMarker('native-button')
+                    : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
+                $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
             }
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -3212,8 +3228,59 @@ final class HtmlTransformer
         return $block;
     }
 
+    /**
+     * Project the inherited foreground because core/button supplies a default link
+     * color. Text alignment uses the same scoped link rule for direct and inherited
+     * values, so a local anchor declaration remains authoritative.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs, bool $useInitialTextAlignment): string
+    {
+        $anchorDeclarations = $this->presentationDeclarations($anchor);
+        $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
+        $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
+        $inheritedColor = '';
+        $inheritedTextAlignment = '';
+
+        for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $declarations = $this->presentationDeclarations($ancestor);
+            if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
+                $inheritedColor = (string) $declarations['color'];
+            }
+            if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
+                $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
+            }
+            if ( '' !== $inheritedColor && '' !== $inheritedTextAlignment ) {
+                break;
+            }
+        }
+
+        if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
+            $mappedColor = $this->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
+            if ( '' !== trim((string) $mappedColor) ) {
+                $attrs['style']['color']['text'] = $mappedColor;
+            }
+        }
+
+        $textAlignment = $anchorTextAlignmentInherits
+            ? $inheritedTextAlignment
+            : strtolower(trim((string) $anchorDeclarations['text-align']));
+        if ( '' === $textAlignment || 'initial' === $textAlignment ) {
+            return $useInitialTextAlignment ? 'start' : '';
+        }
+        return in_array($textAlignment, array( 'start', 'end', 'left', 'center', 'right' ), true)
+            ? $textAlignment
+            : '';
+    }
+
+    private function isInheritedCssWideValue(string $value): bool
+    {
+        return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
+    }
+
     /** @param array<string, mixed> $attrs */
-    private function registerNativeButtonStyleRule(string $marker, array $attrs): void
+    private function registerNativeButtonStyleRule(string $marker, array $attrs, string $inheritedTextAlignment = ''): void
     {
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $declarations = array();
@@ -3238,6 +3305,9 @@ final class HtmlTransformer
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $declarations[] = $property . ':' . $value . '!important';
             }
+        }
+        if ( '' !== $inheritedTextAlignment ) {
+            $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
         }
         if ( array() === $declarations ) {
             return;

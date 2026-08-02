@@ -17,15 +17,15 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "See the Teams", "url": "/teams", "className": "btnPrimary" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Sign up today", "url": "/signup", "style": { "color": { "background": "#0a66c2", "text": "#ffffff" }, "border": { "radius": "6px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } } } } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/button", "attrs": { "text": "Donate", "url": "/donate" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "See the Teams", "url": "/teams", "className": "btnPrimary blocks-engine-native-button-alignment-start" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Sign up today", "url": "/signup", "className": "blocks-engine-native-button-alignment-start", "style": { "color": { "background": "#0a66c2", "text": "#ffffff" }, "border": { "radius": "6px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } } } } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/button", "attrs": { "text": "Donate", "url": "/donate", "className": "blocks-engine-native-button-alignment-start" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:buttons -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btnPrimary\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btnPrimary blocks-engine-native-button-alignment-start\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:6px;color:#ffffff;background-color:#0a66c2;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:paragraph" }
