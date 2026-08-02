@@ -141,6 +141,33 @@ $multiPageAuthorAssets = array_values(array_filter($multiPage['assets'] ?? array
 $assert(1 === count($multiPageAuthorAssets), 'identical generated author stylesheets are emitted once across HTML routes');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
+$externalLayouts = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="styles.css"><main><div class="hero-visual"><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span>styles.css</span><span>assets/</span></div></div></main>' ),
+        array( 'path' => 'styles.css', 'kind' => 'css', 'content' => '.hero-visual{display:grid;gap:2rem}.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > span:not(.card-label){grid-column:2}.artifact-card > strong{grid-column:1}.artifact-card .card-label{grid-column:1 / -1}' ),
+    ),
+) )->toArray();
+$externalLayoutPage = (string) ($externalLayouts['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
+$externalLayoutCard = $externalLayouts['blocks'][0]['innerBlocks'][0] ?? array();
+$externalLayoutCardChildren = $externalLayoutCard['innerBlocks'] ?? array();
+$externalLayoutCss = implode("\n", array_column($externalLayouts['assets'] ?? array(), 'content'));
+$assert(
+    str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-flow')
+    && str_contains($externalLayoutPage, 'artifact-card blocks-engine-css-owned-layout')
+    && ! str_contains($externalLayoutPage, 'is-layout-grid')
+    && 4 === count($externalLayoutCard['innerBlocks'] ?? array())
+    && 'core/paragraph' === ($externalLayoutCardChildren[0]['blockName'] ?? '')
+    && 'core/group' === ($externalLayoutCardChildren[1]['blockName'] ?? '')
+    && str_contains((string) ($externalLayoutCardChildren[1]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
+    && 'core/paragraph' === ($externalLayoutCardChildren[1]['innerBlocks'][0]['blockName'] ?? '')
+    && 4 <= substr_count($externalLayoutPage, 'blocks-engine-semantic-')
+    && str_contains($externalLayoutCss, ':where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
+    && ! str_contains($externalLayoutCss, '.artifact-card > span:not(.card-label)')
+    && ! str_contains($externalLayoutCss, '.artifact-card > strong'),
+    'linked implicit and explicit grids retain valid semantic layout-item carriers with neutralized generated paragraph flow in canonical site-plan markup'
+);
+
 // Collapsed-paragraph cascade isolation via the source-`p` tag marker. A shared
 // stylesheet carries a descendant-`p` body-copy rule (`.page-header p`) and an
 // eyebrow (`.label`) that collapses to a paragraph. The projected `.page-header

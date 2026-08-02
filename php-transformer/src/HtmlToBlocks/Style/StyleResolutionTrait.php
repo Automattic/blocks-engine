@@ -946,6 +946,7 @@ trait StyleResolutionTrait
             'padding-left',
             'padding-right',
             'padding-top',
+            'place-items',
             'position',
             'row-gap',
             'text-align',
@@ -1093,7 +1094,7 @@ trait StyleResolutionTrait
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && preg_match('/(?:^|;)\s*grid-template-columns\s*:/', $style) ) {
+            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
 

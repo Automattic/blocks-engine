@@ -16,11 +16,11 @@
     "content": "<div class=\"cols\" style=\"display:flex\"><div class=\"c\"><h2>A</h2><p>one</p></div><div class=\"c\"><h2>B</h2><p>two</p></div></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cols" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "c" } },
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "A", "level": 2 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "one" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "c" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "B", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "two" } }
   ],
@@ -28,6 +28,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/author-layout {\"className\":\"cols\",\"contentMode\":\"inner-blocks\",\"tagName\":\"div\"} -->" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "cols blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" }
   ]
 }

@@ -16,11 +16,11 @@
     "content": "<section id=\"features\" class=\"cards-grid\" data-source-kind=\"static\" style=\"display:grid\"><h2>Features</h2><pre><code class=\"language-js\"><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code></pre><article class=\"feature-card\"><p>First card</p></article><article class=\"feature-card\"><p>Second card</p></article><x-widget onclick=\"hydrate()\" data-action=\"open\"><span>Runtime widget</span></x-widget></section><figure class=\"testimonial\"><blockquote><p>Readable output.</p><footer><cite>Casey</cite> Engineer</footer></blockquote></figure>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/author-layout", "attrs": { "className": "cards-grid", "tagName": "section" } },
+    { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Features", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-js", "content": "<span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "feature-card" } },
-    { "path": "blocks.0.innerBlocks.3", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/group" },
     { "path": "blocks.1", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "<cite>Casey</cite> Engineer" } }
   ],
   "expected_fallbacks": [
@@ -40,6 +40,9 @@
     { "path": "fallbacks.1.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" },
     { "path": "diagnostics.2.runtime_island_type", "assert": "equals", "value": "unsupported_custom_app_control" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<code><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "cards-grid blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group feature-card blocks-engine-css-owned-layout\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "source_reports.html.source_provenance.0.context.structure_signals.grid_like", "assert": "equals", "value": true },
     { "path": "source_reports.html.source_provenance.0.context.structure_signals.repeated_card_children", "assert": "equals", "value": 2 },
     { "path": "source_reports.html.structure_signals.2.signals.grid_like", "assert": "equals", "value": true },
