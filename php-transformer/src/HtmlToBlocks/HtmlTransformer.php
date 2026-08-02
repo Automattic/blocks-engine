@@ -7257,15 +7257,16 @@ final class HtmlTransformer
             $content->removeChild($directList);
         }
 
-        // Wrapped lists remain native HTML in RichText so their authored wrapper
-        // topology survives. The author stylesheet rewrites `li` selectors to a
-        // provenance class, which must be carried by those retained leaves.
-        $listItemMarker = $this->sourceTagMarkers['li'] ?? '';
-        if ( '' !== $listItemMarker ) {
-            foreach ( $content->getElementsByTagName('li') as $nestedItem ) {
-                if ( $nestedItem instanceof DOMElement ) {
-                    $nestedItem->setAttribute('class', $this->mergeClassNames($this->attr($nestedItem, 'class'), $listItemMarker));
-                }
+        // Wrapped rich HTML remains inside core/list-item content so its authored
+        // topology survives. Materialize every source-tag marker that author CSS
+        // rewrites, not just nested list leaves.
+        foreach ( $content->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $marker = $this->sourceTagMarkers[strtolower($descendant->tagName)] ?? '';
+            if ( '' !== $marker ) {
+                $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $marker));
             }
         }
 
