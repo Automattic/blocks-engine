@@ -69,12 +69,16 @@ $skipLink = ( new HtmlTransformer() )->transform('<style>.skip-link{position:fix
 $skipLinkMarkup = (string) ($skipLink['serialized_blocks'] ?? '');
 $skipLinkCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $skipLink['assets'] ?? array()));
 $assert('core/paragraph' === ($skipLink['blocks'][0]['blockName'] ?? '') && ! str_contains($skipLinkMarkup, '<!-- wp:button') && str_contains($skipLinkMarkup, '<a class="skip-link" href="#content">Skip to content</a>'), '18: fixed fragment skip links retain native anchor content instead of gaining button wrappers', $skipLinkMarkup);
-$assert(str_contains($skipLinkCss, '.skip-link:focus{top:0}') && 'pass' === ($skipLink['source_reports']['wp_block_validity']['status'] ?? ''), '19: native skip-link focus selector and Gutenberg-valid serialization are preserved', $skipLinkCss . json_encode($skipLink['source_reports']['wp_block_validity'] ?? array()));
+$assert(str_contains($skipLinkMarkup, 'blocks-engine-positioned-fragment-link-carrier') && str_contains($skipLinkCss, ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}') && str_contains($skipLinkCss, '.skip-link:focus{top:0}'), '19: positioned fragment links use a zero-flow valid carrier while focus styling remains on the native anchor', $skipLinkMarkup . $skipLinkCss);
+$assert('pass' === ($skipLink['source_reports']['wp_block_validity']['status'] ?? ''), '20: positioned fragment link serialization remains Gutenberg-valid', json_encode($skipLink['source_reports']['wp_block_validity'] ?? array()));
+
+$fragmentCta = ( new HtmlTransformer() )->transform('<a class="primary-cta" href="#pricing" style="display:inline-flex;padding:12px 18px;background:#135e96;color:#fff">See pricing</a>', array())->toArray();
+$assert('core/button' === ($fragmentCta['blocks'][0]['innerBlocks'][0]['blockName'] ?? '') && '#pricing' === ($fragmentCta['blocks'][0]['innerBlocks'][0]['attrs']['url'] ?? ''), '21: ordinary fragment CTAs retain native core/button conversion', json_encode($fragmentCta['blocks'] ?? array()));
 
 $streamRow = ( new HtmlTransformer() )->transform('<style>.stream-btn{display:inline-flex;padding:10px 16px;background:#135e96;color:#fff;border-radius:4px}</style><div><a class="stream-btn" href="/listen">Listen live</a><a class="stream-btn" href="/schedule">View schedule</a></div>', array())->toArray();
 $streamRowCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $streamRow['assets'] ?? array()));
-$assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '20: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
-$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex;padding:10px 16px;background:#135e96'), '21: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
+$assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '22: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
+$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex;padding:10px 16px;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
 
 $buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();
 $nativeButton = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();

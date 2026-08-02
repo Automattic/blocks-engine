@@ -82,6 +82,13 @@ trait ButtonLinkDispatchTrait
         $attrs = $this->presentationAttributes($anchor);
         unset($attrs['anchor']);
 
+        if ( $this->isPositionedFragmentLink($anchor) ) {
+            $attrs['className'] = $this->mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS
+            );
+        }
+
         // Source class identity belongs exclusively to the saved link. Keep only
         // generated geometry classes and mapped presentation on its paragraph host.
         $sourceClasses = preg_split('/\s+/', trim($this->attr($anchor, 'class'))) ?: array();
@@ -96,6 +103,17 @@ trait ButtonLinkDispatchTrait
         }
 
         return $attrs;
+    }
+
+    private function isPositionedFragmentLink(DOMElement $anchor): bool
+    {
+        $href = trim($this->attr($anchor, 'href'));
+        if ( ! str_starts_with($href, '#') || '#' === $href || 'button' === strtolower($this->attr($anchor, 'role')) ) {
+            return false;
+        }
+
+        $position = strtolower(trim((string) ($this->structuralPresentationDeclarations($anchor)['position'] ?? '')));
+        return in_array($position, array( 'absolute', 'fixed' ), true);
     }
 
     /**
