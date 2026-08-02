@@ -1533,7 +1533,10 @@ final class HtmlTransformer
         }
 
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . '>table>' . $path . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
+        // Use the real isolated table marker rather than :where() so the exact
+        // cell path beats core's .wp-block-table td/th defaults without a global
+        // Gutenberg override.
+        return '.' . $marker . '>table>' . $path . $this->selectorSpecificityShims($parsed) . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1558,6 +1561,14 @@ final class HtmlTransformer
                     $attributes[$attribute['name']] = true;
                 }
             }
+        }
+
+        // core/table serializes anonymous cells directly instead of through
+        // createBlock(), so scope bare th/td selectors to their native position.
+        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true)
+            && array() === $classes && array() === $ids && array() === $attributes
+        ) {
+            return true;
         }
 
         for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
@@ -6579,7 +6590,10 @@ final class HtmlTransformer
      */
     private function tableAttributes(DOMElement $table): array
     {
-        $attrs = array();
+        $attrs = array(
+            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
+        );
+        $this->registerTablePresentationNormalization($table);
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
@@ -6623,6 +6637,41 @@ final class HtmlTransformer
         return $attrs;
     }
 
+    private function registerTablePresentationNormalization(DOMElement $table): void
+    {
+        $path = $this->sourceElementIdentity($table);
+        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $tableDeclarations = $this->structuralPresentationDeclarations($table);
+        // A single marker class ties core's .wp-block-table margin while later
+        // source classes promoted onto the figure retain their authored margins.
+        $rules = array( '.' . $marker . '{margin:0}' );
+        $borderModel = array();
+        foreach ( array( 'border-collapse', 'border-spacing' ) as $property ) {
+            $value = trim((string) ($tableDeclarations[$property] ?? ''));
+            if ( '' !== $value ) {
+                $borderModel[] = $property . ':' . $value;
+            }
+        }
+        if ( array() !== $borderModel ) {
+            $rules[] = '.' . $marker . '>table{' . implode(';', $borderModel) . '}';
+        }
+
+        // Core supplies borders on every cell. Clear them before projected author
+        // CSS restores only the source-declared cell sides.
+        $rules[] = '.' . $marker . '>table th,.' . $marker . '>table td{border:0}';
+
+        $head = $this->firstChildElement($table, 'thead');
+        if ( $head instanceof DOMElement ) {
+            $headDeclarations = $this->structuralPresentationDeclarations($head);
+            if ( ! isset($headDeclarations['border']) && ! isset($headDeclarations['border-bottom']) && ! isset($headDeclarations['border-bottom-width']) ) {
+                // core/table adds a 3px header separator that did not exist in source.
+                $rules[] = '.' . $marker . '>table>thead{border-bottom:0}';
+            }
+        }
+
+        $this->generatedGeometryRules[$marker] = implode("\n", $rules);
+    }
+
     private function registerTableCellGeometry(DOMElement $table): void
     {
         $rules = array();
@@ -6664,7 +6713,10 @@ final class HtmlTransformer
         $path = $this->sourceElementIdentity($table);
         $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
-        $this->generatedGeometryRules[$marker] = implode("\n", $scopedRules);
+        $this->generatedGeometryRules[$marker] = implode("\n", array_filter(array(
+            $this->generatedGeometryRules[$marker] ?? '',
+            implode("\n", $scopedRules),
+        )));
     }
 
     private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
@@ -6741,6 +6793,15 @@ final class HtmlTransformer
         foreach ( $row->childNodes as $cell ) {
             if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
+            }
+            foreach ( $cell->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $sourceTagName = strtolower($descendant->tagName);
+                if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $this->sourceTagMarkers[$sourceTagName]));
+                }
             }
             $cells[] = array(
                 'content' => $this->innerHtml($cell),

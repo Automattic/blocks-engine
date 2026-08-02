@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -158,6 +159,46 @@ $collapseCss = implode("\n", array_map(static fn (array $asset): string => (stri
 $assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
 $assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
 $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
+$nativeTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><thead><tr><th>Layer</th><th>Owns</th></tr></thead><tbody><tr><th>Blocks Engine</th><td>Compilation</td></tr><tr><th>Importer</th><td><div class="paragraph">Materialization</div></td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'th,td{padding:1.35rem 1rem;vertical-align:top}thead th{font-size:.66rem;text-transform:uppercase}tbody th{width:22%;font-size:.9rem}tbody td{width:39%;color:#4c5851;font-size:.86rem}div.paragraph{padding-bottom:20px}' ),
+    ),
+) )->toArray();
+$nativeTableMarkup = (string) ($nativeTable['serialized_blocks'] ?? '');
+$nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'table.css' === ($asset['path'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)"><table/', $nativeTableMarkup, $nativeTableMarker) === 1 && str_contains($nativeTableMarkup, '<!-- wp:table'), 'external table stylesheet retains a native core/table with an isolated projection marker');
+$assert(str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(1)>th:nth-child(1):not(blocks-engine-specificity-') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2):not(blocks-engine-specificity-') && ! str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors use an isolated table class and exact path that beats .wp-block-table td/th defaults');
+$assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativeTableCss, 'width:22%') && str_contains($nativeTableCss, 'width:39%'), 'thead and tbody cell selectors retain their external stylesheet presentation');
+$assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
+
+$tableNormalization = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><div class="table-wrap"><table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Body</td></tr></tbody></table></div></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => '.table-wrap{margin-bottom:2rem}table{margin:3rem 0;border-collapse:collapse;border-spacing:0}th,td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?? '');
+$tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
+$tableCellReset = '.' . ($tableNormalizationMarker[1] ?? '') . '>table th,.' . ($tableNormalizationMarker[1] ?? '') . '>table td{border:0}';
+$tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(1)';
+$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableBottomBorder) < strpos($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides while the more-specific projected bottom-only rules restore the source geometry');
+$assert(str_contains($tableNormalizationCss, '.table-wrap{margin-bottom:2rem}') && str_contains($tableNormalizationCss, 'table{margin:3rem 0}') && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain in the source stylesheet rather than becoming a broad table override');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');
+
+$borderedTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><tbody><tr><td>Framed</td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'table{border:2px solid #123456;border-collapse:collapse}td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$borderedTableMarkup = (string) ($borderedTable['serialized_blocks'] ?? '');
+$borderedTableCss = implode("\n", array_column(array_filter($borderedTable['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $borderedTableMarkup, $borderedTableMarker) === 1 && str_contains($borderedTableCss, '.' . ($borderedTableMarker[1] ?? '') . '>table th,.' . ($borderedTableMarker[1] ?? '') . '>table td{border:0}') && str_contains($borderedTableCss, 'table{border:2px solid #123456;border-collapse:collapse}'), 'authored table borders retain their outer frame while generated cell borders are reset');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($borderedTableMarkup)['status'], 'authored bordered tables remain editor-valid');
 
 if ( $failures > 0 ) {
     exit(1);
