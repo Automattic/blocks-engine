@@ -17,7 +17,10 @@ final class HighValueStyleBoundaryPolicy
             return true;
         }
 
-        if ( 'li' === $tagName && $this->hasMultipleStyledInlineChildren($element) ) {
+        // Native list items retain their own supported spacing and typography,
+        // while source-tag markers keep external selectors (including pseudo
+        // elements) addressable after core/list-item serialization.
+        if ( 'li' === $tagName ) {
             return true;
         }
 
@@ -45,32 +48,6 @@ final class HighValueStyleBoundaryPolicy
         }
 
         return false;
-    }
-
-    private function hasMultipleStyledInlineChildren(DOMElement $element): bool
-    {
-        $styledInlineChildren = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
-                continue;
-            }
-
-            if ( '' !== trim($this->attr($child, 'class')) || '' !== trim($this->attr($child, 'style')) ) {
-                ++$styledInlineChildren;
-            }
-        }
-
-        return $styledInlineChildren >= 2;
-    }
-
-    private function isInlineContentElement(string $tagName): bool
-    {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
     }
 
     private function attr(DOMElement $element, string $name): string

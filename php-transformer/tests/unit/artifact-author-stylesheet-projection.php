@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -158,6 +159,40 @@ $collapseCss = implode("\n", array_map(static fn (array $asset): string => (stri
 $assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
 $assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
 $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
+$listStyles = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><ul class="check-list"><li>Verified delivery</li></ul><ul class="chips"><li>News</li></ul></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.check-list li::before{content:"x";position:absolute;left:0}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}.chips li:hover{color:#123456}' ),
+    ),
+) )->toArray();
+$findBlocks = static function (array $blocks, string $name) use (&$findBlocks): array {
+    $found = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( $name === ($block['blockName'] ?? '') ) {
+            $found[] = $block;
+        }
+        $found = array_merge($found, $findBlocks($block['innerBlocks'] ?? array(), $name));
+    }
+    return $found;
+};
+$listStyleItems = $findBlocks($listStyles['blocks'] ?? array(), 'core/list-item');
+$listStyleCss = implode("\n", array_column($listStyles['assets'] ?? array(), 'content'));
+$listStyleMarkup = (string) ($listStyles['serialized_blocks'] ?? '');
+$assert(2 === count($findBlocks($listStyles['blocks'] ?? array(), 'core/list')) && 2 === count($listStyleItems) && ! str_contains($listStyleMarkup, '<!-- wp:html'), 'external checklist and chip rules retain native core/list and core/list-item output without fallback wrappers');
+$assert('1.75rem' === ($listStyleItems[0]['attrs']['style']['spacing']['padding']['left'] ?? null) && '.75rem' === ($listStyleItems[0]['attrs']['style']['spacing']['margin']['bottom'] ?? null) && '1.125rem' === ($listStyleItems[0]['attrs']['style']['typography']['fontSize'] ?? null) && '1.5' === ($listStyleItems[0]['attrs']['style']['typography']['lineHeight'] ?? null), 'external checklist selectors resolve supported spacing and typography onto the native list item');
+$assert('.75rem' === ($listStyleItems[1]['attrs']['style']['spacing']['padding']['right'] ?? null) && '.5rem' === ($listStyleItems[1]['attrs']['style']['spacing']['margin']['right'] ?? null) && '.875rem' === ($listStyleItems[1]['attrs']['style']['typography']['fontSize'] ?? null), 'external chip selectors resolve supported spacing and typography onto the native list item');
+$assert(str_contains($listStyleCss, ':where(.blocks-engine-source-li-') && str_contains($listStyleCss, 'position:relative') && str_contains($listStyleCss, '.check-list li::before') && str_contains($listStyleCss, ':hover{color:#123456}'), 'projected list-item markers retain external position and pseudo-selector addressability');
+$assert(isset($listStyles['source_reports']['wordpress_site_plan']) && str_contains((string) ($listStyles['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:list-item'), 'external list-item styling survives artifact compilation into the canonical WordPress site plan');
+$listStyleValidity = ( new HtmlTransformer() )->transform(
+    '<main><ul class="check-list"><li>Verified delivery</li></ul><ul class="chips"><li>News</li></ul></main>',
+    array( 'static_css' => '.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}' )
+)->toArray();
+$assert('pass' === ($listStyleValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'resolved external list-item styles serialize as Gutenberg-valid native blocks');
 
 if ( $failures > 0 ) {
     exit(1);
