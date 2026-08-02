@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -158,6 +159,20 @@ $collapseCss = implode("\n", array_map(static fn (array $asset): string => (stri
 $assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
 $assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
 $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
+$nativeTable = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><thead><tr><th>Layer</th><th>Owns</th></tr></thead><tbody><tr><th>Blocks Engine</th><td>Compilation</td></tr><tr><th>Importer</th><td><div class="paragraph">Materialization</div></td></tr></tbody></table></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'th,td{padding:1.35rem 1rem;vertical-align:top}thead th{font-size:.66rem;text-transform:uppercase}tbody th{width:22%;font-size:.9rem}tbody td{width:39%;color:#4c5851;font-size:.86rem}div.paragraph{padding-bottom:20px}' ),
+    ),
+) )->toArray();
+$nativeTableMarkup = (string) ($nativeTable['serialized_blocks'] ?? '');
+$nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'table.css' === ($asset['path'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)"><table/', $nativeTableMarkup, $nativeTableMarker) === 1 && str_contains($nativeTableMarkup, '<!-- wp:table'), 'external table stylesheet retains a native core/table with an isolated projection marker');
+$assert(str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(1)>th:nth-child(1))') && str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2))') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors project through exact native table cell paths');
+$assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativeTableCss, 'width:22%') && str_contains($nativeTableCss, 'width:39%'), 'thead and tbody cell selectors retain their external stylesheet presentation');
+$assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
 
 if ( $failures > 0 ) {
     exit(1);

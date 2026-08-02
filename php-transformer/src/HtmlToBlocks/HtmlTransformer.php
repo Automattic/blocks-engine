@@ -1560,6 +1560,14 @@ final class HtmlTransformer
             }
         }
 
+        // core/table serializes anonymous cells directly instead of through
+        // createBlock(), so scope bare th/td selectors to their native position.
+        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true)
+            && array() === $classes && array() === $ids && array() === $attributes
+        ) {
+            return true;
+        }
+
         for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
             $nodeClasses = preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array();
             if ( array_intersect(array_keys($classes), $nodeClasses) ) {
@@ -6741,6 +6749,15 @@ final class HtmlTransformer
         foreach ( $row->childNodes as $cell ) {
             if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
+            }
+            foreach ( $cell->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $sourceTagName = strtolower($descendant->tagName);
+                if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
+                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $this->sourceTagMarkers[$sourceTagName]));
+                }
             }
             $cells[] = array(
                 'content' => $this->innerHtml($cell),
