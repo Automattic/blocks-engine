@@ -2265,7 +2265,9 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(
+                        $this->createBlock('core/spacer', array( 'height' => '0px' )),
+                    ), $element);
                 }
 
                 return null;
@@ -2858,7 +2860,9 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
+                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(
+                    $this->createBlock('core/spacer', array( 'height' => '0px' )),
+                ), $element);
             }
             return null;
         }
