@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $result = ( new ArtifactCompiler() )->compile(array(
@@ -159,6 +160,43 @@ $collapseCss = implode("\n", array_map(static fn (array $asset): string => (stri
 $assert(str_contains($collapseCss, 'font-size:.68rem'), 'collapsed eyebrow keeps its own class-owned font-size rule');
 $assert(! preg_match('/(?:^|[\s>~+])\.page-header p\s*\{/', $collapseCss), 'no bare .page-header p rule survives to capture the collapsed eyebrow');
 $assert(preg_match('/\.page-header\s+:where\(\.blocks-engine-source-p-[a-f0-9]+-\d+\)/', $collapseCss) === 1, 'descendant .page-header p is projected through the source-p tag marker so it matches only real source paragraphs');
+
+$listStyles = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><ol class="pipeline maintenance-loop"><li class="stage"><div class="stage-copy">Build source<p>Maintenance detail</p><ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.stage-copy{display:grid}.maintenance-loop li > div > p{margin:.25rem 0 0;color:#c8ded3;font-size:.78rem}.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.check-list li::before{content:"x";position:absolute;left:0}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}.chips li:hover{color:#123456}' ),
+    ),
+) )->toArray();
+$findBlocks = static function (array $blocks, string $name) use (&$findBlocks): array {
+    $found = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( $name === ($block['blockName'] ?? '') ) {
+            $found[] = $block;
+        }
+        $found = array_merge($found, $findBlocks($block['innerBlocks'] ?? array(), $name));
+    }
+    return $found;
+};
+$listStyleItems = $findBlocks($listStyles['blocks'] ?? array(), 'core/list-item');
+$listStyleCss = implode("\n", array_column($listStyles['assets'] ?? array(), 'content'));
+$listStyleMarkup = (string) ($listStyles['serialized_blocks'] ?? '');
+$assert(1 === count($findBlocks($listStyles['blocks'] ?? array(), 'core/list')) && 1 === count($listStyleItems) && ! str_contains($listStyleMarkup, '<!-- wp:html'), 'wrapped nested lists remain inside the native outer list item without sibling core/list extraction');
+$outerListItem = $listStyleItems[0] ?? array();
+$outerContent = (string) ($outerListItem['attrs']['content'] ?? '');
+$assert(! isset($outerListItem['attrs']['style']['spacing']['padding']['left']) && ! isset($outerListItem['attrs']['style']['typography']['fontSize']) && preg_match('/<div class="stage-copy blocks-engine-source-div-[a-f0-9]+-\d+">Build source<p class="blocks-engine-source-p-[a-f0-9]+-\d+">Maintenance detail<\/p><ul class="chips"><li class="blocks-engine-source-li-[a-f0-9]+-\d+">HTML<\/li><\/ul><ul class="check-list"><li class="blocks-engine-source-li-[a-f0-9]+-\d+">Verified delivery<\/li><\/ul><\/div>/', $outerContent) === 1, 'wrapped source-tag descendants retain provenance inside the stage-copy topology rather than moving beside it');
+$assert(str_contains($listStyleCss, '.stage-copy{display:grid}') && str_contains($listStyleCss, ':where(.blocks-engine-source-p-') && str_contains($listStyleCss, 'margin:.25rem 0 0') && str_contains($listStyleCss, ':where(.blocks-engine-source-li-') && str_contains($listStyleCss, 'position:relative') && str_contains($listStyleCss, '.check-list :where(.blocks-engine-source-li-') && str_contains($listStyleCss, '::before') && str_contains($listStyleCss, ':hover{color:#123456}'), 'projected author CSS continues to address retained rich descendants, nested list leaves, and pseudo-elements');
+$assert(isset($listStyles['source_reports']['wordpress_site_plan']) && str_contains((string) ($listStyles['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:list-item'), 'external list-item styling survives artifact compilation into the canonical WordPress site plan');
+$listStyleValidity = ( new HtmlTransformer() )->transform(
+    '<main><ol class="pipeline maintenance-loop"><li class="stage"><div class="stage-copy">Build source<p>Maintenance detail</p><ul class="chips"><li>HTML</li></ul><ul class="check-list"><li>Verified delivery</li></ul></div></li></ol></main>',
+    array( 'static_css' => '.stage-copy{display:grid}.maintenance-loop li > div > p{margin:.25rem 0 0;color:#c8ded3;font-size:.78rem}.check-list li{position:relative;padding:0 0 0 1.75rem;margin:0 0 .75rem;font-size:1.125rem;line-height:1.5}.chips li{position:relative;padding:.25rem .75rem;margin:0 .5rem .5rem 0;font-size:.875rem}' )
+)->toArray();
+$assert('pass' === ($listStyleValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'resolved external list-item styles serialize as Gutenberg-valid native blocks');
+$directNestedList = ( new HtmlTransformer() )->transform('<ol><li>Stage<ul><li>Leaf</li></ul></li></ol>')->toArray();
+$assert(2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list')) && 2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list-item')), 'direct-child nested lists continue to serialize as native nested list blocks');
 
 $nativeTable = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

@@ -3961,10 +3961,9 @@ final class HtmlTransformer
      * the sole content wrapper, or dropped when they are partial-content hooks.
      * RichText's link format round-trips href/target/rel, not source CSS hooks.
      *
-     * A list item whose content carries block-level children (an image/heading/
-     * paragraph "card", e.g. a commerce product grid) is left untouched here:
-     * that is not flowing RichText, so it stays the job of the structured-card
-     * decomposition path and the commerce path rather than per-span unwrapping.
+     * A list item whose content carries block-level children keeps that topology:
+     * its inline hooks still become RichText-safe marks, but no wrapper is
+     * hoisted onto the list item.
      *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
@@ -3991,9 +3990,7 @@ final class HtmlTransformer
             return $attrs;
         }
 
-        if ( 'core/list-item' === $name && $this->hasBlockContentChildren($body) ) {
-            return $attrs;
-        }
+        $listItemHasBlockContent = 'core/list-item' === $name && $this->hasBlockContentChildren($body);
 
         $hoistedClasses      = '';
         $hoistedDeclarations = array();
@@ -4001,8 +3998,9 @@ final class HtmlTransformer
         // Peel a single styling-hook span wrapping the whole content, hoisting it
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
-        while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) ) {
+        while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            $wrapperDeclarations = $this->cssDeclarations($this->attr($wrapper, 'style'));
+            if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
@@ -7545,16 +7543,14 @@ final class HtmlTransformer
             }
 
             $nested = array();
-            foreach ( $child->childNodes as $itemChild ) {
-                if ( $itemChild instanceof DOMElement && in_array(strtolower($itemChild->tagName), array( 'ul', 'ol' ), true) ) {
-                    $nestedBlock = $this->convertElement($itemChild, $fallbacks, true);
-                    if ( null !== $nestedBlock ) {
-                        $nested[] = $nestedBlock;
-                    }
+            foreach ( $this->nestedListRoots($child) as $nestedList ) {
+                $nestedBlock = $this->convertElement($nestedList, $fallbacks, true);
+                if ( null !== $nestedBlock ) {
+                    $nested[] = $nestedBlock;
                 }
             }
 
-            $content = $this->innerHtmlWithoutTags($child, array( 'ul', 'ol' ));
+            $content = $this->listItemContentWithoutNestedLists($child);
             if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
                 continue;
             }
@@ -7563,6 +7559,52 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /** @return list<DOMElement> */
+    private function nestedListRoots(DOMElement $item): array
+    {
+        $lists = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $lists[] = $child;
+            }
+        }
+
+        return $lists;
+    }
+
+    private function listItemContentWithoutNestedLists(DOMElement $item): string
+    {
+        $content = $item->cloneNode(true);
+        if ( ! $content instanceof DOMElement ) {
+            return $this->innerHtmlWithoutTags($item, array( 'ul', 'ol' ));
+        }
+
+        $directLists = array();
+        foreach ( $content->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                $directLists[] = $child;
+            }
+        }
+        foreach ( $directLists as $directList ) {
+            $content->removeChild($directList);
+        }
+
+        // Wrapped rich HTML remains inside core/list-item content so its authored
+        // topology survives. Materialize every source-tag marker that author CSS
+        // rewrites, not just nested list leaves.
+        foreach ( $content->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $marker = $this->sourceTagMarkers[strtolower($descendant->tagName)] ?? '';
+            if ( '' !== $marker ) {
+                $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $marker));
+            }
+        }
+
+        return $this->richTextContentWithMaterializedInlineStyles($content);
     }
 
     /**

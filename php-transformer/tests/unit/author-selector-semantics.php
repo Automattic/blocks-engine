@@ -144,6 +144,11 @@ $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
 $assert(3 === substr_count($inlineMarkup, '<div class="wp-block-group blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain independent native wrapper identities and projected selector paths without HTML fallback');
 
+$listInlineLeaves = $transform('<style>.maintenance-loop li{display:grid;grid-template-columns:42px 1fr}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b}</style><ol class="maintenance-loop"><li><span>1</span><div><strong>Observe</strong><p>Copy</p></div></li><li><span>2</span><div><strong>Replay</strong></div><ul><li><span>N</span><div>Nested</div></li></ul></li></ol>');
+$listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
+$listInlineCss = $css($listInlineLeaves);
+$assert(3 === substr_count($listInlineMarkup, '<mark style="--blocks-engine-richtext-marker:') && 3 === substr_count($listInlineCss, 'mark[style*="--blocks-engine-richtext-marker:') && str_contains($listInlineCss, 'display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b') && str_contains($listInlineMarkup, '>1</mark><div>') && str_contains($listInlineMarkup, '>2</mark><div>') && str_contains($listInlineMarkup, '>N</mark><div>Nested</div>') && 2 === substr_count($listInlineMarkup, '<!-- wp:list ') && 'pass' === ($listInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'list-item RichText markers retain direct span circle selectors while nested lists stay isolated native lists');
+
 $repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
 $repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
 $repeatedCss = $css($repeatedParents);
