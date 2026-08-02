@@ -353,6 +353,15 @@ $geometryCustomProperty = $transform('<div style="width:var(--card-width);height
 $geometryCustomPropertyMarkup = (string) ($geometryCustomProperty['serialized_blocks'] ?? '');
 $assert(str_contains($geometryCustomPropertyMarkup, 'style="--card-width:344px"') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard'), 'inline geometry retains only its referenced custom property');
 
+$customPropertyRoundTrip = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),var(--accent))}</style><div class="tour-card" style="--tone:#315b74;border-color:var(--line);border-width:1px;border-style:solid;border-radius:var(--radius);padding:1.2rem;min-height:430px;--accent:#d9b86c">Card</div>');
+$customPropertyRoundTripMarkup = (string) ($customPropertyRoundTrip['serialized_blocks'] ?? '');
+$assert(
+    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem;--accent:#d9b86c;--tone:#315b74"')
+    && 'pass' === ($customPropertyRoundTrip['source_reports']['wp_block_validity']['status'] ?? ''),
+    'multiple retained custom properties follow the core save order after supported styles and retain a valid block round trip',
+    $customPropertyRoundTripMarkup
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
