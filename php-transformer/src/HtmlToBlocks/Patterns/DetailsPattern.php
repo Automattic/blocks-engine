@@ -24,7 +24,8 @@ final class DetailsPattern
         }
 
         return $createBlock('core/details', array_filter(array_merge($presentationAttributes($element), array(
-            'summary' => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+            'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+            'showContent' => $element->hasAttribute('open') ? true : '',
         )), static fn ($value): bool => '' !== $value), $children, $element);
     }
 

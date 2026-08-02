@@ -406,6 +406,24 @@ $assert(true === ($detailsAccordionItems[0]['attrs']['openByDefault'] ?? null), 
 $assert('Can I reschedule?' === ($detailsAccordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'details summary text maps to accordion heading');
 $assert('Yes, with notice.' === ($detailsAccordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'details body text maps to accordion panel');
 
+$openDetailsResult = ( new HtmlTransformer() )->transform('<details open><summary>Open summary</summary><p>Open content.</p></details>')->toArray();
+$openDetailsBlock = $openDetailsResult['blocks'][0] ?? array();
+$openDetailsMarkup = (string) ($openDetailsResult['serialized_blocks'] ?? '');
+$assert('core/details' === ($openDetailsBlock['blockName'] ?? null), 'open native details converts to core/details');
+$assert(true === ($openDetailsBlock['attrs']['showContent'] ?? null), 'open native details maps to the core/details showContent attribute');
+$assert(str_contains($openDetailsMarkup, '<details class="wp-block-details" open><summary>Open summary</summary>'), 'open native details serializes the frontend open attribute before its summary');
+$assert(strpos($openDetailsMarkup, '<summary>Open summary</summary>') < strpos($openDetailsMarkup, '<p>Open content.</p>'), 'open native details preserves summary before content through final serialization');
+$assert('pass' === ($openDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'open native details serialization remains Gutenberg-valid');
+
+$closedDetailsResult = ( new HtmlTransformer() )->transform('<details><summary>Closed summary</summary><p>Closed content.</p></details>')->toArray();
+$closedDetailsBlock = $closedDetailsResult['blocks'][0] ?? array();
+$closedDetailsMarkup = (string) ($closedDetailsResult['serialized_blocks'] ?? '');
+$assert('core/details' === ($closedDetailsBlock['blockName'] ?? null), 'closed native details converts to core/details');
+$assert(false === ($closedDetailsBlock['attrs']['showContent'] ?? false), 'closed native details keeps the core/details default closed state');
+$assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><summary>Closed summary</summary>'), 'closed native details serializes without the frontend open attribute');
+$assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
+$assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
+
 // A single disclosure widget (toggle control + collapsible region) carries no
 // faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
 // converted to a native zero-JS core/details block instead of leaking a dead

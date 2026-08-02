@@ -234,7 +234,7 @@ final class BlockFactory
 
         if ( 'core/details' === $name ) {
             return array(
-                'opening' => '<details' . $this->blockSupportAttrs($attrs, 'wp-block-details') . '><summary>' . ($attrs['summary'] ?? '') . '</summary>',
+                'opening' => '<details' . $this->blockSupportAttrs($attrs, 'wp-block-details') . ( ! empty($attrs['showContent']) ? ' open' : '' ) . '><summary>' . ($attrs['summary'] ?? '') . '</summary>',
                 'closing' => '</details>',
             );
         }
