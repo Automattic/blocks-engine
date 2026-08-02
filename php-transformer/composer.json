@@ -53,6 +53,7 @@
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
       "php tests/contract/shared-shell-plan.php",
+      "php tests/contract/empty-visual-figure.php",
       "@test:unit"
     ],
     "test:unit": [
