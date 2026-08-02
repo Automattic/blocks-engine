@@ -153,7 +153,7 @@ $assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 't
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
-$assert(! str_contains($inlineMarkup, 'wp-block-blocks-engine-author-layout') && 3 <= substr_count($inlineMarkup, 'blocks-engine-semantic-') && 3 === substr_count($inlineCss, ':where(.blocks-engine-semantic-') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-addressed sibling spans retain selector paths without a companion block');
+$assert(! str_contains($inlineMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineMarkup, 'blocks-engine-semantic-') && str_contains($inlineCss, ':where(.blocks-engine-semantic-') && str_contains($inlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Beta</span></p>') && str_contains($inlineCss, '.eyebrow p.blocks-engine-inline-layout-carrier > span{font-size:11px;letter-spacing:.1em}') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'typography-only direct structural spans retain selector paths through standalone carriers without a companion block');
 
 $listInlineLeaves = $transform('<style>.maintenance-loop li{display:grid;grid-template-columns:42px 1fr}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b}</style><ol class="maintenance-loop"><li><span>1</span><div><strong>Observe</strong><p>Copy</p></div></li><li><span>2</span><div><strong>Replay</strong></div><ul><li><span>N</span><div>Nested</div></li></ul></li></ol>');
 $listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
@@ -169,6 +169,28 @@ $groupInlineLeaves = $transform('<style>.stage-output{display:grid}.stage-output
 $groupInlineMarkup = (string) ($groupInlineLeaves['serialized_blocks'] ?? '');
 $groupInlineCss = $css($groupInlineLeaves);
 $assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{margin:2px}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{margin:4px}'), 'native Group inline leaves retain projected typography, display, and margin declarations through their valid paragraph carriers');
+
+$typographyOnlyStructuralLeaves = $transform('<style>.typography-grid{display:grid}.typography-flex{display:flex}.typography-grid > strong{font-size:13px;font-weight:600;letter-spacing:.08em}.typography-flex > strong{font-size:15px;line-height:1.2}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px}</style><div class="typography-grid"><strong>Grid label</strong></div><div class="typography-flex"><strong>Flex label</strong></div><ol class="maintenance-loop"><li><span>1</span><div>Observe</div></li></ol><p>Ordinary <strong>prose</strong>.</p>');
+$typographyOnlyStructuralMarkup = (string) ($typographyOnlyStructuralLeaves['serialized_blocks'] ?? '');
+$typographyOnlyStructuralCss = $css($typographyOnlyStructuralLeaves);
+$typographyOnlyStructuralBlocks = $typographyOnlyStructuralLeaves['blocks'] ?? array();
+$assert(
+    'core/group' === ($typographyOnlyStructuralBlocks[0]['blockName'] ?? '')
+    && 'core/paragraph' === ($typographyOnlyStructuralBlocks[0]['innerBlocks'][0]['blockName'] ?? '')
+    && 'core/group' === ($typographyOnlyStructuralBlocks[1]['blockName'] ?? '')
+    && 'core/paragraph' === ($typographyOnlyStructuralBlocks[1]['innerBlocks'][0]['blockName'] ?? '')
+    && str_contains($typographyOnlyStructuralMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Grid label</strong></p>')
+    && str_contains($typographyOnlyStructuralMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Flex label</strong></p>')
+    && str_contains($typographyOnlyStructuralCss, '.typography-grid > p.blocks-engine-inline-layout-carrier > strong{font-size:13px;font-weight:600;letter-spacing:.08em}')
+    && str_contains($typographyOnlyStructuralCss, '.typography-flex > p.blocks-engine-inline-layout-carrier > strong{font-size:15px;line-height:1.2}')
+    && str_contains($typographyOnlyStructuralMarkup, 'typography-grid blocks-engine-css-owned-layout')
+    && str_contains($typographyOnlyStructuralMarkup, 'typography-flex blocks-engine-css-owned-layout')
+    && str_contains($typographyOnlyStructuralMarkup, '<mark style="--blocks-engine-richtext-marker:')
+    && str_contains($typographyOnlyStructuralCss, 'mark[style*="--blocks-engine-richtext-marker:')
+    && str_contains($typographyOnlyStructuralMarkup, '<p>Ordinary <strong>prose</strong>.</p>')
+    && 'pass' === ($typographyOnlyStructuralLeaves['source_reports']['wp_block_validity']['status'] ?? ''),
+    'direct Grid and Flex typography-only strong leaves retain valid standalone carriers, source selector addressability, author-layout and list-marker coexistence, while ordinary prose stays RichText'
+);
 
 $listInlineLeaves = $transform('<style>.maintenance-loop{display:grid}.maintenance-loop li > span{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e8a020}</style><ul class="maintenance-loop"><li><span>Build</span></li><li><span>Verify</span><ul><li><span>Nested</span></li></ul></li></ul>');
 $listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
