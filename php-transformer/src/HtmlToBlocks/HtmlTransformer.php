@@ -6993,6 +6993,10 @@ final class HtmlTransformer
         }
 
         if ( array() === $children ) {
+            if ( $this->shouldPreserveEmptyVisualFigure($figure) ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($figure), array(), $figure);
+            }
+
             return null;
         }
 
@@ -7001,6 +7005,37 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/group', $this->presentationAttributes($figure), $children, $figure);
+    }
+
+    private function shouldPreserveEmptyVisualFigure(DOMElement $figure): bool
+    {
+        if ( '' !== $this->renderedTextContent($figure) || 0 !== $this->childElementCount($figure) ) {
+            return false;
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($figure);
+        $hasBoundedHeight = false;
+        foreach ( array( 'height', 'min-height' ) as $property ) {
+            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property])) ) {
+                $hasBoundedHeight = true;
+                break;
+            }
+        }
+        if ( ! $hasBoundedHeight ) {
+            return false;
+        }
+
+        if ( $this->hasVisibleEmptyVisualPaint($declarations) ) {
+            return true;
+        }
+
+        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations']) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

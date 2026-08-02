@@ -674,7 +674,7 @@ final class ArtifactCompiler
             return (string) $matches[0];
         }, $html) ?? $html;
 
-        return preg_replace('/<figure\b[^>]*>\s*<\/figure>/i', '', $html) ?? $html;
+        return $html;
     }
 
     /**
