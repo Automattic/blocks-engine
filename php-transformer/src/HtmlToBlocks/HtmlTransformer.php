@@ -379,6 +379,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
+    private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
+
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -864,6 +866,9 @@ final class HtmlTransformer
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
+        }
+        if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $cssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
@@ -1364,10 +1369,13 @@ final class HtmlTransformer
             $controls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
+            $inlineLayoutCarriers = false;
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( isset($this->sourceControlMarkers[$path]) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && $this->hasDirectChildCombinator($parsed) ) {
+                    $inlineLayoutCarriers = true;
+                } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
                 } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
                     $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
@@ -1380,7 +1388,7 @@ final class HtmlTransformer
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
-            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
+            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && empty($inlineLayoutCarriers) ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
@@ -1397,6 +1405,9 @@ final class HtmlTransformer
             }
             foreach ( $richTextLeaves as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
+            }
+            if ( ! empty($inlineLayoutCarriers) ) {
+                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
             }
         }
         return implode(',', $rewritten);
@@ -1514,6 +1525,19 @@ final class HtmlTransformer
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed): string
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($rightmost) ) {
+            return $selector;
+        }
+
+        return substr($selector, 0, (int) $rightmost['start'])
+            . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . ' > '
+            . substr($selector, (int) $rightmost['start']);
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2108,7 +2132,7 @@ final class HtmlTransformer
         // layout. Preserve that source element as the editable leaf rather
         // than introducing a paragraph wrapper with core paragraph margins.
         if ( $this->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
-            $leaf = $this->authorLayoutLeafBlockFromElement($element);
+            $leaf = $this->inlineLayoutCarrierBlock($element);
             if ( null !== $leaf ) {
                 return $leaf;
             }
@@ -2690,6 +2714,9 @@ final class HtmlTransformer
                 if ( null !== $inlineContent ) {
                     return $inlineContent;
                 }
+                if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $this->convertChildren($element, $fallbacks, true), $element);
+                }
                 $textFlow = $this->textFlowBlockFromElement($element);
                 if ( null !== $textFlow ) {
                     return $textFlow;
@@ -3035,7 +3062,11 @@ final class HtmlTransformer
      */
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
-        $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+        $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
+        unset($attrs['preserveInlineLayoutLeaf']);
+        if ( ! $preserveInlineLayoutLeaf ) {
+            $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+        }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
             $textAlign = strtolower(trim((string) ($this->presentationDeclarations($sourceElement)['text-align'] ?? '')));
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
@@ -3545,6 +3576,39 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function hasStandaloneInlineLayoutLeaf(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function hasDirectChildCombinator(array $parsed): bool
+    {
+        $combinators = $parsed['combinators'] ?? array();
+        return '>' === ($combinators[count($combinators) - 1] ?? null);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function inlineLayoutCarrierBlock(DOMElement $element): ?array
+    {
+        $content = $this->outerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array(
+            'className' => self::INLINE_LAYOUT_CARRIER_CLASS,
+            'content' => $content,
+            'preserveInlineLayoutLeaf' => true,
+        ));
     }
 
     /**
