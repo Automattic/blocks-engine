@@ -219,7 +219,11 @@ final class BlockFactory
 
         if ( 'core/spacer' === $name ) {
             $height = (string) ($attrs['height'] ?? '');
-            $style = trim('' !== $height ? 'height:' . $height : (string) ($attrs['style'] ?? ''));
+            $width = (string) ($attrs['width'] ?? '');
+            $style = trim(implode(';', array_filter(array(
+                '' !== $height ? 'height:' . $height : (string) ($attrs['style'] ?? ''),
+                '' !== $width ? 'width:' . $width : '',
+            ))), ';');
             $attrs['style'] = $style;
             return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-spacer') . ' aria-hidden="true"></div>';
         }

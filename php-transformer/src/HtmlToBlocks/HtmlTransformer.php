@@ -2265,9 +2265,7 @@ final class HtmlTransformer
                 }
 
                 if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(
-                        $this->createBlock('core/spacer', array( 'height' => '0px' )),
-                    ), $element);
+                    return $this->emptyVisualSpacerBlock($element);
                 }
 
                 return null;
@@ -2860,9 +2858,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(
-                    $this->createBlock('core/spacer', array( 'height' => '0px' )),
-                ), $element);
+                return $this->emptyVisualSpacerBlock($element);
             }
             return null;
         }
@@ -4529,6 +4525,21 @@ final class HtmlTransformer
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
         return $attrs;
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyVisualSpacerBlock(DOMElement $element): array
+    {
+        $attrs = $this->emptyVisualElementAttributes($element);
+        if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+            return $this->createBlock('core/group', $attrs, array(), $element);
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $attrs['height'] = $this->resolveCssVariablesInValue($declarations['height']);
+        $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
+
+        return $this->createBlock('core/spacer', $attrs, array(), $element);
     }
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool

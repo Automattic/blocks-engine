@@ -687,7 +687,7 @@ $emptyVisualCluster = ( new HtmlTransformer() )->transform(
 $emptyVisualItems = $emptyVisualCluster['blocks'][0]['innerBlocks'] ?? array();
 $emptyVisualCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyVisualCluster['assets'] ?? array()));
 $assert(3 === count($emptyVisualItems), 'classless empty inline items in a decorative cluster remain native blocks');
-$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/group' !== ($block['blockName'] ?? '')), 'decorative cluster items use native core/group blocks');
+$assert(! array_filter($emptyVisualItems, static fn (array $block): bool => 'core/spacer' !== ($block['blockName'] ?? '') || '10px' !== ($block['attrs']['height'] ?? '') || '10px' !== ($block['attrs']['width'] ?? '')), 'decorative cluster items use direct native spacer carriers with source dimensions');
 $assert(str_contains($emptyVisualCss, 'blocks-engine-semantic-') && str_contains($emptyVisualCss, '{width:10px;height:10px;border-radius:50%}') && str_contains($emptyVisualCss, 'background:#ff5f57') && str_contains($emptyVisualCss, 'background:#ffbd2e') && str_contains($emptyVisualCss, 'background:#28ca41'), 'decorative cluster items preserve projected selectors, dimensions, and background paint through author CSS');
 $assert(! str_contains($emptyVisualCss, '!important'), 'decorative cluster translation does not introduce important declarations');
 
