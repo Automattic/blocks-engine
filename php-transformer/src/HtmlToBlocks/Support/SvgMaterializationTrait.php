@@ -125,9 +125,13 @@ trait SvgMaterializationTrait
             $dimensions = array();
             $figureRule = '{margin:0;width:100%;height:100%}';
             $objectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
+            // WordPress core's `.wp-block-image img { height:auto }` is loaded
+            // after theme styles. Include the native wrapper class so the fill
+            // rule wins without forcing intrinsic media outside this explicit
+            // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             $fillClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.' . $fillClass . $imgRule;
+            $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule;
             $attrs = array(
                 'url'       => $path,
                 'alt'       => $this->svgImageAlt($element),

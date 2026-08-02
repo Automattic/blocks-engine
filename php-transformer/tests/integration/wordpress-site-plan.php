@@ -17,6 +17,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 require $testsDir . '/includes/bootstrap.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -57,6 +58,14 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
+$positionedSvg = (new HtmlTransformer())->transform('<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>')->toArray();
+$positionedSvgMarkup = (string) ($positionedSvg['serialized_blocks'] ?? '');
+$positionedSvgCss = implode("\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $positionedSvg['assets'] ?? array()));
+$positionedSvgId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Positioned SVG', 'post_content' => serialize_blocks(parse_blocks($positionedSvgMarkup))), true);
+if (is_wp_error($positionedSvgId)) throw new RuntimeException($positionedSvgId->get_error_message());
+$pageIds['positioned-svg'] = $positionedSvgId;
+$positionedSvgSaved = (string) get_post_field('post_content', $positionedSvgId);
+$assert(str_contains($positionedSvgCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedSvgCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}') && str_contains($positionedSvgSaved, 'wp-block-image hero-art be-inline-geometry-') && 'core/image' === (parse_blocks($positionedSvgSaved)[0]['innerBlocks'][0]['blockName'] ?? null), 'WordPress parses and saves positioned SVG fill as a native core/image while its desktop/mobile parent-fill CSS defeats core intrinsic-image sizing.');
 $pageDeclarations = array(); foreach ($resolved['pages'] as $page) $pageDeclarations[$page['source_path']] = $page;
 $pagesBySource = array(); foreach ($resolved['operations'] as $operation) if ('create_page' === $operation['kind']) { $page = $pageDeclarations[$operation['source_path']] ?? null; if (!is_array($page)) throw new RuntimeException('Create operation lacks a page declaration.'); $id = wp_insert_post(array('post_type' => 'page', 'post_status' => 'publish', 'post_title' => $page['title'], 'post_name' => $operation['slug'], 'post_parent' => '' === $operation['parent_source_path'] ? 0 : ($pagesBySource[$operation['parent_source_path']] ?? 0), 'post_content' => $page['resolved_block_markup']), true); if (is_wp_error($id)) throw new RuntimeException($id->get_error_message()); $pageIds[$operation['reconciliation_identity']] = $id; $pagesBySource[$operation['source_path']] = $id; }
 foreach ($resolved['operations'] as $operation) if ('site_reading' === $operation['kind']) { update_option('show_on_front', $operation['show_on_front']); update_option('page_on_front', $pageIds[$operation['front_page_reconciliation_identity']]); }
