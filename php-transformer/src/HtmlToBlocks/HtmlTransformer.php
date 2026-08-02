@@ -4536,6 +4536,22 @@ final class HtmlTransformer
         }
 
         $declarations = $this->structuralPresentationDeclarations($element);
+        $paint = $this->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
+            'background',
+            'background-color',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
+        ))));
+        $attrs = array_merge($attrs, $paint['attrs']);
+        if ( array() !== $paint['style'] ) {
+            $attrs['style'] = array_replace_recursive($attrs['style'] ?? array(), $paint['style']);
+        }
         $attrs['height'] = $this->resolveCssVariablesInValue($declarations['height']);
         $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
 

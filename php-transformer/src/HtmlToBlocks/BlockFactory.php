@@ -221,10 +221,15 @@ final class BlockFactory
             $height = (string) ($attrs['height'] ?? '');
             $width = (string) ($attrs['width'] ?? '');
             $style = trim(implode(';', array_filter(array(
-                '' !== $height ? 'height:' . $height : (string) ($attrs['style'] ?? ''),
+                '' !== $height ? 'height:' . $height : (is_string($attrs['style'] ?? null) ? $attrs['style'] : ''),
                 '' !== $width ? 'width:' . $width : '',
+                (string) ($attrs['inlineGeometryStyle'] ?? ''),
             ))), ';');
-            $attrs['style'] = $style;
+            if ( is_array($attrs['style'] ?? null) ) {
+                $attrs['inlineGeometryStyle'] = $style;
+            } else {
+                $attrs['style'] = $style;
+            }
             return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-spacer') . ' aria-hidden="true"></div>';
         }
 
