@@ -45,7 +45,34 @@ final class ButtonSignalClassifier
     public function hasStyleSignal(DOMElement $element, string $resolvedStyle = ''): bool
     {
         $style = strtolower('' !== trim($resolvedStyle) ? $resolvedStyle : ($element->hasAttribute('style') ? $element->getAttribute('style') : ''));
-        if ( '' === $style || ! preg_match('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*[^;]+/', $style) ) {
+        if ( '' === $style ) {
+            return false;
+        }
+
+        preg_match_all('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*([^;]+)/', $style, $paddingDeclarations);
+        $hasBoxPadding = false;
+        foreach ( $paddingDeclarations[1] ?? array() as $paddingDeclaration ) {
+            $padding = trim((string) preg_replace('/\s*!important\s*$/', '', $paddingDeclaration));
+            if ( '' === $padding || preg_match('/^(?:inherit|initial|revert(?:-layer)?|unset)$/', $padding) ) {
+                continue;
+            }
+
+            $components = preg_split('/\s+/', $padding) ?: array();
+            $allZero    = true;
+            foreach ( $components as $component ) {
+                if ( ! preg_match('/^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$/', $component) ) {
+                    $allZero = false;
+                    break;
+                }
+            }
+
+            if ( ! $allZero ) {
+                $hasBoxPadding = true;
+                break;
+            }
+        }
+
+        if ( ! $hasBoxPadding ) {
             return false;
         }
 
