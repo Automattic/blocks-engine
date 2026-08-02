@@ -148,16 +148,22 @@ $externalLayouts = ( new ArtifactCompiler() )->compile(array(
 ) )->toArray();
 $externalLayoutPage = (string) ($externalLayouts['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
 $externalLayoutCard = $externalLayouts['blocks'][0]['innerBlocks'][0] ?? array();
+$externalLayoutCardChildren = $externalLayoutCard['innerBlocks'] ?? array();
 $externalLayoutCss = implode("\n", array_column($externalLayouts['assets'] ?? array(), 'content'));
 $assert(
     str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-flow')
     && str_contains($externalLayoutPage, 'artifact-card blocks-engine-css-owned-layout')
     && ! str_contains($externalLayoutPage, 'is-layout-grid')
     && 4 === count($externalLayoutCard['innerBlocks'] ?? array())
+    && 'core/paragraph' === ($externalLayoutCardChildren[0]['blockName'] ?? '')
+    && 'core/group' === ($externalLayoutCardChildren[1]['blockName'] ?? '')
+    && str_contains((string) ($externalLayoutCardChildren[1]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
+    && 'core/paragraph' === ($externalLayoutCardChildren[1]['innerBlocks'][0]['blockName'] ?? '')
     && 4 <= substr_count($externalLayoutPage, 'blocks-engine-semantic-')
+    && str_contains($externalLayoutCss, ':where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
     && ! str_contains($externalLayoutCss, '.artifact-card > span:not(.card-label)')
     && ! str_contains($externalLayoutCss, '.artifact-card > strong'),
-    'linked implicit and explicit grids remain stylesheet-owned core groups with selector-addressable direct children in canonical site-plan markup'
+    'linked implicit and explicit grids retain valid semantic layout-item carriers with neutralized generated paragraph flow in canonical site-plan markup'
 );
 
 // Collapsed-paragraph cascade isolation via the source-`p` tag marker. A shared

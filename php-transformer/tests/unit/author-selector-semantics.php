@@ -233,6 +233,20 @@ $assert(
     && array() === ($cardGrid['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()),
     'author grid cards retain direct child order and placement selectors through core/group'
 );
+$nestedGridItem = $transform('<style>.grid{display:grid}.card{display:grid}.card > span{grid-column:2}</style><div class="grid"><div class="card"><span>Label</span><span>Value</span></div></div>');
+$nestedGridItemBlock = $nestedGridItem['blocks'][0]['innerBlocks'][0] ?? array();
+$nestedGridItemChildren = $nestedGridItemBlock['innerBlocks'] ?? array();
+$nestedGridItemCss = $css($nestedGridItem);
+$assert(
+    'core/group' === ($nestedGridItemBlock['blockName'] ?? '')
+    && 2 === count($nestedGridItemChildren)
+    && 'core/group' === ($nestedGridItemChildren[0]['blockName'] ?? '')
+    && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
+    && 'core/paragraph' === ($nestedGridItemChildren[0]['innerBlocks'][0]['blockName'] ?? '')
+    && str_contains($nestedGridItemCss, ':where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
+    && 'pass' === ($nestedGridItem['source_reports']['wp_block_validity']['status'] ?? ''),
+    'semantic Group layout items neutralize only their generated paragraph children while retaining valid native blocks'
+);
 
 $textOnlyLayoutItems = $transform('<style>.grid{display:grid;grid-template-columns:repeat(2,1fr)}</style><div class="grid"><div>One</div><div>Two</div></div>');
 $assert(array() === ($textOnlyLayoutItems['source_reports']['html']['author_layout_topology'] ?? array()), 'text-only author-layout leaves do not report an element-topology change');

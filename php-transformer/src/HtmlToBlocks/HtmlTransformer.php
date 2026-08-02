@@ -385,6 +385,8 @@ final class HtmlTransformer
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
 
+    private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
+
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
@@ -876,6 +878,11 @@ final class HtmlTransformer
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
             $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
+            // A semantic Group used as a direct grid/flex item contains native
+            // paragraph blocks. Neutralize only those generated inner defaults.
+            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
@@ -3047,6 +3054,15 @@ final class HtmlTransformer
             $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
             if ( '' !== $projectionClassName ) {
                 $attrs['className'] = $projectionClassName;
+            }
+            if ( 'core/group' === $name
+                && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                && $this->hasAuthorSemanticMarker($sourceElement)
+            ) {
+                $attrs['className'] = $this->mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    self::CSS_OWNED_LAYOUT_ITEM_CLASS
+                );
             }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
