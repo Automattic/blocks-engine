@@ -52,6 +52,10 @@ $assert($classifier->hasStyleSignal($element('<a style="padding:12px 18px;border
 $assert(! $classifier->hasStyleSignal($element('<a style="padding:12px 18px;background:transparent" href="#">Learn more</a>')), '9: transparent background alone is not a style signal');
 $assert(! $classifier->hasStyleSignal($element('<a style="padding-bottom:8px;border-bottom:1px solid currentColor" href="#">Learn more</a>')), '10: underline border and padding are not a button surface');
 $assert(! $classifier->hasTransformSignal($element('<a href="#">Learn more</a>')), '11: plain link has no transform signal');
+$assert(! $classifier->hasStyleSignal($element('<a style="padding:0;background:#135e96" href="#">Learn more</a>')), '12: zero reset padding plus a background is not a button surface');
+$assert(! $classifier->hasStyleSignal($element('<a style="padding:0px 0rem 0%;border-radius:999px" href="#">Learn more</a>')), '13: zero unit padding plus rounding is not a button surface');
+$assert($classifier->hasStyleSignal($element('<a style="padding:0 0 1px;background:#135e96" href="#">Learn more</a>')), '14: any non-zero shorthand padding retains the style signal');
+$assert($classifier->hasStyleSignal($element('<a style="padding:var(--control-padding);background:#135e96" href="#">Learn more</a>')), '15: unresolved authored padding retains the style signal');
 
 $result = ( new HtmlTransformer() )->transform('<a style="padding:12px 18px;background:#135e96;color:#fff" href="/buy">Buy tickets</a>', array())->toArray();
 $button = $result['blocks'][0]['innerBlocks'][0] ?? array();
@@ -103,6 +107,10 @@ $assert(! str_contains($textualMarkup, 'wp-block-buttons'), '27: fixture-37 text
 $legalLinks = ( new HtmlTransformer() )->transform('<footer><a class="legal-link" href="/impressum">Impressum</a><a class="legal-link" href="/privacy">Datenschutz</a><a class="legal-link" href="/terms">AGB</a></footer>', array())->toArray();
 $legalMarkup = (string) ($legalLinks['serialized_blocks'] ?? '');
 $assert(! str_contains($legalMarkup, 'wp:button') && ! str_contains($legalMarkup, 'wp-block-buttons') && str_contains($legalMarkup, 'href="/impressum"') && str_contains($legalMarkup, 'href="/privacy"') && str_contains($legalMarkup, 'href="/terms"'), '28: fixture-37 legal link rows retain anchor semantics rather than becoming buttons', $legalMarkup);
+
+$linkedPhoto = ( new HtmlTransformer() )->transform('<style>*,*::before,*::after{padding:0}.photo{display:block;width:100%;aspect-ratio:21/9;background:#232224}</style><a href="/work" aria-label="View work"><div class="photo" role="img" aria-label="Work"><span>Installation view</span></div></a>', array())->toArray();
+$linkedPhotoMarkup = (string) ($linkedPhoto['serialized_blocks'] ?? '');
+$assert(! str_contains($linkedPhotoMarkup, 'wp:button') && str_contains($linkedPhotoMarkup, 'class="photo ') && str_contains($linkedPhotoMarkup, 'href="/work"'), '29: reset-padded linked visual media retains its authored surface and non-button link', $linkedPhotoMarkup);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");
