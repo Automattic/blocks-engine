@@ -2104,6 +2104,16 @@ final class HtmlTransformer
             return $this->authorLayoutBlockFromElement($element, $fallbacks);
         }
 
+        // A direct phrasing child participates in its parent's flex or grid
+        // layout. Preserve that source element as the editable leaf rather
+        // than introducing a paragraph wrapper with core paragraph margins.
+        if ( $this->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
+            $leaf = $this->authorLayoutLeafBlockFromElement($element);
+            if ( null !== $leaf ) {
+                return $leaf;
+            }
+        }
+
         if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
             return $this->htmlPreservationBlock($element);
         }
@@ -3199,7 +3209,7 @@ final class HtmlTransformer
             return false;
         }
 
-        $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        $declarations = $this->structuralPresentationDeclarations($element);
         // A grid placement belongs to this inline node. Keep phrasing-only grid
         // siblings in one RichText container rather than replacing their direct
         // grid items with Group/Paragraph wrappers.
@@ -3207,7 +3217,7 @@ final class HtmlTransformer
             return false;
         }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
-        if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
+        if ( 'block' === $display ) {
             return true;
         }
 
@@ -3499,6 +3509,42 @@ final class HtmlTransformer
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
     {
         return $element->parentNode instanceof DOMElement && $this->isAuthorOwnedLayout($element->parentNode);
+    }
+
+    private function isDirectChildOfStructuralLayout(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
+    }
+
+    private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
+    {
+        if ( ! $this->isDirectChildOfStructuralLayout($element)
+            || ! $this->isInlineContentElement(strtolower($element->tagName))
+            || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
+            return false;
+        }
+
+        // Native RichText image objects keep their existing inline paragraph
+        // carrier so their media save shape remains editor-valid.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
+                return false;
+            }
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        if ( 'block' === $display ) {
+            return true;
+        }
+
+        foreach ( array( 'grid-column', 'grid-row', 'order', 'align-self', 'justify-self', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $property ) {
+            if ( $this->cssValueIsNonZero((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -5055,6 +5101,14 @@ final class HtmlTransformer
     {
         if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) ) {
             return null;
+        }
+
+        // A direct inline child with its own layout geometry needs its source
+        // tag as the flex/grid item. Ordinary inline runs still stay RichText.
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return null;
+            }
         }
 
         if ( ! $this->hasOnlyPhrasingChildren($element) ) {

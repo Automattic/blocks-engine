@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -59,6 +60,19 @@ $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $importedFontAssets = array_column($importedFont['assets'] ?? array(), null, 'path');
 $importedFontCss = (string) ($importedFontAssets['style.css']['content'] ?? '');
 $assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && strpos($importedFontCss, '@import') < strpos($importedFontCss, ':where(mark)'), 'author stylesheet imports remain before generated marker and geometry rules');
+
+$inlineLayoutLeaves = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="fallback-card"><strong class="artifact-name">index.html</strong><span class="artifact-meta">12 KB</span></div><div class="action-row"><span class="action-label">Deploy</span><span class="action-state">Ready</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.fallback-card{display:grid;grid-template-columns:1fr auto}.fallback-card > strong{display:block;margin:12px 0 4.8px}.fallback-card > .artifact-meta{display:block;grid-column:2}.action-row{display:flex;gap:8px}.action-row > span{display:block;margin:2px 0}.action-state{order:-1}' ),
+) ) )->toArray();
+$inlineLayoutMarkup = (string) ($inlineLayoutLeaves['serialized_blocks'] ?? '');
+$inlineLayoutCss = (string) (($inlineLayoutLeaves['assets'][0]['content'] ?? ''));
+$inlineLayoutBlocks = $inlineLayoutLeaves['blocks'] ?? array();
+$assert(3 === count($inlineLayoutBlocks) && 'blocks-engine/author-layout' === ($inlineLayoutBlocks[0]['blockName'] ?? '') && 'blocks-engine/author-layout' === ($inlineLayoutBlocks[1]['blockName'] ?? '') && 'strong' === ($inlineLayoutBlocks[0]['innerBlocks'][0]['attrs']['tagName'] ?? '') && 'span' === ($inlineLayoutBlocks[1]['innerBlocks'][0]['attrs']['tagName'] ?? '') && 'rich-text' === ($inlineLayoutBlocks[0]['innerBlocks'][0]['attrs']['contentMode'] ?? '') && 'rich-text' === ($inlineLayoutBlocks[1]['innerBlocks'][0]['attrs']['contentMode'] ?? ''), 'external grid and flex styles retain standalone semantic leaves as editable direct author-layout children');
+$assert(str_contains($inlineLayoutMarkup, '<strong class="wp-block-blocks-engine-author-layout artifact-name">index.html</strong>') && preg_match('/<span class="wp-block-blocks-engine-author-layout action-label(?: [^"]+)?">Deploy<\/span>/', $inlineLayoutMarkup) && ! str_contains($inlineLayoutMarkup, '<p class="artifact-name') && ! str_contains($inlineLayoutMarkup, '<p class="action-label') && ! str_contains($inlineLayoutMarkup, 'wp:html'), 'standalone semantic leaves save with their source tags and no generated paragraph or HTML fallback');
+$assert(str_contains($inlineLayoutCss, '.fallback-card > strong{display:block}') && str_contains($inlineLayoutCss, '.fallback-card > strong{margin:12px 0 4.8px}') && str_contains($inlineLayoutCss, 'display:block') && str_contains($inlineLayoutCss, 'margin:2px 0') && strpos($inlineLayoutCss, 'margin:2px 0') < strpos($inlineLayoutCss, 'order:-1'), 'external selector projection preserves direct leaf addressing and authored cascade order');
+$inlineLayoutValidity = ( new HtmlTransformer() )->transform('<style>.fallback-card{display:grid;grid-template-columns:1fr auto}.fallback-card > strong{display:block;margin:12px 0 4.8px}.fallback-card > .artifact-meta{display:block;grid-column:2}.action-row{display:flex;gap:8px}.action-row > span{display:block;margin:2px 0}.action-state{order:-1}</style><div class="fallback-card"><strong class="artifact-name">index.html</strong><span class="artifact-meta">12 KB</span></div><div class="action-row"><span class="action-label">Deploy</span><span class="action-state">Ready</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>')->toArray();
+$assert(1 === substr_count($inlineLayoutMarkup, '<!-- wp:paragraph') && str_contains($inlineLayoutMarkup, '<p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>') && 'pass' === ($inlineLayoutValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'ordinary prose inline semantics remain one valid RichText paragraph');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
