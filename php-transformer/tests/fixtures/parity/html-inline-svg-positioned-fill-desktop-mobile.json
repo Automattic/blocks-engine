@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-positioned-fill-desktop-mobile",
+  "description": "A responsive inline SVG with object-fit fills an explicitly sized positioned media wrapper at desktop and mobile breakpoints through a generated geometry carrier.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-positioned-fill-desktop-mobile.json",
+    "notes": "Generic regression coverage for positioned media wrappers whose authored box dimensions change at a mobile breakpoint."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.media-frame{position:relative;width:640px;height:420px;overflow:hidden}@media (max-width: 700px){.media-frame{width:320px;height:240px}}</style><main><div class=\"media-frame\"><svg class=\"media-art\" style=\"width:100%;height:100%;object-fit:cover\" viewBox=\"0 0 300 220\" width=\"100%\" height=\"100%\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"300\" height=\"220\" fill=\"#1e1410\"></rect></svg></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image media-art be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"width\":\"100%\"" },
+    { "path": "assets.1.content", "assert": "contains", "value": "margin:0;width:100%;height:100%" },
+    { "path": "assets.1.content", "assert": "contains", "value": "object-fit:cover" }
+  ]
+}
