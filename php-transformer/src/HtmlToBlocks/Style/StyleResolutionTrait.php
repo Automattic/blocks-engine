@@ -944,6 +944,7 @@ trait StyleResolutionTrait
             'padding-left',
             'padding-right',
             'padding-top',
+            'place-items',
             'position',
             'row-gap',
             'text-align',
