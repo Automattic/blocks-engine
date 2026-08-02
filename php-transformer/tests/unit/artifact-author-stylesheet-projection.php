@@ -174,6 +174,19 @@ $assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativ
 $assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
 
+$tableNormalization = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><div class="table-wrap"><table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Body</td></tr></tbody></table></div></main>' ),
+        array( 'path' => 'table.css', 'kind' => 'css', 'content' => '.table-wrap{margin-bottom:2rem}table{margin:3rem 0;border-collapse:collapse;border-spacing:0}th,td{border-bottom:1px solid #d8d9d1}' ),
+    ),
+) )->toArray();
+$tableNormalizationMarkup = (string) ($tableNormalization['serialized_blocks'] ?? '');
+$tableNormalizationCss = implode("\n", array_column(array_filter($tableNormalization['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
+$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}'), 'unmargined native table wrappers tie core figure spacing while preserving source border-collapse geometry');
+$assert(str_contains($tableNormalizationCss, '.table-wrap{margin-bottom:2rem}') && str_contains($tableNormalizationCss, 'table{margin:3rem 0}') && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain in the source stylesheet rather than becoming a broad table override');
+$assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');
+
 if ( $failures > 0 ) {
     exit(1);
 }
