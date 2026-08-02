@@ -3799,6 +3799,11 @@ final class HtmlTransformer
             return false;
         }
 
+        $typographyProperties = array( 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration', 'text-indent', 'text-shadow', 'text-transform', 'word-spacing' );
+        if ( array() !== $declarations && array() === array_diff(array_keys($declarations), $typographyProperties) ) {
+            return true;
+        }
+
         foreach ( array( 'grid-column', 'grid-row', 'order', 'align-self', 'justify-self', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $property ) {
             if ( $this->cssValueIsNonZero((string) ($declarations[$property] ?? '')) ) {
                 return true;
