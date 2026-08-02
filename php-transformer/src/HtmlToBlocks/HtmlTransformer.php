@@ -381,6 +381,10 @@ final class HtmlTransformer
 
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
+    private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
+
+    private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
+
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -869,6 +873,9 @@ final class HtmlTransformer
         }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $cssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
+            $cssParts[] = ':where(.' . self::CSS_OWNED_FLOW_CLASS . ')>p{margin-top:0;margin-bottom:0}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
@@ -1373,7 +1380,7 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && $this->hasDirectChildCombinator($parsed) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
@@ -2715,7 +2722,9 @@ final class HtmlTransformer
                     return $inlineContent;
                 }
                 if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $this->convertChildren($element, $fallbacks, true), $element);
+                    $attrs = $this->presentationAttributes($element);
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_CLASS, self::CSS_OWNED_FLOW_CLASS);
+                    return $this->createBlock('core/group', $attrs, $this->convertChildren($element, $fallbacks, true), $element);
                 }
                 $textFlow = $this->textFlowBlockFromElement($element);
                 if ( null !== $textFlow ) {
@@ -3587,13 +3596,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function hasDirectChildCombinator(array $parsed): bool
-    {
-        $combinators = $parsed['combinators'] ?? array();
-        return '>' === ($combinators[count($combinators) - 1] ?? null);
     }
 
     /** @return array<string, mixed>|null */
