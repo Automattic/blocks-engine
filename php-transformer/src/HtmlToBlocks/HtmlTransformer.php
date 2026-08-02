@@ -3114,15 +3114,17 @@ final class HtmlTransformer
     private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs): string
     {
         $anchorDeclarations = $this->presentationDeclarations($anchor);
+        $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
+        $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
         $inheritedColor = '';
         $inheritedTextAlignment = '';
 
         for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
             $declarations = $this->presentationDeclarations($ancestor);
-            if ( '' === $inheritedColor && ! array_key_exists('color', $anchorDeclarations) && isset($declarations['color']) ) {
+            if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
                 $inheritedColor = (string) $declarations['color'];
             }
-            if ( '' === $inheritedTextAlignment && ! array_key_exists('text-align', $anchorDeclarations) && isset($declarations['text-align']) ) {
+            if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
                 $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
             }
             if ( '' !== $inheritedColor && '' !== $inheritedTextAlignment ) {
@@ -3130,17 +3132,24 @@ final class HtmlTransformer
             }
         }
 
-        if ( '' !== $inheritedColor && '' === trim((string) ($attrs['style']['color']['text'] ?? '')) ) {
+        if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
             $mappedColor = $this->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
             if ( '' !== trim((string) $mappedColor) ) {
                 $attrs['style']['color']['text'] = $mappedColor;
             }
         }
 
-        $textAlignment = strtolower(trim((string) ($anchorDeclarations['text-align'] ?? $inheritedTextAlignment)));
+        $textAlignment = $anchorTextAlignmentInherits
+            ? $inheritedTextAlignment
+            : strtolower(trim((string) $anchorDeclarations['text-align']));
         return in_array($textAlignment, array( 'start', 'end', 'left', 'center', 'right' ), true)
             ? $textAlignment
             : '';
+    }
+
+    private function isInheritedCssWideValue(string $value): bool
+    {
+        return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
     }
 
     /** @param array<string, mixed> $attrs */

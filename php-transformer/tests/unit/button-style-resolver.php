@@ -59,6 +59,15 @@ $assert(str_contains($inheritedHeaderCss, 'text-align:start!important'), 'header
 $assert('pass' === ($inheritedHeaderButton['source_reports']['wp_block_validity']['status'] ?? ''), 'header-inherited native button remains editor-valid', json_encode($inheritedHeaderButton['source_reports']['wp_block_validity'] ?? array()));
 $assert(! str_contains($inheritedHeaderMarkup, '<!-- wp:html'), 'header-inherited native button needs no HTML fallback', $inheritedHeaderMarkup);
 
+$cssWideInheritedButton = ( new HtmlTransformer() )->transform(
+    '<style>a{color:inherit;text-align:inherit}.site-header{color:#f8fff9;text-align:start}</style><header class="site-header"><a class="button" style="padding:10px 18px;background:#1d2230" href="/start">Start</a></header>'
+)->toArray();
+$cssWideInheritedMarkup = (string) ($cssWideInheritedButton['serialized_blocks'] ?? '');
+$cssWideInheritedCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssWideInheritedButton['assets'] ?? array()));
+$assert(str_contains($cssWideInheritedMarkup, 'color:#f8fff9'), 'color:inherit resolves the header foreground into canonical core/button color', $cssWideInheritedMarkup);
+$assert(str_contains($cssWideInheritedCss, 'color:#f8fff9!important') && str_contains($cssWideInheritedCss, 'text-align:start!important'), 'color:inherit and text-align:inherit resolve through the native button rule', $cssWideInheritedCss);
+$assert('pass' === ($cssWideInheritedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-wide inherited native button remains editor-valid', json_encode($cssWideInheritedButton['source_reports']['wp_block_validity'] ?? array()));
+
 $inheritedFooterButton = ( new HtmlTransformer() )->transform(
     '<footer style="color:#d4e5ff;text-align:end"><a class="button" style="padding:8px 14px;background:#18212b" href="/">Brand</a></footer>'
 )->toArray();
