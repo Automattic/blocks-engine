@@ -2162,7 +2162,7 @@ final class HtmlTransformer
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
             }
-            if ( $this->hasEmptyVisualInlineChild($element) ) {
+            if ( $this->hasEmptyVisualInlineChild($element) && $this->hasBoxChromeWrapperStyling($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
