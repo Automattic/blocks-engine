@@ -379,6 +379,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
+    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
@@ -870,7 +872,8 @@ final class HtmlTransformer
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
-                . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}';
+                . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
+                . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $cssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
@@ -3095,6 +3098,9 @@ final class HtmlTransformer
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+                if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+                }
             }
             $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
             if ( '' !== $projectionClassName ) {
@@ -3219,6 +3225,29 @@ final class HtmlTransformer
             $className = $this->mergeClassNames($className, ...$semanticMarkers);
         }
         return $className;
+    }
+
+    private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
+    {
+        $decorationLine = null;
+        foreach ( $this->cssDeclarations($this->mergedPresentationStyle($anchor)) as $property => $value ) {
+            $value = $this->cssComparableValue($this->resolveCssVariablesInValue($value));
+            if ( 'text-decoration' === $property ) {
+                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
+                    $decorationLine = 'line';
+                } elseif ( ! in_array($value, array( 'inherit', 'revert', 'revert-layer' ), true) ) {
+                    $decorationLine = 'none';
+                }
+            } elseif ( 'text-decoration-line' === $property ) {
+                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
+                    $decorationLine = 'line';
+                } elseif ( in_array($value, array( 'none', 'initial', 'unset' ), true) ) {
+                    $decorationLine = 'none';
+                }
+            }
+        }
+
+        return 'none' === $decorationLine;
     }
 
     /** @return list<string> */
