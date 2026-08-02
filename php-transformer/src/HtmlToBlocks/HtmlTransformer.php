@@ -1085,7 +1085,12 @@ final class HtmlTransformer
                     if ( '' === $path ) {
                         continue;
                     }
-                    if ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
+                    // list-item content serializes through RichText, so direct layout
+                    // children need a marker carrier that survives its normalization.
+                    if ( $this->ancestorElement($element, 'li') instanceof DOMElement && $this->richTextSelectorNeedsHook($parsed) ) {
+                        $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
+                        $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                    } elseif ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
                         if ( '' !== $path ) {
                             $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
                         }
