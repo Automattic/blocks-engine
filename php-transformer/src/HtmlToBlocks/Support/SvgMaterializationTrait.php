@@ -104,23 +104,28 @@ trait SvgMaterializationTrait
         $presentation = $this->presentationDeclarations($element);
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
-        $parentDisplay = $parent instanceof DOMElement ? strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? ''))) : '';
+        $parentPresentation = $parent instanceof DOMElement ? $this->structuralPresentationDeclarations($parent) : array();
+        $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
-        // A responsive SVG (width/height="100%") is authored to fill the media box
-        // owned by its parent, not to render at its intrinsic viewBox size. When
-        // that parent is a sized flex/grid media wrapper, make the generated
-        // core/image figure fill the wrapper and drop the default block margin, so
-        // the image occupies the true wrapper box instead of collapsing to its
-        // intrinsic viewBox with centering whitespace around it.
-        $isResponsiveFillSvg = $isFlexOrGridItem
+        $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
+        $isPositionedMediaBox = $parent instanceof DOMElement
+            && in_array(strtolower(trim((string) ($parentPresentation['position'] ?? ''))), array( 'relative', 'absolute', 'fixed', 'sticky' ), true)
+            && $this->declarationsOwnMediaBox($parentPresentation);
+        // A responsive SVG (width/height="100%") fills a sized flex/grid wrapper,
+        // or a positioned media wrapper when object-fit makes that intent explicit.
+        // Make the generated core/image figure fill that wrapper and drop its
+        // default margin instead of collapsing to intrinsic viewBox geometry.
+        $isResponsiveFillSvg = (
+            ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
+            || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
+        )
             && null !== $this->svgPercentageWidth(trim($this->attr($element, 'width')))
-            && null !== $this->svgPercentageWidth(trim($this->attr($element, 'height')))
-            && $parent instanceof DOMElement
-            && $this->structuralCssOwnsMediaBox($parent);
+            && null !== $this->svgPercentageWidth(trim($this->attr($element, 'height')));
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
             $figureRule = '{margin:0;width:100%;height:100%}';
-            $imgRule = '>img{width:100%;height:100%;-o-object-fit:contain;object-fit:contain}';
+            $objectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
+            $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             $fillClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
             $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.' . $fillClass . $imgRule;
             $attrs = array(
@@ -306,16 +311,6 @@ trait SvgMaterializationTrait
     private function cssOwnsMediaBox(DOMElement $element): bool
     {
         return $this->declarationsOwnMediaBox($this->presentationDeclarations($element));
-    }
-
-    /**
-     * Resolve media-box ownership from structural context so a parent media
-     * wrapper is recognized even when it is not itself a high-value styled
-     * element (its class-based width/height/aspect-ratio still owns the box).
-     */
-    private function structuralCssOwnsMediaBox(DOMElement $element): bool
-    {
-        return $this->declarationsOwnMediaBox($this->structuralPresentationDeclarations($element));
     }
 
     /**

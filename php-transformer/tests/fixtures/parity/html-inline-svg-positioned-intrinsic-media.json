@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-positioned-intrinsic-media",
+  "description": "An intrinsic inline SVG remains intrinsic inside a positioned, explicitly sized wrapper when it does not declare a percentage fill contract.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-positioned-intrinsic-media.json",
+    "notes": "Negative coverage prevents positioned wrappers from stretching ordinary intrinsic SVG media."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.media-frame{position:relative;width:640px;height:420px;overflow:hidden}</style><main><div class=\"media-frame\"><svg class=\"media-art\" style=\"object-fit:cover\" viewBox=\"0 0 300 220\" width=\"300\" height=\"220\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"300\" height=\"220\" fill=\"#1e1410\"></rect></svg></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "width": "300px", "height": "220px" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"lineHeight\":\"0\"" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": "margin:0;width:100%;height:100%" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:300px;height:220px\"" }
+  ]
+}
