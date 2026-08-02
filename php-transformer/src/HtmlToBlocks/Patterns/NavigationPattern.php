@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -168,12 +169,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function safeNavigationUrl(string $url): string
     {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
+        return LinkUrlSanitizer::sanitize($url);
     }
 
     private function hasDirectBrandingAnchorBesideListNavigation(DOMElement $element, callable $innerHtml): bool

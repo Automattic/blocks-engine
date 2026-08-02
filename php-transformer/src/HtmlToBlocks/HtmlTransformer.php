@@ -37,6 +37,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageE
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -425,6 +426,24 @@ final class HtmlTransformer
     /** @var list<DOMElement> */
     private array $authorStyleSourceElements = array();
 
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsByTag = array();
+
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsById = array();
+
+	/** @var array<string, list<DOMElement>> */
+	private array $authorStyleSourceElementsByClass = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceTags = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceIds = array();
+
+	/** @var array<string, true> */
+	private array $authorStyleSourceClasses = array();
+
     /** @var array<string, list<DOMElement>> */
     private array $authorSourceSelectorMatches = array();
 
@@ -531,6 +550,12 @@ final class HtmlTransformer
         $this->combinedAuthorCss = '';
         $this->authorStyleSourceBody = null;
         $this->authorStyleSourceElements = array();
+		$this->authorStyleSourceElementsByTag = array();
+		$this->authorStyleSourceElementsById = array();
+		$this->authorStyleSourceElementsByClass = array();
+		$this->authorStyleSourceTags = array();
+		$this->authorStyleSourceIds = array();
+		$this->authorStyleSourceClasses = array();
         $this->authorSourceSelectorMatches = array();
         $this->parsedCssSelectors = array();
         $this->authorMarkerSeed = '';
@@ -947,32 +972,48 @@ final class HtmlTransformer
         }
 
         $this->authorStyleSourceBody = $sourceBody;
+		for ( $ancestor = $sourceBody; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+			$this->recordAuthorSelectorSignals($ancestor);
+		}
         foreach ( $sourceBody->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement ) {
                 $this->authorStyleSourceElements[] = $element;
+				$this->recordAuthorSelectorSignals($element);
+				$this->authorStyleSourceElementsByTag[strtolower($element->tagName)][] = $element;
+				$id = $this->attr($element, 'id');
+				if ( '' !== $id ) {
+					$this->authorStyleSourceElementsById[$id][] = $element;
+				}
+				foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+					if ( '' !== $class ) {
+						$this->authorStyleSourceElementsByClass[$class][] = $element;
+					}
+				}
             }
         }
 
-        $sourceTagSelectorNames = array();
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
-                foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
-                    $tagName = strtolower($typeSpan['name']);
-                    if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
-                        $sourceTagSelectorNames[ $tagName ] = true;
-                    }
-                }
-            }
-            return $prelude;
-        });
+		$sourceTagSelectorNames = array();
+		$authorSelectors = array();
+		( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames, &$authorSelectors): string {
+			foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+				$parsed = $this->parsedCssSelector($selector);
+				$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
+				foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
+					$tagName = strtolower($typeSpan['name']);
+					if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
+						$sourceTagSelectorNames[$tagName] = true;
+					}
+				}
+			}
+			return $prelude;
+		});
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
-        $this->discoverAuthorControlPaths();
-        $this->discoverAuthorInlineSemanticPaths();
-        $this->discoverAuthorRootChildPaths();
-        $this->discoverAuthorTablePaths();
+		$this->discoverAuthorControlPaths($authorSelectors);
+		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
+		$this->discoverAuthorRootChildPaths($authorSelectors);
+		$this->discoverAuthorTablePaths($authorSelectors);
         $this->sourceBodyProjectionClasses = $this->referencedSourceBodyClasses($sourceBody);
     }
 
@@ -985,11 +1026,12 @@ final class HtmlTransformer
         }));
     }
 
-    private function discoverAuthorControlPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorControlPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
@@ -1004,16 +1046,15 @@ final class HtmlTransformer
                         $this->sourceControlPaths[$path] = true;
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorInlineSemanticPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorInlineSemanticPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
@@ -1036,16 +1077,15 @@ final class HtmlTransformer
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorRootChildPaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorRootChildPaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] || ! $this->isRootChildSelector($parsed) ) {
                     continue;
                 }
@@ -1058,16 +1098,15 @@ final class HtmlTransformer
                         $this->sourceRootChildMarkers[$path] ??= $this->allocateAuthorMarker('root-child');
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
-    private function discoverAuthorTablePaths(): void
+	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverAuthorTablePaths(array $authorSelectors): void
     {
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
+		foreach ( $authorSelectors as $authorSelector ) {
+				$selector = $authorSelector['selector'];
+				$parsed = $authorSelector['parsed'];
                 if ( ! $parsed['supported'] ) {
                     continue;
                 }
@@ -1087,9 +1126,7 @@ final class HtmlTransformer
                         $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
                     }
                 }
-            }
-            return $prelude;
-        });
+		}
     }
 
     /** @param array<string, mixed> $parsed */
@@ -1475,14 +1512,74 @@ final class HtmlTransformer
         if ( array_key_exists($selector, $this->authorSourceSelectorMatches) ) {
             return $this->authorSourceSelectorMatches[$selector];
         }
+		if ( ! $this->authorSelectorCanMatch($parsed) ) {
+			return $this->authorSourceSelectorMatches[$selector] = array();
+		}
         $matches = array();
-        foreach ( $this->authorStyleSourceElements as $element ) {
+        foreach ( $this->authorSelectorCandidates($parsed) as $element ) {
             if ( CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
                 $matches[] = $element;
             }
         }
         return $this->authorSourceSelectorMatches[$selector] = $matches;
     }
+
+	/** @param array<string, mixed> $parsed @return list<DOMElement> */
+	private function authorSelectorCandidates(array $parsed): array
+	{
+		$compounds = $parsed['compounds'] ?? array();
+		$rightmost = $compounds[array_key_last($compounds)] ?? array();
+		$candidates = array();
+		foreach ( $rightmost['ids'] ?? array() as $id ) {
+			$candidates[] = $this->authorStyleSourceElementsById[$id] ?? array();
+		}
+		foreach ( $rightmost['classes'] ?? array() as $class ) {
+			$candidates[] = $this->authorStyleSourceElementsByClass[$class] ?? array();
+		}
+		if ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
+			$candidates[] = $this->authorStyleSourceElementsByTag[strtolower($rightmost['type'])] ?? array();
+		}
+		if ( array() === $candidates ) {
+			return $this->authorStyleSourceElements;
+		}
+		usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
+		return $candidates[0];
+	}
+
+	/** @param array<string, mixed> $parsed */
+	private function authorSelectorCanMatch(array $parsed): bool
+	{
+		foreach ( $parsed['compounds'] ?? array() as $compound ) {
+			if ( is_string($compound['type'] ?? null) && '' !== $compound['type'] && ! isset($this->authorStyleSourceTags[strtolower($compound['type'])]) ) {
+				return false;
+			}
+			foreach ( $compound['ids'] ?? array() as $id ) {
+				if ( ! isset($this->authorStyleSourceIds[$id]) ) {
+					return false;
+				}
+			}
+			foreach ( $compound['classes'] ?? array() as $class ) {
+				if ( ! isset($this->authorStyleSourceClasses[$class]) ) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	private function recordAuthorSelectorSignals(DOMElement $element): void
+	{
+		$this->authorStyleSourceTags[strtolower($element->tagName)] = true;
+		$id = $this->attr($element, 'id');
+		if ( '' !== $id ) {
+			$this->authorStyleSourceIds[$id] = true;
+		}
+		foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+			if ( '' !== $class ) {
+				$this->authorStyleSourceClasses[$class] = true;
+			}
+		}
+	}
 
     /** @param array<string, mixed> $parsed */
     private function rewriteSourceTagTypes(string $selector, array $parsed, string $rightmostInsertion = ''): string
@@ -10093,12 +10190,7 @@ final class HtmlTransformer
 
     private function safeLinkUrl(string $url): string
     {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
+        return LinkUrlSanitizer::sanitize($url);
     }
 
     /**

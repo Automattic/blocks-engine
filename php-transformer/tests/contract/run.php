@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
@@ -254,6 +255,8 @@ $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact pat
 $assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
+$assert('assets/JOHN-OATES-‘ARKANSAS.jpg' === ArtifactPath::resolveRelativePath('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'artifact references resolve percent-encoded Unicode path segments to canonical artifact paths');
+$assert('' === ArtifactPath::resolveRelativePath('../assets%2flogo.png', 'pages/home.html'), 'artifact references reject encoded path separators');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
@@ -656,6 +659,19 @@ $contactLayout = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(array() === ($contactLayout['fallbacks'] ?? array()), 'static contact layout decomposes without fallback diagnostics');
 $assert(0 === substr_count((string) ($contactLayout['serialized_blocks'] ?? ''), '<!-- wp:html'), 'static contact layout emits native blocks only');
+
+$canonicalLinkUrls = ( new HtmlTransformer() )->transform(
+    '<main><p><a href="hello@richlynngroup.com&nbsp;">Entity whitespace</a><a href="hello@richlynngroup.com' . "\xC2\xA0" . '">Literal whitespace</a><a href="mailto:hello@richlynngroup.com?subject=Hello">Mail query</a><a href="martinguitar.com">Bare domain</a><a href="https://example.test/?x=&amp;copy;">Literal entity query</a><a href="&quot;quoted.local&quot;@example.test">Quoted mailbox</a><a href="δοκιμή@παράδειγμα.δοκιμή">Unicode mailbox</a><a href="members/hello@richlynngroup.com/profile">Relative path</a><a href="java&#x0A;script&#58;alert(1)">Obfuscated script</a><a href="data&#58;text/plain,unsafe">Data</a><a href="vbscript&#58;msgbox(1)">VBScript</a></p><nav><a href="hello@richlynngroup.com">Email</a></nav></main>'
+)->toArray();
+$canonicalLinkMarkup = (string) ($canonicalLinkUrls['serialized_blocks'] ?? '');
+$canonicalNavigation = $canonicalLinkUrls['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['url'] ?? null;
+$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && str_contains($canonicalLinkMarkup, 'href="mailto:%22quoted.local%22@example.test"') && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, supports quoted and Unicode mailboxes, and rejects unsafe schemes');
+$assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
+$assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
+$safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );
+foreach ( $safeLinkProtocols as $protocol ) $assert($protocol . ':value' === LinkUrlSanitizer::sanitize($protocol . ':value'), 'link sanitization permits WordPress-safe explicit scheme ' . $protocol);
+foreach ( array( '/relative/path', '../relative', '//example.test/path', '#fragment', '?query=value' ) as $relativeUrl ) $assert($relativeUrl === LinkUrlSanitizer::sanitize($relativeUrl), 'link sanitization preserves relative, protocol-relative, fragment, and query URLs');
+foreach ( array( 'data:text/plain,unsafe', 'vbscript:msgbox(1)', 'javascript:alert(1)', 'unknown:value', "java\nscript:alert(1)" ) as $unsafeUrl ) $assert('' === LinkUrlSanitizer::sanitize($unsafeUrl), 'link sanitization rejects unsafe or unknown explicit schemes and scheme obfuscation');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
@@ -3644,6 +3660,24 @@ $tooLarge = $compiler->compile(
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
 $assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
+
+$negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
+    'compiler_limits' => array(
+        'max_files' => PHP_INT_MAX,
+        'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+        'max_total_bytes' => PHP_INT_MAX,
+    ),
+    'files' => array(
+        'index.html' => '<main>OK</main>',
+        'large.txt' => str_repeat('x', ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1),
+    ),
+));
+$assert(2 === count($negotiatedLimits['files']), 'artifact compiler accepts files within explicitly negotiated limits');
+$assert(array(
+    'max_files' => ArtifactNormalizer::MAX_FILES,
+    'max_file_bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1,
+    'max_total_bytes' => ArtifactNormalizer::MAX_TOTAL_BYTES,
+) === ($negotiatedLimits['limits'] ?? null), 'artifact compiler clamps negotiated limits to hard resource ceilings');
 
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
