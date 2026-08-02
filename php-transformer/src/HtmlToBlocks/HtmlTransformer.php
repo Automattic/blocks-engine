@@ -4942,23 +4942,23 @@ final class HtmlTransformer
     }
 
     /** @param array<string, string> $declarations */
-    private function hasVisibleEmptyVisualPaint(array $declarations): bool
+    private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
     {
         foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations[$property])) ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->resolveCssVariablesInValue($declarations[$property])) ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         return isset($declarations['border-color'], $declarations['border-width'])
-            && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations['border-color']))
-            && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations['border-width']));
+            && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations['border-color'], $element))
+            && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations['border-width'], $element));
     }
 
     private function isVisibleEmptyVisualPaint(string $value): bool
@@ -7016,7 +7016,7 @@ final class HtmlTransformer
         $declarations = $this->structuralPresentationDeclarations($figure);
         $hasBoundedHeight = false;
         foreach ( array( 'height', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property])) ) {
+            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
                 $hasBoundedHeight = true;
                 break;
             }
@@ -7025,12 +7025,12 @@ final class HtmlTransformer
             return false;
         }
 
-        if ( $this->hasVisibleEmptyVisualPaint($declarations) ) {
+        if ( $this->hasVisibleEmptyVisualPaint($declarations, $figure) ) {
             return true;
         }
 
         foreach ( $this->staticPseudoElementStyleRules as $rule ) {
-            if ( $this->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations']) ) {
+            if ( $this->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
                 return true;
             }
         }

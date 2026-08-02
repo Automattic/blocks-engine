@@ -370,17 +370,32 @@ trait SvgMaterializationTrait
         return '#000000';
     }
 
-    private function resolveCssVariablesInValue(string $value): string
+    private function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
     {
         if ( false === strpos($value, 'var(') ) {
             return $value;
         }
 
+        $customProperties = $this->cssCustomProperties;
+        if ( $element instanceof DOMElement ) {
+            $ancestors = array();
+            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+                $ancestors[] = $current;
+            }
+            foreach ( array_reverse($ancestors) as $ancestor ) {
+                foreach ( $this->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
+                    if ( str_starts_with($name, '--') ) {
+                        $customProperties[$name] = $propertyValue;
+                    }
+                }
+            }
+        }
+
         for ( $pass = 0; $pass < 5; ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', function (array $matches): string {
+            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
                 $name = (string) $matches[1];
-                if ( isset($this->cssCustomProperties[$name]) && '' !== $this->cssCustomProperties[$name] ) {
-                    return $this->cssCustomProperties[$name];
+                if ( isset($customProperties[$name]) && '' !== $customProperties[$name] ) {
+                    return $customProperties[$name];
                 }
 
                 return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
