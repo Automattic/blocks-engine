@@ -846,7 +846,7 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
 $assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), '100% source button width maps to the native core/button width attribute');
-$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta">'), '100% source button width emits canonical core/button width wrapper classes');
+$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta blocks-engine-native-button-'), '100% source button width emits canonical core/button width wrapper classes plus its scoped native style marker');
 $assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
 
 $cssVariableButton = ( new HtmlTransformer() )->transform(

@@ -20,7 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-cta", "url": "/reserve" } }
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-cta blocks-engine-native-button-alignment-start", "url": "/reserve" } }
   ],
   "expected_fallbacks": [],
   "expect": [

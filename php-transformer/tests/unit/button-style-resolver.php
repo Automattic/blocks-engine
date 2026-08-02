@@ -68,6 +68,22 @@ $assert(str_contains($cssWideInheritedMarkup, 'color:#f8fff9'), 'color:inherit r
 $assert(str_contains($cssWideInheritedCss, 'color:#f8fff9!important') && str_contains($cssWideInheritedCss, 'text-align:start!important'), 'color:inherit and text-align:inherit resolve through the native button rule', $cssWideInheritedCss);
 $assert('pass' === ($cssWideInheritedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-wide inherited native button remains editor-valid', json_encode($cssWideInheritedButton['source_reports']['wp_block_validity'] ?? array()));
 
+$defaultHeaderBrand = ( new HtmlTransformer() )->transform(
+    '<header><a class="button" style="padding:10px 18px;background:#1d2230" href="/"><span class="brand-mark"><span class="brand-glyph">H</span></span> Header brand</a></header>'
+)->toArray();
+$defaultHeaderBrandMarkup = (string) ($defaultHeaderBrand['serialized_blocks'] ?? '');
+$defaultHeaderBrandCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $defaultHeaderBrand['assets'] ?? array()));
+$assert(str_contains($defaultHeaderBrandCss, 'text-align:start!important'), 'header brand with no text-align projects CSS initial start to the native button link', $defaultHeaderBrandCss);
+$assert(str_contains($defaultHeaderBrandMarkup, 'brand-mark') && str_contains($defaultHeaderBrandMarkup, 'brand-glyph') && ! str_contains($defaultHeaderBrandMarkup, '<!-- wp:html') && 'pass' === ($defaultHeaderBrand['source_reports']['wp_block_validity']['status'] ?? ''), 'header brand mark and glyph remain native editor-valid button content', $defaultHeaderBrandMarkup);
+
+$defaultFooterBrand = ( new HtmlTransformer() )->transform(
+    '<footer><a class="button" style="padding:8px 14px;background:#18212b" href="/"><span class="brand-mark"><span class="brand-glyph">F</span></span> Footer brand</a></footer>'
+)->toArray();
+$defaultFooterBrandMarkup = (string) ($defaultFooterBrand['serialized_blocks'] ?? '');
+$defaultFooterBrandCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $defaultFooterBrand['assets'] ?? array()));
+$assert(str_contains($defaultFooterBrandCss, 'text-align:start!important'), 'footer brand with no text-align projects CSS initial start to the native button link', $defaultFooterBrandCss);
+$assert(str_contains($defaultFooterBrandMarkup, 'brand-mark') && str_contains($defaultFooterBrandMarkup, 'brand-glyph') && ! str_contains($defaultFooterBrandMarkup, '<!-- wp:html') && 'pass' === ($defaultFooterBrand['source_reports']['wp_block_validity']['status'] ?? ''), 'footer brand mark and glyph remain native editor-valid button content', $defaultFooterBrandMarkup);
+
 $inheritedFooterButton = ( new HtmlTransformer() )->transform(
     '<footer style="color:#d4e5ff;text-align:end"><a class="button" style="padding:8px 14px;background:#18212b" href="/">Brand</a></footer>'
 )->toArray();
