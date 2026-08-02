@@ -364,15 +364,77 @@ trait StyleResolutionTrait
             }
         }
 
-        if (array_filter($geometryValues, static fn (string $value): bool => str_contains($value, 'var('))) {
+        $consumedCustomProperties = $this->inlineCustomPropertiesRequired(
+            $declarations,
+            $this->inlineCustomPropertiesConsumedByAuthorStyles($element) + $this->customPropertiesReferencedByValues($geometryValues)
+        );
+        if (array() !== $consumedCustomProperties) {
             foreach ($declarations as $property => $value) {
-                if (str_starts_with($property, '--')) {
+                if (str_starts_with($property, '--') && isset($consumedCustomProperties[$property])) {
                     $style[] = $property . ':' . $value;
                 }
             }
         }
 
         return implode(';', $style);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element): array
+    {
+        $consumed = array();
+        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules) as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            $consumed += $this->customPropertiesReferencedByValues($rule['declarations']);
+        }
+
+        return $consumed;
+    }
+
+    /**
+     * @param array<string|int, string> $values
+     * @return array<string, true>
+     */
+    private function customPropertiesReferencedByValues(array $values): array
+    {
+        $properties = array();
+        foreach ($values as $value) {
+            if (preg_match_all('/\bvar\(\s*(--[-_a-zA-Z0-9]+)/', $value, $matches)) {
+                foreach ($matches[1] as $property) {
+                    $properties[strtolower($property)] = true;
+                }
+            }
+        }
+
+        return $properties;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @param array<string, true> $required
+     * @return array<string, true>
+     */
+    private function inlineCustomPropertiesRequired(array $declarations, array $required): array
+    {
+        $pending = array_keys($required);
+        while (array() !== $pending) {
+            $property = array_pop($pending);
+            if (! isset($declarations[$property])) {
+                continue;
+            }
+            foreach (array_keys($this->customPropertiesReferencedByValues(array($declarations[$property]))) as $dependency) {
+                if (! isset($required[$dependency])) {
+                    $required[$dependency] = true;
+                    $pending[] = $dependency;
+                }
+            }
+        }
+
+        return $required;
     }
 
     private function mergePresentationClassNames(string ...$classNames): string
