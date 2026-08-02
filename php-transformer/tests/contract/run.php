@@ -310,6 +310,9 @@ $assert(true === ($spanningTableClassification['signals']['has_colspan'] ?? null
 $simpleDataTableResult = ( new HtmlTransformer() )->transform('<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody><tr><td>Ada</td><td>Engineer</td></tr></tbody></table>')->toArray();
 $assert('core/table' === ($simpleDataTableResult['blocks'][0]['blockName'] ?? null), 'simple data table converts to native core/table');
 $assert(str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), '<!-- wp:table'), 'simple data table serializes native table markup');
+$assert(false === ($simpleDataTableResult['blocks'][0]['attrs']['hasFixedLayout'] ?? null) && str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), '<table>') && ! str_contains((string) ($simpleDataTableResult['serialized_blocks'] ?? ''), 'has-fixed-layout'), 'source-auto tables retain native automatic column sizing');
+$fixedSourceTableResult = ( new HtmlTransformer() )->transform('<style>table{table-layout:fixed}</style><table><tbody><tr><td>Fixed</td><td>Columns</td></tr></tbody></table>')->toArray();
+$assert(true === ($fixedSourceTableResult['blocks'][0]['attrs']['hasFixedLayout'] ?? null) && str_contains((string) ($fixedSourceTableResult['serialized_blocks'] ?? ''), '<table class="has-fixed-layout">'), 'explicit source fixed table layout retains native fixed layout');
 $styledTableResult = ( new HtmlTransformer() )->transform('<style>.services-table td.feature{width:40%;color:#123}.services-table tbody tr:last-child td:first-child{padding:12px}.services-table td.feature:hover{color:#456}.team-table th.role{font-weight:700}.multi-body tbody:nth-child(2) td{background:#eee}</style><table class="services-table"><tbody><tr><td>Label</td><td class="feature">Value</td></tr><tr><td>Last</td><td>Row</td></tr></tbody></table><table class="team-table"><thead><tr><th>Name</th><th class="role">Role</th></tr></thead></table><table class="multi-body"><tbody><tr><td>First</td></tr></tbody><tbody><tr><td>Second</td></tr></tbody></table>')->toArray();
 $styledTableMarkup = (string) ($styledTableResult['serialized_blocks'] ?? '');
 $styledTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $styledTableResult['assets'] ?? array()));
@@ -1103,6 +1106,18 @@ $rubyQuote = $rubyResult['blocks'][0] ?? array();
 $assert(array() === ($rubyResult['fallbacks'] ?? array()), 'ruby phrasing content does not create unsupported fallbacks');
 $assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content remains inside quote block');
 $assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
+
+$quoteMarginResult = ( new HtmlTransformer() )->transform(
+    '<blockquote>Direct quote.</blockquote><blockquote><p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p></blockquote>'
+)->toArray();
+$directQuote = $quoteMarginResult['blocks'][0] ?? array();
+$sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
+$quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
+$quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"content":"Direct quote.","className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$assert(str_contains($quoteMarginCss, ':where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
+$assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
+$assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');
 
 $plaintextResult = ( new HtmlTransformer() )->transform(
     '<p>Before</p><PLAINTEXT>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</PLAINTEXT><p>After</p>'
