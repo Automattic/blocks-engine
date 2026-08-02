@@ -949,6 +949,7 @@ trait StyleResolutionTrait
             'text-align',
             'text-decoration',
             'text-transform',
+            'table-layout',
             'width',
             'z-index',
         ));

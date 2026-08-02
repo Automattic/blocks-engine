@@ -1680,7 +1680,7 @@ final class HtmlTransformer
 
     private function typeSpecificityShim(): string
     {
-        return '' === $this->authorSpecificityShim ? '' : ':not(' . $this->authorSpecificityShim . ')';
+        return '' === $this->authorSpecificityShim ? '' : ':not(.' . $this->authorSpecificityShim . ')';
     }
 
     /** @param array<string, mixed> $parsed */
@@ -6587,7 +6587,9 @@ final class HtmlTransformer
      */
     private function tableAttributes(DOMElement $table): array
     {
-        $attrs = array();
+        $attrs = array(
+            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
+        );
         $this->registerTableCellGeometry($table);
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
