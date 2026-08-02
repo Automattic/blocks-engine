@@ -131,6 +131,7 @@ final class QuotePattern
      */
     private function phrasingQuoteChildren(DOMElement $element, string $value, callable $isInlineContentElement, callable $createBlock): array
     {
+        $isDirectText = true;
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 continue;
@@ -143,6 +144,7 @@ final class QuotePattern
             if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
                 continue;
             }
+            $isDirectText = false;
             if ( 'br' === $tagName || $isInlineContentElement($tagName) ) {
                 continue;
             }
@@ -150,7 +152,10 @@ final class QuotePattern
             return array();
         }
 
-        return array( $createBlock('core/paragraph', array( 'content' => $value )) );
+        return array( $createBlock('core/paragraph', array_filter(array(
+            'content'   => $value,
+            'className' => $isDirectText ? 'blocks-engine-synthetic-paragraph' : '',
+        ), static fn (string $value): bool => '' !== $value)) );
     }
 
 }
