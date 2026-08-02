@@ -380,6 +380,10 @@ final class HtmlTransformer
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
+    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+
+    private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
+
     private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
@@ -896,7 +900,15 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::SYNTHETIC_PARAGRAPH_CLASS) ) {
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
-            $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}';
+            $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
+                . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
+                . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
+        if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
+            $cssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
+            $cssParts[] = ':where(.' . self::CSS_OWNED_FLOW_CLASS . ')>p{margin-top:0;margin-bottom:0}';
         }
         if ( str_contains($serializedBlocks, self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
@@ -1432,10 +1444,13 @@ final class HtmlTransformer
             $controls = array();
             $semanticLeaves = array();
             $richTextLeaves = array();
+            $inlineLayoutCarriers = false;
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( isset($this->sourceControlMarkers[$path]) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) ) {
+                    $inlineLayoutCarriers = true;
+                } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
                 } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
                     $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
@@ -1448,7 +1463,7 @@ final class HtmlTransformer
             $controls = array_values(array_unique($controls));
             $semanticLeaves = array_values(array_unique($semanticLeaves));
             $richTextLeaves = array_values(array_unique($richTextLeaves));
-            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves ) {
+            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && empty($inlineLayoutCarriers) ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
                 continue;
             }
@@ -1465,6 +1480,9 @@ final class HtmlTransformer
             }
             foreach ( $richTextLeaves as $marker ) {
                 $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
+            }
+            if ( ! empty($inlineLayoutCarriers) ) {
+                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
             }
         }
         return implode(',', $rewritten);
@@ -1641,7 +1659,20 @@ final class HtmlTransformer
     private function projectRichTextSemanticSelector(string $selector, array $parsed, string $marker): string
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]' . $this->selectorSpecificityShims($parsed) . $suffix;
+        return ':where(mark[style*="--blocks-engine-richtext-marker:' . $marker . '"],span[data-blocks-engine-richtext-marker="' . $marker . '"])' . $this->selectorSpecificityShims($parsed) . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed): string
+    {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($rightmost) ) {
+            return $selector;
+        }
+
+        return substr($selector, 0, (int) $rightmost['start'])
+            . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . ' > '
+            . substr($selector, (int) $rightmost['start']);
     }
 
     /** @param array<string, mixed> $parsed */
@@ -2233,6 +2264,16 @@ final class HtmlTransformer
     {
         $tagName = strtolower($element->tagName);
 
+        // A direct phrasing child participates in its parent's flex or grid
+        // layout. Preserve that source element as the editable leaf rather
+        // than introducing a paragraph wrapper with core paragraph margins.
+        if ( $this->requiresStandaloneInlineLayoutLeaf($element) && $this->authorLayoutLeafSupportsRichText($element) ) {
+            $leaf = $this->inlineLayoutCarrierBlock($element);
+            if ( null !== $leaf ) {
+                return $leaf;
+            }
+        }
+
         if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
             return $this->htmlPreservationBlock($element);
         }
@@ -2804,13 +2845,15 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            // Native Columns owns its canonical save shape. Other flex/grid
-            // containers retain their source geometry through core/group plus
-            // a scoped core-flow neutralizer.
             if ( 'button' !== strtolower($this->attr($element, 'role'))
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
             ) {
+                if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
+                    $attrs = $this->presentationAttributes($element);
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_CLASS, self::CSS_OWNED_FLOW_CLASS);
+                    return $this->createBlock('core/group', $attrs, $this->convertChildren($element, $fallbacks, true), $element);
+                }
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
@@ -3151,7 +3194,11 @@ final class HtmlTransformer
      */
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
-        $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+        $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
+        unset($attrs['preserveInlineLayoutLeaf']);
+        if ( ! $preserveInlineLayoutLeaf ) {
+            $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+        }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
             $textAlign = strtolower(trim((string) ($this->presentationDeclarations($sourceElement)['text-align'] ?? '')));
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
@@ -3170,6 +3217,9 @@ final class HtmlTransformer
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+                if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+                }
             }
             $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
             if ( '' !== $projectionClassName ) {
@@ -3375,6 +3425,29 @@ final class HtmlTransformer
         return $className;
     }
 
+    private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
+    {
+        $decorationLine = null;
+        foreach ( $this->cssDeclarations($this->mergedPresentationStyle($anchor)) as $property => $value ) {
+            $value = $this->cssComparableValue($this->resolveCssVariablesInValue($value));
+            if ( 'text-decoration' === $property ) {
+                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
+                    $decorationLine = 'line';
+                } elseif ( ! in_array($value, array( 'inherit', 'revert', 'revert-layer' ), true) ) {
+                    $decorationLine = 'none';
+                }
+            } elseif ( 'text-decoration-line' === $property ) {
+                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
+                    $decorationLine = 'line';
+                } elseif ( in_array($value, array( 'none', 'initial', 'unset' ), true) ) {
+                    $decorationLine = 'none';
+                }
+            }
+        }
+
+        return 'none' === $decorationLine;
+    }
+
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
@@ -3404,7 +3477,7 @@ final class HtmlTransformer
             return false;
         }
 
-        $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        $declarations = $this->structuralPresentationDeclarations($element);
         // A grid placement belongs to this inline node. Keep phrasing-only grid
         // siblings in one RichText container rather than replacing their direct
         // grid items with Group/Paragraph wrappers.
@@ -3412,7 +3485,7 @@ final class HtmlTransformer
             return false;
         }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
-        if ( ! in_array($display, array( '', 'inline', 'inherit', 'initial', 'unset' ), true) ) {
+        if ( 'block' === $display ) {
             return true;
         }
 
@@ -3696,6 +3769,71 @@ final class HtmlTransformer
         return $element->parentNode instanceof DOMElement && $this->isAuthorOwnedLayout($element->parentNode);
     }
 
+    private function isDirectChildOfStructuralLayout(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
+    }
+
+    private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
+    {
+        if ( ! $this->isInlineContentElement(strtolower($element->tagName))
+            || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
+            return false;
+        }
+
+        // Native RichText image objects keep their existing inline paragraph
+        // carrier so their media save shape remains editor-valid.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
+                return false;
+            }
+        }
+
+        $declarations = $this->structuralPresentationDeclarations($element);
+        $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
+        if ( 'block' === $display ) {
+            return true;
+        }
+
+        if ( ! $this->isDirectChildOfStructuralLayout($element) ) {
+            return false;
+        }
+
+        foreach ( array( 'grid-column', 'grid-row', 'order', 'align-self', 'justify-self', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $property ) {
+            if ( $this->cssValueIsNonZero((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasStandaloneInlineLayoutLeaf(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function inlineLayoutCarrierBlock(DOMElement $element): ?array
+    {
+        $content = $this->outerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array(
+            'className' => self::INLINE_LAYOUT_CARRIER_CLASS,
+            'content' => $content,
+            'preserveInlineLayoutLeaf' => true,
+        ));
+    }
+
     /**
      * @return array<int, array{selector: string, source_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}>
      */
@@ -3927,6 +4065,9 @@ final class HtmlTransformer
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
             if ( in_array(strtolower($parent->tagName), array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li' ), true) ) {
+                return true;
+            }
+            if ( '' !== trim($element->textContent ?? '') && in_array(strtolower($parent->tagName), array( 'a', 'button' ), true) && isset($this->sourceControlPaths[$parent->getNodePath() ?? '']) ) {
                 return true;
             }
         }
@@ -4237,9 +4378,12 @@ final class HtmlTransformer
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
     }
 
-    private function richTextContentWithMaterializedInlineStyles(DOMElement $element): string
+    /**
+     * @param array<int, string> $excludedTags
+     */
+    private function richTextContentWithMaterializedInlineStyles(DOMElement $element, array $excludedTags = array()): string
     {
-        $content = $this->innerHtml($element);
+        $content = array() === $excludedTags ? $this->innerHtml($element) : $this->innerHtmlWithoutTags($element, $excludedTags);
         if ( '' === $content || ! preg_match('/<(?:span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
@@ -4258,6 +4402,11 @@ final class HtmlTransformer
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
             if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+                for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
+                    if ( in_array(strtolower($parent->tagName), $excludedTags, true) ) {
+                        continue 2;
+                    }
+                }
                 $sourceInlines[] = $sourceInline;
             }
         }
@@ -5346,6 +5495,14 @@ final class HtmlTransformer
     {
         if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) ) {
             return null;
+        }
+
+        // A direct inline child with its own layout geometry needs its source
+        // tag as the flex/grid item. Ordinary inline runs still stay RichText.
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return null;
+            }
         }
 
         if ( ! $this->hasOnlyPhrasingChildren($element) ) {

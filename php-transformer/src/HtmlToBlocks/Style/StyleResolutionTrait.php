@@ -951,6 +951,7 @@ trait StyleResolutionTrait
             'row-gap',
             'text-align',
             'text-decoration',
+            'text-decoration-line',
             'text-transform',
             'table-layout',
             'width',

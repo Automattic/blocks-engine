@@ -99,7 +99,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'not_classes' => array(), 'ids' => array(), 'attributes' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -124,6 +124,20 @@ final class CssSelectorMatcher
                     return null;
                 }
                 $lowerName = strtolower($name);
+                if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
+                    $closing = strpos($source, ')', $offset + 1);
+                    if ( false === $closing ) {
+                        return null;
+                    }
+                    $negated = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
+                    if ( null === $negated || null !== $negated['suffix'] || array() !== $negated['compound']['not'] ) {
+                        return null;
+                    }
+                    $compound['not'][] = $negated['compound'];
+                    $offset = $closing + 1;
+                    $hasSimple = true;
+                    continue;
+                }
                 if ( in_array($lowerName, array( 'first-child', 'last-child' ), true) && '(' !== ($source[ $offset ] ?? '') ) {
                     $compound['first-child' === $lowerName ? 'first_child' : 'last_child'] = true;
                     $hasSimple = true;
@@ -140,21 +154,6 @@ final class CssSelectorMatcher
                     }
                     $compound['nth_child'] = (int) $argument;
                     $offset = $closing + 1;
-                    $hasSimple = true;
-                    continue;
-                }
-                if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
-                    ++$offset;
-                    if ( '.' !== ($source[ $offset ] ?? '') ) {
-                        return null;
-                    }
-                    ++$offset;
-                    $class = self::identifier($source, $offset);
-                    if ( null === $class || ')' !== ($source[ $offset ] ?? '') ) {
-                        return null;
-                    }
-                    ++$offset;
-                    $compound['not_classes'][] = $class;
                     $hasSimple = true;
                     continue;
                 }
@@ -449,13 +448,13 @@ final class CssSelectorMatcher
                 return false;
             }
         }
-        foreach ( $compound['not_classes'] ?? array() as $class ) {
-            if ( in_array($class, $classes, true) ) {
+        foreach ( $compound['attributes'] as $attribute ) {
+            if ( ! self::matchesAttribute($element, $attribute) ) {
                 return false;
             }
         }
-        foreach ( $compound['attributes'] as $attribute ) {
-            if ( ! self::matchesAttribute($element, $attribute) ) {
+        foreach ( $compound['not'] as $negated ) {
+            if ( self::matchesCompound($element, $negated) ) {
                 return false;
             }
         }

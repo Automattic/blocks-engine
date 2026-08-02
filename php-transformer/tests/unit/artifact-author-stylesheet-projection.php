@@ -6,6 +6,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
 $result = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
@@ -61,6 +63,47 @@ $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $importedFontAssets = array_column($importedFont['assets'] ?? array(), null, 'path');
 $importedFontCss = (string) ($importedFontAssets['style.css']['content'] ?? '');
 $assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && strpos($importedFontCss, '@import') < strpos($importedFontCss, ':where(mark)'), 'author stylesheet imports remain before generated marker and geometry rules');
+
+$inlineLayoutLeaves = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span><span class="card-label">assets/</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > strong{display:block;margin:12px 0 4.8px}.artifact-card .card-label{display:block;grid-column:1 / -1;color:#6040cc;margin:2px 0}' ),
+) ) )->toArray();
+$inlineLayoutMarkup = (string) ($inlineLayoutLeaves['serialized_blocks'] ?? '');
+$inlineLayoutCss = implode("\n", array_column(array_filter($inlineLayoutLeaves['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$inlineLayoutBlocks = $inlineLayoutLeaves['blocks'] ?? array();
+$assert(2 === count($inlineLayoutBlocks) && 'core/group' === ($inlineLayoutBlocks[0]['blockName'] ?? '') && 4 === count($inlineLayoutBlocks[0]['innerBlocks'] ?? array()) && ! array_filter($inlineLayoutBlocks[0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'core/paragraph' !== ($block['blockName'] ?? '')), 'external card layout retains standalone semantic leaves in core Group and Paragraph blocks');
+$assert(str_contains($inlineLayoutMarkup, 'artifact-card blocks-engine-css-owned-layout blocks-engine-css-owned-flow') && str_contains($inlineLayoutMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>index.html</strong></p>') && 3 === substr_count($inlineLayoutMarkup, '<span class="card-label">') && ! str_contains($inlineLayoutMarkup, 'blocks-engine/author-layout') && ! str_contains($inlineLayoutMarkup, 'wp:html'), 'card saves CSS-owned parent and real source leaves through neutral core paragraph carriers without custom or HTML blocks');
+$assert(str_contains($inlineLayoutCss, '.artifact-card > p.blocks-engine-inline-layout-carrier > strong{display:block}') && str_contains($inlineLayoutCss, '.artifact-card > p.blocks-engine-inline-layout-carrier > strong{margin:12px 0 4.8px}') && str_contains($inlineLayoutCss, '.artifact-card p.blocks-engine-inline-layout-carrier > .card-label{display:block;grid-column:1 / -1;color:#6040cc}') && str_contains($inlineLayoutCss, '.artifact-card p.blocks-engine-inline-layout-carrier > .card-label{margin:2px 0}') && str_contains($inlineLayoutCss, ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}') && str_contains($inlineLayoutCss, ':where(.blocks-engine-css-owned-flow)>p{margin-top:0;margin-bottom:0}'), 'carrier projection preserves direct and descendant card selectors, label styles, and flow-neutral authored order');
+$inlineLayoutValidity = ( new HtmlTransformer() )->transform('<style>.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > strong{display:block;margin:12px 0 4.8px}.artifact-card .card-label{display:block;grid-column:1 / -1;color:#6040cc;margin:2px 0}</style><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span><span class="card-label">assets/</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>')->toArray();
+$assert(5 === substr_count($inlineLayoutMarkup, '<!-- wp:paragraph') && str_contains($inlineLayoutMarkup, '<p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>') && 'pass' === ($inlineLayoutValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'ordinary prose inline semantics remain one valid RichText paragraph');
+
+$standaloneFallback = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="card-grid"><div class="fallback-card"><strong>index.html</strong></div></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.card-grid{display:grid}.fallback-card > strong{display:block;margin:12px 0 4.8px}' ),
+) ) )->toArray();
+$standaloneFallbackMarkup = (string) ($standaloneFallback['serialized_blocks'] ?? '');
+$standaloneFallbackCss = implode("\n", array_column(array_filter($standaloneFallback['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$standaloneFallbackValidity = ( new HtmlTransformer() )->transform('<style>.card-grid{display:grid}.fallback-card > strong{display:block;margin:12px 0 4.8px}</style><div class="card-grid"><div class="fallback-card"><strong>index.html</strong></div></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>')->toArray();
+$assert(str_contains($standaloneFallbackMarkup, '<div class="wp-block-group fallback-card blocks-engine-css-owned-layout"><!-- wp:paragraph {"className":"blocks-engine-inline-layout-carrier"') && str_contains($standaloneFallbackMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>index.html</strong></p>') && ! str_contains($standaloneFallbackMarkup, '<p class="fallback-card"') && ! str_contains($standaloneFallbackMarkup, 'wp:html'), 'ordinary fallback cards retain CSS-owned group behavior and their direct standalone strong in a core paragraph carrier when only a grandparent establishes grid');
+$assert(str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{display:block}') && str_contains($standaloneFallbackCss, '.fallback-card > p.blocks-engine-inline-layout-carrier > strong{margin:12px 0 4.8px}') && str_contains($standaloneFallbackCss, ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}') && str_contains($standaloneFallbackMarkup, '<p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>') && 'pass' === ($standaloneFallbackValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone fallback carrier preserves authored block margins while ordinary prose remains valid native RichText');
+
+$standaloneAnchorCarriers = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><a class="flex-link" href="/flex">Flex link</a><a class="grid-link" href="/grid">Grid link</a><a class="standalone-link" href="/standalone">Standalone link</a><a class="standalone-link explicit-none" href="/none">Explicit none</a><div class="suppressed"><a class="standalone-link" href="/context">Context none</a></div><footer><a class="standalone-link" href="/top">Footer underline</a><a class="standalone-link" href="/footer">Footer none</a></footer><p>Normal <a href="/prose">prose link</a>.</p>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.flex-link{display:flex}.grid-link{display:grid}.standalone-link{display:block}.explicit-none{text-decoration:none}.suppressed>a:not(.button){text-decoration:none}footer>a:last-child{text-decoration-line:none}' ),
+) ) )->toArray();
+$standaloneAnchorMarkup = (string) ($standaloneAnchorCarriers['serialized_blocks'] ?? '');
+$standaloneAnchorCss = implode("\n", array_column(array_filter($standaloneAnchorCarriers['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$standaloneAnchorCandidate = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($standaloneAnchorMarkup);
+$standaloneAnchorProbes = ( new StaticStyleParityProbe() )->extract($standaloneAnchorCandidate, $standaloneAnchorCss)['probes'] ?? array();
+$standaloneAnchorDecorations = array();
+foreach ( $standaloneAnchorProbes as $probe ) {
+    if ( 'a' === ($probe['tag'] ?? '') ) {
+        $standaloneAnchorDecorations[(string) ($probe['text'] ?? '')] = (string) ($probe['style']['text-decoration'] ?? '');
+    }
+}
+$standaloneAnchorValidity = ( new HtmlTransformer() )->transform('<style>.flex-link{display:flex}.grid-link{display:grid}.standalone-link{display:block}.explicit-none{text-decoration:none}.suppressed>a:not(.button){text-decoration:none}footer>a:last-child{text-decoration-line:none}</style><a class="flex-link" href="/flex">Flex link</a><a class="grid-link" href="/grid">Grid link</a><a class="standalone-link" href="/standalone">Standalone link</a><a class="standalone-link explicit-none" href="/none">Explicit none</a><div class="suppressed"><a class="standalone-link" href="/context">Context none</a></div><footer><a class="standalone-link" href="/top">Footer underline</a><a class="standalone-link" href="/footer">Footer none</a></footer><p>Normal <a href="/prose">prose link</a>.</p>')->toArray();
+$assert(7 === substr_count($standaloneAnchorMarkup, '<p class=') && str_contains($standaloneAnchorMarkup, '<p>Normal <a href="/prose">prose link</a>.</p>') && ! str_contains($standaloneAnchorMarkup, 'wp:html'), 'direct flex, grid, and standalone anchors retain native editable links in synthetic paragraph carriers without changing normal prose links or using HTML fallback');
+$assert(str_contains($standaloneAnchorCss, ':where(p.blocks-engine-synthetic-paragraph)>a{text-decoration:underline}') && str_contains($standaloneAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-undecorated)>a{text-decoration:none}') && 6 === substr_count($standaloneAnchorMarkup, 'blocks-engine-synthetic-anchor-undecorated') && 'none' === ($standaloneAnchorDecorations['Explicit none'] ?? '') && 'pass' === ($standaloneAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'source-resolved explicit, direct-child :not(), and :last-child text-decoration suppressions survive synthetic carriers while default underline anchors remain covered by the baseline rule');
 
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
