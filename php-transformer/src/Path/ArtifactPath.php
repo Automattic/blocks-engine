@@ -53,6 +53,16 @@ final class ArtifactPath
         return self::safeRelativePath(implode('/', $parts));
     }
 
+    public static function resolveArtifactReference(string $reference, string $sourcePath = ''): string
+    {
+        $reference = self::stripQueryAndFragment($reference);
+        if ( str_starts_with($reference, '/') && ! str_starts_with($reference, '//') ) {
+            return self::safeRelativePath(ltrim($reference, '/'));
+        }
+
+        return self::resolveRelativePath($reference, $sourcePath);
+    }
+
     public static function stripQueryAndFragment(string $reference): string
     {
         return strtok($reference, '?#') ?: '';

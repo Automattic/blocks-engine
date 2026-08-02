@@ -164,7 +164,7 @@ final class ArtifactNormalizer
             'rejected_count' => $rejected,
             'bytes'          => $bytes,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
-            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations) . (array_key_exists('runtime_presentation_evidence', $artifact) ? "\n" . RuntimeDeclarations::canonicalJson(array('schema' => RuntimePresentationEvidence::SCHEMA, 'provenance' => $presentationEvidence['provenance'], 'observations' => $presentationEvidence['observations'])) : ''),
+            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations) . (array_key_exists('artifact_runtime_presentation_evidence', $artifact) ? "\n" . RuntimeDeclarations::canonicalJson(array('schema' => RuntimePresentationEvidence::SCHEMA, 'provenance' => $presentationEvidence['provenance'], 'observations' => $presentationEvidence['observations'])) : ''),
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_presentation_evidence' => $presentationEvidence['observations'],
             'runtime_presentation_provenance' => $presentationEvidence['provenance'],
@@ -475,6 +475,9 @@ final class ArtifactNormalizer
     private function mimeType(string $mimeType, string $path): string
     {
         $mimeType = strtolower(trim($mimeType));
+        if ( in_array($mimeType, array('application/octet-stream', 'binary/octet-stream'), true) ) {
+            $mimeType = '';
+        }
         if ( preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $mimeType) ) {
             return $mimeType;
         }

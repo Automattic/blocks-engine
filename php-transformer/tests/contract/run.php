@@ -256,6 +256,8 @@ $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact 
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
+$assert('assets/logo.png' === ArtifactPath::resolveArtifactReference('/assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact-root references resolve independently of the source directory');
+$assert('' === ArtifactPath::resolveArtifactReference('/../secrets/logo.png', 'pages/home.html'), 'artifact-root references reject traversal');
 
 $registryDocument = new DOMDocument();
 $registryDocument->loadHTML('<div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -3644,46 +3646,155 @@ $octetStreamGif = ( new ArtifactNormalizer() )->normalize(
 $assert('image/gif' === ($octetStreamGif['files'][0]['mime_type'] ?? ''), 'generic binary MIME declarations defer to the GIF path extension');
 $assert('image' === ($octetStreamGif['files'][0]['role'] ?? ''), 'extension-resolved GIF assets retain their image role');
 
-// Browser-derived media evidence is optional. Accepted observations are bound to
-// both a source DOM identity and the normalized artifact asset hash before they
-// can change the media-well projection.
+// Browser-derived media evidence is optional. It is bound to one source HTML
+// revision, one body-relative image locator, and the exact resolved asset.
 $mediaAssetHash = hash('sha256', base64_encode('GIF89a'));
+$mediaHtml = '<main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>';
 $mediaEvidence = array(
-	'schema' => 'blocks-engine/php-transformer/runtime-presentation-evidence/v1',
+	'schema' => 'blocks-engine/artifact-runtime-presentation-evidence/v1',
 	'provenance' => array(
 		'browser' => array('name' => 'Chromium', 'version' => '126.0'),
 		'viewport' => array('width' => 1280, 'height' => 720, 'device_scale_factor' => 1),
-		'lifecycle' => array('phase' => 'network-idle'),
+		'readiness' => array('document' => 'complete', 'images' => 'complete'),
 	),
 	'observations' => array(array(
-		'element' => array('source_path' => 'index.html', 'selector' => 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(1)'),
-		'asset_hash' => $mediaAssetHash,
+		'element' => array('source_path' => 'index.html', 'locator' => array('kind' => 'css-nth-of-type-body-path/v1', 'value' => 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(1)')),
+		'source_hash' => hash('sha256', $mediaHtml),
+		'asset' => array('path' => 'portrait.gif', 'hash' => $mediaAssetHash),
 		'intrinsic' => array('width' => 498, 'height' => 273),
 		'rendered' => array('width' => 498, 'height' => 273),
 		'transform' => array('matrix' => array(1, 0, 0, 1, 0, 0), 'origin' => array('x' => 249, 'y' => 136.5)),
-		'clip' => array('x' => 0, 'y' => 0, 'width' => 280, 'height' => 280),
+		'clip' => array('x' => 0, 'y' => 0, 'width' => 280, 'height' => 273),
 	)),
 );
 $browserMedia = $compiler->compile(array(
 	'files' => array(
-		array('path' => 'index.html', 'kind' => 'html', 'content' => '<style>.well img{width:auto;height:auto}</style><main><div class="well"><img src="portrait.gif" alt="Portrait"></div></main>'),
+		array('path' => 'index.html', 'kind' => 'html', 'content' => $mediaHtml),
 		array('path' => 'portrait.gif', 'kind' => 'image', 'content' => 'GIF89a'),
 	),
-	'runtime_presentation_evidence' => $mediaEvidence,
+	'artifact_runtime_presentation_evidence' => $mediaEvidence,
 ))->toArray();
 $browserMediaCss = implode("\n", array_column($browserMedia['assets'] ?? array(), 'content'));
-$assert(str_contains($browserMediaCss, 'object-fit:cover;object-position:50% 0'), 'accepted browser evidence activates deterministic clipped media-well projection');
-$acceptedEvidence = $browserMedia['source_reports']['artifact']['runtime_presentation_evidence'] ?? array();
-$assert('network-idle' === ($acceptedEvidence['provenance']['lifecycle']['phase'] ?? '') && 1 === count($acceptedEvidence['observations'] ?? array()) && $mediaAssetHash === ($acceptedEvidence['observations'][0]['asset_hash'] ?? ''), 'accepted browser evidence and its provenance are exposed in the artifact report');
+$assert(str_contains($browserMediaCss, 'overflow:hidden!important') && str_contains($browserMediaCss, 'transform:matrix(1,0,0,1,0,0)!important') && str_contains($browserMediaCss, 'transform-origin:249px 136.5px!important'), 'accepted evidence preserves observed clip, transform matrix, and transform origin through scoped CSS');
+$assert(str_contains((string) ($browserMedia['serialized_blocks'] ?? ''), '<!-- wp:image') && !str_contains((string) ($browserMedia['serialized_blocks'] ?? ''), 'runtime_presentation_evidence'), 'accepted evidence retains editable core/image output without block attributes');
+$acceptedEvidence = $browserMedia['source_reports']['artifact']['artifact_runtime_presentation_evidence'] ?? array();
+$assert('complete' === ($acceptedEvidence['provenance']['readiness']['images'] ?? '') && 1 === count($acceptedEvidence['observations'] ?? array()) && $mediaAssetHash === ($acceptedEvidence['observations'][0]['asset']['hash'] ?? ''), 'accepted browser evidence and readiness are exposed in the artifact report');
+$assert(!str_contains(json_encode($browserMedia['source_reports']['wordpress_site_plan'] ?? array()), 'css-nth-of-type-body-path/v1'), 'browser evidence does not leak into the persisted WordPress site plan');
+$assert(!str_contains((string) ($browserMedia['serialized_blocks'] ?? ''), 'data-blocks-engine-runtime-evidence'), 'internal evidence markers never leak into editable core/image markup');
+$withoutEvidence = $compiler->compile(array('files' => array(array('path' => 'index.html', 'kind' => 'html', 'content' => $mediaHtml), array('path' => 'portrait.gif', 'kind' => 'image', 'content' => 'GIF89a'))))->toArray();
+
+$permutedMediaEvidence = array(
+	'observations' => array(array(
+		'clip' => $mediaEvidence['observations'][0]['clip'],
+		'transform' => $mediaEvidence['observations'][0]['transform'],
+		'rendered' => $mediaEvidence['observations'][0]['rendered'],
+		'intrinsic' => $mediaEvidence['observations'][0]['intrinsic'],
+		'asset' => $mediaEvidence['observations'][0]['asset'],
+		'source_hash' => $mediaEvidence['observations'][0]['source_hash'],
+		'element' => $mediaEvidence['observations'][0]['element'],
+	)),
+	'provenance' => array(
+		'readiness' => $mediaEvidence['provenance']['readiness'],
+		'viewport' => $mediaEvidence['provenance']['viewport'],
+		'browser' => $mediaEvidence['provenance']['browser'],
+	),
+	'schema' => $mediaEvidence['schema'],
+);
+$permutedBrowserMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $permutedMediaEvidence))->toArray();
+$assert($browserMedia['source_reports']['artifact']['source_hash'] === $permutedBrowserMedia['source_reports']['artifact']['source_hash'] && $browserMedia['serialized_blocks'] === $permutedBrowserMedia['serialized_blocks'] && $browserMedia['assets'] === $permutedBrowserMedia['assets'] && $browserMedia['source_reports']['artifact']['artifact_runtime_presentation_evidence'] === $permutedBrowserMedia['source_reports']['artifact']['artifact_runtime_presentation_evidence'], 'canonical evidence key ordering produces identical identity, report, blocks, and assets');
+
+$rootMediaHtml = '<main><img src="/portrait.gif?version=1#hero"></main>';
+$rootMediaEvidence = $mediaEvidence;
+$rootMediaEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > img:nth-of-type(1)';
+$rootMediaEvidence['observations'][0]['source_hash'] = hash('sha256', $rootMediaHtml);
+$rootMedia = $compiler->compile(array('files' => array('index.html' => $rootMediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $rootMediaEvidence))->toArray();
+$assert(1 === count($rootMedia['source_reports']['artifact']['artifact_runtime_presentation_evidence']['observations'] ?? array()) && !in_array('artifact_runtime_presentation_evidence_asset_mismatch', array_column($rootMedia['diagnostics'] ?? array(), 'code'), true), 'root-relative image references with query and fragment suffixes bind to the normalized artifact asset');
+
+$topologyHtml = '<main><img src="/unsafe.svg"><img src="portrait.gif"></main>';
+$topologyEvidence = $mediaEvidence;
+$topologyEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > img:nth-of-type(2)';
+$topologyEvidence['observations'][0]['source_hash'] = hash('sha256', $topologyHtml);
+$topologyMedia = $compiler->compile(array('files' => array('index.html' => $topologyHtml, 'unsafe.svg' => '<svg><script>alert(1)</script></svg>', 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $topologyEvidence))->toArray();
+$topologyCss = implode("\n", array_column($topologyMedia['assets'] ?? array(), 'content'));
+$assert(str_contains($topologyCss, 'be-runtime-evidence-') && !str_contains((string) ($topologyMedia['serialized_blocks'] ?? ''), 'unsafe.svg') && !str_contains((string) ($topologyMedia['serialized_blocks'] ?? ''), 'data-blocks-engine-runtime-evidence'), 'evidence markers retain the intended image after root-relative unsafe media is removed without leaking into output');
+
+$scaledMediaEvidence = $mediaEvidence;
+$scaledMediaEvidence['observations'][0]['transform'] = array('matrix' => array(2, 0, 0, 1.5, 10, 5), 'origin' => array('x' => 20, 'y' => 10));
+$scaledMediaEvidence['observations'][0]['rendered'] = array('width' => 400, 'height' => 300);
+$scaledMediaEvidence['observations'][0]['clip'] = array('x' => 20, 'y' => 30, 'width' => 280, 'height' => 200);
+$scaledMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $scaledMediaEvidence))->toArray();
+$scaledCss = implode("\n", array_column($scaledMedia['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($scaledMedia['serialized_blocks'] ?? ''), '<figure class="wp-block-image') && str_contains((string) ($scaledMedia['serialized_blocks'] ?? ''), '<img') && str_contains($scaledCss, 'left:-10px!important;top:-30px!important;width:200px!important;height:200px!important') && str_contains($scaledCss, 'transform:matrix(2,0,0,1.5,10,5)!important'), 'scale/translation replay inverts post-transform dimensions and offsets before emitting scoped core/image geometry');
+
+$fallbackHtml = '<main><math><img src="portrait.gif" alt="Fallback portrait"></math></main>';
+$fallbackEvidence = $mediaEvidence;
+$fallbackEvidence['observations'][0]['source_hash'] = hash('sha256', $fallbackHtml);
+$fallbackEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > math:nth-of-type(1) > img:nth-of-type(1)';
+$fallbackMedia = $compiler->compile(array('files' => array('index.html' => $fallbackHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $fallbackEvidence))->toArray();
+$assert(str_contains((string) ($fallbackMedia['serialized_blocks'] ?? ''), '<!-- wp:math') && str_contains((string) ($fallbackMedia['serialized_blocks'] ?? ''), 'Fallback portrait') && !str_contains((string) ($fallbackMedia['serialized_blocks'] ?? ''), 'data-blocks-engine-runtime-evidence'), 'internal evidence markers are stripped from preserved safe-fallback HTML content');
+
+$fullDocumentHtml = '<!doctype html><html><head><title>Evidence document</title><meta name="description" content="Preserved metadata"><style>.well{overflow:hidden}</style></head><body><main><div class="well"><img src="portrait.gif" alt="Portrait"><p>Unclosed body copy</div></main></body></html>';
+$fullDocumentEvidence = $mediaEvidence;
+$fullDocumentEvidence['observations'][0]['source_hash'] = hash('sha256', $fullDocumentHtml);
+$fullDocumentMedia = $compiler->compile(array('files' => array('index.html' => $fullDocumentHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $fullDocumentEvidence))->toArray();
+$fullDocumentOutput = json_encode($fullDocumentMedia);
+$assert(1 === count($fullDocumentMedia['source_reports']['artifact']['artifact_runtime_presentation_evidence']['observations'] ?? array()) && str_contains((string) $fullDocumentOutput, 'Evidence document') && str_contains((string) ($fullDocumentMedia['serialized_blocks'] ?? ''), 'Unclosed body copy') && !str_contains((string) $fullDocumentOutput, 'data-blocks-engine-runtime-evidence'), 'full-document evidence preserves head metadata and malformed supported body content without marker leakage');
+
+$rotatedEvidence = $scaledMediaEvidence;
+$rotatedEvidence['observations'][0]['transform']['matrix'][1] = 0.5;
+$rotatedMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $rotatedEvidence))->toArray();
+$assert($withoutEvidence['serialized_blocks'] === $rotatedMedia['serialized_blocks'] && $withoutEvidence['assets'] === $rotatedMedia['assets'] && in_array('artifact_runtime_presentation_evidence_invalid_observation', array_column($rotatedMedia['diagnostics'] ?? array(), 'code'), true), 'rotation evidence is rejected deterministically and preserves static fallback output');
+
+$staleEvidence = $mediaEvidence; $staleEvidence['observations'][0]['source_hash'] = str_repeat('0', 64);
+$staleMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $staleEvidence))->toArray();
+$assert($withoutEvidence['serialized_blocks'] === $staleMedia['serialized_blocks'] && $withoutEvidence['assets'] === $staleMedia['assets'], 'stale evidence preserves exactly the no-evidence static output');
+$assert($withoutEvidence['source_reports']['artifact']['source_hash'] !== $browserMedia['source_reports']['artifact']['source_hash'], 'accepted evidence participates in artifact identity without hashing generated output');
+$assert(in_array('artifact_runtime_presentation_evidence_source_hash_mismatch', array_column($staleMedia['diagnostics'] ?? array(), 'code'), true), 'stale source hash has a deterministic diagnostic');
 
 $rejectedEvidence = $mediaEvidence;
-$rejectedEvidence['observations'][0]['asset_hash'] = str_repeat('0', 64);
+$rejectedEvidence['observations'][0]['asset']['hash'] = str_repeat('0', 64);
 $rejectedMedia = $compiler->compile(array(
-	'files' => array('index.html' => '<main><img src="portrait.gif"></main>', 'portrait.gif' => 'GIF89a'),
-	'runtime_presentation_evidence' => $rejectedEvidence,
+	'files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'),
+	'artifact_runtime_presentation_evidence' => $rejectedEvidence,
 ))->toArray();
-$assert(in_array('runtime_presentation_evidence_asset_hash_mismatch', array_column($rejectedMedia['diagnostics'] ?? array(), 'code'), true), 'unbound browser evidence has a deterministic rejection diagnostic');
+$assert(in_array('artifact_runtime_presentation_evidence_asset_mismatch', array_column($rejectedMedia['diagnostics'] ?? array(), 'code'), true), 'unbound browser evidence has a deterministic rejection diagnostic');
 $assert(1 === ($rejectedMedia['source_reports']['artifact']['rejected_count'] ?? 0), 'rejected browser evidence increments artifact rejection accounting');
+
+$wrongLocatorEvidence = $mediaEvidence;
+$wrongLocatorEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(2)';
+$wrongLocatorMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $wrongLocatorEvidence))->toArray();
+$assert(in_array('artifact_runtime_presentation_evidence_locator_mismatch', array_column($wrongLocatorMedia['diagnostics'] ?? array(), 'code'), true), 'wrong body-relative locator has a deterministic diagnostic');
+
+$malformedEvidence = $mediaEvidence;
+$malformedEvidence['unknown'] = true;
+$malformedMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $malformedEvidence))->toArray();
+$assert(in_array('artifact_runtime_presentation_evidence_invalid_envelope', array_column($malformedMedia['diagnostics'] ?? array(), 'code'), true), 'unknown envelope keys are rejected');
+$boundedEvidence = $mediaEvidence;
+$boundedEvidence['observations'][0]['clip']['x'] = -1;
+$boundedEvidence['observations'][0]['rendered']['width'] = INF;
+$boundedMedia = $compiler->compile(array('files' => array('index.html' => $mediaHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $boundedEvidence))->toArray();
+$assert(in_array('artifact_runtime_presentation_evidence_invalid_observation', array_column($boundedMedia['diagnostics'] ?? array(), 'code'), true), 'non-finite and negative geometry is rejected before static conversion');
+
+$twoImageHtml = '<main><div><img src="portrait.gif"><img src="portrait.gif"></div></main>';
+$twoImageEvidence = $mediaEvidence;
+$twoImageEvidence['observations'][0]['source_hash'] = hash('sha256', $twoImageHtml);
+$twoImageEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(1)';
+$secondObservation = $twoImageEvidence['observations'][0];
+$secondObservation['element']['locator']['value'] = 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(2)';
+$twoImageEvidence['observations'][] = $secondObservation;
+$twoImageArtifact = array('files' => array('index.html' => $twoImageHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $twoImageEvidence);
+$twoImageFirst = $compiler->compile($twoImageArtifact)->toArray();
+$twoImageSecond = $compiler->compile($twoImageArtifact)->toArray();
+$assert(2 === count($twoImageFirst['source_reports']['artifact']['artifact_runtime_presentation_evidence']['observations'] ?? array()), 'equal image URLs in distinct body-relative wells retain distinct evidence identities');
+$assert($twoImageFirst['serialized_blocks'] === $twoImageSecond['serialized_blocks'] && $twoImageFirst['assets'] === $twoImageSecond['assets'] && $twoImageFirst['source_reports']['artifact']['source_hash'] === $twoImageSecond['source_reports']['artifact']['source_hash'], 'evidence compilation has deterministic replay output and artifact identity');
+
+$reservedMarkerHtml = '<main><div><img src="portrait.gif" data-blocks-engine-runtime-evidence="source-authored"><img src="portrait.gif"></div></main>';
+$reservedMarkerEvidence = $mediaEvidence;
+$reservedMarkerEvidence['observations'][0]['source_hash'] = hash('sha256', $reservedMarkerHtml);
+$reservedMarkerEvidence['observations'][0]['element']['locator']['value'] = 'main:nth-of-type(1) > div:nth-of-type(1) > img:nth-of-type(2)';
+$reservedMarkerMedia = $compiler->compile(array('files' => array('index.html' => $reservedMarkerHtml, 'portrait.gif' => 'GIF89a'), 'artifact_runtime_presentation_evidence' => $reservedMarkerEvidence))->toArray();
+$reservedMarkerCss = implode("\n", array_column($reservedMarkerMedia['assets'] ?? array(), 'content'));
+$assert(1 === substr_count($reservedMarkerCss, 'overflow:hidden!important') && !str_contains((string) ($reservedMarkerMedia['serialized_blocks'] ?? ''), 'data-blocks-engine-runtime-evidence'), 'source-authored reserved markers are cleared before evidence is bound to the validated same-hash image');
 
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');

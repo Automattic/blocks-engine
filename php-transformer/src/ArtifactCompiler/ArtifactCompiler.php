@@ -138,7 +138,7 @@ final class ArtifactCompiler
             ),
         );
         if (array() !== $normalized['runtime_presentation_evidence']) {
-            $sourceReports['artifact']['runtime_presentation_evidence'] = array(
+            $sourceReports['artifact']['artifact_runtime_presentation_evidence'] = array(
                 'schema' => RuntimePresentationEvidence::SCHEMA,
                 'provenance' => $normalized['runtime_presentation_provenance'],
                 'observations' => $normalized['runtime_presentation_evidence'],
@@ -471,7 +471,8 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $htmlForTransform = $this->safeHtmlDocumentHtml($this->withRuntimePresentationEvidenceMarkers($html, $sourcePath, $runtimePresentationEvidence), $sourcePath, $files);
+        $result = ( new HtmlTransformer() )->transform($htmlForTransform, array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
@@ -482,7 +483,10 @@ final class ArtifactCompiler
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
-            'runtime_presentation_evidence' => array_values(array_filter($runtimePresentationEvidence, static fn (mixed $observation): bool => is_array($observation) && $sourcePath === ($observation['element']['source_path'] ?? null))),
+            'runtime_presentation_evidence' => array_values(array_map(
+                static fn (array $observation): array => array_merge($observation, array('marker' => RuntimePresentationEvidence::marker($observation))),
+                array_filter($runtimePresentationEvidence, static fn (mixed $observation): bool => is_array($observation) && $sourcePath === ($observation['element']['source_path'] ?? null))
+            )),
             'generated_block_namespace' => $generatedBlockNamespace,
             'extract_global_shell'       => $extractGlobalShell,
         ))->toArray();
@@ -508,6 +512,44 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
             'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
         );
+    }
+
+    /**
+     * Bind evidence to the actual source node before conversion removes scripts,
+     * shells, or unsafe media that could otherwise change nth-of-type paths.
+     *
+     * @param array<int,array<string,mixed>> $evidence
+     */
+    private function withRuntimePresentationEvidenceMarkers(string $html, string $sourcePath, array $evidence): string
+    {
+        $observations = array_values(array_filter($evidence, static fn (mixed $observation): bool => is_array($observation) && $sourcePath === ($observation['element']['source_path'] ?? null)));
+        if (array() === $observations) return $html;
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $fullDocument = 1 === preg_match('/<(?:!doctype|html|head|body)\b/i', $html);
+        $source = $fullDocument ? '<?xml encoding="utf-8" ?>' . $html : '<?xml encoding="utf-8" ?><body>' . $html . '</body>';
+        $loaded = $document->loadHTML($source, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if (!$body instanceof DOMElement) return $html;
+        foreach ($body->getElementsByTagName('*') as $element) {
+            if ($element instanceof DOMElement) $element->removeAttribute('data-blocks-engine-runtime-evidence');
+        }
+        foreach ($observations as $observation) {
+            $current = $body;
+            foreach (explode(' > ', (string) ($observation['element']['locator']['value'] ?? '')) as $part) {
+                if (!$current instanceof DOMElement || 1 !== preg_match('/^([a-z][a-z0-9-]*):nth-of-type\(([1-9][0-9]*)\)$/', $part, $match)) { $current = null; break; }
+                $found = null; $count = 0;
+                foreach ($current->childNodes as $child) if ($child instanceof DOMElement && strtolower($child->tagName) === $match[1] && ++$count === (int) $match[2]) { $found = $child; break; }
+                $current = $found;
+            }
+            if ($current instanceof DOMElement && 'img' === strtolower($current->tagName)) $current->setAttribute('data-blocks-engine-runtime-evidence', RuntimePresentationEvidence::marker($observation));
+        }
+        if ($fullDocument) return preg_replace('/^<\?xml[^>]*>\s*/', '', $document->saveHTML() ?: $html) ?? $html;
+        $result = '';
+        foreach ($body->childNodes as $child) $result .= $document->saveHTML($child);
+        return $result;
     }
 
     /**
@@ -3352,7 +3394,7 @@ final class ArtifactCompiler
 
     private function resolveHtmlReferencePath(string $reference, string $entryPath): string
     {
-        return ArtifactPath::resolveRelativePath($reference, $entryPath);
+        return ArtifactPath::resolveArtifactReference($reference, $entryPath);
     }
 
     /**

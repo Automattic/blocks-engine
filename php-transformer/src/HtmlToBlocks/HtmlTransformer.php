@@ -1488,9 +1488,9 @@ final class HtmlTransformer
     {
         foreach ($matches as $image) {
             if ('img' !== strtolower($image->tagName)) continue;
-            $observation = $this->runtimePresentationEvidence[$this->elementSelector($image)] ?? null;
+            $observation = $this->runtimePresentationEvidence[$this->attr($image, 'data-blocks-engine-runtime-evidence')] ?? null;
             $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($image, 'src')));
-            if (!is_array($observation) || !is_array($asset) || ($observation['asset_hash'] ?? null) !== ($asset['hash'] ?? null)) continue;
+            if (!is_array($observation) || !is_array($asset) || ($observation['asset']['hash'] ?? null) !== ($asset['hash'] ?? null)) continue;
             $clip = $observation['clip'] ?? array(); $rendered = $observation['rendered'] ?? array();
             if (($clip['width'] ?? 0) < ($rendered['width'] ?? 0) || ($clip['height'] ?? 0) < ($rendered['height'] ?? 0)) return true;
         }
@@ -10034,6 +10034,10 @@ final class HtmlTransformer
 
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
         $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($originalUrl)), static fn ($value): bool => '' !== $value);
+        $evidenceClass = $this->runtimePresentationGeometryClass($image);
+        if ('' !== $evidenceClass) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $evidenceClass);
+        }
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -10553,11 +10557,30 @@ final class HtmlTransformer
         $evidence = array();
         if (!is_array($options['runtime_presentation_evidence'] ?? null)) return $evidence;
         foreach ($options['runtime_presentation_evidence'] as $observation) {
-            if (!is_array($observation) || !is_string($observation['element']['selector'] ?? null) || !is_string($observation['asset_hash'] ?? null) || !is_array($observation['clip'] ?? null) || !is_array($observation['rendered'] ?? null)) continue;
-            $evidence[$observation['element']['selector']] = $observation;
+            if (!is_array($observation) || !is_string($observation['marker'] ?? null) || !is_array($observation['asset'] ?? null) || !is_array($observation['clip'] ?? null) || !is_array($observation['rendered'] ?? null)) continue;
+            $evidence[$observation['marker']] = $observation;
         }
         ksort($evidence, SORT_STRING);
         return $evidence;
+    }
+
+    private function runtimePresentationGeometryClass(DOMElement $image): string
+    {
+        $observation = $this->runtimePresentationEvidence[$this->attr($image, 'data-blocks-engine-runtime-evidence')] ?? null;
+        $asset = $this->assetMetadataForUrl($this->safeImageUrl($this->attr($image, 'src')));
+        if (!is_array($observation) || !is_array($asset) || ($observation['asset']['hash'] ?? null) !== ($asset['hash'] ?? null)) return '';
+        $clip = $observation['clip']; $rendered = $observation['rendered']; $transform = $observation['transform'];
+        $number = static fn (int|float $value): string => rtrim(rtrim(sprintf('%.10F', $value), '0'), '.') ?: '0';
+        $class = 'be-runtime-evidence-' . substr(hash('sha256', $observation['marker']), 0, 16);
+        [$scaleX, , , $scaleY, $translateX, $translateY] = $transform['matrix'];
+        $width = $rendered['width'] / $scaleX;
+        $height = $rendered['height'] / $scaleY;
+        $left = -$clip['x'] - $translateX - $transform['origin']['x'] * (1 - $scaleX);
+        $top = -$clip['y'] - $translateY - $transform['origin']['y'] * (1 - $scaleY);
+        $matrix = implode(',', array_map($number, $transform['matrix']));
+        $this->generatedGeometryRules[$class] = '.' . $class . '{overflow:hidden!important;position:relative!important;width:' . $number($clip['width']) . 'px!important;height:' . $number($clip['height']) . 'px!important}'
+            . "\n" . '.' . $class . ' img{position:relative!important;left:' . $number($left) . 'px!important;top:' . $number($top) . 'px!important;width:' . $number($width) . 'px!important;height:' . $number($height) . 'px!important;max-width:none!important;transform:matrix(' . $matrix . ')!important;transform-origin:' . $number($transform['origin']['x']) . 'px ' . $number($transform['origin']['y']) . 'px!important}';
+        return $class;
     }
 
     /**
