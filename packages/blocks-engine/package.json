@@ -53,9 +53,10 @@
   },
   "scripts": {
     "build": "tsup && node scripts/build-wp-runtime.mjs",
+    "build:php-bridge": "tsup --config tsup-php-bridge.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:bootstrap": "pnpm install --frozen-lockfile && pnpm build",
+    "test:bootstrap": "pnpm install --frozen-lockfile && pnpm build && pnpm build:php-bridge",
     "test:bundle": "pnpm build && BLOCKS_ENGINE_WP_RUNTIME=bundle BLOCKS_ENGINE_WP_RUNTIME_PATH=\"$PWD/dist/wp-runtime.cjs\" vitest run",
     "bench": "node --import tsx scripts/tuner/bench.ts",
     "bench:record": "node --import tsx scripts/tuner/bench.ts --record",

@@ -58,6 +58,11 @@ if ('success' !== ($result['status'] ?? '') || '' === ($result['serialized_block
     fwrite(STDERR, "php-transformer install proof failed\n");
     exit(1);
 }
+$effects = (new Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeRegionEffectAnalyzer())->analyzeFiles(array(array('path' => 'assets/app.js', 'kind' => 'js', 'content' => 'document.body.classList.add("ready");')));
+if ('blocks-engine/runtime-region-effects/v1' !== ($effects['schema'] ?? null) || 1 !== count($effects['manifests'] ?? array())) {
+    fwrite(STDERR, "php-transformer install proof cannot execute the bundled region effect analyzer\n");
+    exit(1);
+}
 PHP;
 
     run($proofRoot, array(PHP_BINARY, '-r', $smoke));
