@@ -139,8 +139,17 @@ final class ArtifactNormalizer
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
             }
-            if ( is_array($file['metadata'] ?? null) && is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
-                $normalized['metadata'] = array('route_path' => trim($file['metadata']['route_path']));
+            if ( is_array($file['metadata'] ?? null) ) {
+                $metadata = array();
+                if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
+                    $metadata['route_path'] = trim($file['metadata']['route_path']);
+                }
+                if ( is_array($file['metadata']['compilation'] ?? null) ) {
+                    $metadata['compilation'] = $file['metadata']['compilation'];
+                }
+                if ( array() !== $metadata ) {
+                    $normalized['metadata'] = $metadata;
+                }
             }
             foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
@@ -283,6 +292,9 @@ final class ArtifactNormalizer
                     'media' => $style['media'],
                     'type' => $style['type'],
                 );
+                if ( is_array($file['metadata']['compilation'] ?? null) ) {
+                    $expanded[array_key_last($expanded)]['metadata'] = array('compilation' => $file['metadata']['compilation']);
+                }
             }
         }
 
@@ -377,6 +389,9 @@ final class ArtifactNormalizer
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
                 );
+                if ( is_array($file['metadata']['compilation'] ?? null) ) {
+                    $expanded[array_key_last($expanded)]['metadata'] = array('compilation' => $file['metadata']['compilation']);
+                }
             }
         }
 

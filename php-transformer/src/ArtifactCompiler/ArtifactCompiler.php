@@ -23,6 +23,8 @@ use DOMElement;
 final class ArtifactCompiler
 {
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
+    public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
+    public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
@@ -56,6 +58,91 @@ final class ArtifactCompiler
             'runtime_dom_selectors'    => $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
         );
+    }
+
+    /**
+     * Prepare the immutable, serializable shared portion of an artifact.
+     *
+     * File ownership is declared with `metadata.compilation`: `{scope:
+     * "shared"}` or `{scope: "page", id: "..."}`. Unannotated HTML files
+     * are page-owned by their normalized path; all other files are shared.
+     *
+     * @param array<string,mixed> $artifact
+     * @return array<string,mixed>
+     */
+    public function prepareShared(array $artifact): array
+    {
+        $partition = $this->partitionArtifact($artifact);
+        $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
+        $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+
+        return array(
+            'schema' => self::SHARED_PLAN_SCHEMA,
+            'digest' => RuntimeDeclarations::hash(array('artifact' => $sharedArtifact, 'files' => $normalized['files'])),
+            'artifact' => $sharedArtifact,
+            'limits' => $normalized['limits'],
+            'diagnostics' => $normalized['diagnostics'],
+            'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
+        );
+    }
+
+    /**
+     * Prepare one page-owned artifact portion against an immutable shared plan.
+     *
+     * @param array<string,mixed> $artifact
+     * @param array<string,mixed> $sharedPlan
+     * @return array<string,mixed>
+     */
+    public function preparePage(array $artifact, array $sharedPlan, string $pageId): array
+    {
+        $this->assertSharedPlan($sharedPlan);
+        $partition = $this->partitionArtifact($artifact);
+        if (!isset($partition['pages'][$pageId])) {
+            throw new \InvalidArgumentException('The requested page ownership id is not present in the artifact.');
+        }
+        $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
+        $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
+
+        return array(
+            'schema' => self::PAGE_PLAN_SCHEMA,
+            'digest' => RuntimeDeclarations::hash(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pageId, 'artifact' => $pageArtifact, 'files' => $normalized['files'])),
+            'shared_digest' => $sharedPlan['digest'],
+            'page_id' => $pageId,
+            'artifact' => $pageArtifact,
+            'limits' => $normalized['limits'],
+            'diagnostics' => $normalized['diagnostics'],
+            'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
+        );
+    }
+
+    /**
+     * Compose independently prepared plans in canonical page-id and path order.
+     *
+     * @param array<string,mixed> $sharedPlan
+     * @param array<int,array<string,mixed>> $pagePlans
+     */
+    public function compose(array $sharedPlan, array $pagePlans): TransformerResult
+    {
+        $this->assertSharedPlan($sharedPlan);
+        $files = is_array($sharedPlan['artifact']['files'] ?? null) ? $sharedPlan['artifact']['files'] : array();
+        $seen = array();
+        usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
+        foreach ($pagePlans as $pagePlan) {
+            if (($pagePlan['schema'] ?? null) !== self::PAGE_PLAN_SCHEMA || ($pagePlan['shared_digest'] ?? null) !== $sharedPlan['digest'] || !is_string($pagePlan['page_id'] ?? null) || isset($seen[$pagePlan['page_id']]) || !is_array($pagePlan['artifact']['files'] ?? null) || !is_string($pagePlan['digest'] ?? null)) {
+                throw new \InvalidArgumentException('Page plans must be valid, unique, and bound to the supplied shared plan digest.');
+            }
+            $expectedDigest = RuntimeDeclarations::hash(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']));
+            if (!hash_equals($expectedDigest, $pagePlan['digest'])) {
+                throw new \InvalidArgumentException('The staged page plan digest does not match its serialized artifact payload.');
+            }
+            $seen[$pagePlan['page_id']] = true;
+            $files = array_merge($files, $pagePlan['artifact']['files']);
+        }
+        usort($files, static fn(array $left, array $right): int => strcmp((string) ($left['path'] ?? ''), (string) ($right['path'] ?? '')));
+        $artifact = $sharedPlan['artifact'];
+        $artifact['files'] = $files;
+
+        return $this->compile($artifact);
     }
 
     /**
@@ -232,6 +319,95 @@ final class ArtifactCompiler
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /**
+     * @param array<string,mixed> $artifact
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string}
+     */
+    private function partitionArtifact(array $artifact): array
+    {
+        $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $shared = array();
+        $pages = array();
+        foreach ($normalized['files'] as $file) {
+            $ownership = $this->fileOwnership($file);
+            if ('shared' === $ownership['scope']) {
+                $shared[] = $file;
+                continue;
+            }
+            $pages[$ownership['id']][] = $file;
+        }
+        ksort($pages, SORT_STRING);
+        foreach ($pages as &$files) {
+            usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
+        }
+        unset($files);
+        usort($shared, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
+
+        return array(
+            'shared' => $shared,
+            'pages' => $pages,
+            'entrypoints' => $normalized['entrypoints'],
+            'limits' => $normalized['limits'],
+            'runtime_declarations' => $normalized['runtime_declarations'],
+            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+        );
+    }
+
+    /** @param array<string,mixed> $file @return array{scope:string,id:string} */
+    private function fileOwnership(array $file): array
+    {
+        $ownership = $file['metadata']['compilation'] ?? null;
+        if (null === $ownership) {
+            return 'html' === ($file['kind'] ?? null)
+                ? array('scope' => 'page', 'id' => (string) $file['path'])
+                : array('scope' => 'shared', 'id' => '');
+        }
+        if (!is_array($ownership) || !is_string($ownership['scope'] ?? null) || !in_array($ownership['scope'], array('shared', 'page'), true)) {
+            throw new \InvalidArgumentException('File compilation ownership requires a shared or page scope.');
+        }
+        if ('shared' === $ownership['scope']) {
+            if (isset($ownership['id'])) {
+                throw new \InvalidArgumentException('Shared file compilation ownership cannot declare a page id.');
+            }
+            return array('scope' => 'shared', 'id' => '');
+        }
+        if (!is_string($ownership['id'] ?? null) || '' === trim($ownership['id']) || strlen($ownership['id']) > 255) {
+            throw new \InvalidArgumentException('Page file compilation ownership requires a bounded nonblank page id.');
+        }
+        return array('scope' => 'page', 'id' => $ownership['id']);
+    }
+
+    /**
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string} $partition
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,mixed>
+     */
+    private function artifactEnvelope(array $partition, array $files): array
+    {
+        $artifact = array(
+            'files' => $files,
+            'entrypoints' => $partition['entrypoints'],
+            'compiler_limits' => $partition['limits'],
+            'runtime_declarations' => $partition['runtime_declarations'],
+        );
+        if ('' !== $partition['schema']) {
+            $artifact['schema'] = $partition['schema'];
+        }
+        return $artifact;
+    }
+
+    /** @param array<string,mixed> $sharedPlan */
+    private function assertSharedPlan(array $sharedPlan): void
+    {
+        if (($sharedPlan['schema'] ?? null) !== self::SHARED_PLAN_SCHEMA || !is_string($sharedPlan['digest'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $sharedPlan['digest']) || !is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
+            throw new \InvalidArgumentException('A valid staged shared plan requires its schema, digest, and serialized artifact payload.');
+        }
+        $expected = RuntimeDeclarations::hash(array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']));
+        if (!hash_equals($expected, $sharedPlan['digest'])) {
+            throw new \InvalidArgumentException('The staged shared plan digest does not match its serialized artifact payload.');
+        }
     }
 
     /**
