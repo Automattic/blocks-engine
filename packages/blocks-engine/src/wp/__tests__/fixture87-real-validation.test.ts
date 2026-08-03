@@ -4,11 +4,13 @@ import { setupDomGlobals } from '../dom-globals.js';
 
 const require = createRequire(import.meta.url);
 
+type ParsedBlock = { attributes: { className?: string; style?: Record<string, unknown> } };
+
 type WpRuntime = {
   registerCoreBlocks(): void;
   createBlock(name: string, attributes: Record<string, unknown>): unknown;
   serialize(blocks: unknown[]): string;
-  parse(markup: string): unknown[];
+  parse(markup: string): ParsedBlock[];
   validateBlock(block: unknown): [boolean, unknown[]];
 };
 
@@ -51,6 +53,9 @@ describe('fixture87 real WordPress validation', () => {
     expect(reloaded.map((block) => wp.validateBlock(block)[0])).toEqual(Array(8).fill(true));
     expect(persisted).not.toContain('--tone:');
     expect(persisted).not.toContain('--a:');
-    expect(fixture.map(({ carrierCss }) => carrierCss).join('\n')).toContain('--h:260px !important');
+    expect(persisted).not.toContain('--h:');
+
+    expect(reloaded.map((block) => block.attributes.className)).toEqual(fixture.map(({ className }) => className));
+    expect(reloaded.map((block) => block.attributes.style)).toEqual(fixture.map(({ style }) => style));
   });
 });
