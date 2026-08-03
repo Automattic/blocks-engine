@@ -39,4 +39,13 @@ $wrongBinding = $resumedPages;
 $wrongBinding[0]['shared_digest'] = str_repeat('0', 64);
 $throws(static fn() => $compiler->compose($shared, $wrongBinding), 'Composition rejects a page plan bound to another shared digest.');
 
+$throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
+
+// A validly digested page plan prepared from a divergent artifact must not
+// silently collide with (and get dedupe-renamed against) the shared files.
+$collidingArtifact = $artifact;
+$collidingArtifact['files'][0]['metadata'] = array('compilation' => array('scope' => 'page', 'id' => 'about.html'));
+$collidingPage = $compiler->preparePage($collidingArtifact, $shared, 'about.html');
+$throws(static fn() => $compiler->compose($shared, array($collidingPage)), 'Composition rejects staged plans that collide on an artifact path.');
+
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");
