@@ -1,0 +1,72 @@
+name: PHP Transformer Split
+
+# Mirrors php-transformer/ to the read-only standalone repository that
+# Packagist indexes. Trunk pushes update the mirror's trunk (dev-trunk on
+# Packagist); php-transformer-v* tag pushes create translated vX.Y.Z mirror
+# tags (Packagist releases). Note: GitHub does not evaluate `paths` filters
+# for tag pushes, so tag runs are unaffected by the paths list below.
+
+on:
+  push:
+    branches:
+      - trunk
+    paths:
+      - "php-transformer/**"
+      - ".github/workflows/php-transformer-split.yml"
+    tags:
+      - "php-transformer-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-transformer-split
+  cancel-in-progress: false
+
+jobs:
+  split:
+    name: Split php-transformer to mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.repository == 'Automattic/blocks-engine'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure mirror SSH auth
+        env:
+          DEPLOY_KEY: ${{ secrets.PHP_TRANSFORMER_MIRROR_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "PHP_TRANSFORMER_MIRROR_DEPLOY_KEY secret is not configured" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/mirror_deploy_key
+          chmod 600 ~/.ssh/mirror_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Split and push
+        env:
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/mirror_deploy_key -o IdentitiesOnly=yes
+          MIRROR_URL: git@github.com:Automattic/blocks-engine-php-transformer.git
+        run: |
+          set -euo pipefail
+          target=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          split_sha=$(git subtree split --prefix=php-transformer "$target")
+          src_tree=$(git rev-parse "${target}:php-transformer")
+          split_tree=$(git rev-parse "${split_sha}^{tree}")
+          if [ "$src_tree" != "$split_tree" ]; then
+            echo "Split tree ${split_tree} does not match source subtree ${src_tree}" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            mirror_tag="v${GITHUB_REF_NAME#php-transformer-v}"
+            echo "Pushing tag ${mirror_tag} (${split_sha})"
+            git push "$MIRROR_URL" "${split_sha}:refs/tags/${mirror_tag}"
+          else
+            echo "Pushing trunk (${split_sha})"
+            git push "$MIRROR_URL" "${split_sha}:refs/heads/trunk"
+          fi
