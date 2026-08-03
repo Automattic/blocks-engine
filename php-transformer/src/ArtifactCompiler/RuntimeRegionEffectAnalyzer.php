@@ -53,7 +53,7 @@ final class RuntimeRegionEffectAnalyzer
     /** @return array<string,mixed> */
     private function run(?array $request, string $argument = ''): array
     {
-        $bundle = $this->bundlePath ?? dirname(__DIR__, 2) . '/resources/runtime/region-effect-analyzer.js';
+        $bundle = $this->bundlePath ?? dirname(__DIR__, 2) . '/resources/runtime/region-effect-analyzer.cjs';
         if (!is_file($bundle) || !is_readable($bundle)) throw new RuntimeException('Built region effect analyzer bundle is unavailable.');
         $command = array('node', $bundle);
         if ('' !== $argument) $command[] = $argument;
