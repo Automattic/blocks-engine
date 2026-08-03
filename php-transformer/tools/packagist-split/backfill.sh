@@ -23,30 +23,18 @@ for arg in "$@"; do
 done
 
 cd "$(git rev-parse --show-toplevel)"
+split_ref="php-transformer/tools/packagist-split/split-ref.sh"
 
 if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
     echo "Refusing to run from a shallow clone: subtree split needs full history." >&2
     exit 1
 fi
 
-split_verified() {
-    # Subtree split output must reproduce the exact source subtree.
-    local source_rev="$1" split_sha="$2"
-    local src_tree split_tree
-    src_tree=$(git rev-parse "${source_rev}:php-transformer")
-    split_tree=$(git rev-parse "${split_sha}^{tree}")
-    if [ "$src_tree" != "$split_tree" ]; then
-        echo "Tree mismatch for ${source_rev}: split ${split_tree} != source ${src_tree}" >&2
-        return 1
-    fi
-}
-
 refspecs=()
 
 while IFS= read -r tag; do
     version="v${tag#php-transformer-v}"
-    split_sha=$(git subtree split --prefix=php-transformer "$tag")
-    split_verified "$tag" "$split_sha"
+    split_sha=$("$split_ref" "$tag")
     echo "${tag} -> ${version} (${split_sha})"
     refspecs+=("${split_sha}:refs/tags/${version}")
 done < <(git tag --list 'php-transformer-v*' | sort -V)
@@ -56,8 +44,7 @@ if [ "${#refspecs[@]}" -eq 0 ]; then
     exit 1
 fi
 
-trunk_split=$(git subtree split --prefix=php-transformer origin/trunk)
-split_verified origin/trunk "$trunk_split"
+trunk_split=$("$split_ref" origin/trunk)
 echo "origin/trunk -> trunk (${trunk_split})"
 refspecs+=("${trunk_split}:refs/heads/trunk")
 
