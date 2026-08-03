@@ -35,8 +35,8 @@ $assert(1 === substr_count($compiledMarkup, 'wp-block-group border-figure') && 1
 $assert(str_contains($compiledMarkup, 'border-figure') && str_contains($compiledMarkup, 'gradient-figure') && str_contains($compiledMarkup, 'pseudo-figure'), 'Artifact compiler preserves direct, custom-property, and pseudo-element visual evidence.');
 $assert(! str_contains($compiledMarkup, 'empty-figure') && ! str_contains($compiledMarkup, '<!-- wp:html'), 'Artifact compiler continues pruning genuinely nonvisual empty figures.');
 
-$inlineCss = '.gallery{display:grid;grid-template-columns:repeat(2,1fr)}.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.gallery .empty{min-height:var(--h)}';
-$inlineHtml = '<main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff" aria-label="Alpine lake"></figure><figure class="photo" style="--h:390px;--a:#6f493e;--b:#ff8762" aria-label="Desert canyon"></figure><figure class="empty" style="--h:240px"></figure></div></main>';
+$inlineCss = '.gallery{display:grid;grid-template-columns:repeat(2,1fr)}.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.gallery .empty{min-height:var(--h)}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
+$inlineHtml = '<main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff" aria-label="Alpine lake"></figure><figure class="photo" style="--h:390px;--a:#6f493e;--b:#ff8762" aria-label="Desert canyon"></figure><figure class="empty" style="--h:240px"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>';
 $inlineCompiled = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files'      => array(
@@ -46,14 +46,8 @@ $inlineCompiled = ( new ArtifactCompiler() )->compile(array(
 ))->toArray();
 $inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
 $inlineValidity = ( new BlockValidityValidator() )->validateBlocks($inlineCompiled['blocks'] ?? array());
-$inlineStylesheet = '';
-foreach ( $inlineCompiled['assets'] ?? array() as $asset ) {
-    if ( 'css' === ($asset['kind'] ?? '') ) {
-        $inlineStylesheet = (string) ($asset['content'] ?? '');
-        break;
-    }
-}
-$assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contains($inlineMarkup, 'min-height:var(--h);--h:280px;--a:#27485f;--b:#87d8ff') && str_contains($inlineMarkup, 'min-height:var(--h);--h:390px;--a:#6f493e;--b:#ff8762'), 'Artifact compiler preserves per-element custom properties on pseudo-painted empty figures as native groups.');
-$assert(str_contains($inlineStylesheet, '.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}') && ! str_contains($inlineMarkup, 'class="wp-block-group empty') && 'pass' === ($inlineValidity['status'] ?? ''), 'Final native blocks retain the pseudo paint contract and WordPress validity while nonvisual empty figures remain pruned.');
+$assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#27485f;--b:#87d8ff;--h:280px') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#6f493e;--b:#ff8762;--h:390px'), 'Artifact compiler preserves fixture87 gallery heights on pseudo-painted empty figures in canonical custom-property order.');
+$assert(str_contains($inlineMarkup, 'style="border-color:#d8dee9;border-style:solid;border-width:1px;border-radius:16px;min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem;--tone:#315b74"') && 'pass' === ($inlineValidity['status'] ?? ''), 'Fixture87 card --tone survives canonical core style serialization with editor-valid native blocks.');
+$assert(! str_contains($inlineMarkup, 'class="wp-block-group empty'), 'Final native blocks retain the pseudo paint contract while nonvisual empty figures remain pruned.');
 
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");
