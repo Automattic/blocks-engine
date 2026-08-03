@@ -10,6 +10,10 @@ $files = array(array('path' => 'assets/app.js', 'kind' => 'js', 'content' => 'do
 
 try { (new RuntimeRegionEffectAnalyzer('/missing/analyzer.js'))->analyzeFiles($files); $assert(false, 'Missing bundles must fail closed.'); } catch (RuntimeException) { $assert(true, 'Missing bundles fail closed.'); }
 
+$manifest = (new RuntimeRegionEffectAnalyzer())->analyzeFiles($files);
+$assert(RuntimeRegionEffectAnalyzer::SCHEMA === ($manifest['schema'] ?? null), 'Built analyzer bundle serves the PHP bridge.');
+$assert(1 === count($manifest['manifests'] ?? array()), 'Built analyzer bundle analyzes PHP bridge inputs.');
+
 $path = tempnam(sys_get_temp_dir(), 'blocks-engine-invalid-analyzer-');
 file_put_contents($path, <<<'JS'
 const invalid = { bundle: 'blocks-engine/runtime-region-effect-analyzer/v1', manifest: { schema: 'blocks-engine/runtime-region-effects/v1', sourceHash: '0'.repeat(64), units: [] } };

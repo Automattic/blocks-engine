@@ -43,7 +43,7 @@ jobs:
 
       - name: Build region effect analyzer
         working-directory: packages/blocks-engine
-        run: pnpm install --frozen-lockfile && pnpm build
+        run: pnpm test:bootstrap
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
@@ -117,7 +117,7 @@ jobs:
           version: 9
       - name: Build region effect analyzer
         working-directory: packages/blocks-engine
-        run: pnpm install --frozen-lockfile && pnpm build
+        run: pnpm test:bootstrap
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
         with:
           php-version: "8.1"

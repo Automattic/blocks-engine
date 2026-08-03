@@ -55,6 +55,7 @@
     "build": "tsup && node scripts/build-wp-runtime.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:bootstrap": "pnpm install --frozen-lockfile && pnpm build",
     "test:bundle": "pnpm build && BLOCKS_ENGINE_WP_RUNTIME=bundle BLOCKS_ENGINE_WP_RUNTIME_PATH=\"$PWD/dist/wp-runtime.cjs\" vitest run",
     "bench": "node --import tsx scripts/tuner/bench.ts",
     "bench:record": "node --import tsx scripts/tuner/bench.ts --record",
