@@ -1249,18 +1249,22 @@ final class HtmlTransformer
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
+            $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg');
             $imageRule = '' === $imagePrelude
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+            $svgImageRule = '' === $svgImagePrelude
+                ? ''
+                : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
             if ( array() === $margins ) {
-                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
+                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule . $svgImageRule;
             }
 
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
                 : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
     }
 
@@ -1488,7 +1492,7 @@ final class HtmlTransformer
         return implode(',', $rewritten);
     }
 
-    private function projectAuthorImageSelectorPrelude(string $prelude): string
+    private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img'): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
@@ -1502,7 +1506,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)));
+            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => $tagName === strtolower($element->tagName)));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1518,7 +1522,7 @@ final class HtmlTransformer
             }
 
             $imageSelector = $this->projectImageSelector($selector, $parsed);
-            if ( array_filter($imageMatches, static fn (DOMElement $element): bool => 'svg' === strtolower($element->tagName)) ) {
+            if ( 'svg' === $tagName ) {
                 $projected[] = substr($imageSelector, 0, -strlen(' > img'));
             }
             $projected[] = $imageSelector;
@@ -1528,7 +1532,7 @@ final class HtmlTransformer
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations): string
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -1540,7 +1544,7 @@ final class HtmlTransformer
             $bridge[] = 'height:100%';
         }
         $bridge[] = 'max-width:100%';
-        $bridge[] = 'object-fit:' . ($declarations['object-fit'] ?? 'inherit');
+        $bridge[] = 'object-fit:' . ($preserveObjectFit ? ($declarations['object-fit'] ?? 'inherit') : 'inherit');
         $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
