@@ -46,7 +46,13 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/mirror_deploy_key
           chmod 600 ~/.ssh/mirror_deploy_key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          # GitHub's published SSH host keys (https://api.github.com/meta),
+          # pinned instead of trusting whatever ssh-keyscan happens to see.
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' \
+            'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+            >> ~/.ssh/known_hosts
 
       - name: Split and push
         env:
@@ -54,14 +60,7 @@ jobs:
           MIRROR_URL: git@github.com:Automattic/blocks-engine-php-transformer.git
         run: |
           set -euo pipefail
-          target=$(git rev-parse "${GITHUB_SHA}^{commit}")
-          split_sha=$(git subtree split --prefix=php-transformer "$target")
-          src_tree=$(git rev-parse "${target}:php-transformer")
-          split_tree=$(git rev-parse "${split_sha}^{tree}")
-          if [ "$src_tree" != "$split_tree" ]; then
-            echo "Split tree ${split_tree} does not match source subtree ${src_tree}" >&2
-            exit 1
-          fi
+          split_sha=$(php-transformer/tools/packagist-split/split-ref.sh "$GITHUB_SHA")
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             mirror_tag="v${GITHUB_REF_NAME#php-transformer-v}"
             echo "Pushing tag ${mirror_tag} (${split_sha})"
