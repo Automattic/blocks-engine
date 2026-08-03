@@ -1,5 +1,7 @@
 # PHP Transformer
 
+> **Read-only package mirror:** the standalone repository [`Automattic/blocks-engine-php-transformer`](https://github.com/Automattic/blocks-engine-php-transformer) is an automated subtree split of the [`Automattic/blocks-engine`](https://github.com/Automattic/blocks-engine) monorepo's `php-transformer/` directory. Development, issues, and pull requests happen in Blocks Engine.
+
 PHP Transformer is a PHP primitive for converting source content and generated website artifacts into WordPress-native block outputs.
 
 This package is intentionally origin-clean: it exposes transformer primitives and result contracts without publishing compatibility wrappers or product adapters for downstream plugins.
@@ -163,14 +165,14 @@ Run the real WordPress materialization integration against a standard WordPress 
 
 ## Release Consumption
 
-The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag. After release, consumers need either a subtree-split/Packagist package whose root is `php-transformer/`, or an explicit Composer `package` repository that points at the release archive and maps autoloading to the subtree.
+The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag, so releases are published through an automated subtree split: `.github/workflows/php-transformer-split.yml` pushes package-only history to [`Automattic/blocks-engine-php-transformer`](https://github.com/Automattic/blocks-engine-php-transformer), translating each `php-transformer-vX.Y.Z` monorepo tag to `vX.Y.Z` on the mirror. Packagist indexes the mirror.
 
 This package intentionally omits `replace` and `provide` declarations for the older downstream package names. Those packages expose their own WordPress plugin bootstraps, functions, hooks, CLI commands, abilities, and product-shaped reports, so the canonical transformer package should not satisfy their Composer requirements directly.
 
-Preferred downstream constraint once the package is published through Packagist or a subtree-split repository:
+Preferred downstream constraint from Packagist:
 
 ```sh
-composer require automattic/blocks-engine-php-transformer:^0.1.0
+composer require automattic/blocks-engine-php-transformer:^0.4
 ```
 
 If the first release is only available as a Blocks Engine monorepo archive, downstream consumers can avoid local path repositories with this repository entry, replacing `<release-tag>` with the pushed release tag:

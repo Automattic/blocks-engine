@@ -124,6 +124,50 @@ Use a path repository for local downstream wrapper and product PRs while the tra
 
 Before any downstream PR merges, replace draft branch constraints with a tagged package constraint.
 
+## Packagist Distribution
+
+`automattic/blocks-engine-php-transformer` is published to Packagist through an automated subtree split. The read-only mirror repository is `Automattic/blocks-engine-php-transformer`; Packagist indexes the mirror, never the monorepo.
+
+- `.github/workflows/php-transformer-split.yml` splits `php-transformer/` with `git subtree split` and pushes to the mirror: trunk pushes update the mirror `trunk` (installable as `dev-trunk`), and `php-transformer-vX.Y.Z` tag pushes create translated `vX.Y.Z` mirror tags, which become Packagist releases.
+- The workflow authenticates with a deploy key on the mirror, stored as the `PHP_TRANSFORMER_MIRROR_DEPLOY_KEY` Actions secret in `Automattic/blocks-engine`.
+- `php-transformer/.gitattributes` keeps dist archives lean. `docs/` and `tools/visual-parity/` stay in dists deliberately: `tests/packaging/install-proof.php` declares files under both as required package files.
+- The mirror is not a support surface: issues stay disabled there, `composer.json` `support.issues` points at `Automattic/blocks-engine`, and the package README banner marks the mirror read-only.
+
+### One-Time Operator Setup
+
+1. Create the deploy key and store both halves (requires admin on both repos):
+
+   ```sh
+   ssh-keygen -t ed25519 -f /tmp/php-transformer-mirror-key -N "" -C "php-transformer-split"
+   gh repo deploy-key add /tmp/php-transformer-mirror-key.pub --repo Automattic/blocks-engine-php-transformer --allow-write --title "blocks-engine split workflow"
+   gh secret set PHP_TRANSFORMER_MIRROR_DEPLOY_KEY --repo Automattic/blocks-engine --body-file /tmp/php-transformer-mirror-key
+   rm /tmp/php-transformer-mirror-key /tmp/php-transformer-mirror-key.pub
+   ```
+
+2. Backfill historical releases and the initial trunk from a full clone with `origin/trunk` fetched (dry-run first; re-runs are safe because subtree splits are deterministic — this is also the disaster-recovery path if the mirror is ever lost):
+
+   ```sh
+   php-transformer/tools/packagist-split/backfill.sh --dry-run
+   php-transformer/tools/packagist-split/backfill.sh
+   ```
+
+3. Submit `https://github.com/Automattic/blocks-engine-php-transformer` on packagist.org under the `automattic` vendor, then enable auto-update (Packagist GitHub App on the mirror, or the Packagist webhook).
+
+4. Disable issues on the mirror repository (Settings → Features).
+
+### Post-Publication Proof
+
+Verify a Packagist-only install from a throwaway project and record the result here:
+
+```sh
+mkdir /tmp/packagist-proof && cd /tmp/packagist-proof
+composer init --no-interaction --name=proof/packagist-install
+composer require automattic/blocks-engine-php-transformer:^0.4 --no-interaction
+php -r "require 'vendor/autoload.php'; var_dump((new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<h1>Proof</h1>')->toArray()['status']);"
+```
+
+Expected: the require resolves from Packagist without custom `repositories` entries and the smoke transform prints `string(7) "success"`. Ongoing releases need no operator action beyond the normal Homeboy tag: the split workflow and Packagist auto-update take it from there.
+
 ## Dependency Prefixing Policy
 
 `php-transformer` should be authored as a normal Composer library and should not ship a PHP-Scoper build as its canonical package artifact.
