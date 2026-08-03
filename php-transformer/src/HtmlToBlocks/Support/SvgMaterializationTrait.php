@@ -125,9 +125,13 @@ trait SvgMaterializationTrait
             $dimensions = array();
             $figureRule = '{margin:0;width:100%;height:100%}';
             $objectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
+            // WordPress core's `.wp-block-image img { height:auto }` is loaded
+            // after theme styles. Include the native wrapper class so the fill
+            // rule wins without forcing intrinsic media outside this explicit
+            // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
             $fillClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.' . $fillClass . $imgRule;
+            $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule;
             $attrs = array(
                 'url'       => $path,
                 'alt'       => $this->svgImageAlt($element),
@@ -370,17 +374,32 @@ trait SvgMaterializationTrait
         return '#000000';
     }
 
-    private function resolveCssVariablesInValue(string $value): string
+    private function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
     {
         if ( false === strpos($value, 'var(') ) {
             return $value;
         }
 
+        $customProperties = $this->cssCustomProperties;
+        if ( $element instanceof DOMElement ) {
+            $ancestors = array();
+            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+                $ancestors[] = $current;
+            }
+            foreach ( array_reverse($ancestors) as $ancestor ) {
+                foreach ( $this->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
+                    if ( str_starts_with($name, '--') ) {
+                        $customProperties[$name] = $propertyValue;
+                    }
+                }
+            }
+        }
+
         for ( $pass = 0; $pass < 5; ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', function (array $matches): string {
+            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
                 $name = (string) $matches[1];
-                if ( isset($this->cssCustomProperties[$name]) && '' !== $this->cssCustomProperties[$name] ) {
-                    return $this->cssCustomProperties[$name];
+                if ( isset($customProperties[$name]) && '' !== $customProperties[$name] ) {
+                    return $customProperties[$name];
                 }
 
                 return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];

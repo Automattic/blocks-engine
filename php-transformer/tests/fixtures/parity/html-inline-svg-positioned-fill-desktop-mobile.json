@@ -23,6 +23,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image media-art be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"width\":\"100%\"" },
     { "path": "assets.1.content", "assert": "contains", "value": "margin:0;width:100%;height:100%" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".wp-block-image.be-inline-geometry-" },
     { "path": "assets.1.content", "assert": "contains", "value": "object-fit:cover" }
   ]
 }

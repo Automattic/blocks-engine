@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -33,5 +34,20 @@ $compiledMarkup = (string) ($compiled['serialized_blocks'] ?? '');
 $assert(1 === substr_count($compiledMarkup, 'wp-block-group border-figure') && 1 === substr_count($compiledMarkup, 'wp-block-group gradient-figure') && 1 === substr_count($compiledMarkup, 'wp-block-group pseudo-figure'), 'Artifact compiler passes painted empty figures into native transformation.');
 $assert(str_contains($compiledMarkup, 'border-figure') && str_contains($compiledMarkup, 'gradient-figure') && str_contains($compiledMarkup, 'pseudo-figure'), 'Artifact compiler preserves direct, custom-property, and pseudo-element visual evidence.');
 $assert(! str_contains($compiledMarkup, 'empty-figure') && ! str_contains($compiledMarkup, '<!-- wp:html'), 'Artifact compiler continues pruning genuinely nonvisual empty figures.');
+
+$inlineCss = '.gallery{display:grid;grid-template-columns:repeat(2,1fr)}.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.gallery .empty{min-height:var(--h)}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
+$inlineHtml = '<main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff" aria-label="Alpine lake"></figure><figure class="photo" style="--h:390px;--a:#6f493e;--b:#ff8762" aria-label="Desert canyon"></figure><figure class="empty" style="--h:240px"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>';
+$inlineCompiled = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files'      => array(
+        'index.html' => '<link rel="stylesheet" href="assets/site.css">' . $inlineHtml,
+        'assets/site.css' => $inlineCss,
+    ),
+))->toArray();
+$inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
+$inlineValidity = ( new BlockValidityValidator() )->validateBlocks($inlineCompiled['blocks'] ?? array());
+$assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#27485f;--b:#87d8ff;--h:280px') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#6f493e;--b:#ff8762;--h:390px'), 'Artifact compiler preserves fixture87 gallery heights on pseudo-painted empty figures in canonical custom-property order.');
+$assert(str_contains($inlineMarkup, 'style="border-color:#d8dee9;border-style:solid;border-width:1px;border-radius:16px;min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem;--tone:#315b74"') && 'pass' === ($inlineValidity['status'] ?? ''), 'Fixture87 card --tone survives canonical core style serialization with editor-valid native blocks.');
+$assert(! str_contains($inlineMarkup, 'class="wp-block-group empty'), 'Final native blocks retain the pseudo paint contract while nonvisual empty figures remain pruned.');
 
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");

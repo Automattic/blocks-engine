@@ -704,6 +704,15 @@ $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful i
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
+$positionedFillSvg = ( new HtmlTransformer() )->transform(
+    '<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>'
+)->toArray();
+$positionedFillMarkup = (string) ($positionedFillSvg['serialized_blocks'] ?? '');
+$positionedFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $positionedFillSvg['assets'] ?? array()));
+$positionedFillRoundTrip = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->serializeBlocks(( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->parseBlocks($positionedFillMarkup));
+$assert(str_contains($positionedFillMarkup, 'wp-block-image hero-art be-inline-geometry-') && str_contains($positionedFillCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'positioned SVG fill serializes native image wrapper and image rules with greater specificity than WordPress core intrinsic-image CSS');
+$assert(str_contains($positionedFillRoundTrip, 'wp-block-image hero-art be-inline-geometry-'), 'positioned SVG fill survives the serialized WordPress block parse/save contract without dropping its native fill carrier');
+
 $flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon" style="background:#7657ff"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
 )->toArray();
