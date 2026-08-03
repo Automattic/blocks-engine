@@ -8,6 +8,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 This package uses [Semantic Versioning](https://semver.org/). Deprecations are warned one minor version ahead of removal.
 
+## [Unreleased]
+
+### Fixed
+
+- `analyzeRuntimeRegionEffects` (unreleased) now fails closed on unparseable source — the manifest carries a single whole-source unit with `reason: 'parse_failed'` instead of an empty, effect-free-looking unit list — and its shared-state detection registers every binding a top-level statement contributes outside function bodies (destructuring, `function`/`class` declarations, loop heads, nested blocks), which previously escaped it and could mark shared-state effects as independently suppressible. `getElementById` targets that are not plain CSS identifiers are emitted as escaped `[id="…"]` selectors.
+
 ## [0.2.2] - 2026-06-30
 
 ### Added

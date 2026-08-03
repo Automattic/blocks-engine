@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import type { CheerioAPI } from 'cheerio';
 import type { InteractionModel, SectionSpec, SectionSpecImage } from './section-spec.js';
 import type { SitePage } from './types.js';
+import { cssIdSelector, escapeCssAttrValue } from '../escape.js';
 
 type ElementNode = NonNullable<Parameters<CheerioAPI>[0]> & {
   type?: string;
@@ -341,16 +342,16 @@ function parseDimension(value: string | undefined): number {
 function selectorForElement($: CheerioAPI, el: ElementNode): string {
   const tag = tagName(el);
   const id = attr(el, 'id');
-  if (id) return simpleIdent(id) ? `#${id}` : `${tag}[id="${escapeAttr(id)}"]`;
+  if (id) return cssIdSelector(id, tag);
 
   const labelledBy = attr(el, 'aria-labelledby');
-  if (labelledBy) return `${tag}[aria-labelledby="${escapeAttr(labelledBy)}"]`;
+  if (labelledBy) return `${tag}[aria-labelledby="${escapeCssAttrValue(labelledBy)}"]`;
 
   const ariaLabel = attr(el, 'aria-label');
-  if (ariaLabel) return `${tag}[aria-label="${escapeAttr(ariaLabel)}"]`;
+  if (ariaLabel) return `${tag}[aria-label="${escapeCssAttrValue(ariaLabel)}"]`;
 
   const role = attr(el, 'role');
-  if (role) return `${tag}[role="${escapeAttr(role)}"]`;
+  if (role) return `${tag}[role="${escapeCssAttrValue(role)}"]`;
 
   if (!/^h[1-6]$/.test(tag) && $(tag).length === 1) return tag;
 
@@ -408,10 +409,3 @@ function pushUnique(values: string[], text: string): void {
   if (text && !values.includes(text)) values.push(text);
 }
 
-function simpleIdent(value: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_-]*$/.test(value);
-}
-
-function escapeAttr(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
