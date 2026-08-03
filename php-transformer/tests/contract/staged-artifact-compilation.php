@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
@@ -16,6 +17,12 @@ $artifact = array(
         array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Home</h1></main>'),
     ),
 );
+$forms = array();
+for ($index = 0; $index < 29; ++$index) $forms[] = array('id' => 'form-' . $index, 'definition' => str_repeat('x', 14075));
+$formsPayload = array('schema' => 'generic/forms/v1', 'entities' => $forms);
+$formsPayloadBytes = strlen(RuntimeDeclarations::canonicalJson($formsPayload));
+$assert($formsPayloadBytes > 262144 && $formsPayloadBytes < RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, 'The generated 29-form declaration represents the bounded payload size that exceeds the former per-payload limit.');
+$artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $formsPayload));
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 1 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation emits a bounded immutable shared plan and digest.');
@@ -40,6 +47,11 @@ $staged = $compiler->compose($resumedShared, $resumedPages)->toArray();
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
+$formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
+
+$oversizedDeclaration = array('kind' => 'dependency', 'capability' => 'oversized', 'source_path' => 'runtime/oversized.json', 'payload' => array('schema' => 'generic/dependency/v1', 'value' => str_repeat('x', RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES + 1)));
+$throws(static fn() => $compiler->compile(array('entrypoint' => 'index.html', 'runtime_declarations' => array($oversizedDeclaration), 'files' => array('index.html' => '<main>Oversized</main>'))), 'Compilation rejects a runtime declaration payload above the established aggregate resource boundary.');
 
 $differentShared = $shared;
 $differentShared['artifact']['files'][0]['content'] = 'main{color:#456}';

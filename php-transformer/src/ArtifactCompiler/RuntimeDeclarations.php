@@ -12,13 +12,13 @@ use JsonException;
 final class RuntimeDeclarations
 {
     private const MAX_DECLARATIONS = 100;
-    private const MAX_PAYLOAD_BYTES = 262144;
     public const MAX_PROVENANCE_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
     public const MAX_PROVENANCE_KEYS = ArtifactNormalizer::DEFAULT_MAX_FILES;
     public const MAX_PROVENANCE_SCALAR_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
     public const MAX_PROVENANCE_DEPTH = 32;
     // Declarations are metadata, so keep their aggregate below one artifact file.
     public const MAX_TOTAL_DECLARATION_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
+    private const MAX_PAYLOAD_BYTES = self::MAX_TOTAL_DECLARATION_BYTES;
     private const MAX_CANONICAL_DEPTH = self::MAX_PROVENANCE_DEPTH + 1;
 
     /** @param array<string,mixed> $artifact @return array<int,array<string,mixed>> */
