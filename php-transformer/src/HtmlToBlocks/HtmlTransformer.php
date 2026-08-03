@@ -1502,7 +1502,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName)));
+            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => in_array(strtolower($element->tagName), array( 'img', 'svg' ), true)));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1517,7 +1517,11 @@ final class HtmlTransformer
                 continue;
             }
 
-            $projected[] = $this->projectImageSelector($selector, $parsed);
+            $imageSelector = $this->projectImageSelector($selector, $parsed);
+            if ( array_filter($imageMatches, static fn (DOMElement $element): bool => 'svg' === strtolower($element->tagName)) ) {
+                $projected[] = substr($imageSelector, 0, -strlen(' > img'));
+            }
+            $projected[] = $imageSelector;
         }
 
         return implode(',', array_values(array_unique($projected)));
@@ -1536,7 +1540,7 @@ final class HtmlTransformer
             $bridge[] = 'height:100%';
         }
         $bridge[] = 'max-width:100%';
-        $bridge[] = 'object-fit:inherit';
+        $bridge[] = 'object-fit:' . ($declarations['object-fit'] ?? 'inherit');
         $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
@@ -1820,7 +1824,7 @@ final class HtmlTransformer
             ),
         );
         $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-        if ( is_string($rightmostType) && 'img' === strtolower($rightmostType) ) {
+        if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
             $typeSpan = end($parsed['type_spans']);
             if ( is_array($typeSpan) ) {
                 $replacements[(int) $typeSpan['start']] = array(
