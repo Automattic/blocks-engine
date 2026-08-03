@@ -159,14 +159,23 @@ final class StyleAttributeMapper
             $classes[]      = 'has-border-color';
             $declarations[] = 'border-color:' . trim((string) $border['color']);
         }
-        if ( '' !== trim((string) ($border['width'] ?? '')) ) {
-            $declarations[] = 'border-width:' . trim((string) $border['width']);
-        }
         if ( '' !== trim((string) ($border['style'] ?? '')) ) {
             $declarations[] = 'border-style:' . trim((string) $border['style']);
         }
+        if ( '' !== trim((string) ($border['width'] ?? '')) ) {
+            $declarations[] = 'border-width:' . trim((string) $border['width']);
+        }
         if ( '' !== trim((string) ($border['radius'] ?? '')) ) {
             $declarations[] = 'border-radius:' . trim((string) $border['radius']);
+        }
+
+        // Match the core style engine: dimensions precede spacing in save().
+        $dimensions = is_array($style['dimensions'] ?? null) ? $style['dimensions'] : array();
+        if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
+            $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
+        }
+        if ( '' !== trim((string) ($dimensions['maxWidth'] ?? '')) ) {
+            $declarations[] = 'max-width:' . trim((string) $dimensions['maxWidth']);
         }
 
         $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
@@ -182,14 +191,6 @@ final class StyleAttributeMapper
         $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
         if ( '' !== $blockGap ) {
             $declarations[] = 'gap:' . $blockGap;
-        }
-
-        $dimensions = is_array($style['dimensions'] ?? null) ? $style['dimensions'] : array();
-        if ( '' !== trim((string) ($dimensions['minHeight'] ?? '')) ) {
-            $declarations[] = 'min-height:' . trim((string) $dimensions['minHeight']);
-        }
-        if ( '' !== trim((string) ($dimensions['maxWidth'] ?? '')) ) {
-            $declarations[] = 'max-width:' . trim((string) $dimensions['maxWidth']);
         }
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();

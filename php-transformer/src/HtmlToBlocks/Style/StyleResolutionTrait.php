@@ -369,10 +369,15 @@ trait StyleResolutionTrait
             $this->inlineCustomPropertiesConsumedByAuthorStyles($element) + $this->customPropertiesReferencedByValues($geometryValues)
         );
         if (array() !== $consumedCustomProperties) {
+            $customProperties = array();
             foreach ($declarations as $property => $value) {
                 if (str_starts_with($property, '--') && isset($consumedCustomProperties[$property])) {
-                    $style[] = $property . ':' . $value;
+                    $customProperties[$property] = $value;
                 }
+            }
+            ksort($customProperties, SORT_STRING);
+            foreach ($customProperties as $property => $value) {
+                $style[] = $property . ':' . $value;
             }
         }
 
