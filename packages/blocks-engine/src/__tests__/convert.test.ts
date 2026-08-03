@@ -162,6 +162,7 @@ describe('default entry', () => {
 
     const publicRuntimeSymbols = [
       'BlocksEngineError',
+		'analyzeRuntimeRegionEffects',
       'compose',
       'convert',
       'convertReport',
@@ -198,6 +199,7 @@ describe('default entry', () => {
     expect(typeof defaultEntry.convert).toBe('function');
     expect(typeof defaultEntry.compose).toBe('function');
     expect(typeof defaultEntry.BlocksEngineError).toBe('function');
+		expect(typeof defaultEntry.analyzeRuntimeRegionEffects).toBe('function');
     expect(typeof defaultEntry.createWorker).toBe('function');
     expect(typeof defaultEntry.lintThemeJson).toBe('function');
     expect(typeof defaultEntry.siteToTheme).toBe('function');

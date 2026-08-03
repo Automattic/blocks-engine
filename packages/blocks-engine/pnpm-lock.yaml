@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      acorn:
+        specifier: ^8.18.0
+        version: 8.18.0
       cheerio:
         specifier: 1.2.0
         version: 1.2.0
@@ -1207,6 +1210,7 @@ packages:
     resolution: {integrity: sha512-5BqxR/pshjey51iliyzTD5Xi3EN0aLmQ2lZ3lvefVV9c82BvrLo2/6OT55iifpWBufs6kdwWbuOKS841DrmK9A==, tarball: https://registry.npmjs.org/@rollup/rollup-linux-x64-gnu/-/rollup-linux-x64-gnu-4.62.2.tgz}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.62.2':
     resolution: {integrity: sha512-uNN83XxQrRAh/w0/pmAfibcwyb6YWt4gP+dpnQKPVJshAloQ785ii8CT8ZCIxkGg9opVsvAlGhFitSm6D1Jjpg==, tarball: https://registry.npmjs.org/@rollup/rollup-linux-x64-musl/-/rollup-linux-x64-musl-4.62.2.tgz}
@@ -1713,6 +1717,11 @@ packages:
   '@wordpress/worker-threads@1.9.0':
     resolution: {integrity: sha512-UAOns1u+ZljgJtbv07kSIWzVCUSXCxk5KDSQgw4Sx5MKOHqcuNoF9p8HorE5DiAOgJA01CxxXLs03peTF65X6Q==, tarball: https://registry.npmjs.org/@wordpress/worker-threads/-/worker-threads-1.9.0.tgz}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+
+  acorn@8.18.0:
+    resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==, tarball: https://registry.npmjs.org/acorn/-/acorn-8.18.0.tgz}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
 
   ansi-styles@5.2.0:
     resolution: {integrity: sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA==, tarball: https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz}
@@ -4686,6 +4695,8 @@ snapshots:
   '@wordpress/worker-threads@1.9.0':
     dependencies:
       comctx: 1.7.5
+
+  acorn@8.18.0: {}
 
   ansi-styles@5.2.0: {}
 
