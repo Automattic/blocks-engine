@@ -45,7 +45,9 @@ consumer-facing materialization intent. Explicit frontmatter `page` and `post`
 values are declared decisions. Otherwise article semantics, publication dates,
 and dated `/{YYYY}/{MM}/` routes infer `post`; unresolved documents default to
 `page`. Publication timestamps are RFC3339 UTC strings in
-`publication_timestamp` and evidence rows.
+`publication_timestamp` and evidence rows. Evidence accepts only complete
+`YYYY-MM-DD` dates or ISO datetimes with an explicit `Z` or numeric offset, so
+projection never depends on the runtime clock or timezone.
 
 Routes remain canonical source-document and link-reference paths. Page routes
 form page hierarchy and may receive synthetic parents. Post routes never create
