@@ -1249,7 +1249,7 @@ final class HtmlTransformer
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
-            $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg');
+            $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg', $declarations);
             $imageRule = '' === $imagePrelude
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
@@ -1492,7 +1492,7 @@ final class HtmlTransformer
         return implode(',', $rewritten);
     }
 
-    private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img'): string
+    private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img', array $declarations = array()): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
@@ -1506,7 +1506,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => $tagName === strtolower($element->tagName)));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isExplicitParentFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1529,6 +1529,26 @@ final class HtmlTransformer
         }
 
         return implode(',', array_values(array_unique($projected)));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function isExplicitParentFillSvg(DOMElement $element, array $declarations): bool
+    {
+        if ( ! in_array(strtolower(trim((string) ($declarations['object-fit'] ?? ''))), array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true)
+            || '100%' !== trim((string) ($declarations['width'] ?? ''))
+            || '100%' !== trim((string) ($declarations['height'] ?? ''))
+        ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentStyle = $this->structuralPresentationDeclarations($parent);
+        if ( ! in_array(strtolower(trim((string) ($parentStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
     }
 
     /** @param array<string, string> $declarations */

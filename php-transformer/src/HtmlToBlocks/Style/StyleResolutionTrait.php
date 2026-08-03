@@ -1008,6 +1008,7 @@ trait StyleResolutionTrait
             'grid-template-columns',
             'grid-template-rows',
             'height',
+            'inset',
             'justify-content',
             'line-height',
             'margin',
