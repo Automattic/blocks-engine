@@ -47,6 +47,12 @@ Consumers should treat these classes and interface as the public entrypoints for
 
 The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/ArtifactCompiler` are implementation details. Concrete bundled adapters, registries, normalizers, and factories may change as the bridge expands.
 
+### Staged Artifact Compilation
+
+`ArtifactCompiler` also supports resumable, source-agnostic artifact preparation when shared resources are reused across page batches. `prepareShared($artifact)` returns a serializable immutable shared plan. `preparePage($artifact, $sharedPlan, $pageId)` returns one independently validated page plan bound to the shared digest. `compose($sharedPlan, $pagePlans)` verifies every digest, canonicalizes page and file order, and returns the normal `TransformerResult` envelope.
+
+File ownership is generic artifact metadata: `metadata.compilation` is either `array('scope' => 'shared')` or `array('scope' => 'page', 'id' => '...')`. In its absence, normalized HTML files are page-owned by path and other files are shared. The plan arrays contain their limits, diagnostics, normalized input summaries, payloads, and generic `blocks-engine/php-transformer/source-operation/v1` identity, so callers can serialize them between preparation and composition. Source hashes are path-canonical and composition retains the whole-artifact input-key provenance. `compile()` remains the compatible whole-artifact entrypoint; staged composition reuses that canonical final compiler path.
+
 ### Canonical Examples
 
 ```php
