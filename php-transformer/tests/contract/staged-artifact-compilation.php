@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
-$normalized = static function (mixed $value) use (&$normalized): mixed { if (!is_array($value)) return $value; foreach ($value as $key => $item) { if (in_array($key, array('source_hash', 'provenance', 'input_keys', 'transform_duration_ms'), true)) { unset($value[$key]); continue; } $value[$key] = $normalized($item); } return $value; };
 $artifact = array(
     'entrypoints' => array('index.html'),
     'files' => array(
@@ -30,8 +29,8 @@ $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 51
 $resumedPages = json_decode(json_encode(array($pages['contact.html'], $pages['index.html'], $pages['about.html']), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $staged = $compiler->compose($resumedShared, $resumedPages)->toArray();
 $whole = $compiler->compile($artifact)->toArray();
-$assert($normalized($whole['source_reports']['wordpress_site_plan'] ?? array()) === $normalized($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent normalized canonical site plans.');
-$assert($normalized($whole['source_reports']['materialization_plan'] ?? array()) === $normalized($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent normalized materialization receipts.');
+$assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
+$assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
 
 $differentShared = $shared;
 $differentShared['artifact']['files'][0]['content'] = 'main{color:#456}';

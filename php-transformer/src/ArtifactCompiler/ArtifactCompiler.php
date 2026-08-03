@@ -255,7 +255,7 @@ final class ArtifactCompiler
         $provenance = array(
             array(
                 'source_format' => 'artifact',
-                'input_keys'    => array_keys($artifact),
+                'input_keys'    => $this->sourceOperationInputKeys($artifact),
                 'source_hash'   => hash('sha256', $normalized['hash_payload']),
             ),
         );
@@ -323,7 +323,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<string,mixed> $artifact
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string}
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>}
      */
     private function partitionArtifact(array $artifact): array
     {
@@ -352,6 +352,7 @@ final class ArtifactCompiler
             'limits' => $normalized['limits'],
             'runtime_declarations' => $normalized['runtime_declarations'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
         );
     }
 
@@ -380,7 +381,7 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string} $partition
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>} $partition
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
@@ -391,6 +392,9 @@ final class ArtifactCompiler
             'entrypoints' => $partition['entrypoints'],
             'compiler_limits' => $partition['limits'],
             'runtime_declarations' => $partition['runtime_declarations'],
+            // Preserve the original generic source-operation identity across
+            // serialized staged transport without exposing a consumer identity.
+            'source_operation' => array('schema' => 'blocks-engine/php-transformer/source-operation/v1', 'input_keys' => $partition['input_keys']),
         );
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
@@ -408,6 +412,22 @@ final class ArtifactCompiler
         if (!hash_equals($expected, $sharedPlan['digest'])) {
             throw new \InvalidArgumentException('The staged shared plan digest does not match its serialized artifact payload.');
         }
+    }
+
+    /** @param array<string,mixed> $artifact @return array<int,string> */
+    private function sourceOperationInputKeys(array $artifact): array
+    {
+        $sourceOperation = $artifact['source_operation'] ?? null;
+        $inputKeys = is_array($sourceOperation) ? ($sourceOperation['input_keys'] ?? null) : null;
+        if (is_array($sourceOperation) && 'blocks-engine/php-transformer/source-operation/v1' === ($sourceOperation['schema'] ?? null) && is_array($inputKeys) && array_is_list($inputKeys)) {
+            foreach ($inputKeys as $key) {
+                if (!is_string($key) || '' === $key) {
+                    return array_values(array_filter(array_keys($artifact), 'is_string'));
+                }
+            }
+            return $inputKeys;
+        }
+        return array_values(array_filter(array_keys($artifact), 'is_string'));
     }
 
     /**

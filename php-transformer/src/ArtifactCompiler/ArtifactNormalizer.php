@@ -647,6 +647,8 @@ final class ArtifactNormalizer
      */
     private function fileHashPayload(array $files): string
     {
+        // Source identity is independent of transport and preparation order.
+        usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
         $payload = '';
         foreach ( $files as $file ) {
             $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (string) $file['content'];
