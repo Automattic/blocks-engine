@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/runtime-region-effects-fixture/v1",
+  "cases": [
+    {
+      "name": "fixture87-combined-carousel-reveal",
+      "artifact": {
+        "site_slug": "travel-tours",
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><section class=\"carousel\"><button class=\"next\">Next</button></section><section class=\"reveal\">Reveal</section></main><script src=\"assets/tours.js\"></script>",
+          "assets/tours.js": "document.querySelector('.carousel .next').addEventListener('click', () => document.querySelector('.carousel').classList.add('active'));\ndocument.querySelector('.reveal').addEventListener('scroll', () => document.querySelector('.reveal').classList.add('visible'));"
+        }
+      },
+      "expect": { "units": 2, "targets": [".carousel", ".carousel .next", ".reveal"], "retained_modules": 2 }
+    },
+    {
+      "name": "fixture87-shared-state-and-dynamic-selector-negative",
+      "artifact": {
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><section class=\"carousel\"></section></main><script src=\"assets/unsafe.js\"></script>",
+          "assets/unsafe.js": "let active = 0;\ndocument.querySelector('.carousel').addEventListener('click', () => active++);\ndocument.querySelector(selector).addEventListener('click', () => {});"
+        }
+      },
+      "expect": { "units": 3, "retained_modules": 0, "raw_preserved": 1 }
+    },
+    {
+      "name": "fixture79-independent-recurrence",
+      "artifact": {
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><ol class=\"recurrence\"><li class=\"hearing\">One</li><li class=\"hearing\">Two</li></ol></main><script src=\"assets/recurrence.js\"></script>",
+          "assets/recurrence.js": "document.querySelector('.recurrence .hearing').classList.add('current');\ndocument.querySelector('.recurrence').setAttribute('data-ready', 'true');"
+        }
+      },
+      "expect": { "units": 2, "retained_modules": 2 }
+    }
+  ]
+}

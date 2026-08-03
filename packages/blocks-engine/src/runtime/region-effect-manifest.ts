@@ -45,11 +45,11 @@ export function analyzeRuntimeRegionEffects(source: string): RegionEffectManifes
   return {
     schema: 'blocks-engine/runtime-region-effects/v1',
     sourceHash,
-    units: program.body.map((statement: any, index: number) => unitFor(statement, index, source, declared)),
+    units: program.body.map((statement: any, index: number) => unitFor(statement, index, source, sourceHash, declared)),
   };
 }
 
-function unitFor(statement: any, index: number, source: string, declared: Map<string, number>): RuntimeEffectUnit {
+function unitFor(statement: any, index: number, source: string, sourceHash: string, declared: Map<string, number>): RuntimeEffectUnit {
   const slice = source.slice(statement.start, statement.end);
   const targets = new Set<string>();
   const events = new Set<string>();
@@ -77,8 +77,10 @@ function unitFor(statement: any, index: number, source: string, declared: Map<st
   const shared = [...declared.keys()].some((name) => identifiers.has(name));
   const reason = dynamicSelector ? 'dynamic_selector' : shared ? 'shared_state' : !recognized || !targets.size ? 'unrecognized_pattern' : undefined;
   const unit: RuntimeEffectUnit = {
-    id: `effect_${index + 1}_${hash(slice).slice(0, 12)}`,
-    source: { start: statement.start, end: statement.end, hash: hash(slice) },
+    id: `effect_${sourceHash.slice(0, 12)}_${index + 1}`,
+    // Acorn offsets are UTF-16 code units. The PHP bridge slices byte strings,
+    // so publish UTF-8 byte spans as the cross-runtime ownership contract.
+    source: { start: Buffer.byteLength(source.slice(0, statement.start)), end: Buffer.byteLength(source.slice(0, statement.end)), hash: hash(slice) },
     targets: [...targets].sort(), events: [...events].sort(), mutations: [...mutations].sort(),
     dependencies: [...identifiers].filter((name) => declared.has(name)).sort(),
     status: reason ? 'shared_or_unsplittable' : 'independently_suppressible',

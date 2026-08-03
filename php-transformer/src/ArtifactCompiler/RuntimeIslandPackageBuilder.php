@@ -83,14 +83,14 @@ final class RuntimeIslandPackageBuilder
      * @param string                           $sourcePath     Source document path (resolve relative script src).
      * @return array<string, mixed> Empty array when there are no runtime islands.
      */
-    public function fromRuntimeIslands(array $runtimeIslands, array $files = array(), string $sourcePath = ''): array
+    public function fromRuntimeIslands(array $runtimeIslands, array $files = array(), string $sourcePath = '', array $runtimeEffects = array()): array
     {
         $islands = array();
         foreach ( $runtimeIslands as $runtimeIsland ) {
             if ( ! is_array($runtimeIsland) ) {
                 continue;
             }
-            $island = $this->buildIsland($runtimeIsland, $files, $sourcePath);
+            $island = $this->buildIsland($runtimeIsland, $files, $sourcePath, $runtimeEffects);
             if ( array() !== $island ) {
                 $islands[] = $island;
             }
@@ -104,6 +104,7 @@ final class RuntimeIslandPackageBuilder
             'schema'  => self::SCHEMA,
             'islands' => $islands,
             'totals'  => $this->totals($islands),
+            'runtime_effects' => $runtimeEffects,
         );
     }
 
@@ -112,7 +113,7 @@ final class RuntimeIslandPackageBuilder
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>
      */
-    private function buildIsland(array $runtimeIsland, array $files, string $sourcePath): array
+    private function buildIsland(array $runtimeIsland, array $files, string $sourcePath, array $runtimeEffects): array
     {
         $kind = is_scalar($runtimeIsland['kind'] ?? null) ? (string) $runtimeIsland['kind'] : '';
         $selector = is_scalar($runtimeIsland['selector'] ?? null) ? (string) $runtimeIsland['selector'] : '';
@@ -122,6 +123,12 @@ final class RuntimeIslandPackageBuilder
         }
 
         $scripts = $this->scriptsForIsland($kind, $runtimeIsland, $files, $sourcePath);
+        foreach ($scripts as &$script) {
+            $content = is_string($script['content'] ?? null) ? $script['content'] : '';
+            $manifest = $this->manifestForContent($runtimeEffects, $content);
+            if (null !== $manifest) $script['region_effects'] = $manifest;
+        }
+        unset($script);
         $disposition = $this->disposition($kind, $scripts);
 
         $island = array(
@@ -143,6 +150,14 @@ final class RuntimeIslandPackageBuilder
         );
 
         return array_filter($island, static fn (mixed $value): bool => '' !== $value && array() !== $value || is_bool($value));
+    }
+
+    /** @return array<string,mixed>|null */
+    private function manifestForContent(array $runtimeEffects, string $content): ?array
+    {
+        $hash = hash('sha256', $content);
+        foreach ($runtimeEffects['manifests'] ?? array() as $entry) if (is_array($entry) && $hash === ($entry['source_hash'] ?? null) && is_array($entry['manifest'] ?? null)) return $entry['manifest'];
+        return null;
     }
 
     /**

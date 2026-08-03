@@ -66,6 +66,7 @@ final class WordPressSitePlan
             'menus' => $materialization['menus'] ?? null,
             'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts']) ? 'functions.php' : null),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
+            'runtime_effects' => $data['source_reports']['runtime_effects'] ?? array('schema' => 'blocks-engine/runtime-region-effects/v1', 'analyzer' => 'blocks-engine/runtime-region-effect-analyzer/v1', 'manifests' => array()),
             'runtime_declarations' => $runtimeDeclarations,
             'diagnostics' => array_merge($data['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks']),
@@ -108,12 +109,13 @@ final class WordPressSitePlan
         if ( self::SCHEMA !== ($plan['schema'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan has an unsupported schema.');
         }
-        foreach ( array('source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'diagnostics', 'quality', 'reporting') as $key ) {
+        foreach ( array('source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_effects', 'runtime_declarations', 'diagnostics', 'quality', 'reporting') as $key ) {
             if ( ! is_array($plan[$key] ?? null) ) {
                 throw new InvalidArgumentException(sprintf('WordPress site plan %s must be an array.', $key));
             }
         }
         self::assertSource($plan['source']);
+        self::assertRuntimeEffects($plan['runtime_effects']);
         RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
         self::assertEntityBindingsRemainPageOwned($plan['runtime_declarations'], $plan['pages'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
@@ -216,6 +218,16 @@ final class WordPressSitePlan
         }
         if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
+        }
+    }
+
+    /** @param array<string,mixed> $effects */
+    private static function assertRuntimeEffects(array $effects): void
+    {
+        if ('blocks-engine/runtime-region-effects/v1' !== ($effects['schema'] ?? null) || 'blocks-engine/runtime-region-effect-analyzer/v1' !== ($effects['analyzer'] ?? null) || !is_array($effects['manifests'] ?? null)) throw new InvalidArgumentException('WordPress site plan has an invalid runtime effects contract.');
+        foreach ($effects['manifests'] as $entry) {
+            $manifest = is_array($entry) ? ($entry['manifest'] ?? null) : null;
+            if (!is_array($entry) || !self::safePath($entry['source_path'] ?? null) || !self::hash($entry['source_hash'] ?? null) || !is_array($manifest) || 'blocks-engine/runtime-region-effects/v1' !== ($manifest['schema'] ?? null) || $entry['source_hash'] !== ($manifest['sourceHash'] ?? null) || !is_array($manifest['units'] ?? null)) throw new InvalidArgumentException('WordPress site plan has an invalid runtime effects manifest.');
         }
     }
 

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/php-transformer.yml"
+      - "packages/blocks-engine/**"
       - "php-transformer/**"
       - "scripts/production-acceptance-matrix.php"
       - "tests/contract/production-acceptance-matrix.php"
@@ -12,6 +13,7 @@ on:
       - trunk
     paths:
       - ".github/workflows/php-transformer.yml"
+      - "packages/blocks-engine/**"
       - "php-transformer/**"
       - "scripts/production-acceptance-matrix.php"
       - "tests/contract/production-acceptance-matrix.php"
@@ -28,6 +30,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build region effect analyzer
+        working-directory: packages/blocks-engine
+        run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
@@ -93,6 +109,15 @@ jobs:
           --health-retries=10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Build region effect analyzer
+        working-directory: packages/blocks-engine
+        run: pnpm install --frozen-lockfile && pnpm build
       - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
         with:
           php-version: "8.1"

@@ -15,4 +15,10 @@ describe('analyzeRuntimeRegionEffects', () => {
     const dynamic = analyzeRuntimeRegionEffects(`document.querySelector(selector).addEventListener('click', () => {});`);
     expect(dynamic.units[0].reason).toBe('dynamic_selector');
   });
+
+  it('uses source-scoped ids so independent recurrent scripts cannot collide', () => {
+    const first = analyzeRuntimeRegionEffects(`document.querySelector('.recurrence').classList.add('ready');`);
+    const second = analyzeRuntimeRegionEffects(`document.querySelector('.recurrence').classList.remove('ready');`);
+    expect(first.units[0].id).not.toBe(second.units[0].id);
+  });
 });

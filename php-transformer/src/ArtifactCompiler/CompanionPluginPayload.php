@@ -85,7 +85,8 @@ final class CompanionPluginPayload
         }
 
         $preservedJs = $this->preservedJs($runtimeIslandPackage);
-        if ( array() === $blocks && array() === $preservedJs ) {
+        $runtimeEffects = $this->runtimeEffects($runtimeIslandPackage);
+        if ( array() === $blocks && array() === $preservedJs && array() === $runtimeEffects['units'] ) {
             return array();
         }
 
@@ -94,6 +95,7 @@ final class CompanionPluginPayload
             'blocks' => $blocks,
             'preserved_js' => $preservedJs,
         );
+        if (array() !== $runtimeEffects['units']) $payload['runtime_effects'] = $runtimeEffects;
 
         $siteSlug = $this->siteSlug($artifact);
         if ( '' !== $siteSlug ) {
@@ -138,6 +140,7 @@ final class CompanionPluginPayload
                 if ( '' === $content ) {
                     continue;
                 }
+                if ($this->allUnitsSuppressible($script['region_effects'] ?? null)) continue;
                 $handle = trim($handleHint . '-' . ((int) $index + 1), '-');
                 $block = '';
                 $signature = hash('sha256', $block . "\0" . $content);
@@ -156,6 +159,46 @@ final class CompanionPluginPayload
         }
 
         return $entries;
+    }
+
+    /** @return array{units:array<int,array<string,mixed>>,retained_modules:array<int,array<string,string>>} */
+    private function runtimeEffects(array $runtimeIslandPackage): array
+    {
+        $units = array();
+        $modules = array();
+        $seen = array();
+        $islands = array_values(array_filter($runtimeIslandPackage['islands'] ?? array(), 'is_array'));
+        usort($islands, static fn(array $left, array $right): int => ('script' === ($right['kind'] ?? '')) <=> ('script' === ($left['kind'] ?? '')));
+        foreach ($islands as $island) {
+            if (!is_array($island)) continue;
+            foreach ($island['scripts'] ?? array() as $script) {
+                if (!is_array($script) || !is_string($script['content'] ?? null) || !$this->allUnitsSuppressible($script['region_effects'] ?? null)) continue;
+                $manifest = $script['region_effects'];
+                foreach ($manifest['units'] as $unit) {
+                    if (isset($seen[$unit['id']])) continue;
+                    $seen[$unit['id']] = true;
+                    $source = $unit['source'];
+                    $content = substr($script['content'], $source['start'], $source['end'] - $source['start']);
+                    $units[] = $unit;
+                    $modules[] = array_filter(array(
+                        'unit_id' => $unit['id'],
+                        'content' => $content,
+                        'selector' => is_scalar($island['selector'] ?? null) ? (string) $island['selector'] : '',
+                        'source_path' => is_scalar($island['source_path'] ?? null) ? (string) $island['source_path'] : '',
+                    ), static fn(string $value): bool => '' !== $value);
+                }
+            }
+        }
+        usort($units, static fn(array $left, array $right): int => strcmp((string) $left['id'], (string) $right['id']));
+        usort($modules, static fn(array $left, array $right): int => strcmp($left['unit_id'], $right['unit_id']));
+        return array('units' => $units, 'retained_modules' => $modules);
+    }
+
+    private function allUnitsSuppressible(mixed $manifest): bool
+    {
+        if (!is_array($manifest) || !is_array($manifest['units'] ?? null) || array() === $manifest['units']) return false;
+        foreach ($manifest['units'] as $unit) if (!is_array($unit) || 'independently_suppressible' !== ($unit['status'] ?? null) || !is_array($unit['source'] ?? null)) return false;
+        return true;
     }
 
     /**

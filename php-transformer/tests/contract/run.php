@@ -3471,10 +3471,11 @@ $scriptCompanion = $compiler->compile(
 )->toArray();
 $scriptPayload = $scriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
 $assert(array() === ($scriptPayload['blocks'] ?? null), 'script-only companion payload does not invent a custom block');
-$assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only artifact emits one preserved companion script');
-$assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
-$assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
-$assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+$assert(array() === ($scriptPayload['preserved_js'] ?? null), 'script-only artifact replaces a hash-verified suppressible script with ownership modules');
+$assert(1 === count($scriptPayload['runtime_effects']['retained_modules'] ?? array()), 'script-only artifact emits one independently suppressible ownership module');
+$assert(str_contains((string) ($scriptPayload['runtime_effects']['retained_modules'][0]['content'] ?? ''), 'dataset.ready'), 'ownership module carries the exact analyzable script region');
+$assert('script:nth-of-type(1)' === ($scriptPayload['runtime_effects']['retained_modules'][0]['selector'] ?? ''), 'ownership module carries the source script selector');
+$assert('index.html' === ($scriptPayload['runtime_effects']['retained_modules'][0]['source_path'] ?? ''), 'ownership module carries the source document path');
 
 $companionNoSite = $compiler->compile(
     array(
@@ -3583,6 +3584,22 @@ foreach ( $runtimeIslandFixture['cases'] as $runtimeIslandCase ) {
         $firstParty = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'first_party' === ($s['role'] ?? '')));
         $assert(count($firstParty) >= (int) ($expect['first_party_scripts_min'] ?? 0), 'island carries the expected first-party scripts for case ' . $caseName);
     }
+}
+
+$runtimeEffectsFixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/runtime-region-effects.json'), true);
+$assert('blocks-engine/php-transformer/runtime-region-effects-fixture/v1' === ($runtimeEffectsFixture['schema'] ?? ''), 'runtime region effects fixture exposes its schema');
+foreach ($runtimeEffectsFixture['cases'] as $runtimeEffectsCase) {
+    $compiled = $compiler->compile($runtimeEffectsCase['artifact'])->toArray();
+    $effects = $compiled['source_reports']['runtime_effects'] ?? array();
+    $planEffects = $compiled['source_reports']['wordpress_site_plan']['runtime_effects'] ?? array();
+    $payloadEffects = $compiled['source_reports']['companion_plugin_payload']['runtime_effects'] ?? array();
+    $units = array(); foreach ($effects['manifests'] ?? array() as $manifest) foreach ($manifest['manifest']['units'] ?? array() as $unit) $units[] = $unit;
+    $expect = $runtimeEffectsCase['expect'];
+    $assert('blocks-engine/runtime-region-effects/v1' === ($effects['schema'] ?? '') && 'blocks-engine/runtime-region-effect-analyzer/v1' === ($effects['analyzer'] ?? '') && $effects === $planEffects, 'runtime effects are versioned and projected unchanged into the site plan for ' . $runtimeEffectsCase['name']);
+    $assert($expect['units'] === count($units), 'runtime effects unit count matches for ' . $runtimeEffectsCase['name']);
+    $assert($expect['retained_modules'] === count($payloadEffects['retained_modules'] ?? array()), 'runtime effect retained module count matches for ' . $runtimeEffectsCase['name']);
+    if (isset($expect['targets'])) { $targets = array(); foreach ($units as $unit) $targets = array_merge($targets, $unit['targets'] ?? array()); sort($targets); $assert($expect['targets'] === $targets, 'fixture87 carousel and reveal targets are independently represented for suppression.'); }
+    if (isset($expect['raw_preserved'])) $assert($expect['raw_preserved'] === count($compiled['source_reports']['companion_plugin_payload']['preserved_js'] ?? array()), 'shared state and dynamic selector scripts stay whole and are never sliced.');
 }
 
 $normalized = $compiler->compile(
