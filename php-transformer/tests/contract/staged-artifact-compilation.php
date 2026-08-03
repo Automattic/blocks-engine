@@ -19,6 +19,15 @@ $artifact = array(
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 1 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation emits a bounded immutable shared plan and digest.');
+// Inline assets expanded out of an unannotated page follow that page, not the
+// immutable shared plan: parking page-varying content in the shared plan would
+// invalidate every page plan on a page edit.
+$inlineArtifact = $artifact;
+$inlineArtifact['files'][1]['content'] .= '<style>main{gap:1rem}</style><script>console.log("about");</script>';
+$inlineShared = $compiler->prepareShared($inlineArtifact);
+$assert(1 === $inlineShared['summary']['file_count'], 'Shared preparation excludes page-owned inline expansions.');
+$assert(3 === $compiler->preparePage($inlineArtifact, $inlineShared, 'about.html')['summary']['file_count'], 'Page preparation owns the page html plus its inline expansions.');
+
 $pageIds = array('index.html', 'about.html', 'contact.html');
 $pages = array();
 foreach ($pageIds as $pageId) $pages[$pageId] = $compiler->preparePage($artifact, $shared, $pageId);

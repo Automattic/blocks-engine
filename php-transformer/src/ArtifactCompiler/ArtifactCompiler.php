@@ -361,9 +361,17 @@ final class ArtifactCompiler
     {
         $ownership = $file['metadata']['compilation'] ?? null;
         if (null === $ownership) {
-            return 'html' === ($file['kind'] ?? null)
-                ? array('scope' => 'page', 'id' => (string) $file['path'])
-                : array('scope' => 'shared', 'id' => '');
+            if ('html' === ($file['kind'] ?? null)) {
+                return array('scope' => 'page', 'id' => (string) $file['path']);
+            }
+            // Inline styles/scripts expanded out of an unannotated page must
+            // follow that page: parking page-varying content in the immutable
+            // shared plan would invalidate every page plan on a page edit.
+            $inlineSource = ArtifactNormalizer::inlineExpansionSourcePath($file);
+            if ('' !== $inlineSource) {
+                return array('scope' => 'page', 'id' => $inlineSource);
+            }
+            return array('scope' => 'shared', 'id' => '');
         }
         if (!is_array($ownership) || !is_string($ownership['scope'] ?? null) || !in_array($ownership['scope'], array('shared', 'page'), true)) {
             throw new \InvalidArgumentException('File compilation ownership requires a shared or page scope.');
