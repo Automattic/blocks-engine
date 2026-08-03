@@ -1249,18 +1249,22 @@ final class HtmlTransformer
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
+            $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg', $declarations);
             $imageRule = '' === $imagePrelude
                 ? ''
                 : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+            $svgImageRule = '' === $svgImagePrelude
+                ? ''
+                : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
             if ( array() === $margins ) {
-                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule;
+                return $this->rewriteAuthorSelectorPrelude($prelude) . '{' . $body . '}' . $imageRule . $svgImageRule;
             }
 
             $inner = array_diff_key($declarations, $margins);
             $rules = '' === $this->cssDeclarationString($inner)
                 ? ''
                 : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule;
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
     }
 
@@ -1488,7 +1492,7 @@ final class HtmlTransformer
         return implode(',', $rewritten);
     }
 
-    private function projectAuthorImageSelectorPrelude(string $prelude): string
+    private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img', array $declarations = array()): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
@@ -1502,7 +1506,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, static fn (DOMElement $element): bool => 'img' === strtolower($element->tagName)));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isExplicitParentFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1517,14 +1521,38 @@ final class HtmlTransformer
                 continue;
             }
 
-            $projected[] = $this->projectImageSelector($selector, $parsed);
+            $imageSelector = $this->projectImageSelector($selector, $parsed);
+            if ( 'svg' === $tagName ) {
+                $projected[] = substr($imageSelector, 0, -strlen(' > img'));
+            }
+            $projected[] = $imageSelector;
         }
 
         return implode(',', array_values(array_unique($projected)));
     }
 
     /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations): string
+    private function isExplicitParentFillSvg(DOMElement $element, array $declarations): bool
+    {
+        if ( ! in_array(strtolower(trim((string) ($declarations['object-fit'] ?? ''))), array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true)
+            || '100%' !== trim((string) ($declarations['width'] ?? ''))
+            || '100%' !== trim((string) ($declarations['height'] ?? ''))
+        ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentStyle = $this->structuralPresentationDeclarations($parent);
+        if ( ! in_array(strtolower(trim((string) ($parentStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+        return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
     {
         $bridge = array( 'display:block' );
         $position = strtolower(trim((string) ($declarations['position'] ?? '')));
@@ -1536,7 +1564,7 @@ final class HtmlTransformer
             $bridge[] = 'height:100%';
         }
         $bridge[] = 'max-width:100%';
-        $bridge[] = 'object-fit:inherit';
+        $bridge[] = 'object-fit:' . ($preserveObjectFit ? ($declarations['object-fit'] ?? 'inherit') : 'inherit');
         $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
@@ -1820,7 +1848,7 @@ final class HtmlTransformer
             ),
         );
         $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-        if ( is_string($rightmostType) && 'img' === strtolower($rightmostType) ) {
+        if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
             $typeSpan = end($parsed['type_spans']);
             if ( is_array($typeSpan) ) {
                 $replacements[(int) $typeSpan['start']] = array(

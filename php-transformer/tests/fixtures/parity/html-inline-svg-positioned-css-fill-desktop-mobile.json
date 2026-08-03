@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-positioned-css-fill-desktop-mobile",
+  "description": "An SVG whose percentage fill dimensions are supplied by CSS fills an explicitly inset positioned parent at desktop and mobile sizes through the final native image serializer.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-positioned-css-fill-desktop-mobile.json",
+    "notes": "Generic regression coverage for a positioned inset media layer whose SVG sizing is selector-owned rather than attribute-owned."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.hero{position:relative;width:1280px;height:760px}.hero-art{position:absolute;inset:0}.hero-art svg{width:100%;height:100%;object-fit:cover}@media (max-width:700px){.hero{width:320px;height:240px}}</style><main><section class=\"hero\"><div class=\"hero-art\"><svg viewBox=\"0 0 1280 728.88\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1280\" height=\"728.88\" fill=\"#111\"></rect></svg></div></section></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"height\":\"728.88px\"" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".hero-art :where(figure)" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:cover" }
+  ]
+}
