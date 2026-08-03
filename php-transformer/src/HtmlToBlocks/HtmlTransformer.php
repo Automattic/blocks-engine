@@ -1521,11 +1521,10 @@ final class HtmlTransformer
                 continue;
             }
 
-            $imageSelector = $this->projectImageSelector($selector, $parsed);
             if ( 'svg' === $tagName ) {
-                $projected[] = substr($imageSelector, 0, -strlen(' > img'));
+                $projected[] = $this->projectImageSelector($selector, $parsed, true);
             }
-            $projected[] = $imageSelector;
+            $projected[] = $this->projectImageSelector($selector, $parsed);
         }
 
         return implode(',', array_values(array_unique($projected)));
@@ -1534,7 +1533,7 @@ final class HtmlTransformer
     /** @param array<string, string> $declarations */
     private function isExplicitParentFillSvg(DOMElement $element, array $declarations): bool
     {
-        if ( ! in_array(strtolower(trim((string) ($declarations['object-fit'] ?? ''))), array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true)
+        if ( '' === $this->explicitObjectFit($declarations)
             || '100%' !== trim((string) ($declarations['width'] ?? ''))
             || '100%' !== trim((string) ($declarations['height'] ?? ''))
         ) {
@@ -1551,6 +1550,17 @@ final class HtmlTransformer
         return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
     }
 
+    /**
+     * The author's explicit object-fit keyword, or '' when absent or invalid.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function explicitObjectFit(array $declarations): string
+    {
+        $objectFit = strtolower(trim((string) ($declarations['object-fit'] ?? '')));
+        return in_array($objectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true) ? $objectFit : '';
+    }
+
     /** @param array<string, string> $declarations */
     private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
     {
@@ -1564,7 +1574,8 @@ final class HtmlTransformer
             $bridge[] = 'height:100%';
         }
         $bridge[] = 'max-width:100%';
-        $bridge[] = 'object-fit:' . ($preserveObjectFit ? ($declarations['object-fit'] ?? 'inherit') : 'inherit');
+        $objectFit = $this->explicitObjectFit($declarations);
+        $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
         $bridge[] = 'object-position:inherit';
         $bridge[] = 'border-radius:inherit';
         return implode(';', $bridge);
@@ -1839,12 +1850,12 @@ final class HtmlTransformer
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectImageSelector(string $selector, array $parsed): string
+    private function projectImageSelector(string $selector, array $parsed, bool $wrapperOnly = false): string
     {
         $replacements = array(
             (int) $parsed['rightmost_rewrite_end'] => array(
                 'end'   => (int) $parsed['rightmost_rewrite_end'],
-                'value' => '.wp-block-image > img',
+                'value' => $wrapperOnly ? '.wp-block-image' : '.wp-block-image > img',
             ),
         );
         $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
