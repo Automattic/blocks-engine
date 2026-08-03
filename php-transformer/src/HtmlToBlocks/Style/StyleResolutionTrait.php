@@ -313,6 +313,12 @@ trait StyleResolutionTrait
             }
         }
 
+        // Core block supports drop arbitrary custom properties when parsing a
+        // saved style attribute. Carry them in the generated stylesheet instead.
+        foreach ($this->inlineCustomPropertyDeclarations($element, $declarations, array_values($geometry)) as $property => $value) {
+            $geometry[$property] = $value;
+        }
+
         if (array() === $geometry) {
             return '';
         }
@@ -364,24 +370,29 @@ trait StyleResolutionTrait
             }
         }
 
-        $consumedCustomProperties = $this->inlineCustomPropertiesRequired(
+        return implode(';', $style);
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @param array<int, string> $geometryValues
+     * @return array<string, string>
+     */
+    private function inlineCustomPropertyDeclarations(DOMElement $element, array $declarations, array $geometryValues): array
+    {
+        $required = $this->inlineCustomPropertiesRequired(
             $declarations,
             $this->inlineCustomPropertiesConsumedByAuthorStyles($element) + $this->customPropertiesReferencedByValues($geometryValues)
         );
-        if (array() !== $consumedCustomProperties) {
-            $customProperties = array();
-            foreach ($declarations as $property => $value) {
-                if (str_starts_with($property, '--') && isset($consumedCustomProperties[$property])) {
-                    $customProperties[$property] = $value;
-                }
-            }
-            ksort($customProperties, SORT_STRING);
-            foreach ($customProperties as $property => $value) {
-                $style[] = $property . ':' . $value;
+        $customProperties = array();
+        foreach ($declarations as $property => $value) {
+            if (str_starts_with($property, '--') && isset($required[$property])) {
+                $customProperties[$property] = $value;
             }
         }
+        ksort($customProperties, SORT_STRING);
 
-        return implode(';', $style);
+        return $customProperties;
     }
 
     /**

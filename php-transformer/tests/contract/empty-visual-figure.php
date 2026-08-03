@@ -46,8 +46,9 @@ $inlineCompiled = ( new ArtifactCompiler() )->compile(array(
 ))->toArray();
 $inlineMarkup = (string) ($inlineCompiled['serialized_blocks'] ?? '');
 $inlineValidity = ( new BlockValidityValidator() )->validateBlocks($inlineCompiled['blocks'] ?? array());
-$assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#27485f;--b:#87d8ff;--h:280px') && str_contains($inlineMarkup, 'min-height:var(--h);--a:#6f493e;--b:#ff8762;--h:390px'), 'Artifact compiler preserves fixture87 gallery heights on pseudo-painted empty figures in canonical custom-property order.');
-$assert(str_contains($inlineMarkup, 'style="border-color:#d8dee9;border-style:solid;border-width:1px;border-radius:16px;min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem;--tone:#315b74"') && 'pass' === ($inlineValidity['status'] ?? ''), 'Fixture87 card --tone survives canonical core style serialization with editor-valid native blocks.');
+$inlineCssAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $inlineCompiled['assets'] ?? array()));
+$assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contains($inlineMarkup, 'min-height:var(--h)') && ! str_contains($inlineMarkup, '--a:') && str_contains($inlineCssAssets, '--a:#27485f !important;--b:#87d8ff !important;--h:280px !important') && str_contains($inlineCssAssets, '--a:#6f493e !important;--b:#ff8762 !important;--h:390px !important'), 'Artifact compiler carries fixture87 gallery custom properties in generated CSS while core owns the saved style attribute.');
+$assert(! str_contains($inlineMarkup, '--tone:') && str_contains($inlineCssAssets, '--tone:#315b74 !important') && 'pass' === ($inlineValidity['status'] ?? ''), 'Fixture87 card custom paint survives in a generated carrier class without diverging from core style serialization.');
 $assert(! str_contains($inlineMarkup, 'class="wp-block-group empty'), 'Final native blocks retain the pseudo paint contract while nonvisual empty figures remain pruned.');
 
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");
