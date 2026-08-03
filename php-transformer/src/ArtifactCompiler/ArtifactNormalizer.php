@@ -144,6 +144,9 @@ final class ArtifactNormalizer
                 if ( is_string($file['metadata']['route_path'] ?? null) && '' !== trim($file['metadata']['route_path']) ) {
                     $metadata['route_path'] = trim($file['metadata']['route_path']);
                 }
+                if ( is_string($file['metadata']['post_type'] ?? null) && in_array(strtolower($file['metadata']['post_type']), array('page', 'post'), true) ) {
+                    $metadata['post_type'] = strtolower($file['metadata']['post_type']);
+                }
                 if ( is_array($file['metadata']['compilation'] ?? null) ) {
                     $metadata['compilation'] = $file['metadata']['compilation'];
                 }

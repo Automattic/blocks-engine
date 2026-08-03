@@ -35,6 +35,25 @@ report, and script-scope projection. It rewrites relative and root-relative docu
 links while preserving query and fragment suffixes; declared asset references continue
 to use asset tokens rather than page routes.
 
+## Content Decisions
+
+Each page row may add `content_decision` with schema
+`blocks-engine/content-decision/v1`. Its `state` is `declared`, `inferred`, or
+`defaulted`; `provenance` identifies an explicit declaration; and bounded
+`evidence` records normalized source signals. `post_type` remains the
+consumer-facing materialization intent. Explicit frontmatter `page` and `post`
+values are declared decisions. Otherwise article semantics, publication dates,
+and dated `/{YYYY}/{MM}/` routes infer `post`; unresolved documents default to
+`page`. Publication timestamps are RFC3339 UTC strings in
+`publication_timestamp` and evidence rows.
+
+Routes remain canonical source-document and link-reference paths. Page routes
+form page hierarchy and may receive synthetic parents. Post routes never create
+or inherit page parents: `parent_source_path` is empty, and a WordPress
+materializer applies its configured post permalink policy. This preserves the
+source route for deterministic references without claiming it is a post
+permalink.
+
 Meta rows preserve `charset`, `name`, `property`, `http_equiv`, and `content`. Link rows preserve `rel`, `type`, `media`, `integrity`, `crossorigin`, `referrerpolicy`, `as`, `fetchpriority`, and `sizes`. Script rows preserve `type`, `integrity`, `crossorigin`, `referrerpolicy`, and `fetchpriority`, plus independent booleans for `async`, `defer`, `module`, and `nomodule`. Explicitly present empty values are retained as `''` so consumers can distinguish them from absent attributes, except `crossorigin`: its empty or boolean HTML state is normalized to `anonymous`, matching browser CORS semantics. `effective_loading` records browser loading semantics: `async` wins over `defer`; non-async module scripts are `defer`; other scripts are `blocking`. Inline scripts carry `source_kind: inline` and `body_hash`, not their source body.
 
 URL-bearing link and external-script declarations contain either an explicit absolute or protocol-relative `url`, or an `asset_reference` token. Local artifact URLs must use `asset_reference`; undeclared local URLs are invalid. Resolver output adds `resolved_url` for each `asset_reference`. That URL is exactly the URL of a declared resolved theme-asset write. Explicit external URLs remain unchanged.
