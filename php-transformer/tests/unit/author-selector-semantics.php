@@ -343,22 +343,24 @@ $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains(
 
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
-$assert(str_contains($customPropertyCardsMarkup, 'style="--tone:#f06"') && str_contains($customPropertyCardsMarkup, 'style="--tone:#0af"') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values without unused-property or cross-card leakage');
+$assert(! str_contains($customPropertyCardsMarkup, '--tone:') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), '--tone:#f06 !important') && str_contains($css($customPropertyCards), '--tone:#0af !important') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values in generated carrier CSS without unused-property or cross-card leakage');
 
 $pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";background:var(--accent)}</style><div class="tour-card" style="width:344px;height:430px;--accent:#fc0;--unused:discard">Card</div>');
 $pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');
-$assert(str_contains($pseudoCustomPropertyMarkup, 'style="--accent:#fc0"') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed inline custom properties');
+$assert(! str_contains($pseudoCustomPropertyMarkup, '--accent:') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '--accent:#fc0 !important') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed custom properties in generated carrier CSS');
 
 $geometryCustomProperty = $transform('<div style="width:var(--card-width);height:430px;--card-width:344px;--unused:discard">Card</div>');
 $geometryCustomPropertyMarkup = (string) ($geometryCustomProperty['serialized_blocks'] ?? '');
-$assert(str_contains($geometryCustomPropertyMarkup, 'style="--card-width:344px"') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard'), 'inline geometry retains only its referenced custom property');
+$assert(! str_contains($geometryCustomPropertyMarkup, '--card-width:') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard') && str_contains($css($geometryCustomProperty), '--card-width:344px !important'), 'inline geometry retains only its referenced custom property in generated carrier CSS');
 
 $customPropertyRoundTrip = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),var(--accent))}</style><div class="tour-card" style="--tone:#315b74;border-color:var(--line);border-width:1px;border-style:solid;border-radius:var(--radius);padding:1.2rem;min-height:430px;--accent:#d9b86c">Card</div>');
 $customPropertyRoundTripMarkup = (string) ($customPropertyRoundTrip['serialized_blocks'] ?? '');
 $assert(
-    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem;--accent:#d9b86c;--tone:#315b74"')
+    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem"')
+    && ! str_contains($customPropertyRoundTripMarkup, '--accent:')
+    && str_contains($css($customPropertyRoundTrip), '--accent:#d9b86c !important;--tone:#315b74 !important')
     && 'pass' === ($customPropertyRoundTrip['source_reports']['wp_block_validity']['status'] ?? ''),
-    'multiple retained custom properties follow the core save order after supported styles and retain a valid block round trip',
+    'multiple retained custom properties move to generated carrier CSS while supported styles retain a valid core block round trip',
     $customPropertyRoundTripMarkup
 );
 
