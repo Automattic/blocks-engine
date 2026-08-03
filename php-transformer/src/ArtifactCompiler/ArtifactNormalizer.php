@@ -259,10 +259,14 @@ final class ArtifactNormalizer
      */
     private function withInlineStyleFiles(array $files, array &$reservedPaths): array
     {
+        $expandedSources = $this->inlineExpandedSourcePaths($files, 'inline-style');
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
+                continue;
+            }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
             if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b([^>]*)>(.*?)</style>@is', $content, $matches, PREG_SET_ORDER) ) {
                 continue;
@@ -279,7 +283,7 @@ final class ArtifactNormalizer
             }
             foreach ( $styles as $index => $style ) {
                 $path = $this->allocateGeneratedPath($this->inlineStylePath((string) ($file['path'] ?? 'index.html'), count($styles), $index + 1), $reservedPaths);
-                $expanded[] = array(
+                $expanded[] = $this->withInheritedCompilation($file, array(
                     'path'      => $path,
                     'content'   => $style['content'],
                     'kind'      => 'css',
@@ -287,14 +291,11 @@ final class ArtifactNormalizer
                     'role'      => 'stylesheet',
                     'intent'    => 'style',
                     'source'    => 'inline-style',
-                    'source_path' => (string) ($file['path'] ?? 'index.html'),
+                    'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'stylesheet_index' => $index + 1,
                     'media' => $style['media'],
                     'type' => $style['type'],
-                );
-                if ( is_array($file['metadata']['compilation'] ?? null) ) {
-                    $expanded[array_key_last($expanded)]['metadata'] = array('compilation' => $file['metadata']['compilation']);
-                }
+                ));
             }
         }
 
@@ -313,6 +314,62 @@ final class ArtifactNormalizer
         return ( in_array($kind, array( '', 'html' ), true) || str_contains($kind, 'html') )
             && ( '' === $mimeType || str_contains($mimeType, 'html') )
             && ( '' === $path || preg_match('/\.html?$/', $path) || 'index.html' === $path );
+    }
+
+    /**
+     * The source path of the file an inline style/script row was expanded
+     * from, or '' when the row is not an inline expansion. Expansion rows
+     * are recognizable by the source marker and source_path normalization
+     * itself emits.
+     *
+     * @param array<string, mixed> $file
+     */
+    public static function inlineExpansionSourcePath(array $file): string
+    {
+        if ( ! in_array((string) ($file['source'] ?? ''), array( 'inline-style', 'inline-script' ), true) ) {
+            return '';
+        }
+        return (string) ($file['source_path'] ?? '');
+    }
+
+    /**
+     * Source paths whose inline assets of the given kind were already
+     * expanded by a previous normalize() pass. Skipping them keeps
+     * normalize() idempotent: the staged compilation flow re-normalizes
+     * already-normalized file lists, which must not re-expand the same
+     * inline assets into duplicate generated files.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, bool>
+     */
+    private function inlineExpandedSourcePaths(array $files, string $source): array
+    {
+        $sources = array();
+        foreach ( $files as $file ) {
+            if ( $source !== (string) ($file['source'] ?? '') ) {
+                continue;
+            }
+            $sourcePath = self::inlineExpansionSourcePath($file);
+            if ( '' !== $sourcePath ) {
+                $sources[$sourcePath] = true;
+            }
+        }
+        return $sources;
+    }
+
+    /**
+     * Inline-expanded files inherit the parent file's compilation ownership.
+     *
+     * @param array<string,mixed> $file
+     * @param array<string,mixed> $expandedFile
+     * @return array<string,mixed>
+     */
+    private function withInheritedCompilation(array $file, array $expandedFile): array
+    {
+        if ( is_array($file['metadata']['compilation'] ?? null) ) {
+            $expandedFile['metadata'] = array( 'compilation' => $file['metadata']['compilation'] );
+        }
+        return $expandedFile;
     }
 
     private function inlineStylePath(string $htmlPath, int $count = 1, int $index = 1): string
@@ -355,10 +412,14 @@ final class ArtifactNormalizer
      */
     private function withInlineScriptFiles(array $files): array
     {
+        $expandedSources = $this->inlineExpandedSourcePaths($files, 'inline-script');
         $expanded = array();
         foreach ( $files as $file ) {
             $expanded[] = $file;
 
+            if ( isset($expandedSources[ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''))]) ) {
+                continue;
+            }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
             if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
                 continue;
@@ -373,7 +434,7 @@ final class ArtifactNormalizer
                     continue;
                 }
 
-                $expanded[] = array(
+                $expanded[] = $this->withInheritedCompilation($file, array(
                     'path'        => $this->inlineScriptPath((string) ($file['path'] ?? 'index.html'), $scriptIndex),
                     'content'     => $body,
                     'kind'        => 'js',
@@ -388,10 +449,7 @@ final class ArtifactNormalizer
                     'superseded_by' => $this->htmlAttribute($attributes, 'data-blocks-engine-superseded-by'),
                     'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
                     'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
-                );
-                if ( is_array($file['metadata']['compilation'] ?? null) ) {
-                    $expanded[array_key_last($expanded)]['metadata'] = array('compilation' => $file['metadata']['compilation']);
-                }
+                ));
             }
         }
 
