@@ -124,23 +124,20 @@ final class ArtifactCompiler
     public function compose(array $sharedPlan, array $pagePlans): TransformerResult
     {
         $this->assertSharedPlan($sharedPlan);
-        $files = is_array($sharedPlan['artifact']['files'] ?? null) ? $sharedPlan['artifact']['files'] : array();
+        $files = $sharedPlan['artifact']['files'];
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         foreach ($pagePlans as $pagePlan) {
-            if (($pagePlan['schema'] ?? null) !== self::PAGE_PLAN_SCHEMA || ($pagePlan['shared_digest'] ?? null) !== $sharedPlan['digest'] || !is_string($pagePlan['page_id'] ?? null) || isset($seen[$pagePlan['page_id']]) || !is_array($pagePlan['artifact']['files'] ?? null) || !is_string($pagePlan['digest'] ?? null)) {
-                throw new \InvalidArgumentException('Page plans must be valid, unique, and bound to the supplied shared plan digest.');
-            }
-            $expectedDigest = RuntimeDeclarations::hash(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']));
-            if (!hash_equals($expectedDigest, $pagePlan['digest'])) {
-                throw new \InvalidArgumentException('The staged page plan digest does not match its serialized artifact payload.');
+            $this->assertPagePlan($pagePlan, $sharedPlan);
+            if (isset($seen[$pagePlan['page_id']])) {
+                throw new \InvalidArgumentException(sprintf('Composition received more than one staged page plan for page id "%s".', $pagePlan['page_id']));
             }
             $seen[$pagePlan['page_id']] = true;
             $files = array_merge($files, $pagePlan['artifact']['files']);
         }
-        usort($files, static fn(array $left, array $right): int => strcmp((string) ($left['path'] ?? ''), (string) ($right['path'] ?? '')));
+        $this->assertUniqueComposedPaths($files);
         $artifact = $sharedPlan['artifact'];
-        $artifact['files'] = $files;
+        $artifact['files'] = self::sortedByPath($files);
 
         return $this->compile($artifact);
     }
@@ -339,11 +336,10 @@ final class ArtifactCompiler
             $pages[$ownership['id']][] = $file;
         }
         ksort($pages, SORT_STRING);
-        foreach ($pages as &$files) {
-            usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
+        foreach ($pages as $pageId => $files) {
+            $pages[$pageId] = self::sortedByPath($files);
         }
-        unset($files);
-        usort($shared, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
+        $shared = self::sortedByPath($shared);
 
         return array(
             'shared' => $shared,
@@ -413,13 +409,86 @@ final class ArtifactCompiler
     /** @param array<string,mixed> $sharedPlan */
     private function assertSharedPlan(array $sharedPlan): void
     {
-        if (($sharedPlan['schema'] ?? null) !== self::SHARED_PLAN_SCHEMA || !is_string($sharedPlan['digest'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $sharedPlan['digest']) || !is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
-            throw new \InvalidArgumentException('A valid staged shared plan requires its schema, digest, and serialized artifact payload.');
+        if (($sharedPlan['schema'] ?? null) !== self::SHARED_PLAN_SCHEMA) {
+            throw new \InvalidArgumentException('A staged shared plan must declare the staged shared plan schema.');
         }
-        $expected = RuntimeDeclarations::hash(array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']));
-        if (!hash_equals($expected, $sharedPlan['digest'])) {
-            throw new \InvalidArgumentException('The staged shared plan digest does not match its serialized artifact payload.');
+        if (!is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
+            throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
+        $this->assertPlanDigest(
+            array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']),
+            $sharedPlan['digest'] ?? null,
+            'shared'
+        );
+    }
+
+    /**
+     * Per-plan validity only; cross-plan invariants (page-id uniqueness,
+     * path collisions) are enforced by compose().
+     *
+     * @param array<string,mixed> $pagePlan
+     * @param array<string,mixed> $sharedPlan
+     */
+    private function assertPagePlan(array $pagePlan, array $sharedPlan): void
+    {
+        if (($pagePlan['schema'] ?? null) !== self::PAGE_PLAN_SCHEMA) {
+            throw new \InvalidArgumentException('A staged page plan must declare the staged page plan schema.');
+        }
+        if (!is_string($pagePlan['page_id'] ?? null) || '' === $pagePlan['page_id']) {
+            throw new \InvalidArgumentException('A staged page plan requires a nonblank page id.');
+        }
+        if (($pagePlan['shared_digest'] ?? null) !== $sharedPlan['digest']) {
+            throw new \InvalidArgumentException('A staged page plan must be bound to the supplied shared plan digest.');
+        }
+        if (!is_array($pagePlan['artifact']['files'] ?? null)) {
+            throw new \InvalidArgumentException('A staged page plan requires its serialized artifact payload.');
+        }
+        $this->assertPlanDigest(
+            array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
+            $pagePlan['digest'] ?? null,
+            'page'
+        );
+    }
+
+    /** @param array<string,mixed> $hashInput */
+    private function assertPlanDigest(array $hashInput, mixed $digest, string $label): void
+    {
+        if (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest)) {
+            throw new \InvalidArgumentException(sprintf('A staged %s plan requires a sha256 hex digest.', $label));
+        }
+        if (!hash_equals(RuntimeDeclarations::hash($hashInput), $digest)) {
+            throw new \InvalidArgumentException(sprintf('The staged %s plan digest does not match its serialized artifact payload.', $label));
+        }
+    }
+
+    /**
+     * Composed plans must not collide on artifact paths: a silent
+     * dedupe-rename during the final compile would ship files under an
+     * identity no plan's digest ever covered. Uniqueness is checked on the
+     * canonical path identity the final compile will use.
+     *
+     * @param array<int,array<string,mixed>> $files
+     */
+    private function assertUniqueComposedPaths(array $files): void
+    {
+        $seenPaths = array();
+        foreach ($files as $file) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if ('' !== $path && isset($seenPaths[$path])) {
+                throw new \InvalidArgumentException(sprintf('Composed staged plans collide on artifact path "%s".', $path));
+            }
+            $seenPaths[$path] = true;
+        }
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $files
+     * @return array<int,array<string,mixed>>
+     */
+    private static function sortedByPath(array $files): array
+    {
+        usort($files, static fn(array $left, array $right): int => strcmp((string) ($left['path'] ?? ''), (string) ($right['path'] ?? '')));
+        return $files;
     }
 
     /** @param array<string,mixed> $artifact @return array<int,string> */
@@ -1377,8 +1446,7 @@ final class ArtifactCompiler
             if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || '' === trim($file['content']) ) continue;
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
-        usort($sources, static fn (array $left, array $right): int => strcmp($left['path'], $right['path']));
-        return $sources;
+        return self::sortedByPath($sources);
     }
 
     private function navigationAnchorCompatCss(string $css): string
