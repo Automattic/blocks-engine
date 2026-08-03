@@ -6,6 +6,7 @@ export {
   rawHandler,
   serialize,
   parse,
+  validateBlock,
   createBlock,
   getBlockAttributes,
 } from '@wordpress/blocks';

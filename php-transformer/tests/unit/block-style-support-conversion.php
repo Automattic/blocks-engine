@@ -181,8 +181,9 @@ $assert(! str_contains($importantButtonMarkup, 'wp-block-button__width-50') && s
 $variableGeometryHtml = '<p style="--box-base:30rem;--box-width:var(--box-base,20rem);width:var(--box-width)">Variable geometry</p>';
 $variableGeometryResult = ( new HtmlTransformer() )->transform($variableGeometryHtml, array())->toArray();
 $variableGeometryMarkup = (string) ($variableGeometryResult['serialized_blocks'] ?? '');
+$variableGeometryCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $variableGeometryResult['assets'] ?? array()));
 $variableGeometryParity = ( new StaticStyleParityRunner() )->compareSourceToTransformWithGeometry($variableGeometryHtml);
-$assert(str_contains($variableGeometryMarkup, '--box-base:30rem;--box-width:var(--box-base,20rem)') && str_contains($variableGeometryMarkup, 'be-inline-geometry-'), '48: local custom properties used by geometry survive serialization', $variableGeometryMarkup);
+$assert(! str_contains($variableGeometryMarkup, '--box-base:') && str_contains($variableGeometryMarkup, 'be-inline-geometry-') && str_contains($variableGeometryCss, '--box-base:30rem !important;--box-width:var(--box-base,20rem) !important'), '48: local custom properties used by geometry survive in generated carrier CSS', $variableGeometryMarkup);
 $assert(1.0 === (float) ($variableGeometryParity['geometry_v2']['parity']['score'] ?? 0.0), '49: geometry v2 resolves local and transitive custom properties', json_encode($variableGeometryParity['geometry_v2']['parity'] ?? array()));
 $missingVariableGeometry = $geometryComparator->compare(
     $geometryProbe->extract($variableGeometryHtml),
