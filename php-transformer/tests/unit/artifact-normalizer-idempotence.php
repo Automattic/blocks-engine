@@ -51,6 +51,16 @@ $assert($again['files'] === $first['files'], 'Re-normalizing normalized files do
 $assert($again['entrypoints'] === $first['entrypoints'], 'Entrypoints are stable across re-normalization.');
 $assert($again['bytes'] === $first['bytes'], 'Byte accounting is stable across re-normalization.');
 $assert($again['hash_payload'] === $first['hash_payload'], 'The source-identity hash payload is stable across re-normalization.');
+$assert(64 === strlen($first['hash_payload']), 'The retained source-identity payload is bounded to one SHA-256 digest.');
+$legacyPayload = '';
+$hashFiles = $first['files'];
+usort($hashFiles, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
+foreach ( $hashFiles as $file ) {
+    $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (string) $file['content'];
+    $legacyPayload .= $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0" . $content . "\0";
+}
+$legacyPayload .= "\n" . \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations::canonicalJson($first['runtime_declarations']);
+$assert(hash('sha256', $legacyPayload) === $first['source_hash'], 'Streaming source identity preserves the legacy canonical hash.');
 
 foreach ( $first['files'] as $file ) {
     if ( ! str_starts_with((string) $file['path'], 'index.inline') ) {

@@ -219,7 +219,7 @@ final class ArtifactCompiler
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
                     'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
-                'source_hash'     => hash('sha256', $normalized['hash_payload']),
+                'source_hash'     => $normalized['source_hash'],
                 'html'            => array(
                     'bytes'         => strlen($html),
                     'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
@@ -253,7 +253,7 @@ final class ArtifactCompiler
             array(
                 'source_format' => 'artifact',
                 'input_keys'    => $this->sourceOperationInputKeys($artifact),
-                'source_hash'   => hash('sha256', $normalized['hash_payload']),
+                'source_hash'   => $normalized['source_hash'],
             ),
         );
         // WordPressSitePlan consumes a canonical result envelope, so give it a
@@ -2688,7 +2688,7 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{files: array<int, array<string, mixed>>, bytes: int, hash_payload: string} $artifact
+     * @param array{files: array<int, array<string, mixed>>, bytes: int, source_hash: string} $artifact
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
      * @param array<int, array<string, mixed>> $blockTypes
@@ -2807,7 +2807,7 @@ final class ArtifactCompiler
 
         return array(
             'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
-            'source_hash' => hash('sha256', $artifact['hash_payload']),
+            'source_hash' => $artifact['source_hash'],
             'entry_path'  => $entryPath,
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),

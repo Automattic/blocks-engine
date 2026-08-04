@@ -21,7 +21,7 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
      */
     public function normalize(array $artifact): array
     {
@@ -174,6 +174,7 @@ final class ArtifactNormalizer
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
+        $sourceHash = $this->sourceHash($files, $runtimeDeclarations);
         return array(
             'files'          => $files,
             'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
@@ -181,7 +182,8 @@ final class ArtifactNormalizer
             'bytes'          => $bytes,
             'limits'         => $limits,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
-            'hash_payload'   => $this->fileHashPayload($files) . "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations),
+            'source_hash'    => $sourceHash,
+            'hash_payload'   => $sourceHash,
             'runtime_declarations' => $runtimeDeclarations,
         );
     }
@@ -706,17 +708,19 @@ final class ArtifactNormalizer
     /**
      * @param array<int, array<string, mixed>> $files
      */
-    private function fileHashPayload(array $files): string
+    private function sourceHash(array $files, array $runtimeDeclarations): string
     {
         // Source identity is independent of transport and preparation order.
         usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
-        $payload = '';
+        $context = hash_init('sha256');
         foreach ( $files as $file ) {
             $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (string) $file['content'];
-            $payload .= $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0" . $content . "\0";
+            hash_update($context, $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0");
+            hash_update($context, $content);
+            hash_update($context, "\0");
         }
-
-        return $payload;
+        hash_update($context, "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations));
+        return hash_final($context);
     }
 
     private function sanitizeKey(string $key): string
