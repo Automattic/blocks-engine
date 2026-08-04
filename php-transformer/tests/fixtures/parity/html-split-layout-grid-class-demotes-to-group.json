@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-split-layout-grid-class-demotes-to-group",
+  "description": "A two-child container whose class name trips both the split-layout columns heuristic (hero-grid) and the explicit grid class signal must become a core/group with grid layout, never core/columns. core/columns is a flex layout: pairing it with layout:{type:grid} serializes the wp-block-columns + is-layout-grid combo WordPress rejects.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-split-layout-grid-class-demotes-to-group.json",
+    "notes": "Derived from a bakery hero where .hero-grid { display:grid } held exactly two panes (copy + plate figure); the split-layout heuristic claimed it as columns while the grid class name stamped is-layout-grid, producing an invalid block."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"hero-grid\"><div class=\"hero-text\"><h1>Fresh Bread Daily</h1><p>Baked every morning.</p></div><figure class=\"hero-plate\"><img src=\"https://example.com/bread.jpg\" alt=\"Bread\"/></figure></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-grid", "layout": { "type": "grid" } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid hero-grid\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Fresh Bread Daily\",\"level\":1} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:columns" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-columns" }
+  ]
+}

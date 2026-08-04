@@ -10190,6 +10190,14 @@ final class HtmlTransformer
             return null;
         }
 
+        // core/columns is a flex layout; WordPress rejects it with is-layout-grid.
+        // Decline when the resolved layout is grid so the container demotes to
+        // core/group, where grid layout is native.
+        $layout = $this->presentationAttributes($element)['layout'] ?? null;
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') ) {
+            return null;
+        }
+
         $rowFallbacks = array();
         $columns = array();
         foreach ( $children as $child ) {
