@@ -183,6 +183,7 @@ final class ArtifactCompiler
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
@@ -190,7 +191,6 @@ final class ArtifactCompiler
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
-        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         if ( null !== $wordpressCompatAsset ) {
             $assets[] = $wordpressCompatAsset;
         }
