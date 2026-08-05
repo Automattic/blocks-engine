@@ -58,6 +58,7 @@
       "@test:unit"
     ],
     "test:unit": [
+      "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/custom-block-generator.php",

@@ -154,7 +154,66 @@ final class RuntimeDeclarations
 
     public static function hash(mixed $value): string
     {
-        return hash('sha256', self::canonicalJson($value));
+        $context = hash_init('sha256');
+        self::updateCanonicalHash($context, $value);
+        return hash_final($context);
+    }
+
+    /** @param resource $context */
+    private static function updateCanonicalHash($context, mixed $value, int $depth = 0): void
+    {
+        if ($depth > self::MAX_CANONICAL_DEPTH || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
+        if (!is_array($value)) {
+            if (is_string($value)) {
+                self::updateCanonicalStringHash($context, $value);
+                return;
+            }
+            try { hash_update($context, json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)); } catch (JsonException) { throw new InvalidArgumentException('Runtime declaration payload is not serializable.'); }
+            return;
+        }
+        foreach ($value as $key => $_item) if (!is_int($key) && !is_string($key)) throw new InvalidArgumentException('Runtime declaration payload has an unsupported key.');
+        $list = array_is_list($value);
+        $keys = array_keys($value);
+        if (!$list) usort($keys, static fn(int|string $left, int|string $right): int => strcmp((string) $left, (string) $right));
+        hash_update($context, $list ? '[' : '{');
+        foreach ($keys as $index => $key) {
+            if (0 < $index) hash_update($context, ',');
+            if (!$list) {
+                self::updateCanonicalStringHash($context, (string) $key);
+                hash_update($context, ':');
+            }
+            self::updateCanonicalHash($context, $value[$key], $depth + 1);
+        }
+        hash_update($context, $list ? ']' : '}');
+    }
+
+    /** @param resource $context */
+    private static function updateCanonicalStringHash($context, string $value): void
+    {
+        if (1 !== preg_match('//u', $value)) throw new InvalidArgumentException('Runtime declaration payload is not serializable.');
+        hash_update($context, '"');
+        $length = strlen($value);
+        $start = 0;
+        $escapes = array(8 => '\\b', 9 => '\\t', 10 => '\\n', 12 => '\\f', 13 => '\\r', 34 => '\\"', 92 => '\\\\');
+        for ($index = 0; $index < $length; ++$index) {
+            $byte = ord($value[$index]);
+            $lineTerminator = 0xE2 === $byte && $index + 2 < $length && 0x80 === ord($value[$index + 1]) && in_array(ord($value[$index + 2]), array(0xA8, 0xA9), true);
+            if ($lineTerminator || $byte < 32 || isset($escapes[$byte])) {
+                if ($index > $start) hash_update($context, substr($value, $start, $index - $start));
+                if ($lineTerminator) {
+                    hash_update($context, 0xA8 === ord($value[$index + 2]) ? '\\u2028' : '\\u2029');
+                    $index += 2;
+                } else {
+                    hash_update($context, $escapes[$byte] ?? sprintf('\\u%04x', $byte));
+                }
+                $start = $index + 1;
+            } elseif ($index - $start >= 8191) {
+                hash_update($context, substr($value, $start, $index - $start + 1));
+                $start = $index + 1;
+            }
+        }
+        if ($length > $start) hash_update($context, substr($value, $start));
+        hash_update($context, '"');
     }
 
     private static function canonical(mixed $value, int $depth = 0): mixed
