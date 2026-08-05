@@ -758,7 +758,8 @@ final class WordPressSitePlan
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
-        return preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        $hasJsonRoute = false !== stripos($content, '"url"') || false !== stripos($content, "'url'") || false !== stripos($content, '"action"') || false !== stripos($content, "'action'");
+        return $hasJsonRoute ? preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content : $content;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string
