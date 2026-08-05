@@ -1443,7 +1443,7 @@ final class ArtifactCompiler
     {
         $sources = array();
         foreach ( $files as $file ) {
-            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || '' === trim($file['content']) ) continue;
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || strlen($file['content']) === strspn($file['content'], " \t\n\r\0\x0B") ) continue;
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
