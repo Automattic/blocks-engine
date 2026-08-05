@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-head-meta-description-surfaced",
+  "description": "Named head metadata (meta name=description and social property tags) must surface in the transform result instead of being silently stripped, so consumers can consciously carry it to the destination document.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-head-meta-description-surfaced.json",
+    "notes": "Derived from design-preview pipelines where meta name=description vanished between authored HTML and preview output with no fallback or diagnostic, reading as a malformed design rather than a deliberate omission."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer head metadata reporting; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><title>Mira Vale</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"description\" content=\"Portfolio of Mira Vale, independent creative director.\"><meta property=\"og:title\" content=\"Mira Vale\"></head><body><main><h1>Work</h1></main></body></html>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.head_metadata", "assert": "count", "count": 2 },
+    { "path": "source_reports.head_metadata.0.name", "assert": "equals", "value": "description" },
+    { "path": "source_reports.head_metadata.0.content", "assert": "equals", "value": "Portfolio of Mira Vale, independent creative director." },
+    { "path": "source_reports.head_metadata.1.property", "assert": "equals", "value": "og:title" }
+  ]
+}

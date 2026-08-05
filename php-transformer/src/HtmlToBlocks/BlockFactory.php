@@ -20,6 +20,46 @@ final class BlockFactory
      */
     private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
 
+    /**
+     * Blocks whose supports.layout accepts an authored layout attribute, per
+     * the vendored block-library block.json files. Blocks declaring
+     * layout {allowEditing:false} (quote, details, accordion items) manage
+     * their own layout and never accept one; blocks without layout support
+     * (list, paragraph, image) reject the attribute entirely.
+     *
+     * @var array<string, true>
+     */
+    private const LAYOUT_SUPPORTING_BLOCKS = array(
+        'core/buttons'             => true,
+        'core/column'              => true,
+        'core/columns'             => true,
+        'core/comments-pagination' => true,
+        'core/cover'               => true,
+        'core/gallery'             => true,
+        'core/group'               => true,
+        'core/navigation'          => true,
+        'core/post-content'        => true,
+        'core/post-template'       => true,
+        'core/query'               => true,
+        'core/query-pagination'    => true,
+        'core/social-links'        => true,
+    );
+
+    /**
+     * The subset whose supports.layout permits switching to type grid
+     * (no allowSwitching:false pin to a fixed flex default).
+     *
+     * @var array<string, true>
+     */
+    private const GRID_LAYOUT_BLOCKS = array(
+        'core/column'       => true,
+        'core/cover'        => true,
+        'core/group'        => true,
+        'core/post-content' => true,
+        'core/post-template' => true,
+        'core/query'        => true,
+    );
+
     private ?StyleAttributeMapper $styleMapper = null;
 
     private function styleMapper(): StyleAttributeMapper
@@ -63,6 +103,19 @@ final class BlockFactory
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
+
+        // Layout is a block-supports opt-in. Stamping it on a block whose
+        // supports do not accept an authored layout bakes is-layout-* classes
+        // into save markup the block's canonical save never emits, so
+        // downstream re-serialization rejects the block and reverts it.
+        if ( isset($attrs['layout']) ) {
+            $layoutType = is_array($attrs['layout']) ? strtolower((string) ($attrs['layout']['type'] ?? '')) : '';
+            if ( ! isset(self::LAYOUT_SUPPORTING_BLOCKS[$name])
+                || ( 'grid' === $layoutType && ! isset(self::GRID_LAYOUT_BLOCKS[$name]) )
+            ) {
+                unset($attrs['layout']);
+            }
+        }
 
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.

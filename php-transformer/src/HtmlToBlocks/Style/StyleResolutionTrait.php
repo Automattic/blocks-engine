@@ -308,7 +308,7 @@ trait StyleResolutionTrait
             if ( in_array($property, array( 'background', 'background-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }
-            if ('' !== $value && ! preg_match('/[{}<>;]/', $value)) {
+            if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
                 $geometry[$property] = $value;
             }
         }
@@ -1252,7 +1252,9 @@ trait StyleResolutionTrait
      */
     private function autoRepeatMinimumColumnWidth(string $tracks): string
     {
-        if ( 1 === preg_match('/^repeat\(\s*auto-(?:fit|fill)\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches) ) {
+        if ( 1 === preg_match('/^repeat\(\s*auto-(?:fit|fill)\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches)
+            && 0.0 < (float) $matches[1]
+        ) {
             return strtolower($matches[1]);
         }
 
