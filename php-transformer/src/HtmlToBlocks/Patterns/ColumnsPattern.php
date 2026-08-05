@@ -51,6 +51,17 @@ final class ColumnsPattern
             return null;
         }
 
+        // core/columns is a flex layout; WordPress rejects it with is-layout-grid.
+        // The layout resolver stamps layout:{type:grid} from signals this
+        // recognizer's style-based grid bail cannot see (grid-ish class names,
+        // class-resolved display:grid), so a would-be columns container whose
+        // layout resolves to grid must decline here and demote to core/group,
+        // where grid layout is native.
+        $layout = ( $presentationAttributes($element) )['layout'] ?? null;
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') ) {
+            return null;
+        }
+
         $elementChildren = array();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
