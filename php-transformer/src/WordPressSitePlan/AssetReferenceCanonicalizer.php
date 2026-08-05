@@ -79,16 +79,22 @@ final class AssetReferenceCanonicalizer
         $content = preg_replace_callback('~<\s*[A-Za-z][A-Za-z0-9:-]*(?:\s+(?:"[^"]*"|\'[^\']*\'|[^\'"<>])*)?/?>~s', static fn(array $match): string => self::tag($match[0], $replace), $content) ?? $content;
         // RichText image attributes inside serialized block JSON use escaped
         // quotes, so they are not parsed as ordinary HTML tags above.
-        $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
-        $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
-        $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
-        $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
-        $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
-            return str_replace($match[1], self::css($match[1], $replace), $match[0]);
-        }, $content) ?? $content;
+        if (str_contains($content, '\\"')) {
+            $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
+        }
+        if (str_contains($content, '\\u0022')) {
+            $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
+        }
+        if (false !== stripos($content, '<style')) {
+            $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
+                return str_replace($match[1], self::css($match[1], $replace), $match[0]);
+            }, $content) ?? $content;
+        }
         // Block comments are the supported serialized JSON transport. Restricting
         // rewrites to them avoids treating arbitrary text or SVG data as markup.
-        return preg_replace_callback('~<!--\s*wp:.*?-->~is', static fn(array $match): string => self::json($match[0], $replace), $content) ?? $content;
+        return str_contains($content, '<!--') ? preg_replace_callback('~<!--\s*wp:.*?-->~is', static fn(array $match): string => self::json($match[0], $replace), $content) ?? $content : $content;
     }
 
     /** @param callable(string):string $replace */
