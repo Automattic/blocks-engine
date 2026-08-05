@@ -40,7 +40,7 @@
     { "path": "fallbacks.1.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" },
     { "path": "diagnostics.2.runtime_island_type", "assert": "equals", "value": "unsupported_custom_app_control" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<code><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "cards-grid blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout blocks-engine-css-owned-grid" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group feature-card blocks-engine-css-owned-layout\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "source_reports.html.source_provenance.0.context.structure_signals.grid_like", "assert": "equals", "value": true },

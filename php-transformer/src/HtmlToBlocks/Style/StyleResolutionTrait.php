@@ -1174,6 +1174,12 @@ trait StyleResolutionTrait
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
+            $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth(
+                (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '')
+            );
+            if ( '' !== $minimumColumnWidth ) {
+                return array( 'type' => 'grid', 'minimumColumnWidth' => $minimumColumnWidth );
+            }
             if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
@@ -1235,6 +1241,22 @@ trait StyleResolutionTrait
     {
         $value = strtolower(trim($value));
         return in_array($value, array( 'wrap', 'nowrap' ), true) ? $value : '';
+    }
+
+    /**
+     * A track list of exactly repeat(auto-fit|auto-fill, minmax(<width>, 1fr))
+     * is natively expressible as WordPress grid layout: core renders
+     * minimumColumnWidth as repeat(auto-fill, minmax(min(<width>, 100%), 1fr)).
+     * Every other track list (fixed counts, asymmetric tracks, nested
+     * functions) returns '' and stays under author CSS ownership.
+     */
+    private function autoRepeatMinimumColumnWidth(string $tracks): string
+    {
+        if ( 1 === preg_match('/^repeat\(\s*auto-(?:fit|fill)\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches) ) {
+            return strtolower($matches[1]);
+        }
+
+        return '';
     }
 
     /**

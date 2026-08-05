@@ -89,7 +89,11 @@ final class BlockFactory
             }
         }
 
-        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true)
+            // A native grid layout renders its gap from blockGap; stripping it
+            // would substitute the theme default for the source grid gap.
+            && ! ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') )
+        ) {
             unset($attrs['style']['spacing']['blockGap']);
             if ( empty($attrs['style']['spacing']) ) {
                 unset($attrs['style']['spacing']);

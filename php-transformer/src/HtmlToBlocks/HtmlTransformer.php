@@ -392,6 +392,24 @@ final class HtmlTransformer
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
 
+    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+
+    /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
+    private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
+        'display',
+        'grid-template-columns',
+        'grid-template-rows',
+        'grid-auto-flow',
+        'grid-auto-columns',
+        'grid-auto-rows',
+        'gap',
+        'row-gap',
+        'column-gap',
+        'align-items',
+        'justify-items',
+        'place-items',
+    );
+
     private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -922,6 +940,11 @@ final class HtmlTransformer
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
             $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
+            // Core flow margins are not part of a source grid contract; the
+            // carried grid geometry (gap) owns the spacing between items.
+            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
             // A semantic Group used as a direct grid/flex item contains native
@@ -3925,6 +3948,57 @@ final class HtmlTransformer
     private function cssOwnedGroupAttributes(DOMElement $element): array
     {
         $attrs = $this->presentationAttributes($element);
+        $layout = $attrs['layout'] ?? null;
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
+            // The source track list is exactly expressible as native grid
+            // layout, so WordPress owns the geometry and no css-owned
+            // demotion is needed. The author gap and container background ride
+            // on block supports so hairline-divider grids (gap:1px plus a
+            // background painting through the gaps) survive even without the
+            // materialized author stylesheet.
+            $declarations = $this->structuralPresentationDeclarations($element);
+            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $gap = trim((string) ($declarations['gap'] ?? ''));
+            if ( 1 === preg_match('/^[0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%)$/i', $gap) && ! isset($style['spacing']['blockGap']) ) {
+                $style['spacing'] = array_merge(is_array($style['spacing'] ?? null) ? $style['spacing'] : array(), array( 'blockGap' => $gap ));
+            }
+            $background = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
+            if ( '' !== $background && ! preg_match('/url\s*\(|gradient\(|[;{}<>]/i', $background) && ! isset($style['color']['background']) ) {
+                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
+            }
+            if ( array() !== $style ) {
+                $attrs['style'] = $style;
+            }
+
+            return $attrs;
+        }
+
+        $display = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')));
+        if ( in_array($display, array( 'grid', 'inline-grid' ), true) ) {
+            // A grid WordPress layout cannot express keeps its geometry under
+            // CSS ownership: inline grid declarations ride to the generated
+            // stylesheet on a carrier class, class-owned ones stay retained by
+            // author stylesheet materialization. The flow demotion would drop
+            // the tracks and stack the items vertically.
+            $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+            $carriedProperties = array() === array_intersect_key($inlineDeclarations, array_flip(self::CSS_OWNED_GRID_CARRIER_PROPERTIES))
+                ? array()
+                : self::CSS_OWNED_GRID_CARRIER_PROPERTIES;
+            $attrs = $this->presentationAttributes($element, array(), $carriedProperties);
+            unset($attrs['layout']);
+            $attrs['className'] = $this->mergeClassNames(
+                (string) ($attrs['className'] ?? ''),
+                self::CSS_OWNED_LAYOUT_CLASS,
+                self::CSS_OWNED_GRID_CLASS
+            );
+            $attrs['style'] = array_merge(
+                is_array($attrs['style'] ?? null) ? $attrs['style'] : array(),
+                array( 'spacing' => array( 'blockGap' => '0' ) )
+            );
+
+            return $attrs;
+        }
+
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),

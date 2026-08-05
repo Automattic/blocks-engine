@@ -25,7 +25,9 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets", "assert": "count", "count": 1 },
+    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/css/source-author-f4582a2f44445ebc.css" },
+    { "path": "assets.1.content", "assert": "contains", "value": ":where(.wp-block-group.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}" },
     { "path": "assets.0.path", "assert": "equals", "value": "index.inline.css" },
     { "path": "assets.0.kind", "assert": "equals", "value": "css" },
     { "path": "assets.0.role", "assert": "equals", "value": "stylesheet" },
