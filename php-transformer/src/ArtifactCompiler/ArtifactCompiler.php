@@ -1407,6 +1407,10 @@ final class ArtifactCompiler
 		if ( array_key_exists($cacheKey, $this->themeStaticCssCache) ) {
 			return $this->themeStaticCssCache[$cacheKey];
 		}
+		if ( $includeNavigationCompat ) {
+			$css = $this->themeStaticCss($files, false);
+			return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
+		}
         $blocks = array();
         foreach ( $files as $file ) {
             $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
@@ -1431,11 +1435,7 @@ final class ArtifactCompiler
 
         $css = implode("\n", array_keys($blocks));
 
-        if ( ! $includeNavigationCompat ) {
-			return $this->themeStaticCssCache[$cacheKey] = $css;
-        }
-
-		return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
+		return $this->themeStaticCssCache[$cacheKey] = $css;
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
