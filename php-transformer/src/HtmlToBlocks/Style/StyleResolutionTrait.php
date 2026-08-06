@@ -393,6 +393,59 @@ trait StyleResolutionTrait
         return $className;
     }
 
+    /**
+     * A bare source <img> serializes inside a generated
+     * <figure class="wp-block-image">. An authored percentage height on the
+     * image then resolves against that auto-height figure instead of the
+     * source container and collapses the image to its intrinsic ratio. Carry
+     * height:100% on the injected figure so authored percentage sizing keeps
+     * resolving against the original container box. When the container height
+     * is auto the figure percentage computes back to auto, so the carry stays
+     * faithful even when the driving rule lives behind a media query.
+     */
+    private function injectedFigureHeightClassName(DOMElement $image): string
+    {
+        if ( ! $this->authorStylesDriveImageHeight($image) ) {
+            return '';
+        }
+
+        $rule = 'height:100% !important';
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
+        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+
+        return $className;
+    }
+
+    private function authorStylesDriveImageHeight(DOMElement $image): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($image);
+        foreach ( array( 'height', 'min-height' ) as $property ) {
+            if ( $this->isCssPercentageValue((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($image, $rule['selector']) ) {
+                continue;
+            }
+            foreach ( array( 'height', 'min-height' ) as $property ) {
+                if ( $this->isCssPercentageValue((string) ($rule['declarations'][$property] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isCssPercentageValue(string $value): bool
+    {
+        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+
+        return 1 === preg_match('/^\d+(?:\.\d+)?%$/', $value);
+    }
+
     private function geometryStructuralPath(DOMElement $element): string
     {
         $segments = array();
