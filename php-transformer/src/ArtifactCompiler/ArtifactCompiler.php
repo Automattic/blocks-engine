@@ -188,6 +188,13 @@ final class ArtifactCompiler
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
         $otherGeneratedAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => ! in_array($asset, $geometryAssets, true)));
+        if ( is_array($entry) ) {
+            $entryOwnership = $this->fileOwnership($entry);
+            foreach ( $geometryAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
+            unset($generatedAsset);
+            foreach ( $otherGeneratedAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
+            unset($generatedAsset);
+        }
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
@@ -3194,6 +3201,7 @@ final class ArtifactCompiler
                     'source_path'      => $asset['source_path'] ?? '',
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
+                    'compilation'      => $asset['compilation'] ?? null,
                 ),
                 static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
@@ -3454,6 +3462,9 @@ final class ArtifactCompiler
             }
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
+            }
+            if ( is_array($file['metadata']['compilation'] ?? null) ) {
+                $asset['compilation'] = $file['metadata']['compilation'];
             }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
