@@ -431,14 +431,16 @@ final class FontMaterializationPlanBuilder
      */
     public function fontRolesFromCss(string $css): array
     {
-        if ( '' === trim($css) || ! preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER) ) {
+        if ( '' === $css || ! preg_match('/\S/', $css) ) {
             return array();
         }
 
         $heading = '';
         $body = '';
-        foreach ( $rules as $rule ) {
-            if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2], $declaration) ) {
+        $offset = 0;
+        while ( preg_match('/([^{}]+)\{([^{}]*)\}/s', $css, $rule, PREG_OFFSET_CAPTURE, $offset) ) {
+            $offset = $rule[0][1] + strlen($rule[0][0]);
+            if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2][0], $declaration) ) {
                 continue;
             }
             $family = $this->primaryFamily((string) $declaration[1]);
@@ -446,7 +448,7 @@ final class FontMaterializationPlanBuilder
                 continue;
             }
 
-            $selectors = array_map('trim', explode(',', (string) $rule[1]));
+            $selectors = array_map('trim', explode(',', (string) $rule[1][0]));
             foreach ( $selectors as $selector ) {
                 if ( '' === $heading && preg_match('/(^|[\s>+~])h[1-6]\b/i', $selector) ) {
                     $heading = $family;
@@ -454,6 +456,9 @@ final class FontMaterializationPlanBuilder
                 if ( '' === $body && preg_match('/(^|[\s>+~])(body|html|:root|\*)\b/i', $selector) ) {
                     $body = $family;
                 }
+            }
+            if ( '' !== $heading && '' !== $body ) {
+                break;
             }
         }
 

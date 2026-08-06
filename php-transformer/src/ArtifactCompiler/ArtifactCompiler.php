@@ -183,14 +183,21 @@ final class ArtifactCompiler
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
         $otherGeneratedAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => ! in_array($asset, $geometryAssets, true)));
+        if ( is_array($entry) ) {
+            $entryOwnership = $this->fileOwnership($entry);
+            foreach ( $geometryAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
+            unset($generatedAsset);
+            foreach ( $otherGeneratedAssets as &$generatedAsset ) if ('css' === ($generatedAsset['kind'] ?? null)) $generatedAsset['compilation'] ??= $entryOwnership;
+            unset($generatedAsset);
+        }
         // Runtime loads the manifest in array order. Put carrier CSS before
         // authored assets so authored !important declarations preserve cascade.
         $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
-        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         if ( null !== $wordpressCompatAsset ) {
             $assets[] = $wordpressCompatAsset;
         }
@@ -219,7 +226,7 @@ final class ArtifactCompiler
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
                     'max_total_bytes' => $normalized['limits']['max_total_bytes'],
                 ),
-                'source_hash'     => hash('sha256', $normalized['hash_payload']),
+                'source_hash'     => $normalized['source_hash'],
                 'html'            => array(
                     'bytes'         => strlen($html),
                     'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
@@ -253,7 +260,7 @@ final class ArtifactCompiler
             array(
                 'source_format' => 'artifact',
                 'input_keys'    => $this->sourceOperationInputKeys($artifact),
-                'source_hash'   => hash('sha256', $normalized['hash_payload']),
+                'source_hash'   => $normalized['source_hash'],
             ),
         );
         // WordPressSitePlan consumes a canonical result envelope, so give it a
@@ -1407,6 +1414,10 @@ final class ArtifactCompiler
 		if ( array_key_exists($cacheKey, $this->themeStaticCssCache) ) {
 			return $this->themeStaticCssCache[$cacheKey];
 		}
+		if ( $includeNavigationCompat ) {
+			$css = $this->themeStaticCss($files, false);
+			return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
+		}
         $blocks = array();
         foreach ( $files as $file ) {
             $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
@@ -1431,11 +1442,7 @@ final class ArtifactCompiler
 
         $css = implode("\n", array_keys($blocks));
 
-        if ( ! $includeNavigationCompat ) {
-			return $this->themeStaticCssCache[$cacheKey] = $css;
-        }
-
-		return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
+		return $this->themeStaticCssCache[$cacheKey] = $css;
     }
 
     /** @return array<int,array{path:string,content:string,source_hash:string}> */
@@ -1443,7 +1450,7 @@ final class ArtifactCompiler
     {
         $sources = array();
         foreach ( $files as $file ) {
-            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || '' === trim($file['content']) ) continue;
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) || strlen($file['content']) === strspn($file['content'], " \t\n\r\0\x0B") ) continue;
             $sources[] = array('path' => (string) ($file['path'] ?? 'css:input'), 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])));
         }
         return self::sortedByPath($sources);
@@ -2688,7 +2695,7 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{files: array<int, array<string, mixed>>, bytes: int, hash_payload: string} $artifact
+     * @param array{files: array<int, array<string, mixed>>, bytes: int, source_hash: string} $artifact
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
      * @param array<int, array<string, mixed>> $blockTypes
@@ -2717,6 +2724,9 @@ final class ArtifactCompiler
                 : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) ) {
+                    if ( 'css' === ($generatedAsset['kind'] ?? null) ) {
+                        $generatedAsset['compilation'] = array('scope' => 'page', 'id' => $path);
+                    }
                     $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
                     $payload = is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? '');
                     $payloadHash = hash('sha256', $payload);
@@ -2807,7 +2817,7 @@ final class ArtifactCompiler
 
         return array(
             'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
-            'source_hash' => hash('sha256', $artifact['hash_payload']),
+            'source_hash' => $artifact['source_hash'],
             'entry_path'  => $entryPath,
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
@@ -3194,6 +3204,7 @@ final class ArtifactCompiler
                     'source_path'      => $asset['source_path'] ?? '',
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
+                    'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                 ),
                 static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
@@ -3455,6 +3466,7 @@ final class ArtifactCompiler
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
             }
+            if ( 'css' === ($file['kind'] ?? null) ) $asset['compilation'] = $this->fileOwnership($file);
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
                     $asset[$field] = (bool) $file[$field];

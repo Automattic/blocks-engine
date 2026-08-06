@@ -3094,6 +3094,8 @@ $assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontM
 $assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontMaterializationPlan['css'] ?? null), 'font materialization builds deterministic google fonts css');
 $assert(array('Open Sans', 'Poppins') === array_column($fontMaterializationPlan['fonts'] ?? array(), 'family'), 'font materialization excludes web-safe and CSS-wide family keywords');
 $assert('assets/css/fonts.css' === ($fontMaterializationPlan['stylesheets'][0]['path'] ?? null), 'font materialization emits stylesheet asset plan');
+$largeFontRoles = ( new FontMaterializationPlanBuilder() )->fontRolesFromCss(str_repeat('.utility{color:red}', 65536) . 'body{font-family:"Open Sans",sans-serif}h1{font-family:Poppins,sans-serif}');
+$assert(array('heading' => 'Poppins', 'body' => 'Open Sans') === $largeFontRoles, 'font role discovery scans large stylesheets without materializing every rule');
 
 $fontAwarePlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
     'theme' => array(

@@ -38,6 +38,7 @@ final class WordPressSitePlan
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         $pages = $this->pageHierarchy($pages, $routeMap);
+        $assets = $this->scopeAssets($assets, $pages);
         $routes = $this->routesForPages($pages);
         // Entry shells remain in compiled-site/v1 for existing consumers; the
         // canonical plan rebuilds them from full page shell candidates.
@@ -130,6 +131,8 @@ final class WordPressSitePlan
             if ( ! is_array($asset) || ! self::safePath($asset['source_path'] ?? null) || ! self::safePath($asset['target_path'] ?? null) || !is_string($asset['source'] ?? null) || !is_string($asset['role'] ?? null) || !is_string($asset['mime_type'] ?? null) || !is_int($asset['bytes'] ?? null) || $asset['bytes'] < 0 || !is_string($asset['token'] ?? null) || !self::hash($asset['reconciliation_identity'] ?? null) || !self::hash($asset['content_hash'] ?? null) || !is_string($assetContent) || $asset['reconciliation_identity'] !== self::identity('asset', $asset['source_path'], $asset['target_path']) || $asset['content_hash'] !== self::contentHash($assetContent) ) {
                 throw new InvalidArgumentException('WordPress site plan asset is structurally invalid.');
             }
+            if ('css' === $asset['kind']) self::assertAssetScopes($asset['scopes'] ?? null);
+            elseif (isset($asset['scopes'])) throw new InvalidArgumentException('Only stylesheet assets may declare runtime scopes.');
             self::unique($assetTargets, $asset['target_path'], 'asset target');
             self::unique($assetIdentities, $asset['reconciliation_identity'], 'asset reconciliation identity');
             $assetTokens[strtolower($asset['target_path'])] = $asset['token'];
@@ -160,6 +163,10 @@ final class WordPressSitePlan
             self::unique($pagePaths, $page['source_path'], 'page source');
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
+        }
+        foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
+            $page = $pagesBySource[$scope['source_path']] ?? null;
+            if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
         }
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
@@ -385,9 +392,31 @@ final class WordPressSitePlan
             $target = 'assets/' . str_replace('\\', '/', $compiledTarget);
             if ( ! self::safePath($target) ) throw new InvalidArgumentException('Compiled site asset lacks a safe target identity.');
             $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
-            $rows[] = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => self::contentHash($payload));
+            $rows[] = array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => self::contentHash($payload));
         }
         return $rows;
+    }
+
+    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
+    private function scopeAssets(array $assets, array $pages): array
+    {
+        $pagesBySource = array_column($pages, null, 'source_path');
+        foreach ($assets as &$asset) {
+            $compilation = $asset['compilation'] ?? null;
+            unset($asset['compilation']);
+            if ('css' !== $asset['kind']) continue;
+            if (null === $compilation || 'shared' === ($compilation['scope'] ?? null)) {
+                $asset['scopes'] = array(array('kind' => 'global'));
+                continue;
+            }
+            if (!is_array($compilation) || 'page' !== ($compilation['scope'] ?? null) || !is_string($compilation['id'] ?? null) || !is_array($pagesBySource[$compilation['id']] ?? null)) {
+                throw new InvalidArgumentException('A page-owned compiled asset must resolve to a canonical page.');
+            }
+            $page = $pagesBySource[$compilation['id']];
+            $asset['scopes'] = array(array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']));
+        }
+        unset($asset);
+        return $assets;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */
@@ -463,7 +492,17 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
     /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
-    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $references->reference($row['url'], self::value($document, 'source_path')); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } elseif ('links' === $kind) $row['url'] = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes) ?? $row['url']; } unset($row); } return $metadata; }
+    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } elseif ('links' === $kind) $row['url'] = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes) ?? $row['url']; } unset($row); } return $metadata; }
+    /** @param array<int,array<string,mixed>> $routes */
+    private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
+    {
+        $reference = $references->reference($url, $sourcePath);
+        if (null !== $reference) return $reference;
+        $entryRoot = self::entryRootFromDocuments($routes);
+        if ('' === $entryRoot) return null;
+        $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
+        return '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
@@ -670,7 +709,10 @@ final class WordPressSitePlan
         $lines = array("<?php", "add_action( 'wp_enqueue_scripts', static function (): void {");
         foreach ($assets as $asset) {
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
-            if ('css' === $asset['kind']) $lines[] = "    wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null );";
+            if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
+                $condition = self::bootstrapScopeCondition($scope);
+                $lines[] = "    if ( {$condition} ) wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null );";
+            }
         }
         $attributes = array();
         foreach ($scripts as $script) {
@@ -686,7 +728,7 @@ final class WordPressSitePlan
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
-                $condition = 'global' === $scope['kind'] ? 'true' : ($scope['front_page'] ? 'is_front_page()' : ('post' === $scope['kind'] ? "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )" : 'is_page() && ' . var_export($scope['route_path'], true) . " === trim( get_page_uri( get_queried_object_id() ), '/' )"));
+                $condition = self::bootstrapScopeCondition($scope);
                 $lines[] = "add_action( 'wp_enqueue_scripts', static function (): void { if ( {$condition} ) wp_enqueue_script( " . var_export($handle, true) . " ); }, " . (10 + $scope['order']) . " );";
             }
         }
@@ -699,6 +741,26 @@ final class WordPressSitePlan
             $lines[] = "}, 10, 2 );";
         }
         return implode("\n", $lines) . "\n";
+    }
+    /** @param array<string,mixed> $scope */
+    private static function bootstrapScopeCondition(array $scope): string
+    {
+        if ('global' === ($scope['kind'] ?? null)) return 'true';
+        if (!empty($scope['front_page'])) return 'is_front_page()';
+        if ('post' === ($scope['kind'] ?? null)) return "is_singular( 'post' ) && " . var_export($scope['reconciliation_identity'], true) . " === get_post_meta( get_queried_object_id(), '_blocks_engine_reconciliation_identity', true )";
+        return 'is_page() && ' . var_export($scope['route_path'], true) . " === trim( get_page_uri( get_queried_object_id() ), '/' )";
+    }
+    private static function assertAssetScopes(mixed $scopes): void
+    {
+        if (!is_array($scopes) || array() === $scopes) throw new InvalidArgumentException('WordPress site plan asset scopes must be a nonempty array.');
+        foreach ($scopes as $scope) {
+            if (!is_array($scope) || !in_array($scope['kind'] ?? null, array('global', 'page', 'post'), true)) throw new InvalidArgumentException('WordPress site plan asset scope is invalid.');
+            if ('global' === $scope['kind']) {
+                if (array('kind') !== array_keys($scope)) throw new InvalidArgumentException('A global asset scope cannot declare page fields.');
+                continue;
+            }
+            if (array('kind', 'source_path', 'route_path', 'reconciliation_identity', 'front_page') !== array_keys($scope) || !self::safePath($scope['source_path']) || !is_string($scope['route_path']) || !self::hash($scope['reconciliation_identity']) || !is_bool($scope['front_page'])) throw new InvalidArgumentException('A page asset scope is structurally invalid.');
+        }
     }
     /** @return array<string,mixed> */
     private function write(string $kind, string $target, string $content, ?string $sourcePath = null, string $encoding = 'utf8'): array { $sourcePath ??= 'wordpress-site-plan/' . $target; return array('kind' => $kind, 'source_path' => $sourcePath, 'target_path' => $target, 'reconciliation_identity' => self::identity('write', $sourcePath, $target), 'payload_hash' => self::contentHash($content), 'payload' => array('encoding' => $encoding, 'data' => $content)); }
@@ -758,7 +820,15 @@ final class WordPressSitePlan
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
-        return preg_replace_callback('/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        $jsonPattern = '/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
+        $offset = 0;
+        while (preg_match($jsonPattern, $content, $match, PREG_OFFSET_CAPTURE, $offset)) {
+            if (null !== $this->routeReference($match[2][0], $origin, $routes)) {
+                return preg_replace_callback($jsonPattern, $replace, $content) ?? $content;
+            }
+            $offset = $match[0][1] + strlen($match[0][0]);
+        }
+        return $content;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string
