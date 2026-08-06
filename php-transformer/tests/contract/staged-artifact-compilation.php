@@ -12,7 +12,8 @@ $artifact = array(
     'entrypoints' => array('index.html'),
     'files' => array(
         array('path' => 'assets/site.css', 'content' => 'main{color:#123}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
-        array('path' => 'about.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>About</h1></main>'),
+        array('path' => 'assets/about.css', 'content' => '.about-grid{display:grid;grid-template-columns:1fr 1fr}', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'about.html'))),
+        array('path' => 'about.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/about.css"><main class="about-grid"><h1>About</h1></main>'),
         array('path' => 'contact.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Contact</h1></main>'),
         array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Home</h1></main>'),
     ),
@@ -30,10 +31,10 @@ $assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 1 === $sha
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
 $inlineArtifact = $artifact;
-$inlineArtifact['files'][1]['content'] .= '<style>main{gap:1rem}</style><script>console.log("about");</script>';
+$inlineArtifact['files'][2]['content'] .= '<style>main{gap:1rem}</style><script>console.log("about");</script>';
 $inlineShared = $compiler->prepareShared($inlineArtifact);
 $assert(1 === $inlineShared['summary']['file_count'], 'Shared preparation excludes page-owned inline expansions.');
-$assert(3 === $compiler->preparePage($inlineArtifact, $inlineShared, 'about.html')['summary']['file_count'], 'Page preparation owns the page html plus its inline expansions.');
+$assert(4 === $compiler->preparePage($inlineArtifact, $inlineShared, 'about.html')['summary']['file_count'], 'Page preparation owns explicit and inline page assets with the page html.');
 
 $pageIds = array('index.html', 'about.html', 'contact.html');
 $pages = array();
@@ -47,6 +48,19 @@ $staged = $compiler->compose($resumedShared, $resumedPages)->toArray();
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
+$sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
+$siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
+$siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
+$bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
+$assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
+$assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && str_contains($bootstrap, "if ( is_page() && 'about' === trim( get_page_uri( get_queried_object_id() ), '/' ) ) wp_enqueue_style"), 'Page-owned stylesheets enqueue only on their canonical WordPress route.');
+$inlineEntryArtifact = $inlineArtifact;
+$inlineEntryArtifact['entrypoints'] = array('about.html');
+$inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
+$assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
+$generatedStylesheet = current(array_filter($sitePlan['assets'] ?? array(), static fn(array $asset): bool => str_starts_with((string) ($asset['source_path'] ?? ''), 'assets/css/source-author-')));
+$assert(is_array($generatedStylesheet) && 'about.html' === ($generatedStylesheet['scopes'][0]['source_path'] ?? null), 'Stylesheets generated while compiling a non-entry document remain scoped to that document route.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
 
