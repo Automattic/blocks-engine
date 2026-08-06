@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-all-reset-opts-out-of-class-recipe",
+  "description": "An element declaring an inline `all:unset` reset alongside a class must not carry that class onto the block: the reset cannot ride to the saved markup, so the materialized author stylesheet would reassert the very class recipe (background, padding, negative margins) the author explicitly opted out of. Inline declarations that follow the reset still map to block supports, and inline geometry still rides the generated carrier.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-all-reset-opts-out-of-class-recipe.json",
+    "notes": "Derived from a portfolio Selected Work heading reusing the hero-copy class with style=\"all:unset;font-size:...;display:block;max-width:18ch\". Dropping the reset while keeping the class rendered the hero recipe's dark padded box with a -118px margin overlapping the eyebrow above it."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer inline-style reset semantics; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.hero-copy{background:#211e1b;color:#f4ede2;padding:54px 56px;margin-top:-118px;max-width:44rem}.hero-eyebrow{margin:0 0 14px;letter-spacing:.1em}</style></head><body><section><p class=\"hero-eyebrow\">Selected Work</p><h2 class=\"hero-copy\" style=\"all:unset;font-size:clamp(1.7rem,5.6vw,3rem);line-height:.95;display:block;max-width:18ch\">Systems, campaigns, objects.</h2><p>Six engagements that show the range.</p></section></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Systems, campaigns, objects." },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "hero-copy" },
+    { "path": "blocks.0.innerBlocks.1.attrs.style.typography.fontSize", "assert": "equals", "value": "clamp(1.7rem,5.6vw,3rem)" },
+    { "path": "blocks.0.innerBlocks.1.attrs.style.color", "assert": "equals" },
+    { "path": "blocks.0.innerBlocks.1.attrs.style.spacing", "assert": "equals" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero-eyebrow" }
+  ]
+}

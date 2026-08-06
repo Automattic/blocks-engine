@@ -180,7 +180,7 @@ trait StyleResolutionTrait
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
-                $this->promotedClassName($this->attr($element, 'class')),
+                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -508,6 +508,24 @@ trait StyleResolutionTrait
         return $required;
     }
 
+    private function isCssAllResetValue(string $value): bool
+    {
+        $value = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value));
+
+        return in_array($value, array( 'unset', 'initial', 'revert', 'revert-layer' ), true);
+    }
+
+    /**
+     * An inline `all` reset is the author's explicit opt-out of every
+     * class-owned recipe on this element. The reset itself cannot ride to the
+     * block, so the source classes must not either: the materialized author
+     * stylesheet would reassert the very declarations the reset removed.
+     */
+    private function inlineStyleDeclaresAllReset(DOMElement $element): bool
+    {
+        return $this->isCssAllResetValue((string) ($this->cssDeclarations($this->attr($element, 'style'))['all'] ?? ''));
+    }
+
     private function mergePresentationClassNames(string ...$classNames): string
     {
         $classes = array();
@@ -545,7 +563,14 @@ trait StyleResolutionTrait
         }
 
         $style = $this->mergedPresentationStyle($element);
-        $this->presentationDeclarationsCache[$cacheKey] = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        $declarations = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        // Elements below the high-value boundary skip declaration merging, so
+        // an inline `all` reset can still reach here verbatim. It maps to no
+        // block support and must not leak into layout/style resolution.
+        if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
+            unset($declarations['all']);
+        }
+        $this->presentationDeclarationsCache[$cacheKey] = $declarations;
 
         return $this->presentationDeclarationsCache[$cacheKey];
     }
@@ -1020,6 +1045,19 @@ trait StyleResolutionTrait
     private function mergeCssDeclarationMaps(array $base, array $incoming): array
     {
         foreach ( $incoming as $property => $value ) {
+            if ( 'all' === $property && $this->isCssAllResetValue($value) ) {
+                // `all:unset|initial|revert` resets every longhand except
+                // custom properties, direction, and unicode-bidi; earlier
+                // declarations cannot survive the reset regardless of origin.
+                // The keyword itself never rides forward: honoring it means
+                // dropping what it reset, not serializing `all`.
+                foreach ( array_keys($base) as $existing ) {
+                    if ( ! str_starts_with($existing, '--') && ! in_array($existing, array( 'direction', 'unicode-bidi' ), true) ) {
+                        unset($base[$existing]);
+                    }
+                }
+                continue;
+            }
             if ( 'background' === $property ) {
                 foreach ( array_keys($base) as $existing ) {
                     if ( 'background' === $existing || str_starts_with($existing, 'background-') ) {
