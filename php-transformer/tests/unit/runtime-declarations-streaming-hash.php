@@ -14,6 +14,7 @@ $values = array(
     array("key\u{2028}" => "value\u{2029}"),
     array('z' => array(3, 2, 1), 'a' => 'unicode-é', 4 => false),
     array(2 => 'x', 0 => 'a', 1 => 'b'),
+    array(0 => 'a', 2 => 'b'),
     array(array('nested' => array('b' => 2, 'a' => 1))),
 );
 
