@@ -11463,6 +11463,8 @@ final class HtmlTransformer
         $attrs = $this->presentationAttributes($figure ?? $image);
         if ( $figure instanceof DOMElement ) {
             $attrs['className'] = $this->mergeClassNames($this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image));
+        } else {
+            $attrs['className'] = $this->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->injectedFigureHeightClassName($image));
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));

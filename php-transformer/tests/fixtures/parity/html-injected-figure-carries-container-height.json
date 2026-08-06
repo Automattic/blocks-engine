@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-injected-figure-carries-container-height",
+  "description": "A bare source <img> whose authored CSS drives a percentage height (including behind a media query) must carry height:100% on the injected wp-block-image figure. Without the carry the authored img{height:100%} resolves against the auto-height figure instead of the source container and the image collapses to a short intrinsic-ratio strip.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-injected-figure-carries-container-height.json",
+    "notes": "Derived from a restaurant hero where <img> is a direct child of .hero-media{height:100%} with a desktop media rule .hero-media img{height:100%;min-height:100%}. The injected figure (height:auto) broke the percentage chain and left empty space below the hearth image."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer image serialization behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.hero{display:grid}.hero-media{position:relative;margin-top:24px}.hero-media img{width:100%;aspect-ratio:16/10;object-fit:cover}@media (min-width:960px){.hero{grid-template-columns:1fr 1fr}.hero-media{height:100%}.hero-media img{height:100%;width:100%;aspect-ratio:auto;min-height:100%}}</style></head><body><section class=\"hero\"><div class=\"hero-copy\"><h1>Fire and Season</h1></div><div class=\"hero-media\"><img src=\"https://example.com/assets/hearth.jpg\" alt=\"Live wood fire in an open hearth\"></div><div class=\"hero-band\"><p>Hearth hours: Wednesday through Sunday.</p></div></section></body></html>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero-media" },
+    { "path": "assets.0.content", "assert": "contains", "value": "{height:100% !important}" }
+  ]
+}

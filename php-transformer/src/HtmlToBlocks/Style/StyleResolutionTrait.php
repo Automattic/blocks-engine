@@ -180,7 +180,7 @@ trait StyleResolutionTrait
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
-                $this->promotedClassName($this->attr($element, 'class')),
+                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -393,6 +393,59 @@ trait StyleResolutionTrait
         return $className;
     }
 
+    /**
+     * A bare source <img> serializes inside a generated
+     * <figure class="wp-block-image">. An authored percentage height on the
+     * image then resolves against that auto-height figure instead of the
+     * source container and collapses the image to its intrinsic ratio. Carry
+     * height:100% on the injected figure so authored percentage sizing keeps
+     * resolving against the original container box. When the container height
+     * is auto the figure percentage computes back to auto, so the carry stays
+     * faithful even when the driving rule lives behind a media query.
+     */
+    private function injectedFigureHeightClassName(DOMElement $image): string
+    {
+        if ( ! $this->authorStylesDriveImageHeight($image) ) {
+            return '';
+        }
+
+        $rule = 'height:100% !important';
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
+        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+
+        return $className;
+    }
+
+    private function authorStylesDriveImageHeight(DOMElement $image): bool
+    {
+        $declarations = $this->structuralPresentationDeclarations($image);
+        foreach ( array( 'height', 'min-height' ) as $property ) {
+            if ( $this->isCssPercentageValue((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($image, $rule['selector']) ) {
+                continue;
+            }
+            foreach ( array( 'height', 'min-height' ) as $property ) {
+                if ( $this->isCssPercentageValue((string) ($rule['declarations'][$property] ?? '')) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isCssPercentageValue(string $value): bool
+    {
+        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+
+        return 1 === preg_match('/^\d+(?:\.\d+)?%$/', $value);
+    }
+
     private function geometryStructuralPath(DOMElement $element): string
     {
         $segments = array();
@@ -508,6 +561,24 @@ trait StyleResolutionTrait
         return $required;
     }
 
+    private function isCssAllResetValue(string $value): bool
+    {
+        $value = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value));
+
+        return in_array($value, array( 'unset', 'initial', 'revert', 'revert-layer' ), true);
+    }
+
+    /**
+     * An inline `all` reset is the author's explicit opt-out of every
+     * class-owned recipe on this element. The reset itself cannot ride to the
+     * block, so the source classes must not either: the materialized author
+     * stylesheet would reassert the very declarations the reset removed.
+     */
+    private function inlineStyleDeclaresAllReset(DOMElement $element): bool
+    {
+        return $this->isCssAllResetValue((string) ($this->cssDeclarations($this->attr($element, 'style'))['all'] ?? ''));
+    }
+
     private function mergePresentationClassNames(string ...$classNames): string
     {
         $classes = array();
@@ -545,7 +616,14 @@ trait StyleResolutionTrait
         }
 
         $style = $this->mergedPresentationStyle($element);
-        $this->presentationDeclarationsCache[$cacheKey] = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        $declarations = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        // Elements below the high-value boundary skip declaration merging, so
+        // an inline `all` reset can still reach here verbatim. It maps to no
+        // block support and must not leak into layout/style resolution.
+        if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
+            unset($declarations['all']);
+        }
+        $this->presentationDeclarationsCache[$cacheKey] = $declarations;
 
         return $this->presentationDeclarationsCache[$cacheKey];
     }
@@ -1020,6 +1098,19 @@ trait StyleResolutionTrait
     private function mergeCssDeclarationMaps(array $base, array $incoming): array
     {
         foreach ( $incoming as $property => $value ) {
+            if ( 'all' === $property && $this->isCssAllResetValue($value) ) {
+                // `all:unset|initial|revert` resets every longhand except
+                // custom properties, direction, and unicode-bidi; earlier
+                // declarations cannot survive the reset regardless of origin.
+                // The keyword itself never rides forward: honoring it means
+                // dropping what it reset, not serializing `all`.
+                foreach ( array_keys($base) as $existing ) {
+                    if ( ! str_starts_with($existing, '--') && ! in_array($existing, array( 'direction', 'unicode-bidi' ), true) ) {
+                        unset($base[$existing]);
+                    }
+                }
+                continue;
+            }
             if ( 'background' === $property ) {
                 foreach ( array_keys($base) as $existing ) {
                     if ( 'background' === $existing || str_starts_with($existing, 'background-') ) {
