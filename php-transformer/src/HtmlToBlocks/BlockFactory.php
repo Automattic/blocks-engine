@@ -127,7 +127,7 @@ final class BlockFactory
 
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
-        if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/image', 'core/list-item', 'core/paragraph', 'core/separator' ), true) ) {
+        if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/image', 'core/list-item', 'core/media-text', 'core/paragraph', 'core/separator' ), true) ) {
             unset($attrs['style']['dimensions']['maxWidth']);
             if ( empty($attrs['style']['dimensions']) ) {
                 unset($attrs['style']['dimensions']);
@@ -135,6 +135,23 @@ final class BlockFactory
             if ( empty($attrs['style']) ) {
                 unset($attrs['style']);
             }
+        }
+
+        if ( 'core/media-text' === $name ) {
+            $supportedStyleGroups = array( 'border', 'color', 'elements', 'spacing', 'typography' );
+            if ( is_array($attrs['style'] ?? null) ) {
+                foreach ( array_keys($attrs['style']) as $styleGroup ) {
+                    if ( ! in_array($styleGroup, $supportedStyleGroups, true) ) {
+                        unset($attrs['style'][ $styleGroup ]);
+                    }
+                }
+                if ( empty($attrs['style']) ) {
+                    unset($attrs['style']);
+                }
+            } else {
+                unset($attrs['style']);
+            }
+            unset($attrs['inlineGeometryStyle']);
         }
 
         if ( 'core/separator' === $name ) {
@@ -150,7 +167,7 @@ final class BlockFactory
             }
         }
 
-        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true)
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/media-text', 'core/paragraph' ), true)
             // A native grid layout renders its gap from blockGap; stripping it
             // would substitute the theme default for the source grid gap.
             && ! ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') )
@@ -206,6 +223,20 @@ final class BlockFactory
         }
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
+        }
+        if ( 'core/media-text' === $name ) {
+            if ( '' === ($attrs['mediaAlt'] ?? null) ) {
+                unset($attrs['mediaAlt']);
+            }
+            if ( 'left' === ($attrs['mediaPosition'] ?? null) ) {
+                unset($attrs['mediaPosition']);
+            }
+            if ( is_numeric($attrs['mediaWidth'] ?? null) && 50.0 === (float) $attrs['mediaWidth'] ) {
+                unset($attrs['mediaWidth']);
+            }
+            if ( true === ($attrs['isStackedOnMobile'] ?? null) ) {
+                unset($attrs['isStackedOnMobile']);
+            }
         }
 
         return $attrs;
@@ -403,6 +434,10 @@ final class BlockFactory
             return $this->coverHtml($attrs, $innerBlocks);
         }
 
+        if ( 'core/media-text' === $name ) {
+            return $this->mediaTextHtml($attrs, $innerBlocks);
+        }
+
         if ( 'core/group' === $name ) {
             $tag = $this->groupTagName($attrs['tagName'] ?? null);
             return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</' . $tag . '>' );
@@ -487,6 +522,99 @@ final class BlockFactory
                 . '<div class="wp-block-cover__inner-container">',
             'closing' => '</div></div>',
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @param array<int, array<string, mixed>> $innerBlocks
+     * @return array{opening: string, closing: string}
+     */
+    private function mediaTextHtml(array $attrs, array $innerBlocks): array
+    {
+        unset($innerBlocks);
+
+        $mediaOnRight = 'right' === ($attrs['mediaPosition'] ?? 'left');
+        $verticalAlignment = (string) ($attrs['verticalAlignment'] ?? '');
+        if ( ! in_array($verticalAlignment, array( 'top', 'center', 'bottom' ), true) ) {
+            $verticalAlignment = '';
+        }
+
+        $wrapperClasses = array( 'wp-block-media-text' );
+        if ( $mediaOnRight ) {
+            $wrapperClasses[] = 'has-media-on-the-right';
+        }
+        if ( ! array_key_exists('isStackedOnMobile', $attrs) || false !== $attrs['isStackedOnMobile'] ) {
+            $wrapperClasses[] = 'is-stacked-on-mobile';
+        }
+        if ( '' !== $verticalAlignment ) {
+            $wrapperClasses[] = 'is-vertically-aligned-' . $verticalAlignment;
+        }
+        if ( ! empty($attrs['style']['elements']['link']['color']) ) {
+            $wrapperClasses[] = 'has-link-color';
+        }
+
+        $wrapperAttrs = $attrs;
+        $wrapperStyle = '';
+        if ( is_numeric($attrs['mediaWidth'] ?? null) ) {
+            $mediaWidth = (int) round((float) $attrs['mediaWidth']);
+            if ( 50 !== $mediaWidth ) {
+                $gridTemplateColumns = $mediaOnRight
+                    ? 'auto ' . (string) $mediaWidth . '%'
+                    : (string) $mediaWidth . '% auto';
+                $wrapperStyle = 'grid-template-columns:' . $gridTemplateColumns;
+            }
+        }
+
+        $wrapperOpening = '<div' . $this->blockSupportAttrs($wrapperAttrs, implode(' ', $wrapperClasses), $wrapperStyle) . '>';
+        $contentOpening = '<div class="wp-block-media-text__content">';
+        $figure = '<figure class="wp-block-media-text__media">' . $this->mediaTextMediaHtml($attrs) . '</figure>';
+
+        if ( $mediaOnRight ) {
+            return array(
+                'opening' => $wrapperOpening . $contentOpening,
+                'closing' => '</div>' . $figure . '</div>',
+            );
+        }
+
+        return array(
+            'opening' => $wrapperOpening . $figure . $contentOpening,
+            'closing' => '</div></div>',
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function mediaTextMediaHtml(array $attrs): string
+    {
+        $mediaUrl = (string) ($attrs['mediaUrl'] ?? '');
+        if ( 'video' === ($attrs['mediaType'] ?? '') ) {
+            return '<video controls' . $this->htmlAttrs(array( 'src' => $mediaUrl )) . '></video>';
+        }
+
+        if ( 'image' !== ($attrs['mediaType'] ?? '') ) {
+            return '';
+        }
+
+        $image = '';
+        if ( '' !== $mediaUrl ) {
+            $image = '<img' . $this->htmlAttrs(array(
+                'src' => $mediaUrl,
+                'alt' => (string) ($attrs['mediaAlt'] ?? ''),
+            ), array( 'alt' )) . '/>';
+        }
+
+        $href = (string) ($attrs['href'] ?? '');
+        if ( '' === $href ) {
+            return $image;
+        }
+
+        return '<a' . $this->htmlAttrs(array(
+            'class'  => (string) ($attrs['linkClass'] ?? ''),
+            'href'   => $href,
+            'target' => (string) ($attrs['linkTarget'] ?? ''),
+            'rel'    => (string) ($attrs['rel'] ?? ''),
+        )) . '>' . $image . '</a>';
     }
 
     /**
@@ -868,14 +996,19 @@ final class BlockFactory
     /**
      * @param array<string, mixed> $attrs
      */
-    private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
+    private function blockSupportAttrs(array $attrs, string $baseClass = '', ?string $styleOverride = null): string
     {
         $support = $this->styleSupport($attrs['style'] ?? null);
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $alignmentClasses = $this->textAlignmentClasses($attrs);
         $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
-        $style = trim((string) $support['style'] . ';' . (string) ($attrs['inlineGeometryStyle'] ?? ''), ';');
+        $style = trim(
+            (string) $support['style'] . ';' . (null === $styleOverride
+                ? (string) ($attrs['inlineGeometryStyle'] ?? '')
+                : $styleOverride),
+            ';'
+        );
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,

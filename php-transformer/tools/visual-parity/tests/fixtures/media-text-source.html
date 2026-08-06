@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Text Visual Parity Source</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: rgb(247, 244, 238);
+      color: rgb(37, 45, 42);
+      font-family: Arial, sans-serif;
+      padding: 32px;
+    }
+    .media-text-probe {
+      align-items: center;
+      background: rgb(231, 238, 231);
+      display: grid;
+      grid-template-columns: 40% auto;
+      margin: 0 auto;
+      max-width: 960px;
+      min-height: 420px;
+      overflow: hidden;
+    }
+    .media-text-probe > figure {
+      align-self: stretch;
+      grid-column: 1;
+      grid-row: 1;
+      margin: 0;
+      min-height: 420px;
+    }
+    .media-text-probe > figure img {
+      display: block;
+      height: 100%;
+      object-fit: cover;
+      width: 100%;
+    }
+    .media-text-probe > div {
+      grid-column: 2;
+      grid-row: 1;
+      padding: 48px;
+    }
+    .media-text-probe h2 {
+      color: rgb(31, 67, 54);
+      font-size: 38px;
+      line-height: 1.15;
+      margin: 0 0 18px;
+    }
+    .media-text-probe p {
+      color: rgb(61, 75, 68);
+      font-size: 18px;
+      line-height: 1.6;
+      margin: 0;
+      max-width: 34rem;
+    }
+    @media (max-width: 600px) {
+      body { padding: 16px; }
+      .media-text-probe { grid-template-columns: 100%; }
+      .media-text-probe > figure {
+        grid-column: 1;
+        grid-row: 1;
+        min-height: 240px;
+      }
+      .media-text-probe > div {
+        grid-column: 1;
+        grid-row: 2;
+        padding: 28px;
+      }
+      .media-text-probe h2 { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <section class="media-text-probe">
+    <figure>
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAJCAIAAACAMfp5AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAQUlEQVQImW3NsQnAMBBDUU6Q35zWyCQewPtvk+KKgK1OPJBU715GRo1MTTZS1H6U1SjrTAX9Pw41lbWncatRVqMPBQUGNd88KkYAAAAASUVORK5CYII=" alt="Abstract green and gold gradient">
+    </figure>
+    <div>
+      <h2>Stories built side by side</h2>
+      <p>A strict two-pane composition keeps expressive media and editable text together without losing the original visual rhythm.</p>
+    </div>
+  </section>
+</body>
+</html>

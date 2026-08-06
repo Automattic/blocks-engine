@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. Entries are
 ## [0.4.10] - 2026-07-28
 
 ### Changed
+- Convert strict two-pane media/text layouts to core/media-text
 - Preserve label value row geometry
 - Cover synthetic paragraph parity
 - Reset synthetic paragraph margins

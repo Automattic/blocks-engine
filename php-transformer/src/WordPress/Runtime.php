@@ -30,6 +30,7 @@ final class Runtime
         'core/list',
         'core/list-item',
         'core/math',
+        'core/media-text',
         'core/navigation',
         'core/navigation-link',
         'core/navigation-submenu',

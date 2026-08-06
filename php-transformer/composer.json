@@ -66,6 +66,8 @@
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",
+      "php tests/unit/media-text-block-factory.php",
+      "php tests/unit/media-text-pattern.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",
       "php tests/unit/css-selector-matcher.php",

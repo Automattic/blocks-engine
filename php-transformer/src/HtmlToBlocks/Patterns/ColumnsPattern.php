@@ -28,6 +28,7 @@ use DOMElement;
 final class ColumnsPattern
 {
     use PatternDomHelpersTrait;
+    use PatternGateHelpersTrait;
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks
@@ -146,21 +147,6 @@ final class ColumnsPattern
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || $this->hasSidebarAndContentChildren($element)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
-    }
-
-    /**
-     * True when the resolved style declares a flex container whose main axis is
-     * vertical (flex-direction: column / column-reverse). flex-direction only has
-     * meaning on a flex container, so both display:flex and the column direction
-     * are required before redirecting away from horizontal columns.
-     */
-    private function isVerticalFlexContainer(string $style): bool
-    {
-        if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) ) {
-            return false;
-        }
-
-        return (bool) preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style);
     }
 
     private function looksLikeSplitLayout(DOMElement $element): bool
