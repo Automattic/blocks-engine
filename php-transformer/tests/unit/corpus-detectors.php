@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Unit tests for the corpus-diagnostics detectors.
  *
  * Plain-PHP test script in the style of tests/unit/css-value-splitter.php — no
- * PHPUnit. The four hardened detectors are exercised:
+ * PHPUnit. The five hardened detectors are exercised:
  *   1. RichText editor-invalid risk: a class/style-bearing inline <span>/<a> in
  *      paragraph/heading/list-item content is the authoritative invalidity
  *      signal, ranked HIGH (structural wp_block_validity=0 is not "no invalid
@@ -16,6 +16,8 @@ declare(strict_types=1);
  *   3. SVG loss: an <svg>-sourced empty/comment-only core/html flags
  *      svg_content_lost, while a shape-bearing svg core/html does NOT.
  *   4. var density is informational (severity=info), not a top-ranked repair gap.
+ *   5. Media-text corpus metrics count emitted blocks and assign each strict
+ *      two-pane candidate to at most one source-derived gate outcome.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -294,6 +296,205 @@ $assert(
     1 === count($collectedCoverRejections),
     '7d: collect wires cover-gate rejection findings into the report',
     'got ' . count($collectedCoverRejections)
+);
+
+// ---------------------------------------------------------------------------
+// 8. Media-text corpus metrics: emitted blocks plus deterministic, exclusive
+//    gate outcomes for strict two-pane source candidates. width_oob is a
+//    diagnostic outcome only: the candidate still emits core/media-text.
+// ---------------------------------------------------------------------------
+$mediaTextCounterKeys = array(
+    'media_text_decline_media_impure_count',
+    'media_text_decline_no_text_side_count',
+    'media_text_decline_vertical_or_reversed_count',
+    'media_text_decline_unsafe_url_count',
+    'media_text_width_oob_count',
+    'media_text_decline_linked_video_count',
+    'media_text_decline_other_count',
+    'media_text_diagnostic_error_count',
+);
+$mediaTextCases = array(
+    'media_text_decline_media_impure_count' => '<section><figure><img src="/feature.jpg">Caption</figure><div><h2>Title</h2><p>Body</p></div></section>',
+    'media_text_decline_no_text_side_count' => '<section><figure><img src="/feature.jpg"></figure><div><hr></div></section>',
+    'media_text_decline_vertical_or_reversed_count' => '<html><head><style>.pair{display:flex;flex-direction:column}</style></head><body><section class="pair"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section></body></html>',
+    'media_text_decline_unsafe_url_count' => '<section><figure><img src="javascript:alert(1)"></figure><div><h2>Title</h2></div></section>',
+    'media_text_width_oob_count' => '<section style="display:grid;grid-template-columns:5% auto"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section>',
+    'media_text_decline_linked_video_count' => '<section><a href="/watch"><video src="/feature.mp4"></video></a><div><h2>Title</h2></div></section>',
+    'media_text_decline_other_count' => '<section><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section>',
+);
+
+foreach ( $mediaTextCases as $expectedKey => $source ) {
+    $flat = 'media_text_width_oob_count' === $expectedKey
+        ? array( array( 'blockName' => 'core/media-text' ) )
+        : array();
+    $metrics = CorpusDetectors::collect(array( 'blocks' => $flat ), $source)['metrics'];
+    $actual = array();
+    foreach ( $mediaTextCounterKeys as $counterKey ) {
+        if ( 0 !== (int) ($metrics[ $counterKey ] ?? 0) ) {
+            $actual[ $counterKey ] = (int) $metrics[ $counterKey ];
+        }
+    }
+    $assert(
+        array( $expectedKey => 1 ) === $actual,
+        '8: media-text candidate has one exclusive outcome: ' . $expectedKey,
+        json_encode($actual)
+    );
+}
+
+$directRtlSource = '<section style="direction:rtl"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section>';
+$directRtlResult = ( new HtmlTransformer() )->transform($directRtlSource, array())->toArray();
+$directRtlMetrics = CorpusDetectors::collect($directRtlResult, $directRtlSource)['metrics'];
+$assert(
+    0 === (int) $directRtlMetrics['media_text_count']
+        && 1 === (int) $directRtlMetrics['media_text_decline_vertical_or_reversed_count'],
+    '8b: direction:rtl declared on candidate declines as vertical-or-reversed',
+    json_encode($directRtlMetrics)
+);
+
+$inheritedRtlSource = '<div style="direction:rtl"><section><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section></div>';
+$inheritedRtlResult = ( new HtmlTransformer() )->transform($inheritedRtlSource, array())->toArray();
+$inheritedRtlMetrics = CorpusDetectors::collect($inheritedRtlResult, $inheritedRtlSource)['metrics'];
+$assert(
+    0 === (int) $inheritedRtlMetrics['media_text_count']
+        && 1 === (int) $inheritedRtlMetrics['media_text_decline_vertical_or_reversed_count'],
+    '8c: inherited direction:rtl declines in production and diagnostics agree',
+    json_encode($inheritedRtlMetrics)
+);
+
+$nestedWrapperSource = '<div><section style="display:flex"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section><aside><p>Side</p></aside></div>';
+$nestedWrapperResult = ( new HtmlTransformer() )->transform($nestedWrapperSource, array())->toArray();
+$nestedWrapperMetrics = CorpusDetectors::collect($nestedWrapperResult, $nestedWrapperSource)['metrics'];
+$nestedWrapperDeclines = array_sum(array_map(
+    static fn (string $key): int => (int) $nestedWrapperMetrics[ $key ],
+    array_filter($mediaTextCounterKeys, static fn (string $key): bool => 'media_text_width_oob_count' !== $key)
+));
+$assert(
+    1 === (int) $nestedWrapperMetrics['media_text_count'] && 0 === $nestedWrapperDeclines,
+    '8c2: wrapper around a converting candidate is not itself counted as a declined candidate',
+    json_encode($nestedWrapperMetrics)
+);
+
+$conditionalLayouts = array(
+    'media' => '@media (min-width:1px){.pair{display:flex;flex-direction:column}}',
+    'supports' => '@supports (display:grid){.pair{display:flex;flex-direction:column}}',
+    'container' => '@container (min-width:1px){.pair{display:flex;flex-direction:column}}',
+);
+foreach ( $conditionalLayouts as $atRule => $conditionalCss ) {
+    $conditionalSource = '<html><head><style>' . $conditionalCss . '</style></head><body>'
+        . '<section class="pair"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section>'
+        . '</body></html>';
+    $conditionalResult = ( new HtmlTransformer() )->transform($conditionalSource, array())->toArray();
+    $conditionalMetrics = CorpusDetectors::collect($conditionalResult, $conditionalSource)['metrics'];
+    // No resting display means the mechanism gate declines the candidate;
+    // the conditional column direction must NOT be misclassified as a
+    // vertical/reversed decline — it lands in `other` via reconciliation.
+    $assert(
+        0 === (int) $conditionalMetrics['media_text_count']
+            && 0 === (int) $conditionalMetrics['media_text_decline_vertical_or_reversed_count']
+            && 1 === (int) $conditionalMetrics['media_text_decline_other_count'],
+        '8d: conditional @' . $atRule . ' layout affects neither resting gates nor vertical classification',
+        json_encode($conditionalMetrics)
+    );
+}
+
+$compoundClassSource = '<html><head><style>.pair.special{display:flex;flex-direction:column}</style></head><body>'
+    . '<section class="pair special"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section>'
+    . '</body></html>';
+$compoundClassResult = ( new HtmlTransformer() )->transform($compoundClassSource, array())->toArray();
+$compoundClassMetrics = CorpusDetectors::collect($compoundClassResult, $compoundClassSource)['metrics'];
+$assert(
+    0 === (int) $compoundClassMetrics['media_text_count']
+        && 1 === (int) $compoundClassMetrics['media_text_decline_vertical_or_reversed_count']
+        && 0 === (int) $compoundClassMetrics['media_text_decline_other_count'],
+    '8e: compound-class source rule drives same vertical gate as production matcher',
+    json_encode($compoundClassMetrics)
+);
+
+$tableTextSource = '<section><figure><img src="/feature.jpg"></figure><div><table><tr><td>Data</td></tr></table></div></section>';
+$tableTextResult = ( new HtmlTransformer() )->transform($tableTextSource, array())->toArray();
+$tableTextMetrics = CorpusDetectors::collect($tableTextResult, $tableTextSource)['metrics'];
+$assert(
+    0 === (int) $tableTextMetrics['media_text_count']
+        && 1 === (int) $tableTextMetrics['media_text_decline_no_text_side_count']
+        && 0 === (int) $tableTextMetrics['media_text_decline_other_count'],
+    '8f: text-bearing table lacks production text-bearing block and declines no-text-side',
+    json_encode($tableTextMetrics)
+);
+
+$nestedMediaTextBlocks = array(
+    array(
+        'blockName'   => 'core/group',
+        'innerBlocks' => array(
+            array( 'blockName' => 'core/media-text', 'innerBlocks' => array() ),
+        ),
+    ),
+    array( 'blockName' => 'core/media-text', 'innerBlocks' => array() ),
+);
+$emittedMetrics = CorpusDetectors::collect(array( 'blocks' => $nestedMediaTextBlocks ))['metrics'];
+$assert(
+    2 === (int) ($emittedMetrics['media_text_count'] ?? 0),
+    '8g: media_text_count includes emitted blocks at every depth',
+    (string) ($emittedMetrics['media_text_count'] ?? '(missing)')
+);
+$actualMediaTextKeys = array_values(array_filter(
+    array_keys($emittedMetrics),
+    static fn (string $key): bool => str_starts_with($key, 'media_text')
+));
+$assert(
+    array_merge(array( 'media_text_count' ), $mediaTextCounterKeys) === $actualMediaTextKeys,
+    '8h: media-text metrics expose exact frozen key set in stable order',
+    implode(',', $actualMediaTextKeys)
+);
+
+$widthSource = $mediaTextCases['media_text_width_oob_count'];
+$widthResult = ( new HtmlTransformer() )->transform($widthSource, array())->toArray();
+$widthCollected = CorpusDetectors::collect($widthResult, $widthSource);
+$assert(
+    1 === (int) ($widthCollected['metrics']['media_text_count'] ?? 0)
+        && 1 === (int) ($widthCollected['metrics']['media_text_width_oob_count'] ?? 0),
+    '8i: width_oob remains diagnostic while transformer emits core/media-text',
+    json_encode($widthCollected['metrics'])
+);
+$widthDeclined = CorpusDetectors::collect(array( 'blocks' => array() ), $widthSource)['metrics'];
+$assert(
+    0 === (int) $widthDeclined['media_text_width_oob_count']
+        && 1 === (int) $widthDeclined['media_text_decline_other_count'],
+    '8j: non-emitted width candidate is exclusively other, never width_oob',
+    json_encode($widthDeclined)
+);
+
+$summary = ( new CorpusDiagnosticsRunner() )->renderSummary(array(
+    'totals' => array(
+        'document_count' => 1,
+        'fixture_count' => 1,
+        'block_count' => 1,
+        'native_rate' => 1.0,
+        'finding_count' => 0,
+        'richtext_invalid_risk_count' => 0,
+        'invalid_block_count' => 0,
+        'svg_content_lost_count' => 0,
+        'layout_direction_misrecognition_count' => 0,
+        'var_ref_count' => 0,
+        'var_custom_ref_count' => 0,
+        'media_text_count' => 1,
+        'media_text_decline_media_impure_count' => 2,
+        'media_text_decline_no_text_side_count' => 3,
+        'media_text_decline_vertical_or_reversed_count' => 4,
+        'media_text_decline_unsafe_url_count' => 5,
+        'media_text_width_oob_count' => 6,
+        'media_text_decline_linked_video_count' => 7,
+        'media_text_decline_other_count' => 8,
+    ),
+    'clusters' => array(),
+));
+$expectedMediaTextLine = 'MEDIA-TEXT: media_text_count=1 media_text_decline_media_impure_count=2 '
+    . 'media_text_decline_no_text_side_count=3 media_text_decline_vertical_or_reversed_count=4 '
+    . 'media_text_decline_unsafe_url_count=5 media_text_width_oob_count=6 '
+    . 'media_text_decline_linked_video_count=7 media_text_decline_other_count=8';
+$assert(
+    str_contains($summary, $expectedMediaTextLine),
+    '8k: runner summary surfaces exact media_text adoption and gate values on one line',
+    $summary
 );
 
 if ( $failures > 0 ) {

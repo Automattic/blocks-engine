@@ -21,6 +21,7 @@ final class GeneratedGutenbergClassPolicy
         'core/details'   => 'wp-block-details',
         'core/heading'   => 'wp-block-heading',
         'core/list'      => 'wp-block-list',
+        'core/media-text' => 'wp-block-media-text',
         'core/quote'     => 'wp-block-quote',
         'core/separator' => 'wp-block-separator',
     );
