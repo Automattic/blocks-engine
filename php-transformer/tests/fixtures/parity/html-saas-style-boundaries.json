@@ -37,7 +37,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "serialized_blocks", "assert": "contains", "value": "site-header blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "trusted-by blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "trusted-by blocks-engine-css-owned-layout blocks-engine-css-owned-grid" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group has-border-color trusted-card blocks-engine-css-owned-layout\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "contains", "value": "beta-badge" },

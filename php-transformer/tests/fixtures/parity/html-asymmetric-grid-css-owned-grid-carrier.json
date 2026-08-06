@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-asymmetric-grid-css-owned-grid-carrier",
+  "description": "An inline-styled grid with asymmetric tracks (260px 1fr) is not expressible as native WordPress grid layout. Instead of the flow demotion that silently drops the grid geometry, the container must carry a blocks-engine-css-owned-grid marker plus a generated stylesheet rule preserving display:grid, the track list, and the gap.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-asymmetric-grid-css-owned-grid-carrier.json",
+    "notes": "Derived from portfolio sites whose sidebar/content splits use inline display:grid with asymmetric fr tracks; the css-owned flow demotion stacked the panes vertically because no mechanism carried the inline grid declarations into the generated stylesheet."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer layout classification behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"media-split\" style=\"display:grid;grid-template-columns:260px 1fr;gap:32px\"><div class=\"media-rail\"><p>Selected stills from the field.</p></div><div class=\"media-body\"><h2>Field Notes</h2><p>Photographs from three seasons of survey work.</p></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-css-owned-flow" },
+    { "path": "assets.0.content", "assert": "contains", "value": "display:grid" },
+    { "path": "assets.0.content", "assert": "contains", "value": "grid-template-columns:260px 1fr" },
+    { "path": "assets.0.content", "assert": "contains", "value": "gap:32px" }
+  ]
+}

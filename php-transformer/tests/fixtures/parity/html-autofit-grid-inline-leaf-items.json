@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-autofit-grid-inline-leaf-items",
+  "description": "An expressible auto-fit grid whose direct children are standalone inline text leaves keeps native grid layout while each leaf rides its own display:contents carrier paragraph, so the item count matches the source children and the spans themselves become the grid items. Locks the standalone-inline-leaf routing branch, which bypasses cssOwnedGroupAttributes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-autofit-grid-inline-leaf-items.json",
+    "notes": "Derived from client-logo strips built as bare styled spans inside repeat(auto-fit, minmax(W, 1fr)) grids. Guards against two failure modes: adjacent inline leaves coalescing into one paragraph (one grid item instead of N) and the branch dropping the native layout back to a vertical stack."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer layout classification behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.client-strip{display:grid;grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));gap:24px}.client{font-size:14px;letter-spacing:0.1em}</style></head><body><section class=\"client-strip\"><span class=\"client\">Acme Corp</span><span class=\"client\">Northwind</span><span class=\"client\">Initech</span><span class=\"client\">Umbrella</span></section></body></html>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": { "layout": { "type": "grid", "minimumColumnWidth": "190px" } }
+    },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": "24px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "is-layout-grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-inline-layout-carrier\"><span class=\"client\">Acme Corp</span></p>" }
+  ]
+}

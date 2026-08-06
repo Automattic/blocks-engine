@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-autofit-grid-maps-to-minimum-column-width",
+  "description": "An author-CSS grid container using repeat(auto-fit, minmax(W, 1fr)) is exactly expressible as native WordPress grid layout. It must become a core/group with layout {type:grid, minimumColumnWidth:W} instead of demoting to the css-owned flow group, which stacks the cards in a single column and loses the responsive multi-column arrangement.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-autofit-grid-maps-to-minimum-column-width.json",
+    "notes": "Derived from a portfolio homepage where .work-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)) } collapsed to a vertical stack after transform: the css-owned demotion dropped the layout attribute and the carried CSS never reproduced the auto-fit tracks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer layout classification behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.work-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:24px}.work-card h3{margin:0}</style></head><body><section class=\"work-grid\"><div class=\"work-card\"><h3>Ledger</h3><p>Design system for a fintech team.</p></div><div class=\"work-card\"><h3>Atlas</h3><p>Mapping tools for field research.</p></div><div class=\"work-card\"><h3>Relay</h3><p>Realtime dashboard for dispatch.</p></div></section></body></html>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": { "layout": { "type": "grid", "minimumColumnWidth": "240px" } }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "is-layout-grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"minimumColumnWidth\":\"240px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-css-owned-flow" }
+  ]
+}

@@ -22,7 +22,7 @@
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group release-grid blocks-engine-css-owned-layout blocks-engine-css-owned-flow\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group release-grid blocks-engine-css-owned-layout blocks-engine-css-owned-grid\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cover-wrap blocks-engine-css-owned-layout\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },

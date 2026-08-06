@@ -196,7 +196,7 @@ $externalLayoutCard = $externalLayouts['blocks'][0]['innerBlocks'][0] ?? array()
 $externalLayoutCardChildren = $externalLayoutCard['innerBlocks'] ?? array();
 $externalLayoutCss = implode("\n", array_column($externalLayouts['assets'] ?? array(), 'content'));
 $assert(
-    str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-flow')
+    str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-grid')
     && str_contains($externalLayoutPage, 'artifact-card blocks-engine-css-owned-layout')
     && ! str_contains($externalLayoutPage, 'is-layout-grid')
     && 4 === count($externalLayoutCard['innerBlocks'] ?? array())

@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-autofit-grid-carries-zero-gap",
+  "description": "An auto-fit grid with an explicit unitless gap:0 must carry blockGap '0' onto the native grid group; otherwise WordPress substitutes the theme's default block gap for a grid the author declared gapless.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-autofit-grid-carries-zero-gap.json",
+    "notes": "Companion to html-autofit-grid-carries-gap-and-background: the unitless-zero form of the gap declaration failed the original number+unit pattern, so gapless card walls rendered with the theme default gap."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer layout classification behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.wall-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:0}</style></head><body><section class=\"wall-grid\"><div><h3>One</h3></div><div><h3>Two</h3></div><div><h3>Three</h3></div></section></body></html>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": { "layout": { "type": "grid", "minimumColumnWidth": "200px" } }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": "0" }
+  ]
+}

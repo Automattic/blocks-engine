@@ -20,6 +20,54 @@ final class BlockFactory
      */
     private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
 
+    /**
+     * Blocks whose supports.layout accepts an authored layout attribute, per
+     * the vendored block-library block.json files. Blocks declaring
+     * layout {allowEditing:false} (quote, details, accordion items) manage
+     * their own layout and never accept one; blocks without layout support
+     * (list, paragraph, image) reject the attribute entirely.
+     *
+     * @var array<string, true>
+     */
+    private const LAYOUT_SUPPORTING_BLOCKS = array(
+        'core/accordion'           => true,
+        'core/buttons'             => true,
+        'core/column'              => true,
+        'core/comments-pagination' => true,
+        'core/cover'               => true,
+        'core/group'               => true,
+        'core/navigation'          => true,
+        'core/post-content'        => true,
+        'core/post-template'       => true,
+        'core/query'               => true,
+        'core/query-pagination'    => true,
+        'core/social-links'        => true,
+        'core/tab-list'            => true,
+        'core/tab-panel'           => true,
+        'core/term-template'       => true,
+        'core/terms-query'         => true,
+    );
+
+    /**
+     * The subset whose supports.layout permits switching to type grid
+     * (layout true, or an object without an allowSwitching:false pin to a
+     * fixed flex default).
+     *
+     * @var array<string, true>
+     */
+    private const GRID_LAYOUT_BLOCKS = array(
+        'core/accordion'     => true,
+        'core/column'        => true,
+        'core/cover'         => true,
+        'core/group'         => true,
+        'core/post-content'  => true,
+        'core/post-template' => true,
+        'core/query'         => true,
+        'core/tab-panel'     => true,
+        'core/term-template' => true,
+        'core/terms-query'   => true,
+    );
+
     private ?StyleAttributeMapper $styleMapper = null;
 
     private function styleMapper(): StyleAttributeMapper
@@ -64,6 +112,19 @@ final class BlockFactory
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
 
+        // Layout is a block-supports opt-in. Stamping it on a block whose
+        // supports do not accept an authored layout bakes is-layout-* classes
+        // into save markup the block's canonical save never emits, so
+        // downstream re-serialization rejects the block and reverts it.
+        if ( isset($attrs['layout']) ) {
+            $layoutType = is_array($attrs['layout']) ? strtolower((string) ($attrs['layout']['type'] ?? '')) : '';
+            if ( ! isset(self::LAYOUT_SUPPORTING_BLOCKS[$name])
+                || ( 'grid' === $layoutType && ! isset(self::GRID_LAYOUT_BLOCKS[$name]) )
+            ) {
+                unset($attrs['layout']);
+            }
+        }
+
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
         if ( in_array($name, array( 'core/group', 'core/column', 'core/columns', 'core/image', 'core/list-item', 'core/media-text', 'core/paragraph', 'core/separator' ), true) ) {
@@ -106,7 +167,11 @@ final class BlockFactory
             }
         }
 
-        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/media-text', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/media-text', 'core/paragraph' ), true)
+            // A native grid layout renders its gap from blockGap; stripping it
+            // would substitute the theme default for the source grid gap.
+            && ! ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') )
+        ) {
             unset($attrs['style']['spacing']['blockGap']);
             if ( empty($attrs['style']['spacing']) ) {
                 unset($attrs['style']['spacing']);

@@ -357,7 +357,7 @@ trait StyleResolutionTrait
             if ( in_array($property, array( 'background', 'background-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }
-            if ('' !== $value && ! preg_match('/[{}<>;]/', $value)) {
+            if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
                 $geometry[$property] = $value;
             }
         }
@@ -372,7 +372,13 @@ trait StyleResolutionTrait
             return '';
         }
 
-        ksort($geometry);
+        // Emit carried declarations in source order: with per-declaration
+        // !important, last-write-wins is decided by rule order, and an
+        // alphabetical sort silently flips shorthand/longhand winners
+        // (grid vs grid-template-columns, gap vs column-gap). Values not
+        // present inline (forced/custom-property fallbacks) sort last.
+        $sourceOrder = array_flip(array_keys($declarations));
+        uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
         $declarations = array();
         foreach ($geometry as $property => $value) {
             // A converted inline declaration must continue to outrank authored
@@ -1515,9 +1521,22 @@ trait StyleResolutionTrait
     private function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class));
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class) && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    /**
+     * Transformer-generated marker and carrier classes found in SOURCE markup
+     * (re-ingested transformer output) must be re-derived, not preserved as
+     * author classes: a preserved css-owned-grid marker would trip the
+     * grid-class heuristics and the carried margin reset. Emitted classNames
+     * are unaffected — this filters ingestion only.
+     */
+    private static function isTransformerMarkerClassName(string $className): bool
+    {
+        return str_starts_with($className, 'blocks-engine-')
+            || str_starts_with($className, 'be-inline-geometry-');
     }
 
     private static function isBehaviorHookClassName(string $className): bool
@@ -1583,6 +1602,12 @@ trait StyleResolutionTrait
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
+            $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth(
+                (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '')
+            );
+            if ( '' !== $minimumColumnWidth ) {
+                return array( 'type' => 'grid', 'minimumColumnWidth' => $minimumColumnWidth );
+            }
             if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
                 return array();
             }
@@ -1647,6 +1672,24 @@ trait StyleResolutionTrait
     }
 
     /**
+     * A track list of exactly repeat(auto-fit|auto-fill, minmax(<width>, 1fr))
+     * is natively expressible as WordPress grid layout: core renders
+     * minimumColumnWidth as repeat(auto-fill, minmax(min(<width>, 100%), 1fr)).
+     * Every other track list (fixed counts, asymmetric tracks, nested
+     * functions) returns '' and stays under author CSS ownership.
+     */
+    private function autoRepeatMinimumColumnWidth(string $tracks): string
+    {
+        if ( 1 === preg_match('/^repeat\(\s*auto-(?:fit|fill)\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches)
+            && 0.0 < (float) $matches[1]
+        ) {
+            return strtolower($matches[1]);
+        }
+
+        return '';
+    }
+
+    /**
      * Unambiguous grid class tokens: a bare `grid`, a numbered `grid-N`, or any
      * `*-grid` / `*_grid` suffix (footer-grid, card-grid, mission-grid, …) plus
      * the common `grid-cols` / `grid-columns` utility names. These map directly to
@@ -1656,13 +1699,25 @@ trait StyleResolutionTrait
      */
     private function hasExplicitGridClass(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = $this->authorClassTokens($element);
         return (bool) preg_match('/(?:^|[\s_-])(?:grid|grid-[0-9]+|grid-cols(?:-[0-9]+)?|grid-columns|[a-z0-9]+[-_]grid)(?:$|[\s_-])/', $className);
     }
 
     private function hasGridLikeClass(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = $this->authorClassTokens($element);
         return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|collection|gallery)(?:$|[\s_-])/', $className);
+    }
+
+    /**
+     * Class tokens with generated markers filtered out, so transformer-emitted
+     * classes (blocks-engine-css-owned-grid, …) re-ingested from prior output
+     * never trip the author grid-class heuristics.
+     */
+    private function authorClassTokens(DOMElement $element): string
+    {
+        $tokens = preg_split('/\s+/', strtolower(trim($this->attr($element, 'class')))) ?: array();
+
+        return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
     }
 }

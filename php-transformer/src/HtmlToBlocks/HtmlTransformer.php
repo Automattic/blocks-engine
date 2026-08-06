@@ -395,6 +395,32 @@ final class HtmlTransformer
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
 
+    private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
+
+    /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
+    private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
+        'display',
+        'grid',
+        'grid-template',
+        'grid-template-areas',
+        'grid-template-columns',
+        'grid-template-rows',
+        'grid-auto-flow',
+        'grid-auto-columns',
+        'grid-auto-rows',
+        'gap',
+        'row-gap',
+        'column-gap',
+        'grid-row-gap',
+        'grid-column-gap',
+        'align-content',
+        'align-items',
+        'justify-content',
+        'justify-items',
+        'place-content',
+        'place-items',
+    );
+
     private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -692,6 +718,16 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        $headMetadata = $this->headMetadataReport($html);
+        if ( array() !== $headMetadata ) {
+            $diagnostics[] = array(
+                'code' => 'html_head_metadata_not_carried',
+                'message' => 'Named head metadata (meta description and social property tags) is not representable in block markup; the entries are surfaced in source_reports.head_metadata for the destination document to adopt deliberately.',
+                'source' => self::class,
+                'severity' => 'info',
+                'entries' => $headMetadata,
+            );
+        }
         $authorLayoutTopologyFindings = $this->authorLayoutTopologyFindings();
         foreach ( $authorLayoutTopologyFindings as $finding ) {
             $diagnostics[] = array(
@@ -722,6 +758,7 @@ final class HtmlTransformer
         $sourceReports = array(
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
+            'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeIslands,
             'generated_blocks' => $this->generatedBlocks,
             'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
@@ -878,6 +915,52 @@ final class HtmlTransformer
         );
     }
 
+    /**
+     * Named head metadata (meta description, social property tags) has no
+     * block-markup representation. Surface the entries so consumers can carry
+     * them to the destination document deliberately instead of reading the
+     * strip as a malformed design. Mechanical entries (charset, viewport)
+     * belong to the destination document and are not reported.
+     *
+     * @return array<int, array<string, string>>
+     */
+    private function headMetadataReport(string $html): array
+    {
+        if ( ! preg_match('/<meta[\s>]/i', $html) ) {
+            return array();
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $head = $loaded ? $document->getElementsByTagName('head')->item(0) : null;
+        if ( ! $head instanceof DOMElement ) {
+            return array();
+        }
+
+        $entries = array();
+        foreach ( $head->getElementsByTagName('meta') as $meta ) {
+            if ( ! $meta instanceof DOMElement ) {
+                continue;
+            }
+            $content = trim($meta->getAttribute('content'));
+            $name = strtolower(trim($meta->getAttribute('name')));
+            $property = strtolower(trim($meta->getAttribute('property')));
+            if ( '' === $content || ( '' === $name && '' === $property ) || 'viewport' === $name ) {
+                continue;
+            }
+            $entries[] = array_filter(array(
+                'name'     => $name,
+                'property' => $property,
+                'content'  => substr($content, 0, 500),
+            ), static fn (string $value): bool => '' !== $value);
+        }
+
+        return array_slice($entries, 0, 20);
+    }
+
     private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
     {
         $cssParts = array();
@@ -926,6 +1009,12 @@ final class HtmlTransformer
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
             $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
+            // Core flow margins are not part of a source grid contract; the
+            // carried grid geometry (gap) owns the spacing between items. The
+            // carrier rides groups and lists, so the reset is class-scoped.
+            $cssParts[] = ':where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
             // A semantic Group used as a direct grid/flex item contains native
@@ -2506,7 +2595,13 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/list', array_merge($this->presentationAttributes($element), 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
+            // core/list has no layout support, so an author grid on the list
+            // element rides the css-owned grid carrier instead of a layout attr.
+            $listAttrs = $this->isCssOwnedGridElement($element)
+                ? $this->cssOwnedGridAttributes($element)
+                : $this->presentationAttributes($element);
+
+            return $this->createBlock('core/list', array_merge($listAttrs, 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
         }
 
         if ( 'dl' === $tagName ) {
@@ -2522,7 +2617,11 @@ final class HtmlTransformer
 
             $items = $this->definitionListItems($element);
             if ( array() !== $items ) {
-                return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+                $definitionListAttrs = $this->isCssOwnedGridElement($element)
+                    ? $this->cssOwnedGridAttributes($element)
+                    : $this->presentationAttributes($element);
+
+                return $this->createBlock('core/list', $definitionListAttrs, $items, $element);
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
@@ -3955,6 +4054,42 @@ final class HtmlTransformer
     private function cssOwnedGroupAttributes(DOMElement $element): array
     {
         $attrs = $this->presentationAttributes($element);
+        $layout = $attrs['layout'] ?? null;
+        if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
+            // The source track list is exactly expressible as native grid
+            // layout, so WordPress owns the geometry and no css-owned
+            // demotion is needed. The author gap and container background ride
+            // on block supports so hairline-divider grids (gap:1px plus a
+            // background painting through the gaps) survive even without the
+            // materialized author stylesheet.
+            $declarations = $this->structuralPresentationDeclarations($element);
+            $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+            $gap = trim((string) ($declarations['gap'] ?? ''));
+            if ( 1 === preg_match('/^(?:0|[0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))$/i', $gap)
+                && ! isset($style['spacing']['blockGap'])
+                && ! $this->hasConditionalStyleFamily($element, 'layout')
+            ) {
+                $style['spacing'] = array_merge(is_array($style['spacing'] ?? null) ? $style['spacing'] : array(), array( 'blockGap' => $gap ));
+            }
+            $background = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
+            if ( 1 === preg_match('/^(#[0-9a-f]{3,8}|[a-z][a-z-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|var)\([^()]*\))$/i', $background)
+                && ! in_array(strtolower($background), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)
+                && ! isset($style['color']['background'])
+                && ! $this->hasConditionalStyleFamily($element, 'background')
+            ) {
+                $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
+            }
+            if ( array() !== $style ) {
+                $attrs['style'] = $style;
+            }
+
+            return $attrs;
+        }
+
+        if ( $this->isCssOwnedGridElement($element) ) {
+            return $this->cssOwnedGridAttributes($element);
+        }
+
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),
@@ -3970,6 +4105,46 @@ final class HtmlTransformer
         $attrs['style'] = array_merge(
             is_array($attrs['style'] ?? null) ? $attrs['style'] : array(),
             array( 'spacing' => array( 'blockGap' => '0' ) )
+        );
+
+        return $attrs;
+    }
+
+    private function isCssOwnedGridElement(DOMElement $element): bool
+    {
+        $display = strtolower(trim((string) preg_replace(
+            '/\s*!important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+        )));
+
+        return in_array($display, array( 'grid', 'inline-grid' ), true);
+    }
+
+    /**
+     * Attributes for a block hosting an author grid that WordPress layout
+     * cannot express — asymmetric tracks on groups, or any grid on blocks
+     * without grid layout support (core/list). The geometry stays under CSS
+     * ownership: inline grid declarations ride to the generated stylesheet on
+     * a carrier class, class-owned ones stay retained by author stylesheet
+     * materialization. A flow demotion would drop the tracks and stack the
+     * items vertically.
+     *
+     * @return array<string, mixed>
+     */
+    private function cssOwnedGridAttributes(DOMElement $element): array
+    {
+        // Carry only the inline-present properties so the fallback to
+        // mapper-synthesized declarations cannot invent a `gap` that
+        // overrides explicit row-gap/column-gap values.
+        $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
+        $attrs = $this->presentationAttributes($element, array(), $carriedProperties);
+        unset($attrs['layout']);
+        $attrs['className'] = $this->mergeClassNames(
+            (string) ($attrs['className'] ?? ''),
+            self::CSS_OWNED_LAYOUT_CLASS,
+            self::CSS_OWNED_GRID_CLASS
         );
 
         return $attrs;

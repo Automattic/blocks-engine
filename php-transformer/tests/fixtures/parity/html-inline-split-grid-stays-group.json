@@ -23,7 +23,7 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group feature-row blocks-engine-css-owned-layout blocks-engine-css-owned-flow\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout blocks-engine-css-owned-grid\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "feature-copy blocks-engine-css-owned-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:columns" },
