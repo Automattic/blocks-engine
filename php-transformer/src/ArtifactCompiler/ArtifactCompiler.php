@@ -192,7 +192,7 @@ final class ArtifactCompiler
             $entryOwnership = $this->fileOwnership($entry);
             foreach ( $geometryAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
             unset($generatedAsset);
-            foreach ( $otherGeneratedAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
+            foreach ( $otherGeneratedAssets as &$generatedAsset ) if ('css' === ($generatedAsset['kind'] ?? null)) $generatedAsset['compilation'] ??= $entryOwnership;
             unset($generatedAsset);
         }
         // Runtime loads the manifest in array order. Put carrier CSS before
@@ -3201,7 +3201,7 @@ final class ArtifactCompiler
                     'source_path'      => $asset['source_path'] ?? '',
                     'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
-                    'compilation'      => $asset['compilation'] ?? null,
+                    'compilation'      => 'css' === ($asset['kind'] ?? null) ? ($asset['compilation'] ?? null) : null,
                 ),
                 static fn (mixed $value, string $key): bool => ('content' === $key && is_string($value)) || (null !== $value && '' !== $value),
                 ARRAY_FILTER_USE_BOTH
@@ -3463,7 +3463,7 @@ final class ArtifactCompiler
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
             }
-            if ( is_array($file['metadata']['compilation'] ?? null) ) {
+            if ( 'css' === ($file['kind'] ?? null) && is_array($file['metadata']['compilation'] ?? null) ) {
                 $asset['compilation'] = $file['metadata']['compilation'];
             }
             foreach ( array('defer', 'async') as $field ) {

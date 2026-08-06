@@ -131,7 +131,8 @@ final class WordPressSitePlan
             if ( ! is_array($asset) || ! self::safePath($asset['source_path'] ?? null) || ! self::safePath($asset['target_path'] ?? null) || !is_string($asset['source'] ?? null) || !is_string($asset['role'] ?? null) || !is_string($asset['mime_type'] ?? null) || !is_int($asset['bytes'] ?? null) || $asset['bytes'] < 0 || !is_string($asset['token'] ?? null) || !self::hash($asset['reconciliation_identity'] ?? null) || !self::hash($asset['content_hash'] ?? null) || !is_string($assetContent) || $asset['reconciliation_identity'] !== self::identity('asset', $asset['source_path'], $asset['target_path']) || $asset['content_hash'] !== self::contentHash($assetContent) ) {
                 throw new InvalidArgumentException('WordPress site plan asset is structurally invalid.');
             }
-            self::assertAssetScopes($asset['scopes'] ?? null);
+            if ('css' === $asset['kind']) self::assertAssetScopes($asset['scopes'] ?? null);
+            elseif (isset($asset['scopes'])) throw new InvalidArgumentException('Only stylesheet assets may declare runtime scopes.');
             self::unique($assetTargets, $asset['target_path'], 'asset target');
             self::unique($assetIdentities, $asset['reconciliation_identity'], 'asset reconciliation identity');
             $assetTokens[strtolower($asset['target_path'])] = $asset['token'];
@@ -163,7 +164,7 @@ final class WordPressSitePlan
             self::unique($documentIdentities, $page['reconciliation_identity'], 'page reconciliation identity');
             $pagesBySource[$page['source_path']] = $page;
         }
-        foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] as $scope) if ('global' !== $scope['kind']) {
+        foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;
             if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== !empty($page['entrypoint'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
         }
@@ -403,6 +404,7 @@ final class WordPressSitePlan
         foreach ($assets as &$asset) {
             $compilation = $asset['compilation'] ?? null;
             unset($asset['compilation']);
+            if ('css' !== $asset['kind']) continue;
             if (null === $compilation || 'shared' === ($compilation['scope'] ?? null)) {
                 $asset['scopes'] = array(array('kind' => 'global'));
                 continue;
