@@ -463,7 +463,17 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets @return array<int,array<string,string>> */
     private function tokens(array $assets): array { return array_map(static fn(array $asset): array => array('token' => $asset['token'], 'source_path' => $asset['source_path'], 'target_path' => $asset['target_path']), $assets); }
     /** @param array<string,mixed> $document @param array<int,array<string,string>> $tokens @return array<string,mixed> */
-    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $references->reference($row['url'], self::value($document, 'source_path')); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } elseif ('links' === $kind) $row['url'] = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes) ?? $row['url']; } unset($row); } return $metadata; }
+    private function documentMetadata(array $document, AssetReferenceCanonicalizer $references, array $routes): array { $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array('source_context' => array('source_path' => self::value($document, 'source_path'), 'kind' => 'document'), 'title' => self::value($document, 'title'), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()); foreach (array('links', 'scripts') as $kind) { if (!is_array($metadata[$kind] ?? null)) $metadata[$kind] = array(); foreach ($metadata[$kind] as &$row) if (is_array($row) && is_string($row['url'] ?? null)) { $reference = $this->documentAssetReference($row['url'], self::value($document, 'source_path'), $references, $routes); if (null !== $reference) { $row['asset_reference'] = $reference; unset($row['url']); } elseif ('links' === $kind) $row['url'] = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes) ?? $row['url']; } unset($row); } return $metadata; }
+    /** @param array<int,array<string,mixed>> $routes */
+    private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
+    {
+        $reference = $references->reference($url, $sourcePath);
+        if (null !== $reference) return $reference;
+        $entryRoot = self::entryRootFromDocuments($routes);
+        if ('' === $entryRoot) return null;
+        $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
+        return '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
+    }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
     {
