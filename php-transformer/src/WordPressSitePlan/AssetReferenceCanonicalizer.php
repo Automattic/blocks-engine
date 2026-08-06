@@ -94,7 +94,7 @@ final class AssetReferenceCanonicalizer
         }
         // Block comments are the supported serialized JSON transport. Restricting
         // rewrites to them avoids treating arbitrary text or SVG data as markup.
-        return str_contains($content, '<!--') ? preg_replace_callback('~<!--\s*wp:.*?-->~is', static fn(array $match): string => self::json($match[0], $replace), $content) ?? $content : $content;
+        return str_contains($content, '<!--') ? self::replaceWhenChanged('~<!--\s*wp:.*?-->~is', $content, static fn(array $match): string => self::json($match[0], $replace)) : $content;
     }
 
     /** @param callable(array<int|string,string>):string $replace */
