@@ -166,7 +166,7 @@ final class WordPressSitePlan
         }
         foreach ($plan['assets'] as $asset) foreach ($asset['scopes'] ?? array() as $scope) if ('global' !== $scope['kind']) {
             $page = $pagesBySource[$scope['source_path']] ?? null;
-            if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== !empty($page['entrypoint'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
+            if (!is_array($page) || $scope['kind'] !== ('post' === $page['post_type'] ? 'post' : 'page') || $scope['route_path'] !== trim($page['route']['path'], '/') || $scope['reconciliation_identity'] !== $page['reconciliation_identity'] || $scope['front_page'] !== ('/' === $page['route']['path'])) throw new InvalidArgumentException('A page asset scope does not match its canonical page.');
         }
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
@@ -413,7 +413,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('A page-owned compiled asset must resolve to a canonical page.');
             }
             $page = $pagesBySource[$compilation['id']];
-            $asset['scopes'] = array(array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => !empty($page['entrypoint'])));
+            $asset['scopes'] = array(array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']));
         }
         unset($asset);
         return $assets;

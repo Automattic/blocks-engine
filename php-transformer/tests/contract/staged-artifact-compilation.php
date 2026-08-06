@@ -54,6 +54,11 @@ $siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
 $bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
 $assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
 $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && str_contains($bootstrap, "if ( is_page() && 'about' === trim( get_page_uri( get_queried_object_id() ), '/' ) ) wp_enqueue_style"), 'Page-owned stylesheets enqueue only on their canonical WordPress route.');
+$inlineEntryArtifact = $inlineArtifact;
+$inlineEntryArtifact['entrypoints'] = array('about.html');
+$inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
+$assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
 
