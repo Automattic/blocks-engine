@@ -2724,6 +2724,9 @@ final class ArtifactCompiler
                 : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
             foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
                 if ( is_array($generatedAsset) ) {
+                    if ( 'css' === ($generatedAsset['kind'] ?? null) ) {
+                        $generatedAsset['compilation'] = array('scope' => 'page', 'id' => $path);
+                    }
                     $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
                     $payload = is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? '');
                     $payloadHash = hash('sha256', $payload);

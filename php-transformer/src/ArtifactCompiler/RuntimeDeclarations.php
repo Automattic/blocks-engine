@@ -172,9 +172,15 @@ final class RuntimeDeclarations
             return;
         }
         foreach ($value as $key => $_item) if (!is_int($key) && !is_string($key)) throw new InvalidArgumentException('Runtime declaration payload has an unsupported key.');
-        $list = array_is_list($value);
         $keys = array_keys($value);
-        if (!$list) usort($keys, static fn(int|string $left, int|string $right): int => strcmp((string) $left, (string) $right));
+        if (!array_is_list($value)) usort($keys, static fn(int|string $left, int|string $right): int => strcmp((string) $left, (string) $right));
+        $list = true;
+        foreach ($keys as $index => $key) {
+            if ($index !== $key) {
+                $list = false;
+                break;
+            }
+        }
         hash_update($context, $list ? '[' : '{');
         foreach ($keys as $index => $key) {
             if (0 < $index) hash_update($context, ',');
