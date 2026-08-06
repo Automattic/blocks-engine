@@ -58,6 +58,7 @@ final class CorpusDiagnosticsRunner
             'media_text_width_oob_count'                     => 0,
             'media_text_decline_linked_video_count'          => 0,
             'media_text_decline_other_count'                 => 0,
+            'media_text_diagnostic_error_count'              => 0,
             'finding_count'       => 0,
         );
 
@@ -98,6 +99,7 @@ final class CorpusDiagnosticsRunner
                 'media_text_width_oob_count',
                 'media_text_decline_linked_video_count',
                 'media_text_decline_other_count',
+                'media_text_diagnostic_error_count',
             ) as $metricName ) {
                 $totals[ $metricName ] += (int) $metrics[ $metricName ];
             }
@@ -171,7 +173,7 @@ final class CorpusDiagnosticsRunner
             (int) ($totals['layout_direction_misrecognition_count'] ?? 0)
         );
         $lines[] = sprintf(
-            'MEDIA-TEXT: media_text_count=%d media_text_decline_media_impure_count=%d media_text_decline_no_text_side_count=%d media_text_decline_vertical_or_reversed_count=%d media_text_decline_unsafe_url_count=%d media_text_width_oob_count=%d media_text_decline_linked_video_count=%d media_text_decline_other_count=%d',
+            'MEDIA-TEXT: media_text_count=%d media_text_decline_media_impure_count=%d media_text_decline_no_text_side_count=%d media_text_decline_vertical_or_reversed_count=%d media_text_decline_unsafe_url_count=%d media_text_width_oob_count=%d media_text_decline_linked_video_count=%d media_text_decline_other_count=%d media_text_diagnostic_error_count=%d',
             (int) ($totals['media_text_count'] ?? 0),
             (int) ($totals['media_text_decline_media_impure_count'] ?? 0),
             (int) ($totals['media_text_decline_no_text_side_count'] ?? 0),
@@ -179,7 +181,8 @@ final class CorpusDiagnosticsRunner
             (int) ($totals['media_text_decline_unsafe_url_count'] ?? 0),
             (int) ($totals['media_text_width_oob_count'] ?? 0),
             (int) ($totals['media_text_decline_linked_video_count'] ?? 0),
-            (int) ($totals['media_text_decline_other_count'] ?? 0)
+            (int) ($totals['media_text_decline_other_count'] ?? 0),
+            (int) ($totals['media_text_diagnostic_error_count'] ?? 0)
         );
         $lines[] = sprintf(
             'INFORMATIONAL var density (materialized downstream by SSI — not a repair gap): var_refs=%d (custom=%d)',

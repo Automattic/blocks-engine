@@ -2888,6 +2888,28 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
+            if ( in_array($tagName, array( 'div', 'section', 'article' ), true) ) {
+                // A strict two-pane media/text candidate is a more specific
+                // recognition than generic author-owned layout preservation:
+                // media-text candidates are by definition authored flex/grid
+                // containers, so they must be recognized before the layout is
+                // demoted to a css-owned core/group.
+                $mediaText = $this->mediaTextPattern->match(
+                    $element,
+                    $fallbacks,
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
+                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+                    fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
+                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
+                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $mediaText ) {
+                    return $mediaText;
+                }
+            }
+
             if ( 'button' !== strtolower($this->attr($element, 'role'))
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
@@ -2979,20 +3001,9 @@ final class HtmlTransformer
                     return $cover;
                 }
 
-                $mediaText = $this->mediaTextPattern->match(
-                    $element,
-                    $fallbacks,
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
-                    fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
-                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
-                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-                );
-                if ( null !== $mediaText ) {
-                    return $mediaText;
-                }
+                // core/media-text is dispatched earlier in this method, before
+                // author-owned layout preservation — its candidates are by
+                // definition authored flex/grid containers.
             }
 
             $columns = $this->columnsPattern->match(

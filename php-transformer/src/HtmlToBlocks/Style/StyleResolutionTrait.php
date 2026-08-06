@@ -629,14 +629,18 @@ trait StyleResolutionTrait
 
         if ('flex-flow' === $property) {
             $property = 'flex-direction';
-            $flowDirection = null;
-            foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
-                if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
-                    $flowDirection = $component;
-                    break;
+            // A var() flow is statically unresolvable — keep it verbatim so the
+            // strict gate declines on it instead of defaulting to row.
+            if (1 !== preg_match('/var\s*\(/i', $value)) {
+                $flowDirection = null;
+                foreach (CssValueSplitter::splitTopLevelWhitespace(strtolower($value)) as $component) {
+                    if (in_array($component, array('row', 'row-reverse', 'column', 'column-reverse'), true)) {
+                        $flowDirection = $component;
+                        break;
+                    }
                 }
+                $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
             }
-            $value = $flowDirection ?? (in_array(strtolower($value), array('inherit', 'unset', 'revert', 'revert-layer'), true) ? strtolower($value) : 'row');
         }
 
         $current = $cascade[$property] ?? null;
@@ -711,6 +715,14 @@ trait StyleResolutionTrait
 
         $value = strtolower(trim($rawValue));
         if (in_array($value, array('inherit', 'initial', 'revert', 'revert-layer', 'unset'), true)) {
+            return true;
+        }
+
+        // var() values are valid CSS everywhere but statically unresolvable.
+        // They must SURVIVE into the cascade so the strict gates can fail
+        // closed on them — dropping them here makes the gate read "absent"
+        // and convert with the default layout.
+        if (1 === preg_match('/var\s*\(/i', $value)) {
             return true;
         }
 
@@ -1049,9 +1061,6 @@ trait StyleResolutionTrait
 
         foreach ( $matches as $match ) {
             $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
-            if ( array() === $declarations ) {
-                continue;
-            }
             $mediaTextDeclarations = array_values(array_filter(
                 $this->mediaTextInlineDeclarationEntries((string) $match[2]),
                 static fn (array $entry): bool => in_array($entry['property'], array(
@@ -1061,11 +1070,15 @@ trait StyleResolutionTrait
                     'flex-basis',
                     'flex-direction',
                     'flex-flow',
+                    'float',
                     'grid-template-columns',
                     'order',
                     'width',
                 ), true)
             ));
+            if ( array() === $declarations && array() === $mediaTextDeclarations ) {
+                continue;
+            }
             foreach ( explode(',', (string) $match[1]) as $selector ) {
                 $selector = trim($selector);
                 if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {

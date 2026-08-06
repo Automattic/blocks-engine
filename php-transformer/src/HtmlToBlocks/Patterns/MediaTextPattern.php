@@ -84,19 +84,31 @@ final class MediaTextPattern
             return null;
         }
 
-        try {
-            $containerAttributes = $htmlAttributes($element);
-        } catch ( \Throwable ) {
+        if ( $this->declaresUnresolvableGateValue($containerStyle, array( 'display', 'flex-direction', 'flex-flow', 'direction' )) ) {
             return null;
         }
 
         $displayType   = $this->containerDisplayType($containerStyle);
         $flexDirection = $this->flexDirectionFromStyle($containerStyle);
+        if ( 'flex' === $displayType && in_array($flexDirection, array( 'column', 'column-reverse', 'row-reverse' ), true) ) {
+            return null;
+        }
+
+        // Conversion requires an authored horizontal mechanism: display
+        // flex/grid or a grid template. Without one the source renders
+        // stacked, and emitting the block would fabricate a side-by-side
+        // layout. Core's own wp-block-media-text markup is exempt — its grid
+        // comes from core stylesheets, not author CSS.
+        $hasGridTemplateColumns = $this->hasGridTemplateColumns($containerStyle);
         if (
-            ( 'flex' === $displayType && in_array($flexDirection, array( 'column', 'column-reverse', 'row-reverse' ), true) )
-            || $this->styleValueEquals($containerStyle, 'direction', 'rtl')
-            || 'rtl' === strtolower(trim((string) ($containerAttributes['dir'] ?? '')))
+            null === $displayType
+            && ! $hasGridTemplateColumns
+            && ! in_array('wp-block-media-text', preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true)
         ) {
+            return null;
+        }
+
+        if ( $this->inheritedDirectionBlocksConversion($element, $mergedPresentationStyle, $htmlAttributes) ) {
             return null;
         }
 
@@ -104,7 +116,14 @@ final class MediaTextPattern
         try {
             foreach ( $elementChildren as $index => $child ) {
                 $childStyles[ $index ] = $mergedPresentationStyle($child);
+                if ( $this->declaresUnresolvableGateValue($childStyles[ $index ], array( 'order', 'float' )) ) {
+                    return null;
+                }
                 $childDeclarations = $this->styleDeclarations($childStyles[ $index ]);
+                $float = strtolower($this->normalizedCssValue((string) ($childDeclarations['float'] ?? '')));
+                if ( in_array($float, array( 'left', 'right', 'inline-start', 'inline-end' ), true) ) {
+                    return null;
+                }
                 $order = strtolower($this->normalizedCssValue((string) ($childDeclarations['order'] ?? '')));
                 $isInitialOrder = in_array($order, array( 'initial', 'unset' ), true)
                     || ( is_numeric($order) && 0.0 === (float) $order );
@@ -130,6 +149,27 @@ final class MediaTextPattern
             return null;
         }
 
+        // Width gates are resolvable from styles alone, so they run BEFORE the
+        // text side is converted: convertElement is not side-effect free
+        // (block-binding occurrence counters), and a post-conversion decline
+        // re-converts the subtree through the fallback path.
+        $useGridTemplateColumns = 'flex' !== $displayType && $hasGridTemplateColumns;
+        $mediaWidth = $useGridTemplateColumns
+            ? $this->mediaWidthFromContainerStyle($containerStyle, $mediaIndex)
+            : null;
+        if ( null === $mediaWidth && $useGridTemplateColumns ) {
+            // A grid template that yields no percentage/fr-derived width (px,
+            // minmax(), var(), none, 3+ tracks) cannot be represented by
+            // mediaWidth; emitting the block would silently render 50/50.
+            return null;
+        }
+        if ( null === $mediaWidth ) {
+            $mediaWidth = $this->mediaWidthFromMediaStyle($childStyles[ $mediaIndex ]);
+        }
+        if ( null !== $mediaWidth ) {
+            $mediaWidth = max(15, min(85, $mediaWidth));
+        }
+
         $localFallbacks = array();
         try {
             $textBlock = $convertElement($elementChildren[ $textIndex ], $localFallbacks, true);
@@ -140,7 +180,7 @@ final class MediaTextPattern
         $innerBlocks = null === $textBlock ? array() : array( $textBlock );
         if (
             'core/group' === ($textBlock['blockName'] ?? null)
-            && array() === ($textBlock['attrs'] ?? array())
+            && $this->isHoistableTextSideGroupAttrs($textBlock['attrs'] ?? array(), $elementChildren[ $textIndex ])
             && is_array($textBlock['innerBlocks'] ?? null)
         ) {
             $innerBlocks = $textBlock['innerBlocks'];
@@ -170,17 +210,6 @@ final class MediaTextPattern
             $attrs['mediaPosition'] = 'right';
         }
 
-        $hasGridTemplateColumns = $this->hasGridTemplateColumns($containerStyle);
-        $useGridTemplateColumns = 'flex' !== $displayType && $hasGridTemplateColumns;
-        $mediaWidth = $useGridTemplateColumns
-            ? $this->mediaWidthFromContainerStyle($containerStyle, $mediaIndex)
-            : null;
-        if ( null === $mediaWidth && ! $useGridTemplateColumns ) {
-            $mediaWidth = $this->mediaWidthFromMediaStyle($childStyles[ $mediaIndex ]);
-        }
-        if ( null !== $mediaWidth ) {
-            $mediaWidth = max(15, min(85, $mediaWidth));
-        }
         if ( null !== $mediaWidth && 50 !== $mediaWidth ) {
             $attrs['mediaWidth'] = $mediaWidth;
         }
@@ -202,16 +231,20 @@ final class MediaTextPattern
             $href = $this->safeLinkUrl((string) ($anchorAttributes['href'] ?? ''));
             if ( '' !== $href ) {
                 $attrs['href'] = $href;
-            }
 
-            foreach ( array(
-                'target' => 'linkTarget',
-                'rel'    => 'rel',
-                'class'  => 'linkClass',
-            ) as $sourceName => $attributeName ) {
-                $value = trim((string) ($anchorAttributes[ $sourceName ] ?? ''));
-                if ( '' !== $value ) {
-                    $attrs[ $attributeName ] = $value;
+                // Link metadata is only meaningful alongside an emitted href:
+                // core sources these attributes from `figure a`, so without an
+                // anchor they can never round-trip — and a rejected href must
+                // not leave its rel/target/class text behind.
+                foreach ( array(
+                    'target' => 'linkTarget',
+                    'rel'    => 'rel',
+                    'class'  => 'linkClass',
+                ) as $sourceName => $attributeName ) {
+                    $value = trim((string) ($anchorAttributes[ $sourceName ] ?? ''));
+                    if ( '' !== $value ) {
+                        $attrs[ $attributeName ] = $value;
+                    }
                 }
             }
         }
@@ -290,6 +323,108 @@ final class MediaTextPattern
         }
 
         return '';
+    }
+
+    /**
+     * A converted text side is hoisted into the media-text content area when
+     * its wrapper group carries nothing the block would lose: no attrs at all,
+     * or only transformer-generated css-owned layout marker classes. Those
+     * markers compensate core group flow defaults inside a preserved author
+     * layout — inside core/media-text the block owns the pane layout, so the
+     * wrapper is pure noise. A marker-prefixed class that already appears in
+     * the SOURCE element's class attribute is author-authored, not generated,
+     * and may carry author stylesheet rules — never hoist it away.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function isHoistableTextSideGroupAttrs(array $attrs, DOMElement $textSide): bool
+    {
+        if ( array() === $attrs ) {
+            return true;
+        }
+        if ( array( 'className' ) !== array_keys($attrs) || ! is_string($attrs['className']) ) {
+            return false;
+        }
+
+        $sourceClasses = preg_split('/\s+/', trim($this->attr($textSide, 'class'))) ?: array();
+        foreach ( preg_split('/\s+/', trim($attrs['className'])) ?: array() as $class ) {
+            if ( '' === $class ) {
+                continue;
+            }
+            if ( ! str_starts_with($class, 'blocks-engine-css-owned-') || in_array($class, $sourceClasses, true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * True when any of the given gate properties carries a var() reference the
+     * static pipeline cannot resolve. Gates must fail closed on such values —
+     * treating them as absent silently converts with the default layout.
+     *
+     * Scans raw declarations (no validity filter) so unresolvable values are
+     * seen even though the value validators exclude them elsewhere.
+     *
+     * @param array<int, string> $properties
+     */
+    private function declaresUnresolvableGateValue(string $style, array $properties): bool
+    {
+        foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            $separator = strpos($declaration, ':');
+            if ( false === $separator ) {
+                continue;
+            }
+            $name = strtolower(trim(substr($declaration, 0, $separator)));
+            if ( ! in_array($name, $properties, true) ) {
+                continue;
+            }
+            if ( 1 === preg_match('/var\s*\(/i', substr($declaration, $separator + 1)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve the effective text direction the way inheritance does: nearest
+     * ancestor (self included) with an explicit CSS `direction` or `dir`
+     * attribute wins. Declines on rtl, on `dir="auto"`, and on any direction
+     * value the static pipeline cannot resolve.
+     */
+    private function inheritedDirectionBlocksConversion(
+        DOMElement $element,
+        callable $mergedPresentationStyle,
+        callable $htmlAttributes
+    ): bool {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            try {
+                $style = $mergedPresentationStyle($node);
+                $attributes = $htmlAttributes($node);
+            } catch ( \Throwable ) {
+                return true;
+            }
+
+            if ( $this->declaresUnresolvableGateValue($style, array( 'direction' )) ) {
+                return true;
+            }
+            $direction = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($style)['direction'] ?? '')));
+            if ( in_array($direction, array( 'ltr', 'rtl' ), true) ) {
+                return 'rtl' === $direction;
+            }
+
+            $dir = strtolower(trim((string) ($attributes['dir'] ?? '')));
+            if ( 'auto' === $dir ) {
+                return true;
+            }
+            if ( in_array($dir, array( 'ltr', 'rtl' ), true) ) {
+                return 'rtl' === $dir;
+            }
+        }
+
+        return false;
     }
 
     private function containsMediaElement(DOMElement $element): bool
@@ -487,9 +622,19 @@ final class MediaTextPattern
             return $mediaPercentage;
         }
 
+        // Core's own save shape pairs one percentage track with `auto`
+        // (`N% auto` / `auto N%`), so an auto media track beside a percentage
+        // text track expresses the complement.
+        if ( 'auto' === strtolower(trim($tracks[ $mediaIndex ])) ) {
+            $textPercentage = $this->percentageValue($tracks[ 0 === $mediaIndex ? 1 : 0 ]);
+            if ( null !== $textPercentage ) {
+                return 100 - $textPercentage;
+            }
+        }
+
         $firstFr  = $this->frValue($tracks[0]);
         $secondFr = $this->frValue($tracks[1]);
-        if ( null === $firstFr || null === $secondFr || 0.0 >= $firstFr + $secondFr ) {
+        if ( null === $firstFr || null === $secondFr || 0.0 >= $firstFr + $secondFr || ! is_finite($firstFr + $secondFr) ) {
             return null;
         }
 
@@ -568,12 +713,6 @@ final class MediaTextPattern
         }
 
         return $direction;
-    }
-
-    private function styleValueEquals(string $style, string $property, string $expected): bool
-    {
-        $value = strtolower($this->normalizedCssValue((string) ($this->styleDeclarations($style)[ $property ] ?? '')));
-        return $expected === $value;
     }
 
     private function verticalAlignmentFromStyle(string $style): ?string

@@ -277,7 +277,8 @@ final class CorpusDetectors
      *     media_text_decline_unsafe_url_count: int,
      *     media_text_width_oob_count: int,
      *     media_text_decline_linked_video_count: int,
-     *     media_text_decline_other_count: int
+     *     media_text_decline_other_count: int,
+     *     media_text_diagnostic_error_count: int
      * }
      */
     private static function mediaTextMetrics(string $sourceHtml, array $flat): array
@@ -291,6 +292,7 @@ final class CorpusDetectors
             'media_text_width_oob_count'                     => 0,
             'media_text_decline_linked_video_count'          => 0,
             'media_text_decline_other_count'                 => 0,
+            'media_text_diagnostic_error_count'              => 0,
         );
 
         foreach ( $flat as $block ) {
@@ -329,9 +331,14 @@ final class CorpusDetectors
             }
         }
         $styleRules = self::mediaTextStaticStyleRules($sourceCss);
+        if ( null === $styleRules ) {
+            // A PCRE failure erased the CSS cascade; gate outcomes computed
+            // without it would be fabrications, not approximations.
+            ++$metrics['media_text_diagnostic_error_count'];
+            return $metrics;
+        }
 
-        $sourcePasserCount = 0;
-        $widthOobCandidateCount = 0;
+        $candidates = array();
         foreach ( $nodes as $node ) {
             if ( ! $node instanceof \DOMElement ) {
                 continue;
@@ -350,7 +357,41 @@ final class CorpusDetectors
                 continue;
             }
 
-            $mediaIndex = 1 === $mediaCounts[0] ? 0 : 1;
+            $candidates[] = array(
+                'node'       => $node,
+                'children'   => $children,
+                'mediaIndex' => 1 === $mediaCounts[0] ? 0 : 1,
+            );
+        }
+
+        // A wrapper whose descendant is itself a candidate is not a two-pane
+        // candidate — evaluating it fabricates declines for markup that
+        // converts through the descendant.
+        $candidates = array_values(array_filter(
+            $candidates,
+            static function (array $candidate) use ($candidates): bool {
+                foreach ( $candidates as $other ) {
+                    if ( $other['node'] === $candidate['node'] ) {
+                        continue;
+                    }
+                    for ( $ancestor = $other['node']->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode ) {
+                        if ( $ancestor === $candidate['node'] ) {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+        ));
+
+        $sourcePasserCount = 0;
+        $widthOobCandidateCount = 0;
+        $directionCache = array();
+        foreach ( $candidates as $candidate ) {
+            $node = $candidate['node'];
+            $children = $candidate['children'];
+            $mediaIndex = $candidate['mediaIndex'];
             $textIndex = 0 === $mediaIndex ? 1 : 0;
 
             if ( self::hasNonIgnorableDirectNodes($node) ) {
@@ -379,7 +420,10 @@ final class CorpusDetectors
                 self::mediaTextResolvedDeclarations($children[0], $styleRules, array( 'order', 'flex-basis', 'width' )),
                 self::mediaTextResolvedDeclarations($children[1], $styleRules, array( 'order', 'flex-basis', 'width' )),
             );
-            if ( self::mediaTextHasVerticalOrReversedLayout($containerStyle, $childStyles) ) {
+            if (
+                self::mediaTextHasVerticalOrReversedLayout($containerStyle, $childStyles)
+                || self::diagnosticInheritedRtlBlocks($node, $styleRules, $directionCache)
+            ) {
                 ++$metrics['media_text_decline_vertical_or_reversed_count'];
                 continue;
             }
@@ -400,7 +444,9 @@ final class CorpusDetectors
                 continue;
             }
             if ( null === $textBearing ) {
-                ++$metrics['media_text_decline_other_count'];
+                // A crash inside the isolated text-side transform is a
+                // diagnostic failure, not a conversion decline.
+                ++$metrics['media_text_diagnostic_error_count'];
                 continue;
             }
 
@@ -989,15 +1035,18 @@ final class CorpusDetectors
                 continue;
             }
 
-            $blockStart = self::mediaTextCssToken($css, '{', $offset);
-            $statementEnd = self::mediaTextCssToken($css, ';', $offset);
-            if ( null === $blockStart || ( null !== $statementEnd && $statementEnd < $blockStart ) ) {
-                if ( null === $statementEnd ) {
-                    break;
-                }
-                $offset = $statementEnd;
+            // One forward scan for whichever terminator comes first. Two
+            // independent scans go quadratic when the other token is absent —
+            // each @ re-scans to end-of-css.
+            $terminator = self::mediaTextCssFirstToken($css, $offset);
+            if ( null === $terminator ) {
+                break;
+            }
+            if ( ';' === $terminator['token'] ) {
+                $offset = $terminator['position'];
                 continue;
             }
+            $blockStart = $terminator['position'];
 
             $atRuleDepth = 1;
             for ( $inner = $blockStart + 1; $inner < $length; ++$inner ) {
@@ -1031,12 +1080,19 @@ final class CorpusDetectors
      * Parse production-equivalent ordered static rules for media-text gate
      * properties. Dynamic pseudo-state rules never affect resting strict gates.
      *
-     * @return array<int, array{selector: array<string, mixed>, declarations: array<string, string>}>
+     * Returns null when PCRE itself fails — an empty ruleset means "no rules",
+     * which callers must not conflate with "could not read the rules".
+     *
+     * @return array<int, array{selector: array<string, mixed>, declarations: array<string, string>}>|null
      */
-    private static function mediaTextStaticStyleRules(string $css): array
+    private static function mediaTextStaticStyleRules(string $css): ?array
     {
         $css = self::mediaTextTopLevelCss($css);
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+        $ruleCount = preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER);
+        if ( false === $ruleCount ) {
+            return null;
+        }
+        if ( 0 === $ruleCount ) {
             return array();
         }
 
@@ -1129,7 +1185,12 @@ final class CorpusDetectors
         return $declarations;
     }
 
-    private static function mediaTextCssToken(string $css, string $token, int $offset): ?int
+    /**
+     * First unquoted `{` or `;` at or after the offset, in one forward scan.
+     *
+     * @return array{token: string, position: int}|null
+     */
+    private static function mediaTextCssFirstToken(string $css, int $offset): ?array
     {
         $length = strlen($css);
         for ( ; $offset < $length; ++$offset ) {
@@ -1146,8 +1207,11 @@ final class CorpusDetectors
                 }
                 continue;
             }
-            if ( $token === $css[ $offset ] ) {
-                return $offset;
+            if ( '{' === $css[ $offset ] || ';' === $css[ $offset ] ) {
+                return array(
+                    'token'    => $css[ $offset ],
+                    'position' => $offset,
+                );
             }
         }
 
@@ -1284,6 +1348,56 @@ final class CorpusDetectors
         return self::diagnosticPureMediaResolution($children[0], $anchor);
     }
 
+    /**
+     * Mirror the production inherited-direction gate: nearest ancestor (self
+     * included) with an explicit CSS `direction` or `dir` attribute wins;
+     * `dir="auto"` fails closed.
+     *
+     * Memoized by node path — candidates share ancestor chains, and each
+     * unmemoized level re-scans the whole ruleset. Node paths are stable keys
+     * here because the diagnostics DOM is never mutated.
+     *
+     * @param array<int, array{selector: array<string, mixed>, declarations: array<string, string>}> $styleRules
+     * @param array<string, bool> $cache
+     */
+    private static function diagnosticInheritedRtlBlocks(\DOMElement $element, array $styleRules, array &$cache): bool
+    {
+        $chain = array();
+        $result = null;
+        for ( $node = $element; $node instanceof \DOMElement; $node = $node->parentNode ) {
+            $path = (string) $node->getNodePath();
+            if ( array_key_exists($path, $cache) ) {
+                $result = $cache[ $path ];
+                break;
+            }
+            $chain[] = $path;
+
+            $declarations = self::mediaTextResolvedDeclarations($node, $styleRules, array( 'direction' ));
+            $direction = strtolower(self::mediaTextCssValue((string) ($declarations['direction'] ?? '')));
+            if ( in_array($direction, array( 'ltr', 'rtl' ), true) ) {
+                $result = 'rtl' === $direction;
+                break;
+            }
+
+            $dir = strtolower(trim($node->getAttribute('dir')));
+            if ( 'auto' === $dir ) {
+                $result = true;
+                break;
+            }
+            if ( in_array($dir, array( 'ltr', 'rtl' ), true) ) {
+                $result = 'rtl' === $dir;
+                break;
+            }
+        }
+
+        $result ??= false;
+        foreach ( $chain as $path ) {
+            $cache[ $path ] = $result;
+        }
+
+        return $result;
+    }
+
     private static function diagnosticSafeMediaUrl(string $url): string
     {
         $url = trim($url);
@@ -1366,7 +1480,7 @@ final class CorpusDetectors
 
         $firstFr = self::diagnosticFrValue($tracks[0]);
         $secondFr = self::diagnosticFrValue($tracks[1]);
-        if ( null === $firstFr || null === $secondFr || 0.0 >= $firstFr + $secondFr ) {
+        if ( null === $firstFr || null === $secondFr || 0.0 >= $firstFr + $secondFr || ! is_finite($firstFr + $secondFr) ) {
             return null;
         }
 

@@ -311,6 +311,7 @@ $mediaTextCounterKeys = array(
     'media_text_width_oob_count',
     'media_text_decline_linked_video_count',
     'media_text_decline_other_count',
+    'media_text_diagnostic_error_count',
 );
 $mediaTextCases = array(
     'media_text_decline_media_impure_count' => '<section><figure><img src="/feature.jpg">Caption</figure><div><h2>Title</h2><p>Body</p></div></section>',
@@ -353,16 +354,24 @@ $assert(
 $inheritedRtlSource = '<div style="direction:rtl"><section><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section></div>';
 $inheritedRtlResult = ( new HtmlTransformer() )->transform($inheritedRtlSource, array())->toArray();
 $inheritedRtlMetrics = CorpusDetectors::collect($inheritedRtlResult, $inheritedRtlSource)['metrics'];
-$inheritedRtlDeclines = array_sum(array_map(
-    static fn (string $key): int => (int) $inheritedRtlMetrics[ $key ],
+$assert(
+    0 === (int) $inheritedRtlMetrics['media_text_count']
+        && 1 === (int) $inheritedRtlMetrics['media_text_decline_vertical_or_reversed_count'],
+    '8c: inherited direction:rtl declines in production and diagnostics agree',
+    json_encode($inheritedRtlMetrics)
+);
+
+$nestedWrapperSource = '<div><section style="display:flex"><figure><img src="/feature.jpg"></figure><div><h2>Title</h2></div></section><aside><p>Side</p></aside></div>';
+$nestedWrapperResult = ( new HtmlTransformer() )->transform($nestedWrapperSource, array())->toArray();
+$nestedWrapperMetrics = CorpusDetectors::collect($nestedWrapperResult, $nestedWrapperSource)['metrics'];
+$nestedWrapperDeclines = array_sum(array_map(
+    static fn (string $key): int => (int) $nestedWrapperMetrics[ $key ],
     array_filter($mediaTextCounterKeys, static fn (string $key): bool => 'media_text_width_oob_count' !== $key)
 ));
 $assert(
-    1 === (int) $inheritedRtlMetrics['media_text_count']
-        && 0 === (int) $inheritedRtlMetrics['media_text_decline_vertical_or_reversed_count']
-        && 0 === $inheritedRtlDeclines,
-    '8c: inherited direction:rtl does not decline candidate that transformer emits',
-    json_encode($inheritedRtlMetrics)
+    1 === (int) $nestedWrapperMetrics['media_text_count'] && 0 === $nestedWrapperDeclines,
+    '8c2: wrapper around a converting candidate is not itself counted as a declined candidate',
+    json_encode($nestedWrapperMetrics)
 );
 
 $conditionalLayouts = array(
@@ -376,15 +385,14 @@ foreach ( $conditionalLayouts as $atRule => $conditionalCss ) {
         . '</body></html>';
     $conditionalResult = ( new HtmlTransformer() )->transform($conditionalSource, array())->toArray();
     $conditionalMetrics = CorpusDetectors::collect($conditionalResult, $conditionalSource)['metrics'];
-    $conditionalDeclines = array_sum(array_map(
-        static fn (string $key): int => (int) $conditionalMetrics[ $key ],
-        array_filter($mediaTextCounterKeys, static fn (string $key): bool => 'media_text_width_oob_count' !== $key)
-    ));
+    // No resting display means the mechanism gate declines the candidate;
+    // the conditional column direction must NOT be misclassified as a
+    // vertical/reversed decline — it lands in `other` via reconciliation.
     $assert(
-        1 === (int) $conditionalMetrics['media_text_count']
+        0 === (int) $conditionalMetrics['media_text_count']
             && 0 === (int) $conditionalMetrics['media_text_decline_vertical_or_reversed_count']
-            && 0 === $conditionalDeclines,
-        '8d: conditional @' . $atRule . ' layout does not affect production strict gate metric',
+            && 1 === (int) $conditionalMetrics['media_text_decline_other_count'],
+        '8d: conditional @' . $atRule . ' layout affects neither resting gates nor vertical classification',
         json_encode($conditionalMetrics)
     );
 }

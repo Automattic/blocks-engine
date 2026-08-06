@@ -167,7 +167,7 @@ final class CanonicalSaveShapeValidator
         // token core would reproduce from the className attribute. A leftover
         // source class core's save() never regenerates breaks the round-trip.
         foreach ( $wrapperClasses as $class ) {
-            if ( $this->isStructuralClass($class, $blockName) || in_array($class, $classNameTokens, true) ) {
+            if ( $this->isStructuralClass($class, $blockName, $attrs) || in_array($class, $classNameTokens, true) ) {
                 continue;
             }
 
@@ -277,15 +277,23 @@ final class CanonicalSaveShapeValidator
      * input: the block base class, element classes, and attribute-derived
      * support classes (alignment, color/border has-*, and is-* state/style).
      */
-    private function isStructuralClass(string $class, string $blockName): bool
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function isStructuralClass(string $class, string $blockName, array $attrs): bool
     {
-        if ( 'core/media-text' === $blockName && in_array($class, array(
-            'is-stacked-on-mobile',
-            'is-vertically-aligned-top',
-            'is-vertically-aligned-center',
-            'is-vertically-aligned-bottom',
-        ), true) ) {
-            return true;
+        if ( 'core/media-text' === $blockName ) {
+            // State classes are structural only when the attribute core's
+            // save() derives them from justifies them — an unjustified state
+            // class is exactly the divergence this validator exists to catch.
+            if ( 'is-stacked-on-mobile' === $class ) {
+                return ! array_key_exists('isStackedOnMobile', $attrs) || false !== $attrs['isStackedOnMobile'];
+            }
+            foreach ( array( 'top', 'center', 'bottom' ) as $alignment ) {
+                if ( 'is-vertically-aligned-' . $alignment === $class ) {
+                    return $alignment === ($attrs['verticalAlignment'] ?? null);
+                }
+            }
         }
 
         return str_starts_with($class, 'wp-block-')

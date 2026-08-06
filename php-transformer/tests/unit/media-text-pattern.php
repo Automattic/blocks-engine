@@ -178,7 +178,7 @@ $match = static function (
 $fallbacks = array();
 $record = array();
 $mediaLeftElement = $elementFromHtml(
-    '<section class="feature"><!-- media --><figure><img src="left.jpg" alt="Left"></figure><div><h2>Build</h2></div></section>'
+    '<section class="feature" style="display:flex"><!-- media --><figure><img src="left.jpg" alt="Left"></figure><div><h2>Build</h2></div></section>'
 );
 $mediaLeft = $match(
     $mediaLeftElement,
@@ -202,28 +202,28 @@ $assertSame('div', $record['convertedTag'], 'Only text child is converted.');
 $assertSame(array( 'display', 'grid-template-columns', 'align-items', 'gap' ), $record['excluded'], 'Presentation extraction excludes consumed geometry.');
 
 // Host conversion preserves text-child identity while plain groups may hoist.
-$headingResult = $transformHtml('<section><img src="x.jpg" alt=""><h2>Only head</h2></section>');
+$headingResult = $transformHtml('<section style="display:flex"><img src="x.jpg" alt=""><h2>Only head</h2></section>');
 $headingMediaText = $headingResult['blocks'][0] ?? array();
 $assertSame('core/media-text', $headingMediaText['blockName'] ?? null, 'Heading text side matches media-text.');
 $assertSame('core/heading', $headingMediaText['innerBlocks'][0]['blockName'] ?? null, 'Heading text side keeps core/heading identity.');
 $assertTrue(! array_key_exists('mediaAlt', $headingMediaText['attrs'] ?? array()), 'Empty image alt is omitted from media-text attrs.');
 
-$quoteResult = $transformHtml('<section><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
+$quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
 
-$styledTextResult = $transformHtml('<section><img src="x.jpg"><div class="copy-panel" style="padding:1rem"><p>Styled copy</p></div></section>');
+$styledTextResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><div class="copy-panel" style="padding:1rem"><p>Styled copy</p></div></section>');
 $styledTextBlock = $styledTextResult['blocks'][0]['innerBlocks'][0] ?? array();
 $assertSame('core/group', $styledTextBlock['blockName'] ?? null, 'Styled text wrapper keeps core/group identity.');
-$assertSame('copy-panel', $styledTextBlock['attrs']['className'] ?? null, 'Styled text group keeps className.');
+$assertSame('copy-panel blocks-engine-css-owned-layout', $styledTextBlock['attrs']['className'] ?? null, 'Styled text group keeps className plus layout-item marker.');
 $assertSame('1rem', $styledTextBlock['attrs']['style']['spacing']['padding']['top'] ?? null, 'Styled text group keeps style attrs.');
 
-$plainTextResult = $transformHtml('<section><img src="x.jpg"><div><h2>Head</h2><p>Copy</p></div></section>');
+$plainTextResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><div><h2>Head</h2><p>Copy</p></div></section>');
 $plainTextBlocks = $plainTextResult['blocks'][0]['innerBlocks'] ?? array();
 $assertSame(2, count($plainTextBlocks), 'Attr-less text group hoists both children.');
 $assertSame('core/heading', $plainTextBlocks[0]['blockName'] ?? null, 'Hoisted first child keeps heading identity.');
 $assertSame('core/paragraph', $plainTextBlocks[1]['blockName'] ?? null, 'Hoisted second child keeps paragraph identity.');
 
-$inlineParagraphResult = $transformHtml('<section><img src="x.jpg"><p>Read <strong>now</strong>.</p></section>');
+$inlineParagraphResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><p>Read <strong>now</strong>.</p></section>');
 $inlineParagraphBlocks = $inlineParagraphResult['blocks'][0]['innerBlocks'] ?? array();
 $assertSame(1, count($inlineParagraphBlocks), 'Single paragraph remains one inner block.');
 $assertSame('core/paragraph', $inlineParagraphBlocks[0]['blockName'] ?? null, 'Single paragraph keeps core/paragraph identity.');
@@ -243,7 +243,7 @@ $assertSame('center', $mediaRight['attrs']['verticalAlignment'] ?? null, 'align-
 // Video media consumes video without alt.
 $fallbacks = array();
 $record = array();
-$videoElement = $elementFromHtml('<section><div><video src="clip.mp4" controls></video></div><div><p>Watch</p></div></section>');
+$videoElement = $elementFromHtml('<section style="display:flex"><div><video src="clip.mp4" controls></video></div><div><p>Watch</p></div></section>');
 $video = $match($videoElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('video', $video['attrs']['mediaType'] ?? null, 'Video media emits mediaType video.');
 $assertSame('/resolved/clip.mp4', $video['attrs']['mediaUrl'] ?? null, 'Video src passes through asset resolver.');
@@ -253,7 +253,7 @@ $assertTrue(! array_key_exists('mediaAlt', $video['attrs'] ?? array()), 'Video m
 $fallbacks = array();
 $record = array();
 $linkedElement = $elementFromHtml(
-    '<section><figure><a class="zoom" href="/full" target="_blank" rel="noopener"><picture><source srcset="large.webp 2x"><img src="fallback.jpg" alt="Fallback"></picture></a></figure><div><p>Open</p></div></section>'
+    '<section style="display:flex"><figure><a class="zoom" href="/full" target="_blank" rel="noopener"><picture><source srcset="large.webp 2x"><img src="fallback.jpg" alt="Fallback"></picture></a></figure><div><p>Open</p></div></section>'
 );
 $linked = $match($linkedElement, array( $paragraph ), $fallbacks, $record);
 $assertSame('/resolved/fallback.jpg', $linked['attrs']['mediaUrl'] ?? null, 'Picture uses img fallback src, not source srcset.');
@@ -275,7 +275,7 @@ foreach ( array(
 ) as $safeHref ) {
     $fallbacks = array();
     $record = array();
-    $safeLinkedElement = $elementFromHtml('<section><a href="/placeholder"><img src="safe.jpg"></a><div><p>Safe copy</p></div></section>');
+    $safeLinkedElement = $elementFromHtml('<section style="display:flex"><a href="/placeholder"><img src="safe.jpg"></a><div><p>Safe copy</p></div></section>');
     $safeAnchor = $safeLinkedElement->getElementsByTagName('a')->item(0);
     if ( ! $safeAnchor instanceof DOMElement ) {
         throw new RuntimeException('Safe-link fixture did not produce anchor.');
@@ -290,7 +290,7 @@ foreach ( array( 'javascript:alert(1)', 'javascript :alert(1)', 'data:text/html,
     $fallbacks = array();
     $record = array();
     $unsafeLinkedElement = $elementFromHtml(
-        '<section><figure><a class="unsafe-link" href="/placeholder" target="_blank" rel="noopener"><img src="safe.jpg" alt="Safe"></a></figure><div><p>Safe copy</p></div></section>'
+        '<section style="display:flex"><figure><a class="unsafe-link" href="/placeholder" target="_blank" rel="noopener"><img src="safe.jpg" alt="Safe"></a></figure><div><p>Safe copy</p></div></section>'
     );
     $unsafeAnchor = $unsafeLinkedElement->getElementsByTagName('a')->item(0);
     if ( ! $unsafeAnchor instanceof DOMElement ) {
@@ -299,13 +299,13 @@ foreach ( array( 'javascript:alert(1)', 'javascript :alert(1)', 'data:text/html,
     $unsafeAnchor->setAttribute('href', $unsafeHref);
     $unsafeLinked = $match($unsafeLinkedElement, array( $paragraph ), $fallbacks, $record);
     $assertTrue(! array_key_exists('href', $unsafeLinked['attrs'] ?? array()), 'Unsafe link href is omitted: ' . json_encode($unsafeHref));
-    $assertSame('_blank', $unsafeLinked['attrs']['linkTarget'] ?? null, 'Unsafe href does not erase anchor target metadata.');
-    $assertSame('noopener', $unsafeLinked['attrs']['rel'] ?? null, 'Unsafe href does not erase anchor rel metadata.');
-    $assertSame('unsafe-link', $unsafeLinked['attrs']['linkClass'] ?? null, 'Unsafe href does not erase anchor class metadata.');
+    $assertSame(null, $unsafeLinked['attrs']['linkTarget'] ?? null, 'Rejected href drops anchor target metadata.');
+    $assertSame(null, $unsafeLinked['attrs']['rel'] ?? null, 'Rejected href drops anchor rel metadata.');
+    $assertSame(null, $unsafeLinked['attrs']['linkClass'] ?? null, 'Rejected href drops anchor class metadata.');
 }
 
 $unsafeLinkResult = $transformHtml(
-    '<section><figure><a class="unsafe-link" href="javascript:alert(1)" target="_blank" rel="noopener"><img src="safe.jpg" alt="Safe"></a></figure><div><p>Safe copy</p></div></section>'
+    '<section style="display:flex"><figure><a class="unsafe-link" href="javascript:alert(1)" target="_blank" rel="noopener"><img src="safe.jpg" alt="Safe"></a></figure><div><p>Safe copy</p></div></section>'
 );
 $unsafeLinkBlock = $unsafeLinkResult['blocks'][0] ?? array();
 $assertSame('core/media-text', $unsafeLinkBlock['blockName'] ?? null, 'Unsafe linked media still converts with safe media URL.');
@@ -313,7 +313,7 @@ $assertTrue(! array_key_exists('href', $unsafeLinkBlock['attrs'] ?? array()), 'U
 $assertTrue(! str_contains((string) ($unsafeLinkBlock['innerHTML'] ?? ''), 'javascript'), 'Unsafe href is absent from emitted markup.');
 
 $substringLinkResult = $transformHtml(
-    '<section><figure><a href="https://e.com/blog/what-is-javascript:-a-primer"><img src="x.jpg"></a></figure><div><p>Copy</p></div></section>'
+    '<section style="display:flex"><figure><a href="https://e.com/blog/what-is-javascript:-a-primer"><img src="x.jpg"></a></figure><div><p>Copy</p></div></section>'
 );
 $assertSame(
     'https://e.com/blog/what-is-javascript:-a-primer',
@@ -333,7 +333,7 @@ foreach ( array(
 ) as $safeMediaUrl ) {
     $fallbacks = array();
     $record = array();
-    $safeMediaElement = $elementFromHtml('<section><img src="placeholder.jpg"><div><p>Safe media</p></div></section>');
+    $safeMediaElement = $elementFromHtml('<section style="display:flex"><img src="placeholder.jpg"><div><p>Safe media</p></div></section>');
     $safeImage = $safeMediaElement->getElementsByTagName('img')->item(0);
     if ( ! $safeImage instanceof DOMElement ) {
         throw new RuntimeException('Safe-media fixture did not produce image.');
@@ -393,13 +393,13 @@ $assertSame(0, $record['convertCalls'], 'Unsafe resolved media URL declines befo
 // Width derives from media-child flex-basis, then width, and from two fr tracks.
 $fallbacks = array();
 $record = array();
-$flexBasisElement = $elementFromHtml('<section><figure style="flex-basis:42%"><img src="basis.jpg"></figure><div><p>Basis</p></div></section>');
+$flexBasisElement = $elementFromHtml('<section style="display:flex"><figure style="flex-basis:42%"><img src="basis.jpg"></figure><div><p>Basis</p></div></section>');
 $flexBasis = $match($flexBasisElement, array( $paragraph ), $fallbacks, $record);
 $assertSame(42, $flexBasis['attrs']['mediaWidth'] ?? null, 'Media flex-basis percentage derives width.');
 
 $fallbacks = array();
 $record = array();
-$widthElement = $elementFromHtml('<section><figure style="width:37.6%"><img src="width.jpg"></figure><div><p>Width</p></div></section>');
+$widthElement = $elementFromHtml('<section style="display:flex"><figure style="width:37.6%"><img src="width.jpg"></figure><div><p>Width</p></div></section>');
 $width = $match($widthElement, array( $paragraph ), $fallbacks, $record);
 $assertSame(38, $width['attrs']['mediaWidth'] ?? null, 'Media width percentage rounds to nearest integer.');
 
@@ -593,7 +593,7 @@ $assertSame(30, $invalidGridBlock['attrs']['mediaWidth'] ?? null, 'Invalid grid 
 
 $fallbacks = array();
 $record = array();
-$invalidWidthElement = $elementFromHtml('<section><img style="width:40%;width:banana" src="invalid-width.jpg"><div><p>Invalid width</p></div></section>');
+$invalidWidthElement = $elementFromHtml('<section style="display:flex"><img style="width:40%;width:banana" src="invalid-width.jpg"><div><p>Invalid width</p></div></section>');
 $invalidWidthBlock = $match($invalidWidthElement, array( $paragraph ), $fallbacks, $record);
 $assertSame(40, $invalidWidthBlock['attrs']['mediaWidth'] ?? null, 'Invalid media width does not override earlier percentage width.');
 
@@ -847,7 +847,7 @@ $lastFlexDirectionWinsResult = $transformHtml('<section style="display:flex;flex
 $assertSame('core/media-text', $lastFlexDirectionWinsResult['blocks'][0]['blockName'] ?? null, 'Last duplicate flex-direction declaration controls row-reverse gate.');
 
 $reviewerLastDisplayResult = $transformHtml('<section style="display:flex;display:block;flex-direction:column"><img src="x.jpg"><div><p>Copy</p></div></section>');
-$assertSame('core/media-text', $reviewerLastDisplayResult['blocks'][0]['blockName'] ?? null, 'Last display:block declaration makes stale flex column inapplicable.');
+$assertTrue('core/media-text' !== ($reviewerLastDisplayResult['blocks'][0]['blockName'] ?? null), 'Last display:block declaration declines via the mechanism gate, not the stale flex column.');
 
 $reviewerLastDirectionResult = $transformHtml('<section style="display:flex;flex-direction:column;flex-direction:row"><img src="x.jpg"><div><p>Copy</p></div></section>');
 $assertSame('core/media-text', $reviewerLastDirectionResult['blocks'][0]['blockName'] ?? null, 'Last flex-direction:row declaration supersedes stale column.');
@@ -864,11 +864,72 @@ $ambiguousGalleryResult = $transformHtml(
 $assertSame('core/gallery', $ambiguousGalleryResult['blocks'][0]['blockName'] ?? null, 'Two media-bearing figure panes remain core/gallery.');
 
 $threeChildrenResult = $transformHtml('<section style="display:flex"><figure><img src="three.jpg"></figure><div><p>Copy</p></div><aside>Extra</aside></section>');
-$assertSame('core/columns', $threeChildrenResult['blocks'][0]['blockName'] ?? null, 'Three-child decline falls through to existing columns path.');
+$assertSame('core/group', $threeChildrenResult['blocks'][0]['blockName'] ?? null, 'Three-child decline falls through to author-owned layout preservation.');
 
 $verticalResult = $transformHtml('<section class="media-text" style="display:flex;flex-direction:column"><figure><img src="stacked.jpg"></figure><div><p>Stacked</p></div></section>');
 $assertTrue('core/media-text' !== ($verticalResult['blocks'][0]['blockName'] ?? null), 'Vertical flex decline never emits media-text.');
 $assertTrue('core/columns' !== ($verticalResult['blocks'][0]['blockName'] ?? null), 'Vertical flex decline keeps existing columns rejection.');
+
+// Unresolvable var() on gate properties fails closed instead of converting
+// with the default layout.
+foreach ( array(
+    'display:flex;flex-direction:var(--stack-direction)',
+    'display:flex;flex-flow:var(--stack-flow)',
+    'display:var(--layout-mode)',
+    'display:flex;direction:var(--text-direction)',
+) as $unresolvableContainerStyle ) {
+    $unresolvableContainerResult = $transformHtml('<section style="' . $unresolvableContainerStyle . '"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+    $assertTrue('core/media-text' !== ($unresolvableContainerResult['blocks'][0]['blockName'] ?? null), 'Unresolvable container gate value declines: ' . $unresolvableContainerStyle);
+}
+
+$authoredVarDirectionResult = $transformHtml('<style>.token-flow{display:flex;flex-direction:var(--stack-direction)}</style><section class="token-flow"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($authoredVarDirectionResult['blocks'][0]['blockName'] ?? null), 'Stylesheet var() flex-direction declines media-text.');
+
+$varOrderResult = $transformHtml('<section style="display:flex"><img src="x.jpg" alt="" style="order:var(--o)"><div><p>Copy</p></div></section>');
+$assertTrue('core/media-text' !== ($varOrderResult['blocks'][0]['blockName'] ?? null), 'Unresolvable child order declines media-text.');
+
+// Inherited RTL declines even when declared on an ancestor.
+$ancestorDirResult = $transformHtml('<div dir="rtl"><section style="display:flex"><img src="x.jpg" alt=""><div><p>Copy</p></div></section></div>');
+$assertTrue('core/media-text' !== ($ancestorDirResult['blocks'][0]['blockName'] ?? null) && ! str_contains(json_encode($ancestorDirResult['blocks']), 'core\/media-text'), 'Ancestor dir=rtl declines media-text.');
+
+$bodyDirectionResult = $transformHtml('<style>body{direction:rtl}</style><section style="display:flex"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue(! str_contains(json_encode($bodyDirectionResult['blocks']), 'core\/media-text'), 'Inherited body{direction:rtl} declines media-text.');
+
+$nearestLtrResult = $transformHtml('<div dir="rtl"><section dir="ltr" style="display:flex"><img src="x.jpg" alt=""><div><p>Copy</p></div></section></div>');
+$assertTrue(str_contains(json_encode($nearestLtrResult['blocks']), 'core\/media-text'), 'Nearest dir=ltr overrides ancestor rtl and converts.');
+
+$dirAutoResult = $transformHtml('<section dir="auto" style="display:flex"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue(! str_contains(json_encode($dirAutoResult['blocks']), 'core\/media-text'), 'dir=auto fails closed and declines media-text.');
+
+// Floated panes decline instead of converting with DOM-order position.
+$floatRightResult = $transformHtml('<section><img src="x.jpg" alt="" style="float:right;width:40%"><div><p>Copy</p></div></section>');
+$assertTrue(! str_contains(json_encode($floatRightResult['blocks']), 'core\/media-text'), 'Floated media pane declines media-text.');
+
+$authoredFloatResult = $transformHtml('<style>.pull{float:left}</style><section><img src="x.jpg" alt=""><div class="pull"><p>Copy</p></div></section>');
+$assertTrue(! str_contains(json_encode($authoredFloatResult['blocks']), 'core\/media-text'), 'Stylesheet-floated text pane declines media-text.');
+
+// Grid templates that cannot express a mediaWidth decline instead of
+// silently rendering 50/50.
+foreach ( array(
+    'display:grid;grid-template-columns:300px auto',
+    'display:grid;grid-template-columns:minmax(200px,1fr) 2fr',
+    'display:grid;grid-template-columns:none',
+    'display:grid;grid-template-columns:var(--cols)',
+) as $inexpressibleGridStyle ) {
+    $inexpressibleGridResult = $transformHtml('<section style="' . $inexpressibleGridStyle . '"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+    $assertTrue(! str_contains(json_encode($inexpressibleGridResult['blocks']), 'core\/media-text'), 'Inexpressible grid template declines: ' . $inexpressibleGridStyle);
+}
+
+$expressibleGridResult = $transformHtml('<section style="display:grid;grid-template-columns:30% auto"><img src="x.jpg" alt=""><div><p>Copy</p></div></section>');
+$assertTrue(str_contains(json_encode($expressibleGridResult['blocks']), 'core\/media-text'), 'Percentage grid template still converts.');
+
+// A split-implying class with no authored horizontal CSS renders stacked and
+// defers to the columns demotion policy instead of fabricating a side pair.
+$classOnlySplitResult = $transformHtml('<div class="hero-grid"><div class="hero-text"><h1>Fresh Bread Daily</h1><p>Baked every morning.</p></div><figure><img src="https://example.com/bread.jpg" alt="Bread"></figure></div>');
+$assertTrue(! str_contains(json_encode($classOnlySplitResult['blocks']), 'core\/media-text'), 'Class-implied split without authored CSS declines media-text.');
+
+$classSplitWithCssResult = $transformHtml('<div class="hero-grid" style="display:grid;grid-template-columns:60% auto"><div><h1>Fresh Bread Daily</h1><p>Baked every morning.</p></div><figure><img src="https://example.com/bread.jpg" alt="Bread"></figure></div>');
+$assertTrue(str_contains(json_encode($classSplitWithCssResult['blocks']), 'core\/media-text'), 'Class-implied split with authored grid converts.');
 
 // Existing wp-block-media-text markup round-trips through same strict gate.
 $roundTripResult = $transformHtml(
