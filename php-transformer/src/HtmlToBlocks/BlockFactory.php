@@ -30,12 +30,11 @@ final class BlockFactory
      * @var array<string, true>
      */
     private const LAYOUT_SUPPORTING_BLOCKS = array(
+        'core/accordion'           => true,
         'core/buttons'             => true,
         'core/column'              => true,
-        'core/columns'             => true,
         'core/comments-pagination' => true,
         'core/cover'               => true,
-        'core/gallery'             => true,
         'core/group'               => true,
         'core/navigation'          => true,
         'core/post-content'        => true,
@@ -43,21 +42,30 @@ final class BlockFactory
         'core/query'               => true,
         'core/query-pagination'    => true,
         'core/social-links'        => true,
+        'core/tab-list'            => true,
+        'core/tab-panel'           => true,
+        'core/term-template'       => true,
+        'core/terms-query'         => true,
     );
 
     /**
      * The subset whose supports.layout permits switching to type grid
-     * (no allowSwitching:false pin to a fixed flex default).
+     * (layout true, or an object without an allowSwitching:false pin to a
+     * fixed flex default).
      *
      * @var array<string, true>
      */
     private const GRID_LAYOUT_BLOCKS = array(
-        'core/column'       => true,
-        'core/cover'        => true,
-        'core/group'        => true,
-        'core/post-content' => true,
+        'core/accordion'     => true,
+        'core/column'        => true,
+        'core/cover'         => true,
+        'core/group'         => true,
+        'core/post-content'  => true,
         'core/post-template' => true,
-        'core/query'        => true,
+        'core/query'         => true,
+        'core/tab-panel'     => true,
+        'core/term-template' => true,
+        'core/terms-query'   => true,
     );
 
     private ?StyleAttributeMapper $styleMapper = null;

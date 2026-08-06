@@ -323,7 +323,13 @@ trait StyleResolutionTrait
             return '';
         }
 
-        ksort($geometry);
+        // Emit carried declarations in source order: with per-declaration
+        // !important, last-write-wins is decided by rule order, and an
+        // alphabetical sort silently flips shorthand/longhand winners
+        // (grid vs grid-template-columns, gap vs column-gap). Values not
+        // present inline (forced/custom-property fallbacks) sort last.
+        $sourceOrder = array_flip(array_keys($declarations));
+        uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
         $declarations = array();
         foreach ($geometry as $property => $value) {
             // A converted inline declaration must continue to outrank authored
@@ -1106,9 +1112,22 @@ trait StyleResolutionTrait
     private function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class));
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class) && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    /**
+     * Transformer-generated marker and carrier classes found in SOURCE markup
+     * (re-ingested transformer output) must be re-derived, not preserved as
+     * author classes: a preserved css-owned-grid marker would trip the
+     * grid-class heuristics and the carried margin reset. Emitted classNames
+     * are unaffected — this filters ingestion only.
+     */
+    private static function isTransformerMarkerClassName(string $className): bool
+    {
+        return str_starts_with($className, 'blocks-engine-')
+            || str_starts_with($className, 'be-inline-geometry-');
     }
 
     private static function isBehaviorHookClassName(string $className): bool
@@ -1271,13 +1290,25 @@ trait StyleResolutionTrait
      */
     private function hasExplicitGridClass(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = $this->authorClassTokens($element);
         return (bool) preg_match('/(?:^|[\s_-])(?:grid|grid-[0-9]+|grid-cols(?:-[0-9]+)?|grid-columns|[a-z0-9]+[-_]grid)(?:$|[\s_-])/', $className);
     }
 
     private function hasGridLikeClass(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = $this->authorClassTokens($element);
         return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|collection|gallery)(?:$|[\s_-])/', $className);
+    }
+
+    /**
+     * Class tokens with generated markers filtered out, so transformer-emitted
+     * classes (blocks-engine-css-owned-grid, …) re-ingested from prior output
+     * never trip the author grid-class heuristics.
+     */
+    private function authorClassTokens(DOMElement $element): string
+    {
+        $tokens = preg_split('/\s+/', strtolower(trim($this->attr($element, 'class')))) ?: array();
+
+        return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
     }
 }

@@ -950,11 +950,11 @@ final class HtmlTransformer
             $entries[] = array_filter(array(
                 'name'     => $name,
                 'property' => $property,
-                'content'  => $content,
+                'content'  => substr($content, 0, 500),
             ), static fn (string $value): bool => '' !== $value);
         }
 
-        return $entries;
+        return array_slice($entries, 0, 20);
     }
 
     private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
@@ -2613,7 +2613,11 @@ final class HtmlTransformer
 
             $items = $this->definitionListItems($element);
             if ( array() !== $items ) {
-                return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
+                $definitionListAttrs = $this->isCssOwnedGridElement($element)
+                    ? $this->cssOwnedGridAttributes($element)
+                    : $this->presentationAttributes($element);
+
+                return $this->createBlock('core/list', $definitionListAttrs, $items, $element);
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
@@ -4078,7 +4082,11 @@ final class HtmlTransformer
 
     private function isCssOwnedGridElement(DOMElement $element): bool
     {
-        $display = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')));
+        $display = strtolower(trim((string) preg_replace(
+            '/\s*!important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+        )));
 
         return in_array($display, array( 'grid', 'inline-grid' ), true);
     }
