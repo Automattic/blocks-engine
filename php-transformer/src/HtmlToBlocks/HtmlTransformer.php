@@ -246,9 +246,6 @@ final class HtmlTransformer
     /** @var array<int, bool> */
     private array $sourceBaseHiddenStates = array();
 
-    /** @var array<string,int> */
-    private array $blockBindingOccurrences = array();
-
     /** @var array<string,true> */
     private array $formControlSlotPaths = array();
 
@@ -556,7 +553,6 @@ final class HtmlTransformer
         $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
         $this->sourceBaseHiddenStates = array();
-        $this->blockBindingOccurrences = array();
         $this->formControlSlotPaths = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
@@ -697,6 +693,7 @@ final class HtmlTransformer
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->finalizeFallbackBindings($fallbacks, $blocks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
@@ -2407,7 +2404,10 @@ final class HtmlTransformer
         }
 
         if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
-            return $this->htmlPreservationBlock($element);
+            $block = $this->htmlPreservationBlock($element);
+            $token = $this->formControlSlotPaths[$element->getNodePath()];
+            if (is_string($token)) $block['_binding_token'] = $token;
+            return $block;
         }
 
         if ( $this->isRedundantMenuToggleControl($element) ) {
@@ -4874,6 +4874,7 @@ final class HtmlTransformer
                 $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId]);
             }
             unset($block['_source_provenance_id']);
+            unset($block['_binding_token']);
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
                 $this->resolveSourceProvenancePaths($block['innerBlocks'], $blockPath . '.innerBlocks', $resolved);
@@ -6449,8 +6450,7 @@ final class HtmlTransformer
         if ( null === $block ) {
             return array();
         }
-        $markup = $this->runtime->serializeBlocks(array($block));
-        return $this->blockBinding($markup, 'commerce_controls', $this->runtimeDomSelectorsForElement($control));
+        return $this->blockBinding($block, 'commerce_controls', $this->runtimeDomSelectorsForElement($control));
     }
 
     /**
@@ -6476,17 +6476,90 @@ final class HtmlTransformer
     }
 
     /** @return array<string,mixed> */
-    private function blockBinding(string $markup, string $role, array $supersededRuntimeSelectors = array()): array
+    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array()): array
     {
-        if ( '' === trim($markup) ) {
+        $provenanceId = $block['_source_provenance_id'] ?? null;
+        $markup = $this->runtime->serializeBlocks(array($block));
+        if ( '' === trim($markup) || ! is_int($provenanceId) ) {
             return array();
         }
-        $key = hash('sha256', $role . "\n" . $markup);
-        $this->blockBindingOccurrences[$key] = ($this->blockBindingOccurrences[$key] ?? 0) + 1;
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => $this->blockBindingOccurrences[$key], 'role' => $role);
+        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role, '_binding_provenance_id' => $provenanceId);
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
         return $binding;
+    }
+
+    /** @param array<int,array<string,mixed>> $fallbacks @param array<int,array<string,mixed>> $blocks */
+    private function finalizeFallbackBindings(array &$fallbacks, array $blocks): void
+    {
+        $markup = $this->runtime->serializeBlocks($blocks);
+        $provenanceIndexes = array(); $index = 0;
+        $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
+        $ranges = $this->serializedBlockRanges($markup);
+        $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $ranges): void {
+            $provenanceId = $binding['_binding_provenance_id'] ?? null;
+            $blockIndex = is_int($provenanceId) ? ($provenanceIndexes[$provenanceId] ?? null) : null;
+            $range = is_int($blockIndex) ? ($ranges[$blockIndex] ?? null) : null;
+            if (is_array($range)) {
+                $search = substr($markup, $range['offset'], $range['length']);
+                if (is_string($search) && '' !== $search) {
+                    $binding['search_block_markup'] = $search;
+                    $binding['occurrence'] = $this->occurrenceAtOffset($markup, $search, $range['offset']);
+                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
+                } else {
+                    $binding = array();
+                }
+            } else {
+                $binding = array();
+            }
+            unset($binding['_binding_provenance_id']);
+        };
+        foreach ( $fallbacks as &$fallback ) {
+            if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
+            if (is_array($fallback['products'] ?? null)) {
+                foreach ($fallback['products'] as &$product) if (is_array($product['binding'] ?? null)) $finalize($product['binding']);
+                unset($product);
+            }
+        }
+        unset($fallback);
+    }
+
+    /** @param array<int,array<string,mixed>> $blocks @param array<int,int|null> $provenanceIndexes */
+    private function bindingProvenanceIndexes(array $blocks, array &$provenanceIndexes, int &$index): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) continue;
+            $provenanceId = $block['_source_provenance_id'] ?? null;
+            if (is_int($provenanceId)) $provenanceIndexes[$provenanceId] = isset($provenanceIndexes[$provenanceId]) ? null : $index;
+            ++$index;
+            $this->bindingProvenanceIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $provenanceIndexes, $index);
+        }
+    }
+
+    /** @return array<int,array{offset:int,length:int}> */
+    private function serializedBlockRanges(string $markup): array
+    {
+        $ranges = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        foreach ($matches[0] as $match) {
+            $token = $match[0]; $offset = $match[1];
+            if (str_starts_with($token, '<!-- /wp:')) {
+                $open = array_pop($stack);
+                if (is_array($open)) $ranges[$open['index']]['length'] = $offset + strlen($token) - $open['offset'];
+            } elseif (str_ends_with(rtrim($token), '/-->')) {
+                $ranges[] = array('offset' => $offset, 'length' => strlen($token));
+            } else {
+                $index = count($ranges); $ranges[] = array('offset' => $offset, 'length' => 0); $stack[] = array('index' => $index, 'offset' => $offset);
+            }
+        }
+        return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
+    }
+
+    private function occurrenceAtOffset(string $markup, string $search, int $offset): int
+    {
+        $occurrence = 0; $cursor = 0;
+        while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); }
+        return 0;
     }
 
     /**
@@ -9407,18 +9480,32 @@ final class HtmlTransformer
         if ( null === $slot ) return null;
 
         $path = $slot->getNodePath();
-        $this->formControlSlotPaths[$path] = true;
+        $token = 'form-control-slot-' . $this->nextSourceProvenanceId;
+        $this->formControlSlotPaths[$path] = $token;
         try {
             $children = $this->convertChildren($form, $fallbacks, true);
         } finally {
             unset($this->formControlSlotPaths[$path]);
         }
-        if ( array() === $children ) return null;
+        $slotBlock = $this->blockForBindingToken($children, $token);
+        if ( array() === $children || null === $slotBlock ) return null;
 
         return array(
             'block' => $this->createBlock('core/group', $this->presentationAttributes($form), $children, $form),
-            'slot'  => $this->htmlPreservationBlock($slot),
+            'slot'  => $slotBlock,
         );
+    }
+
+    /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed>|null */
+    private function blockForBindingToken(array $blocks, string $token): ?array
+    {
+        foreach ($blocks as $block) {
+            if (!is_array($block)) continue;
+            if ($token === ($block['_binding_token'] ?? null)) return $block;
+            $nested = $this->blockForBindingToken(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $token);
+            if (null !== $nested) return $nested;
+        }
+        return null;
     }
 
     private function formControlSlotElement(DOMElement $form): ?DOMElement
@@ -9713,7 +9800,6 @@ final class HtmlTransformer
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
-        $bindingMarkup = null !== $bindingBlock ? $this->runtime->serializeBlocks(array($bindingBlock)) : '';
         $supersededRuntimeSelectors = $this->runtimeDomSelectorsForElement($element);
         if ( $replacesRuntimeIsland ) $supersededRuntimeSelectors[] = $this->runtimeIslandSelector($element);
 
@@ -9732,7 +9818,7 @@ final class HtmlTransformer
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'binding'         => $this->blockBinding($bindingMarkup, 'form', $supersededRuntimeSelectors),
+            'binding'         => null !== $bindingBlock ? $this->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array(),
             'controls'        => $controls,
             'control_topology' => $controlTopology,
             'layout_graph'     => $layoutGraph,
