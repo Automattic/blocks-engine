@@ -33,6 +33,17 @@ final class WordPressSitePlan
         $documents = $this->decideDocuments($compiled['pages'] ?? null);
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        // Restore the semantic shell candidates before deriving binding positions.
+        // Extracted parts intentionally contain only their inner markup; the page
+        // representation owns the landmark wrapper until extraction is accepted.
+        foreach ($pages as &$page) {
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
+                if (null !== $restored) $page['canonical_block_markup'] = $restored;
+            }
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
         // Bindings anchor on the final canonical page markup before any shell
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
