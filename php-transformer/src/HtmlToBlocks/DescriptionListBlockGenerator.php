@@ -22,7 +22,9 @@ final class DescriptionListBlockGenerator
             'title' => 'Description List',
             'category' => 'text',
             'description' => 'A semantic description list with terms and descriptions.',
-            'editorScript' => 'file:./index.js',
+            // Companion plugins only materialize static assets. WordPress accepts
+            // script handles alongside a file reference, avoiding index.asset.php.
+            'editorScript' => array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ),
             'attributes' => array(
                 'className' => array( 'type' => 'string', 'default' => '' ),
                 'style' => array( 'type' => 'string', 'default' => '' ),
@@ -116,9 +118,6 @@ final class DescriptionListBlockGenerator
 JS;
 
         return array(
-            'index.asset.php' => <<<'PHP'
-<?php return array( 'dependencies' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ), 'version' => '1.0.0' );
-PHP,
             'index.js' => str_replace(
                 '__BLOCK_ATTRIBUTES__',
                 json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
