@@ -17,7 +17,7 @@ final class AdapterRegistry
      * @param list<string> $supportedFormats
      */
     public function __construct(
-        private array $supportedFormats = array( 'blocks', 'html', 'markdown' )
+        private array $supportedFormats = array()
     ) {
     }
 

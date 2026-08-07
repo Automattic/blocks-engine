@@ -18,6 +18,17 @@ final class MarkdownAdapter implements FormatAdapterInterface
     ) {
     }
 
+    /**
+     * Markdown support is optional: vendored copies of src/ may ship without
+     * the League packages (or without this file entirely). FormatBridge only
+     * registers this adapter when the conversion dependencies are loadable.
+     */
+    public static function isAvailable(): bool
+    {
+        return class_exists(GithubFlavoredMarkdownConverter::class)
+            && class_exists(HtmlConverter::class);
+    }
+
     public function slug(): string
     {
         return 'markdown';
