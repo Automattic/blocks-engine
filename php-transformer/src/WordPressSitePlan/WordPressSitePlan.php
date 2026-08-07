@@ -501,7 +501,8 @@ final class WordPressSitePlan
         $entryRoot = self::entryRootFromDocuments($routes);
         if ('' === $entryRoot) return null;
         $rooted = ArtifactPath::resolveRelativePath(ltrim($url, '/'), $entryRoot . '/index.html');
-        return '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
+        $reference = '' === $rooted ? null : $references->reference('/' . $rooted, $sourcePath);
+        return $reference ?? $references->reference($url, '');
     }
     /** @param mixed $documents @return array<int,array<string,mixed>> */
     private function decideDocuments(mixed $documents): array
