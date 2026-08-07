@@ -17,7 +17,9 @@ final class FormatBridge
     ) {
         $this->registry->register(new BlocksAdapter());
         $this->registry->register(new HtmlAdapter());
-        $this->registry->register(new MarkdownAdapter());
+        if ( class_exists(MarkdownAdapter::class) && MarkdownAdapter::isAvailable() ) {
+            $this->registry->register(new MarkdownAdapter());
+        }
     }
 
     public function registerAdapter(FormatAdapterInterface $adapter): void

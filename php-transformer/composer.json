@@ -47,6 +47,7 @@
     ],
     "test:canonical": [
       "php tests/contract/runtime-no-wordpress.php",
+      "php tests/contract/runtime-no-markdown.php",
       "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/plugin-bootstrap.php",
       "php tests/contract/run.php",

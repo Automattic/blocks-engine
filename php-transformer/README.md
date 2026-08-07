@@ -39,7 +39,7 @@ Consumers should treat these classes and interface as the public entrypoints for
 
 - `Contract\TransformerResult` - stable result envelope. Use `toArray()` when passing results across process, HTTP, fixture, or compatibility boundaries.
 - `HtmlToBlocks\HtmlTransformer` - converts supported HTML elements into WordPress block arrays and serialized block markup. Unsupported top-level HTML is reported in `fallbacks`.
-- `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`.
+- `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`. Markdown support is optional: the adapter registers only when `league/commonmark` + `league/html-to-markdown` are loadable (vendored copies may omit them and `FormatBridge/MarkdownAdapter.php` entirely), otherwise markdown conversion fails cleanly as `unsupported_source_format` and `supportedFormats()` omits `markdown`.
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
 - `StaticSite\MaterializationView` - validates a `TransformerResult` object or canonical result array and returns a stable product-neutral array view for importer planning.
