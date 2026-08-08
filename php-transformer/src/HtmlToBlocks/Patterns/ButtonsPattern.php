@@ -131,19 +131,18 @@ final class ButtonsPattern
                 $attrs['style']['border']['radius'] = '0';
             }
         }
-        // The canonical core/button wrapper is structural. A source control's
-        // classes would otherwise let an unprojected stylesheet paint that outer
-        // div instead of the link that Gutenberg actually renders as the button.
-        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
+        $preserveSourceClasses = $hasAuthoredStyleRules && $this->hasFlexLayout($resolvedPresentation) && $this->hasClassedDescendant($anchor);
+        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) && ! $preserveSourceClasses ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
+        $sourceClasses = $preserveSourceClasses ? $this->retainedSourceClasses($anchor, $attrs) : '';
 
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
-            'text' => $text,
-            'url'  => $attr($anchor, 'href'),
-            'title' => $this->buttonAccessibleTitle($anchor, $text),
+            'text'      => $text,
+            'url'       => $attr($anchor, 'href'),
+            'title'     => $this->buttonAccessibleTitle($anchor, $text),
+            'linkClass' => $sourceClasses,
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
@@ -397,6 +396,33 @@ final class ButtonsPattern
     {
         foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
             if ( $element->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function retainedSourceClasses(DOMElement $element, array $attrs): string
+    {
+        $sourceClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+        $retainedClasses = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        return $this->mergeClassNames(...array_values(array_filter(
+            $sourceClasses,
+            static fn (string $class): bool => in_array($class, $retainedClasses, true)
+        )));
+    }
+
+    private function hasFlexLayout(string $style): bool
+    {
+        return preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style) === 1;
+    }
+
+    private function hasClassedDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && '' !== trim($descendant->getAttribute('class')) ) {
                 return true;
             }
         }

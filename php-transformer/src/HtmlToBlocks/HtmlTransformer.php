@@ -1545,7 +1545,7 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->requiresStandaloneInlineLayoutLeaf($element) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
@@ -3967,6 +3967,12 @@ final class HtmlTransformer
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool
     {
         return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
+    }
+
+    private function isDirectChildOfLoweredAuthorControl(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement
+            && isset($this->sourceControlPaths[$element->parentNode->getNodePath() ?? '']);
     }
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool

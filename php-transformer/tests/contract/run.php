@@ -856,6 +856,17 @@ $assert(str_contains($descendantSurfaceButtonMarkup, '<!-- wp:button') && str_co
 $assert(str_contains($descendantSurfaceButtonCss, '> :where(.wp-block-button__link)') && str_contains($descendantSurfaceButtonCss, 'min-width:170px') && str_contains($descendantSurfaceButtonCss, 'padding:22px 26px'), 'composite button descendant selectors project their complete painted geometry onto the native link');
 $assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validity']['status'] ?? ''), 'composite button surface conversion remains editor-valid');
 
+$flexAnchorButton = ( new HtmlTransformer() )->transform(
+    '<style>.product-row{display:flex;align-items:center;gap:1rem;padding:1rem;background:#123456}.product-row__name{flex:1}</style><main><a class="product-row" href="/product"><span class="product-row__name">Product</span><span>$25</span></a></main>'
+)->toArray();
+$flexAnchorButtonAttrs = $flexAnchorButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? '');
+$flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
+$assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button preserves its safe source class in core/button attributes');
+$assert(str_contains($flexAnchorButtonMarkup, '<a class="wp-block-button__link has-background product-row wp-element-button"'), 'styled anchor button composes its safe source class with canonical link classes');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor button retains matched flex and child selector applicability after lowering');
+$assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with composed source classes');
+
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
