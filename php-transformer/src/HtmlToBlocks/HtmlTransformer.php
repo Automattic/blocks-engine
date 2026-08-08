@@ -11514,6 +11514,9 @@ final class HtmlTransformer
     private function assetMetadataLookupKeys(string $url): array
     {
         $keys = array();
+        // Root-relative URLs cannot traverse out of their website root. Keep
+        // their original spelling so they cannot match a relative asset key.
+        if (str_starts_with(trim($url), '/') && preg_match('~(?:^|/)\.\.(?:/|$)~', parse_url($url, PHP_URL_PATH) ?: '')) return array(trim($url));
         foreach ( array( trim($url), ltrim(trim($url), '/') ) as $key ) {
             if ( '' !== $key && ! in_array($key, $keys, true) ) {
                 $keys[] = $key;
