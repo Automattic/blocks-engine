@@ -582,7 +582,10 @@ final class ArtifactCompiler
                     }
                     if ( ! isset($row['bindings']) ) continue;
                     if ( isset($products[$productSlug]) ) {
-                        $products[$productSlug]['bindings'][] = $row['bindings'][0];
+                        $binding = $row['bindings'][0];
+                        $claim = $binding['source_path'] . "\n" . hash('sha256', $binding['search_block_markup']) . "\n" . $binding['occurrence'];
+                        $existingClaims = array_map(static fn(array $existing): string => $existing['source_path'] . "\n" . hash('sha256', $existing['search_block_markup']) . "\n" . $existing['occurrence'], $products[$productSlug]['bindings']);
+                        if (!in_array($claim, $existingClaims, true)) $products[$productSlug]['bindings'][] = $binding;
                         continue;
                     }
                     $products[$productSlug] = $row;
