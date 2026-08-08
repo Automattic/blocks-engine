@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use InvalidArgumentException;
 
 /** Resolves declared asset tokens using explicit runtime destination context. */
@@ -25,6 +26,9 @@ final class WordPressSitePlanResolver
         unset($part);
         foreach ($plan['templates'] as &$template) $template['resolved_block_markup'] = self::resolvePayload($template['canonical_block_markup'], $references);
         unset($template);
+        // Provider bindings replace page markup, so their anchors must use the
+        // same destination projection as the page materialized by consumers.
+        $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $plan['pages'], $references);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolvePayload($write['canonical_payload'], $references); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
@@ -40,6 +44,60 @@ final class WordPressSitePlanResolver
         $resolved = strtr($content, $references);
         if (str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX)) throw new InvalidArgumentException('WordPress site plan contains unresolved reference tokens.');
         return $resolved;
+    }
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
+    private static function resolveEntityBindings(array $declarations, array $pages, array $references): array
+    {
+        $pagesBySource = array_column($pages, null, 'source_path');
+        foreach ($declarations as $declarationIndex => $declaration) {
+            if (!is_array($declaration['payload']['entities'] ?? null)) continue;
+            foreach ($declaration['payload']['entities'] as $entityIndex => $entity) {
+                if (!is_array($entity['bindings'] ?? null)) continue;
+                foreach ($entity['bindings'] as $bindingIndex => $binding) {
+                    if (!is_array($binding) || 'generic/block-binding/v1' !== ($binding['schema'] ?? null) || !is_string($binding['source_path'] ?? null) || !is_string($binding['search_block_markup'] ?? null) || !is_int($binding['occurrence'] ?? null)) continue;
+                    $page = $pagesBySource[$binding['source_path']] ?? null;
+                    if (!is_array($page) || !is_string($page['canonical_block_markup'] ?? null) || !is_string($page['resolved_block_markup'] ?? null)) continue;
+                    $canonical = $page['canonical_block_markup']; $resolved = $page['resolved_block_markup'];
+                    $canonicalOffset = self::occurrenceOffset($canonical, $binding['search_block_markup'], $binding['occurrence']);
+                    $blockIndex = null;
+                    foreach (self::blockRanges($canonical) as $index => $range) if ($range['offset'] === $canonicalOffset && $binding['search_block_markup'] === substr($canonical, $range['offset'], $range['length'])) { $blockIndex = $index; break; }
+                    if (!is_int($blockIndex)) throw new InvalidArgumentException('WordPress site plan runtime binding cannot be resolved from its canonical source-page anchor.');
+                    $search = self::resolvePayload($binding['search_block_markup'], $references);
+                    // A token can change byte length, and filtered malformed ranges can
+                    // shift a serialized block index. Project the canonical byte prefix
+                    // instead of assuming indexes remain numerically stable.
+                    $resolvedOffset = strlen(self::resolvePayload(substr($canonical, 0, $canonicalOffset), $references));
+                    $range = null;
+                    foreach (self::blockRanges($resolved) as $index => $candidate) if ($candidate['offset'] === $resolvedOffset && $search === substr($resolved, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
+                    if (!is_array($range)) throw new InvalidArgumentException('WordPress site plan runtime binding resolved anchor is detached from its source page.');
+                    $binding['search_block_markup'] = $search;
+                    $binding['occurrence'] = self::occurrenceAtOffset($resolved, $search, $range['offset']);
+                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
+                    $declarations[$declarationIndex]['payload']['entities'][$entityIndex]['bindings'][$bindingIndex] = $binding;
+                }
+            }
+        }
+        foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
+        unset($declaration);
+        return RuntimeDeclarations::normalizeList($declarations);
+    }
+    /** @return array<int,array{offset:int,length:int}> */
+    private static function blockRanges(string $markup): array
+    {
+        $ranges = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        foreach ($matches[0] as $match) { $token = $match[0]; $offset = $match[1]; if (str_starts_with($token, '<!-- /wp:')) { $open = array_pop($stack); if (is_array($open)) $ranges[$open['index']]['length'] = $offset + strlen($token) - $open['offset']; } elseif (str_ends_with(rtrim($token), '/-->')) $ranges[] = array('offset' => $offset, 'length' => strlen($token)); else { $index = count($ranges); $ranges[] = array('offset' => $offset, 'length' => 0); $stack[] = array('index' => $index, 'offset' => $offset); } }
+        return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
+    }
+    private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
+    {
+        if ('' === $search || $occurrence < 1) return null;
+        $offset = 0; for ($index = 0; $index < $occurrence; ++$index) { $offset = strpos($markup, $search, $offset); if (false === $offset) return null; if ($index + 1 < $occurrence) $offset += strlen($search); }
+        return $offset;
+    }
+    private static function occurrenceAtOffset(string $markup, string $search, int $offset): int
+    {
+        $occurrence = 0; $cursor = 0; while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); } return 0;
     }
 
     public static function normalizeThemeUri(mixed $value): string

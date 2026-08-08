@@ -95,7 +95,8 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<int,array<string,mixed>> $assets */
     private static function assertEntityBindingsRemainPageOwned(array $declarations, array $pages, array $assets): void
     {
-        $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
+        $markupBySource = array();
+        foreach ($pages as $page) if (is_string($page['source_path'] ?? null) && is_string($page['canonical_block_markup'] ?? null)) $markupBySource[$page['source_path']] = is_string($page['resolved_block_markup'] ?? null) ? $page['resolved_block_markup'] : $page['canonical_block_markup'];
         $assetsBySource = array_column($assets, null, 'source_path');
         $scriptsBySource = array();
         foreach ( $pages as $page ) foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) if ( is_array($script) && is_string($script['selector'] ?? null) ) $scriptsBySource[$page['source_path'] . "\n" . $script['selector']] = $script;

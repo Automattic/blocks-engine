@@ -78,7 +78,8 @@ and `WordPressSitePlanResolver::resolve()`.
 - Pages, templates, and template parts carry `canonical_block_markup`. It is
   materialization-ready but destination-independent: every local asset reference
   is a declared `{{wordpress-site-plan:asset:...}}` token. It is not browser-ready
-  markup. Resolution adds `resolved_block_markup` without changing canonical data.
+  markup. Resolution adds `resolved_block_markup` without changing canonical page
+  data, and projects provider binding anchors to the same resolved page markup.
 - `reference_tokens` is the only allowed token-to-artifact mapping. Each token maps
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
