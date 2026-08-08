@@ -131,8 +131,9 @@ final class ButtonsPattern
                 $attrs['style']['border']['radius'] = '0';
             }
         }
-        $preserveSourceClasses = $hasAuthoredStyleRules && $this->hasFlexLayout($resolvedPresentation) && $this->hasClassedDescendant($anchor);
-        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) && ! $preserveSourceClasses ) {
+        // core/button only saves className on its wrapper. Anchor-root selectors
+        // are projected through the generated control marker onto the saved link.
+        if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
@@ -394,22 +395,6 @@ final class ButtonsPattern
     {
         foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
             if ( $element->hasAttribute($attribute) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasFlexLayout(string $style): bool
-    {
-        return preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style) === 1;
-    }
-
-    private function hasClassedDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && '' !== trim($descendant->getAttribute('class')) ) {
                 return true;
             }
         }

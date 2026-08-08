@@ -862,10 +862,11 @@ $flexAnchorButton = ( new HtmlTransformer() )->transform(
 $flexAnchorButtonAttrs = $flexAnchorButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? '');
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
-$assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button preserves its safe source class in core/button attributes');
-$assert(str_contains($flexAnchorButtonMarkup, '<div class="wp-block-button product-row ') && str_contains($flexAnchorButtonMarkup, '<a class="wp-block-button__link has-background wp-element-button"'), 'styled anchor button keeps its source class on the canonical core/button wrapper rather than changing link save markup');
-$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor button retains matched flex and child selector applicability after lowering');
-$assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with composed source classes');
+$assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
+$assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker after lowering');
+$assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
+$assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
