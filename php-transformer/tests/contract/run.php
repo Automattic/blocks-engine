@@ -888,13 +888,14 @@ $assert(str_contains($fullWidthAnchorButtonCss, '.wp-block-buttons){display:bloc
 $assert('pass' === ($fullWidthAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width anchor wrapper chain remains editor-valid');
 
 $fullWidthNativeButton = ( new HtmlTransformer() )->transform(
-    '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><button class="btn btn--full selector-submit" type="button">Submit</button></section></main>'
+    '<style>button{background:none;border:none}.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><button class="btn btn--full selector-submit" type="button">Submit</button></section></main>'
 )->toArray();
 $fullWidthNativeButtonMarkup = (string) ($fullWidthNativeButton['serialized_blocks'] ?? '');
 $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(100 === ($fullWidthNativeButtonAttrs['width'] ?? null) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button uses native width support and a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null), 'a filled button variant overrides an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
 

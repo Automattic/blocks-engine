@@ -320,7 +320,10 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle);
+        // Resolve native paint before classifying an outline: a generic reset such
+        // as `button { background: none }` can precede a filled button variant.
+        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
         if ( $isOutline ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
@@ -330,7 +333,6 @@ final class ButtonsPattern
         // button renders with its source colors/border instead of the theme default.
         // A button with no paintable styling resolves to no native attributes and
         // stays a default button.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
         if ( array() !== $native ) {
             $attrs = array_merge($attrs, $native);
         }
@@ -422,10 +424,16 @@ final class ButtonsPattern
         $attrs['className'] = implode(' ', $classes);
     }
 
-    private function hasOutlineSignal(DOMElement $element, string $style): bool
+    /** @param array<string, mixed> $native */
+    private function hasOutlineSignal(DOMElement $element, string $style, array $native = array()): bool
     {
         if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
             return true;
+        }
+
+        $background = trim((string) ($native['style']['color']['background'] ?? ''));
+        if ( '' !== $background && ! in_array(strtolower($background), array( 'transparent', 'none' ), true) ) {
+            return false;
         }
 
         $normalized = strtolower($style);
