@@ -58,9 +58,13 @@ final class ButtonsPattern
      */
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $isGridItem, callable $createBlock): array
     {
+        $resolvedButtonStyle = trim((string) $resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle);
         if ( $isGridItem($button) ) {
             $attrs['width'] = 100;
+        }
+        if ( 100 === (int) ($attrs['width'] ?? 0) && $resolvedButtonStyle !== trim($button->getAttribute('style')) ) {
+            $this->removeSourceControlClasses($attrs, $button);
         }
         $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
 
