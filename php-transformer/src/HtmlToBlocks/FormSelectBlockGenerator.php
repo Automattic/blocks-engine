@@ -57,8 +57,9 @@ JS;
         return array(
             'index.js' => str_replace('__BLOCK_ATTRIBUTES__', json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $script),
             // The legacy core/group boundary is retained for compatibility, but
-            // must not acquire the flow spacing of a content section.
-            'style.css' => '.wp-block-group.blocks-engine-form-select-wrapper{margin-block-start:0!important;margin-block-end:0!important}',
+            // must not become an extra flow, grid, or flex item. Flatten it so
+            // the native select receives the authored layout slot directly.
+            'style.css' => '.wp-block-group.blocks-engine-form-select-wrapper{display:contents;margin-block-start:0!important;margin-block-end:0!important}',
         );
     }
 
