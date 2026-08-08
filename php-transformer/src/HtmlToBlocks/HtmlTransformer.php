@@ -293,6 +293,8 @@ final class HtmlTransformer
 
     private bool $formSelectBlockGenerated = false;
 
+    private bool $formInputBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -563,6 +565,7 @@ final class HtmlTransformer
         $this->generatedBlocks = array();
         $this->descriptionListBlockGenerated = false;
         $this->formSelectBlockGenerated = false;
+        $this->formInputBlockGenerated = false;
         $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
@@ -9629,6 +9632,13 @@ final class HtmlTransformer
             }
         }
 
+        if ( 'input' === $tagName ) {
+            $inputBlock = $this->readableInputBlockFromElement($element);
+            if ( null !== $inputBlock ) {
+                return $inputBlock;
+            }
+        }
+
         $summary = $this->readableFormControlText($element);
         if ( '' === $summary ) {
             return null;
@@ -9744,6 +9754,50 @@ final class HtmlTransformer
             'anchor' => $this->safeAnchor($this->attr($select, 'id')),
             'className' => 'blocks-engine-form-select-wrapper',
         )), array( $controlBlock ));
+    }
+
+    /**
+     * Return a compact native input only when authored presentation is proven by
+     * the resolved CSS cascade. The direct save shape preserves flex-child and
+     * selector semantics that a readable paragraph cannot represent.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readableInputBlockFromElement(DOMElement $input): ?array
+    {
+        if ( array() === $this->structuralPresentationDeclarations($input) ) {
+            return null;
+        }
+        if ( ! $this->formInputBlockGenerated ) {
+            $this->generatedBlocks[] = ( new FormInputBlockGenerator() )->definition();
+            $this->formInputBlockGenerated = true;
+        }
+        $attrs = array_filter(array(
+            'type' => $this->formControlType($input),
+            'id' => $this->attr($input, 'id'),
+            'name' => $this->attr($input, 'name'),
+            'value' => $this->attr($input, 'value'),
+            'placeholder' => $this->attr($input, 'placeholder'),
+            'ariaLabel' => $this->attr($input, 'aria-label'),
+            'className' => $this->attr($input, 'class'),
+            'style' => $this->attr($input, 'style'),
+            'min' => $this->attr($input, 'min'),
+            'max' => $this->attr($input, 'max'),
+            'step' => $this->attr($input, 'step'),
+            'required' => $input->hasAttribute('required'),
+            'disabled' => $input->hasAttribute('disabled'),
+            'readOnly' => $input->hasAttribute('readonly'),
+            'checked' => $input->hasAttribute('checked'),
+        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        $markup = ( new FormInputBlockGenerator() )->markup($attrs);
+
+        return array(
+            'blockName' => FormInputBlockGenerator::NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
     }
 
     /**

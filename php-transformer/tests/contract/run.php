@@ -1009,6 +1009,19 @@ $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_is
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 $assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
 
+$styledInputs = ( new HtmlTransformer() )->transform(
+    '<main><input id="newsletter" class="footer-newsletter__input" type="email" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" required disabled readonly><input id="plain-input" class="plain-input" type="text" placeholder="Readable summary"><input class="js-filter" type="text" placeholder="Runtime filter"></main>',
+    array('runtime_dom_selectors' => array('.js-filter'), 'static_css' => '.footer-newsletter__input{flex:1;border:1px solid #123;padding:10px}')
+)->toArray();
+$styledInputBlocks = $styledInputs['blocks'][0]['innerBlocks'] ?? array();
+$styledInputMarkup = (string) ($styledInputs['serialized_blocks'] ?? '');
+$assert('blocks-engine/form-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses a compact editable native-control block');
+$assert('core/paragraph' === ($styledInputBlocks[1]['blockName'] ?? ''), 'unstyled static input retains the readable-summary representation');
+$assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-targeted input retains native runtime-island behavior');
+$assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
+$assert(! str_contains($styledInputMarkup, '<!-- wp:html') || str_contains($styledInputMarkup, '<input class="js-filter"'), 'styled static input never uses core/html while runtime input remains compatible');
+$assert('pass' === ($styledInputs['source_reports']['wp_block_validity']['status'] ?? ''), 'compact input serialization passes canonical Gutenberg validity');
+
 $unstyledSelect = ( new HtmlTransformer() )->transform(
     '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
 )->toArray();
