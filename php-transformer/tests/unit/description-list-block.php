@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
@@ -22,12 +23,39 @@ $definition = $generator->definition();
 $assert(DescriptionListBlockGenerator::NAME === ($definition['block_json']['name'] ?? null), 'block metadata uses the stable companion name');
 $assert(3 === ($definition['block_json']['apiVersion'] ?? null), 'block metadata uses apiVersion 3');
 $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'block metadata disables raw HTML editing');
-$assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'block metadata declares the editor asset');
+$assert(array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ) === ($definition['block_json']['editorScript'] ?? null), 'block metadata declares WordPress editor dependencies and the editor asset');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'RawHTML'), 'editor asset serializes semantic static markup');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'escapeAttribute'), 'editor asset escapes presentation attributes');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'attributes: attributes'), 'client registration declares the block attribute schema');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'safeCssText'), 'editor rendering sanitizes captured inline styles through the browser CSSOM');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'useEffect'), 'editor rendering scopes exact inline CSS without React style-object loss');
+$assets = $definition['assets'] ?? array();
+$isSafeCompanionAsset = static function (mixed $path, mixed $content): bool {
+    if ( ! is_string($path) || ! is_scalar($content) || '' === $path || str_starts_with($path, '/') || str_contains($path, '\\') || str_contains($path, '../') || str_contains($path, './') ) {
+        return false;
+    }
+
+    foreach ( explode('/', $path) as $segment ) {
+        if ( '' === $segment || '.' === $segment || '..' === $segment || 1 !== preg_match('/^[A-Za-z0-9._-]+$/', $segment) ) {
+            return false;
+        }
+    }
+
+    $extension = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+    return in_array($extension, array( 'js', 'mjs', 'css', 'json', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'ico', 'woff', 'woff2', 'ttf', 'otf', 'eot' ), true)
+        && ! preg_match('/<\\?(?:php|=|[[:space:]])/i', (string) $content);
+};
+$assert(array( 'index.js' ) === array_keys($assets), 'description-list emits only its package-relative editor asset');
+$assert(array_reduce(array_keys($assets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $assets[$path]), true), 'description-list emitted assets satisfy SSI companion safe-path and static-content validation');
+$editorScript = $definition['block_json']['editorScript'] ?? array();
+$editorAsset = is_array($editorScript) ? end($editorScript) : '';
+$editorPath = is_string($editorAsset) && str_starts_with($editorAsset, 'file:./') ? substr($editorAsset, 7) : '';
+$assert('index.js' === $editorPath && array_key_exists($editorPath, $assets), 'description-list editor metadata resolves to a materializable package-relative asset');
+$authorLayout = ( new AuthorLayoutBlockGenerator() )->definition();
+$authorAssets = $authorLayout['assets'] ?? array();
+$assert(array( 'index.js' ) === array_keys($authorAssets), 'author-layout emits only its package-relative editor asset');
+$assert(array_reduce(array_keys($authorAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $authorAssets[$path]), true), 'author-layout emitted assets satisfy SSI companion safe-path and static-content validation');
+$assert(array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ) === ($authorLayout['block_json']['editorScript'] ?? null), 'author-layout metadata declares WordPress editor dependencies and the editor asset');
 
 $html = '<dl class="facts &amp; figures" style="display:grid"><dt class="term"><strong>Office</strong> <em>location</em></dt><dt>Alias</dt><dd class="definition">North <a href="/hall">Hall</a></dd><dd>Weekdays</dd><dt>Hours</dt><dd>09:00 &amp; 17:00</dd></dl>';
 $result = ( new HtmlTransformer() )->transform($html)->toArray();

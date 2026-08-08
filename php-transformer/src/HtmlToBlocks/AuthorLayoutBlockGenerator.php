@@ -17,7 +17,7 @@ final class AuthorLayoutBlockGenerator
             'title' => 'Author Layout',
             'category' => 'design',
             'description' => 'An editable semantic container whose layout remains owned by author CSS.',
-            'editorScript' => 'file:./index.js',
+            'editorScript' => array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ),
             'attributes' => array(
                 'anchor' => array( 'type' => 'string', 'default' => '' ),
                 'className' => array( 'type' => 'string', 'default' => '' ),
@@ -71,7 +71,6 @@ final class AuthorLayoutBlockGenerator
 JS;
 
         return array(
-            'index.asset.php' => "<?php return array( 'dependencies' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ), 'version' => '1.0.0' );\n",
             'index.js' => str_replace('__BLOCK_ATTRIBUTES__', json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $script),
         );
     }
