@@ -12,9 +12,12 @@ final class AssetReferenceCanonicalizer
     /** @var array<string,string> */
     private array $tokensBySource = array();
 
+    private string $siteRoot;
+
     /** @param array<int,array<string,string>> $tokens */
-    public function __construct(array $tokens)
+    public function __construct(array $tokens, string $siteRoot = '')
     {
+        $this->siteRoot = self::identity($siteRoot);
         foreach ($tokens as $token) {
             $source = self::identity($token['source_path'] ?? '');
             if ('' === $source || !is_string($token['token'] ?? null) || isset($this->tokensBySource[$source])) {
@@ -39,7 +42,12 @@ final class AssetReferenceCanonicalizer
         $externalPath = ltrim($normalizedPath, '/');
         $external = str_starts_with($externalPath, '_external/');
         if (str_starts_with($normalizedPath, '/')) {
-            $identity = self::identity(ltrim($path, '/'));
+            // The entry document's directory is the website root when an
+            // artifact is packaged beneath a wrapper such as `website/`.
+            $identity = self::rootedIdentity($path, $this->siteRoot);
+            // Keep bare artifact-root references working for standalone assets
+            // and transport-only `_external/` paths.
+            if ('' !== $identity && !isset($this->tokensBySource[$identity])) $identity = self::identity(ltrim($path, '/'));
         } elseif ($external) {
             // Downloaded remote assets retain this artifact-root staging namespace.
             $identity = self::identity($path);
@@ -154,6 +162,24 @@ final class AssetReferenceCanonicalizer
     private static function identity(string $path): string
     {
         return self::segments(explode('/', str_replace('\\', '/', $path)));
+    }
+
+    private static function rootedIdentity(string $reference, string $siteRoot): string
+    {
+        $root = '' === $siteRoot ? array() : explode('/', $siteRoot);
+        $segments = $root;
+        foreach (explode('/', ltrim(str_replace('\\', '/', $reference), '/')) as $segment) {
+            $segment = rawurldecode($segment);
+            if (str_contains($segment, '/') || str_contains($segment, '\\')) return '';
+            if ('' === $segment || '.' === $segment) continue;
+            if ('..' === $segment) {
+                if (count($segments) <= count($root)) return '';
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = $segment;
+        }
+        return implode('/', $segments);
     }
 
     /** @param array<int,string> $segments */

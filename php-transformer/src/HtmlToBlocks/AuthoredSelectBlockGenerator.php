@@ -6,9 +6,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 /**
  * Builds the static companion block for compact, editable native select controls.
  */
-final class FormSelectBlockGenerator
+final class AuthoredSelectBlockGenerator
 {
-    public const NAME = 'blocks-engine/form-select';
+    public const NAME = 'blocks-engine/authored-select';
 
     /** @return array<string, mixed> */
     public function blockJson(): array
@@ -50,15 +50,15 @@ final class FormSelectBlockGenerator
     function markup( attrs ) { var output = '<select' + selectAttributes( attrs ) + '>'; ( attrs.options || [] ).forEach( function( option ) { var value = Object.prototype.hasOwnProperty.call( option, 'value' ) ? option.value : option.label; output += '<option value="' + escapeAttribute( value ) + '"' + ( option.selected ? ' selected' : '' ) + ( option.disabled ? ' disabled' : '' ) + '>' + ( option.label || '' ) + '</option>'; } ); return output + '</select>'; }
     function edit( props ) { var attrs = props.attributes; var options = ( attrs.options || [] ).map( function( option ) { return createElement( 'option', { value: option.value || option.label, disabled: option.disabled, selected: option.selected, key: option.value || option.label }, option.label ); } ); return createElement( 'select', { id: attrs.id || undefined, name: attrs.name || undefined, className: attrs.className || undefined, style: attrs.style || undefined, onChange: function( event ) { props.setAttributes( { options: ( attrs.options || [] ).map( function( option ) { return Object.assign( {}, option, { selected: option.value === event.target.value } ); } ) } ); } }, options ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
-    blocks.registerBlockType( 'blocks-engine/form-select', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
+    blocks.registerBlockType( 'blocks-engine/authored-select', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
 
         return array(
             'index.js' => str_replace('__BLOCK_ATTRIBUTES__', json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $script),
-            // The legacy core/group boundary is retained for compatibility, but
-            // must not acquire the flow spacing of a content section.
-            'style.css' => '.wp-block-group.blocks-engine-form-select-wrapper{margin-block-start:0!important;margin-block-end:0!important}',
+            // The legacy core/group boundary is retained for compatibility without
+            // introducing a layout box around the authored native control.
+            'style.css' => '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}',
         );
     }
 
@@ -91,6 +91,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(): array
     {
-        return array( 'name' => 'form-select', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
+        return array( 'name' => 'authored-select', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
     }
 }
