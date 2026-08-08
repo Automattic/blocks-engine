@@ -1652,25 +1652,7 @@ final class HtmlTransformer
         ) {
             return false;
         }
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
-            return false;
-        }
-        $parentStyle = $this->structuralPresentationDeclarations($parent);
-        return in_array(strtolower(trim((string) ($parentStyle['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true)
-            && $this->declarationsOwnSvgMediaBox($parentStyle);
-    }
-
-    /** @param array<string, string> $declarations */
-    private function declarationsOwnSvgMediaBox(array $declarations): bool
-    {
-        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
-            if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return true;
     }
 
     /**
