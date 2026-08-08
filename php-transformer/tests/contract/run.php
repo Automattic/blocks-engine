@@ -713,6 +713,19 @@ $positionedFillRoundTrip = ( new \Automattic\BlocksEngine\PhpTransformer\WordPre
 $assert(str_contains($positionedFillMarkup, 'wp-block-image hero-art be-inline-geometry-') && str_contains($positionedFillCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'positioned SVG fill serializes native image wrapper and image rules with greater specificity than WordPress core intrinsic-image CSS');
 $assert(str_contains($positionedFillRoundTrip, 'wp-block-image hero-art be-inline-geometry-'), 'positioned SVG fill survives the serialized WordPress block parse/save contract without dropping its native fill carrier');
 
+$cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
+    '<style>.grid-scene,.flex-scene{width:640px;height:1496px}.grid-scene{display:grid}.flex-scene{display:flex}.grid-scene svg,.flex-scene svg{width:100%;height:100%}</style><main><div class="grid-scene"><svg class="grid-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div><div class="flex-scene"><svg class="flex-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div></main>'
+)->toArray();
+$cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssOwnedSvgFill['assets'] ?? array()));
+$assert(str_contains($cssOwnedSvgFillCss, '.grid-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.flex-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
+$assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
+
+$intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
+)->toArray();
+$intrinsicSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $intrinsicSvgArtwork['assets'] ?? array()));
+$assert(! str_contains($intrinsicSvgCss, '.intrinsic-scene .wp-block-image > img'), 'intrinsic slice SVGs without CSS-owned width and height do not receive fill-image projection');
+
 $flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon" style="background:#7657ff"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
 )->toArray();

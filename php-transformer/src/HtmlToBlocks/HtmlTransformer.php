@@ -1596,7 +1596,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isExplicitParentFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isProjectableFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1638,6 +1638,39 @@ final class HtmlTransformer
             return false;
         }
         return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function isProjectableFillSvg(DOMElement $element, array $declarations): bool
+    {
+        if ( $this->isExplicitParentFillSvg($element, $declarations) ) {
+            return true;
+        }
+        if ( '100%' !== trim((string) ($declarations['width'] ?? ''))
+            || '100%' !== trim((string) ($declarations['height'] ?? ''))
+            || ! preg_match('/(?:^|\s)(?:defer\s+)?x(?:min|mid|max)y(?:min|mid|max)\s+slice(?:\s|$)/i', trim($this->attr($element, 'preserveaspectratio')))
+        ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentStyle = $this->structuralPresentationDeclarations($parent);
+        return in_array(strtolower(trim((string) ($parentStyle['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true)
+            && $this->declarationsOwnSvgMediaBox($parentStyle);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function declarationsOwnSvgMediaBox(array $declarations): bool
+    {
+        foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
+            if ( isset($declarations[$property]) && '' !== trim((string) $declarations[$property]) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
