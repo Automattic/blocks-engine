@@ -6,9 +6,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 /**
  * Builds the static companion block for compact, editable native input controls.
  */
-final class FormInputBlockGenerator
+final class AuthoredInputBlockGenerator
 {
-    public const NAME = 'blocks-engine/form-input';
+    public const NAME = 'blocks-engine/authored-input';
 
     /** @return array<string, mixed> */
     public function blockJson(): array
@@ -52,7 +52,7 @@ final class FormInputBlockGenerator
     function markup( attrs ) { var output = '<input'; [ 'type', 'id', 'name', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'ariaLabel' === key ? 'aria-label' : key ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); [ 'required', 'disabled', 'readOnly', 'checked' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'readOnly' === key ? 'readonly' : key ); } ); return output + '>'; }
     function edit( props ) { var attrs = props.attributes; return createElement( 'input', { type: attrs.type || 'text', id: attrs.id || undefined, name: attrs.name || undefined, value: attrs.value || undefined, placeholder: attrs.placeholder || undefined, 'aria-label': attrs.ariaLabel || undefined, className: attrs.className || undefined, style: attrs.style || undefined, min: attrs.min || undefined, max: attrs.max || undefined, step: attrs.step || undefined, required: attrs.required, disabled: attrs.disabled, readOnly: attrs.readOnly, checked: attrs.checked, onChange: function( event ) { var next = { value: event.target.value }; if ( 'checkbox' === attrs.type || 'radio' === attrs.type ) next.checked = event.target.checked; props.setAttributes( next ); } } ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
-    blocks.registerBlockType( 'blocks-engine/form-input', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
+    blocks.registerBlockType( 'blocks-engine/authored-input', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.element );
 JS;
 
@@ -84,6 +84,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(): array
     {
-        return array( 'name' => 'form-input', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
+        return array( 'name' => 'authored-input', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
     }
 }

@@ -9725,7 +9725,7 @@ final class HtmlTransformer
             ), $select);
         }
         if ( ! $this->formSelectBlockGenerated ) {
-            $this->generatedBlocks[] = ( new FormSelectBlockGenerator() )->definition();
+            $this->generatedBlocks[] = ( new AuthoredSelectBlockGenerator() )->definition();
             $this->formSelectBlockGenerated = true;
         }
         $attrs = array_filter(array(
@@ -9738,9 +9738,9 @@ final class HtmlTransformer
             'options' => $options,
             'selectedSummary' => $this->selectedOptionSummary($options),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        $markup = ( new FormSelectBlockGenerator() )->markup($attrs);
+        $markup = ( new AuthoredSelectBlockGenerator() )->markup($attrs);
         $controlBlock = array(
-            'blockName' => FormSelectBlockGenerator::NAME,
+            'blockName' => AuthoredSelectBlockGenerator::NAME,
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,
@@ -9752,7 +9752,7 @@ final class HtmlTransformer
         // control, so authored select selectors never style this transparent shell.
         return $this->createBlock('core/group', array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($select, 'id')),
-            'className' => 'blocks-engine-form-select-wrapper',
+            'className' => 'blocks-engine-authored-select-wrapper',
         )), array( $controlBlock ));
     }
 
@@ -9769,7 +9769,7 @@ final class HtmlTransformer
             return null;
         }
         if ( ! $this->formInputBlockGenerated ) {
-            $this->generatedBlocks[] = ( new FormInputBlockGenerator() )->definition();
+            $this->generatedBlocks[] = ( new AuthoredInputBlockGenerator() )->definition();
             $this->formInputBlockGenerated = true;
         }
         $attrs = array_filter(array(
@@ -9789,10 +9789,10 @@ final class HtmlTransformer
             'readOnly' => $input->hasAttribute('readonly'),
             'checked' => $input->hasAttribute('checked'),
         ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
-        $markup = ( new FormInputBlockGenerator() )->markup($attrs);
+        $markup = ( new AuthoredInputBlockGenerator() )->markup($attrs);
 
         return array(
-            'blockName' => FormInputBlockGenerator::NAME,
+            'blockName' => AuthoredInputBlockGenerator::NAME,
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,

@@ -994,7 +994,10 @@ $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone r
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
 $assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? ''), 'source select label remains a sibling editable block');
 $assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
-$assert('blocks-engine/form-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses a compact editable native-control block inside its compatibility wrapper');
+$assert('blocks-engine/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
+$authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
+$authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
+$assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
 $assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
@@ -1015,7 +1018,7 @@ $styledInputs = ( new HtmlTransformer() )->transform(
 )->toArray();
 $styledInputBlocks = $styledInputs['blocks'][0]['innerBlocks'] ?? array();
 $styledInputMarkup = (string) ($styledInputs['serialized_blocks'] ?? '');
-$assert('blocks-engine/form-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses a compact editable native-control block');
+$assert('blocks-engine/authored-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses an authored-input editable native-control block');
 $assert('core/paragraph' === ($styledInputBlocks[1]['blockName'] ?? ''), 'unstyled static input retains the readable-summary representation');
 $assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-targeted input retains native runtime-island behavior');
 $assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
@@ -1027,7 +1030,7 @@ $unstyledSelect = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unstyledSelectBlock = $unstyledSelect['blocks'][0] ?? array();
 $assert('core/group' === ($unstyledSelectBlock['blockName'] ?? '') && 'core/list' === ($unstyledSelectBlock['innerBlocks'][1]['blockName'] ?? ''), 'static select without authored presentation evidence retains the readable-list representation');
-$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/form-select'), 'unstyled static select does not generate a compact native-control block from class identity alone');
+$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-select'), 'unstyled static select does not generate an authored-select native-control block from class identity alone');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
@@ -3509,6 +3512,26 @@ $assert(isset($companionBlock['assets']['index.js']), 'companion block carries e
 $assert(! isset($companionBlock['assets']['render.php']), 'render is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
+
+$authoredControlsCompanion = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html' => '<link rel="stylesheet" href="controls.css"><main><select class="authored-select"><option>One</option></select><input class="authored-input" type="text"></main>',
+            'controls.css' => '.authored-select{appearance:none;border:1px solid}.authored-input{border:1px solid;padding:1rem}',
+        ),
+    )
+)->toArray();
+$authoredControlsPayload = $authoredControlsCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$authoredControlBlocks = $authoredControlsPayload['blocks'] ?? array();
+$assert(array( 'authored-select', 'authored-input' ) === array_column($authoredControlBlocks, 'name'), 'styled authored controls compile into companion entries using only their canonical short slugs');
+$authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
+$authoredInputCompanion = $authoredControlBlocks[1] ?? array();
+$assert('blocks-engine/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
+$assert('blocks-engine/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
+$assert(array( 'blocks-engine/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
+$assert(array( 'blocks-engine/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
 
 $scriptCompanion = $compiler->compile(
     array(
