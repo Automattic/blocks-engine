@@ -863,7 +863,7 @@ $flexAnchorButtonAttrs = $flexAnchorButton['blocks'][0]['innerBlocks'][0]['inner
 $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? '');
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button preserves its safe source class in core/button attributes');
-$assert(str_contains($flexAnchorButtonMarkup, '<a class="wp-block-button__link has-background product-row wp-element-button"'), 'styled anchor button composes its safe source class with canonical link classes');
+$assert(str_contains($flexAnchorButtonMarkup, '<div class="wp-block-button product-row ') && str_contains($flexAnchorButtonMarkup, '<a class="wp-block-button__link has-background wp-element-button"'), 'styled anchor button keeps its source class on the canonical core/button wrapper rather than changing link save markup');
 $assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor button retains matched flex and child selector applicability after lowering');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with composed source classes');
 

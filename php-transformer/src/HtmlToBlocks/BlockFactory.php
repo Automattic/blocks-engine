@@ -218,9 +218,6 @@ final class BlockFactory
     private function commentAttrs(string $name, array $attrs): array
     {
         unset($attrs['inlineGeometryStyle']);
-        if ( 'core/button' === $name ) {
-            unset($attrs['linkClass']);
-        }
         if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
             unset($attrs['content']);
         }
@@ -659,7 +656,7 @@ final class BlockFactory
         );
 
         $controlAttrs = array(
-            'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], (string) ($attrs['linkClass'] ?? ''), 'wp-element-button'),
+            'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
             'style' => $support['style'],
             'title' => (string) ($attrs['title'] ?? ''),
         );
