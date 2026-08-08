@@ -868,6 +868,15 @@ $assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){dis
 $assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
+$flexChainButton = ( new HtmlTransformer() )->transform(
+    '<style>.stack{display:flex;flex-direction:column;gap:2rem}.row{display:flex;align-items:center;gap:1rem;padding:1rem;background:#123456}.row__name{flex:1}</style><main><div class="stack"><a class="row" href="/product"><span class="row__name">Product</span><span>$25</span></a></div></main>'
+)->toArray();
+$flexChainButtonMarkup = (string) ($flexChainButton['serialized_blocks'] ?? '');
+$flexChainButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexChainButton['assets'] ?? array()));
+$assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($flexChainButtonMarkup, 'wp-block-button blocks-engine-control-'), 'direct flex-child anchor carries one generated marker across both synthetic wrappers');
+$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing and neutralizes synthetic gap and margin');
+$assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
+
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();

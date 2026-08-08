@@ -425,6 +425,9 @@ final class HtmlTransformer
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
+    /** @var array<string, string> Direct flex-child controls mapped to synthetic wrapper bridge CSS. */
+    private array $directFlexButtonStyleRules = array();
+
     /** @var array<string, string> Source wrapper paths promoted into core/button. */
     private array $sourceButtonPresentationMarkers = array();
 
@@ -575,6 +578,7 @@ final class HtmlTransformer
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
+        $this->directFlexButtonStyleRules = array();
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
@@ -1033,6 +1037,9 @@ final class HtmlTransformer
         }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
+        }
+        if ( array() !== $this->directFlexButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->directFlexButtonStyleRules);
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -3451,6 +3458,9 @@ final class HtmlTransformer
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$logicalControlPath]);
                     if ( 'core/button' === $name ) {
                         $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $attrs, $nativeButtonTextAlignment);
+                        if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
+                            $this->directFlexButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->directFlexButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $logicalControl);
+                        }
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
@@ -3962,6 +3972,27 @@ final class HtmlTransformer
     private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
     {
         return $element->parentNode instanceof DOMElement && $this->isAuthorOwnedLayout($element->parentNode);
+    }
+
+    private function isDirectChildOfAuthorFlexLayout(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement
+            && in_array($this->authoredDisplay($element->parentNode), array( 'flex', 'inline-flex' ), true);
+    }
+
+    private function directFlexButtonStyleRule(string $marker, DOMElement $control): string
+    {
+        $parent = $control->parentNode;
+        $parentStyle = $parent instanceof DOMElement ? $this->structuralPresentationDeclarations($parent) : array();
+        $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
+        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
+        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
+        $link = $button . '>:where(.wp-block-button__link)';
+        $columnGeometry = $isColumn ? ';width:100%!important' : '';
+
+        return $wrapper . '{display:block!important;gap:0!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+            . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+            . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
     }
 
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool
