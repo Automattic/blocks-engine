@@ -4003,7 +4003,9 @@ final class HtmlTransformer
         $link = $button . '>:where(.wp-block-button__link)';
         $columnGeometry = $isColumn ? ';width:100%!important' : '';
 
-        return $wrapper . '{display:block!important;gap:0!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+        // The outer core/buttons wrapper is the lowered source flex item, so its
+        // authored margins must remain intact. Only core/button is synthetic.
+        return $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
             . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
             . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
     }
@@ -4014,7 +4016,7 @@ final class HtmlTransformer
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
 
-        return $wrapper . '{display:block!important;gap:0!important;margin:0!important;width:100%!important}'
+        return $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
             . $button . '{display:block!important;margin:0!important;width:100%!important}'
             . $link . '{box-sizing:border-box;width:100%!important}';
     }
