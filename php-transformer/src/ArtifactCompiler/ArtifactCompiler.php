@@ -602,10 +602,6 @@ final class ArtifactCompiler
             }
         }
         ksort($products, SORT_STRING); ksort($forms, SORT_STRING);
-        $bindingOccurrences = array();
-        $products = $this->normalizeEntityBindingOccurrences($products, $bindingOccurrences);
-        $forms = $this->normalizeEntityBindingOccurrences($forms, $bindingOccurrences);
-
         $collections = array(
             'shop' => array('type' => 'products', 'aliases' => array('product', 'products'), 'entities' => array_values($products), 'schema' => 'generic/products/v1'),
             'form' => array('type' => 'forms', 'aliases' => array('form', 'forms'), 'entities' => array_values($forms), 'schema' => 'generic/forms/v1'),
@@ -624,22 +620,6 @@ final class ArtifactCompiler
             }
         }
         return RuntimeDeclarations::normalizeList($declarations);
-    }
-
-    /** @param array<string,array<string,mixed>> $entities @param array<string,int> $occurrences @return array<string,array<string,mixed>> */
-    private function normalizeEntityBindingOccurrences(array $entities, array &$occurrences): array
-    {
-        foreach ($entities as &$entity) {
-            if (!is_array($entity['bindings'] ?? null)) continue;
-            foreach ($entity['bindings'] as &$binding) {
-                $key = ($binding['source_path'] ?? '') . "\n" . ($binding['role'] ?? '') . "\n" . ($binding['search_block_markup'] ?? '');
-                $occurrences[$key] = ($occurrences[$key] ?? 0) + 1;
-                $binding['occurrence'] = $occurrences[$key];
-            }
-            unset($binding);
-        }
-        unset($entity);
-        return $entities;
     }
 
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */

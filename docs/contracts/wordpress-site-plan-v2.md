@@ -39,8 +39,18 @@ and `WordPressSitePlanResolver::resolve()`.
   `schema` and `entities`; `required_for` links resolve to declared `kind:name`
   keys. Duplicate identities, unsafe paths, unresolved requirements, contradictory
   kinds, and non-serializable or overlarge payloads fail validation before plan
-  emission. Declarations are carried unchanged after canonical normalization by
-  compilation, resolution, reports, and package serialization.
+   emission. Declarations are carried unchanged after canonical normalization by
+   compilation, resolution, reports, and package serialization.
+- Provider entity block bindings use `generic/block-binding/v1`. In addition to
+  materializer-compatible `search_block_markup` and `occurrence`, each binding
+  carries a `blocks-engine/runtime-binding-position/v1` emitted-block identity:
+  its pre-order `block_index` and exact canonical byte `offset` and `length`.
+   This identity is derived from the emitted block sequence, never from text or
+   class similarity. Repeated identical block markup remains distinct by position.
+   Shared-shell extraction retains a shell in page content when it contains a
+   binding anchor, so the materializer's page-owned binding contract is unchanged.
+   Validation rejects a binding whose declared markup, occurrence, or position is
+   detached from its owning page.
 - `asset_publication` is the explicit declaration kind for materializing a declared
   artifact asset at an arbitrary destination. It has `type: asset`, a stable
   source-path reconciliation identity, explicit `destination.capability` and

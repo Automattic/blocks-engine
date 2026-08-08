@@ -32,11 +32,22 @@ final class WordPressSitePlan
         $references = new AssetReferenceCanonicalizer($tokens);
         $documents = $this->decideDocuments($compiled['pages'] ?? null);
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
-        // Bindings anchor on source-page block markup. Canonicalize their asset
-        // references and routes through the same pipeline as page documents so
-        // the anchors still match the destination-independent page markup.
-        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap);
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
+        // Restore the semantic shell candidates before deriving binding positions.
+        // Extracted parts intentionally contain only their inner markup; the page
+        // representation owns the landmark wrapper until extraction is accepted.
+        foreach ($pages as &$page) {
+            foreach ($page['shell_candidates'] ?? array() as $candidate) {
+                $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
+                if (null !== $restored) $page['canonical_block_markup'] = $restored;
+            }
+            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
+        }
+        unset($page);
+        // Bindings anchor on the final canonical page markup before any shell
+        // extraction. Asset and route projection can make source anchors equal,
+        // so assign occurrences only after that shared projection is complete.
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $routes = $this->routesForPages($pages);
@@ -47,6 +58,10 @@ final class WordPressSitePlan
         $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true), $runtimeDeclarations);
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);
+        $runtimeDeclarations = $shells['runtime_declarations'];
+        foreach ($runtimeDeclarations as &$declaration) foreach ($declaration['payload']['entities'] ?? array() as &$entity) foreach ($entity['bindings'] ?? array() as &$binding) unset($binding['position']);
+        unset($binding, $entity, $declaration);
+        $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts);
         $operations = $this->operations($pages);
@@ -90,7 +105,10 @@ final class WordPressSitePlan
                 $bindingSources = array_fill_keys(array_filter(array_column($bindings, 'source_path'), 'is_string'), true);
                 foreach ( $bindings as $binding ) {
                     $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
-                    if ( !is_string($source) || !is_string($search) || !is_int($occurrence) || $occurrence < 1 || substr_count((string) ($markupBySource[$source] ?? ''), $search) < $occurrence ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after shell extraction.');
+                    $ownedMarkup = $markupBySource[$source] ?? null;
+                    $position = $binding['position'] ?? null;
+                    $offset = is_string($ownedMarkup) && is_string($search) && is_int($occurrence) ? self::occurrenceOffset($ownedMarkup, $search, $occurrence) : null;
+                    if ( !is_string($source) || !is_string($search) || '' === $search || !is_int($occurrence) || $occurrence < 1 || !is_string($ownedMarkup) || null === $offset || (null !== $position && (!self::bindingPosition($position, $ownedMarkup, $search) || $position['offset'] !== $offset)) ) throw new InvalidArgumentException('A runtime entity binding no longer has its declared source-page block anchor after shell extraction: ' . (is_string($source) ? $source : 'unknown') . ' (' . (is_string($binding['role'] ?? null) ? $binding['role'] : 'unknown') . ').');
                 }
                 $formId = is_array($entity) && is_array($entity['form'] ?? null) && is_string($entity['form']['id'] ?? null) ? $entity['form']['id'] : '';
                 foreach ( is_array($entity) && is_array($entity['superseded_scripts'] ?? null) ? $entity['superseded_scripts'] : array() as $supersession ) {
@@ -268,19 +286,11 @@ final class WordPressSitePlan
         return $candidates;
     }
 
-    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
     private function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array()): array
     {
         $parts = array(); $diagnostics = array();
-        foreach ($pages as &$page) {
-            foreach ($page['shell_candidates'] ?? array() as $candidate) {
-                $restored = $this->replaceTopLevelShell($page['canonical_block_markup'], (string) ($candidate['area'] ?? ''), (string) ($candidate['markup'] ?? ''));
-                if (null !== $restored) $page['canonical_block_markup'] = $restored;
-            }
-            $page['content_hash'] = self::contentHash($page['canonical_block_markup']);
-        }
-        unset($page);
-        foreach (array('header', 'footer') as $area) {
+        foreach (array('footer', 'header') as $area) {
             if (isset($reservedSlugs[$area])) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'existing_template_part'));
                 continue;
@@ -299,36 +309,34 @@ final class WordPressSitePlan
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'non_equivalent', $candidates));
                 continue 2;
             }
-            $withShells = array(); $withoutShells = array(); $boundSources = array(); $boundCount = 0;
+            $withoutShells = array();
+            $retainedForRuntimeBinding = false;
             foreach ($pages as $index => $page) {
                 if (!empty($page['synthetic'])) continue;
-                $withShell = $this->replaceTopLevelShell($page['canonical_block_markup'], $area, $candidates[$index][0]['markup']);
-                $withoutShell = null === $withShell ? null : $this->withoutTopLevelShell($withShell, $area);
-                if (null === $withShell || null === $withoutShell) {
+                $withoutShell = $this->withoutTopLevelShell($page['canonical_block_markup'], $area);
+                if (null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
                     continue 2;
                 }
-                $withShells[$index] = $withShell;
                 $withoutShells[$index] = $withoutShell;
-                foreach ($runtimeDeclarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) && is_array($entity['bindings'] ?? null) ? $entity['bindings'] : array() as $binding) {
-                    $search = $binding['search_block_markup'] ?? null; $occurrence = $binding['occurrence'] ?? null;
-                    if (($binding['source_path'] ?? null) === ($page['source_path'] ?? null) && is_string($search) && is_int($occurrence) && $occurrence > substr_count($withoutShell, $search)) {
-                        ++$boundCount; $boundSources[$page['source_path']] = true;
-                    }
+            }
+            foreach ($pages as $index => $page) {
+                if (!empty($page['synthetic'])) continue;
+                $range = $this->topLevelShellRange($page['canonical_block_markup'], $area);
+                $containsBinding = is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']);
+                if ($containsBinding) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
+                    $retainedForRuntimeBinding = true;
+                    break;
                 }
             }
-            if ($boundCount > 0) {
-                foreach ($withShells as $index => $withShell) {
-                    $pages[$index]['canonical_block_markup'] = $withShell;
-                    $pages[$index]['content_hash'] = self::contentHash($withShell);
-                }
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because extracting it would remove runtime entity binding anchors.", 'area' => $area, 'binding_count' => $boundCount, 'source_paths' => array_keys($boundSources), 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
-                continue;
-            }
+            if ($retainedForRuntimeBinding) continue;
             foreach ($withoutShells as $index => $withoutShell) {
                 $pages[$index]['canonical_block_markup'] = $withoutShell;
                 $pages[$index]['content_hash'] = self::contentHash($withoutShell);
             }
+            foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
+            $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
             $singlePage = 1 === count($applicable);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
@@ -338,7 +346,58 @@ final class WordPressSitePlan
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted one semantically equivalent {$area} shell for all pages.", 'area' => $area, 'page_count' => count($applicable));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
-        return array('pages' => $pages, 'parts' => $parts, 'diagnostics' => $diagnostics);
+        return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /** @param array<int,array<string,mixed>> $declarations @param array<string,mixed> $page */
+    private function shellContainsRuntimeBinding(array $declarations, array $page, int $offset, int $length): bool
+    {
+        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+            $position = $binding['position'] ?? null;
+            if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
+            $search = $binding['search_block_markup'] ?? null;
+            if (!is_string($search) || !self::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
+            $indexedRange = self::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
+            if (is_array($indexedRange) && $indexedRange['offset'] >= $offset && $indexedRange['offset'] + $indexedRange['length'] <= $offset + $length) return true;
+        }
+        return false;
+    }
+
+    /** @return array<int,array{offset:int,length:int}> */
+    private static function blockRanges(string $markup): array
+    {
+        $ranges = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        foreach ($matches[0] as $match) {
+            $token = $match[0]; $offset = $match[1];
+            if (str_starts_with($token, '<!-- /wp:')) { $open = array_pop($stack); if (is_array($open)) $ranges[$open['index']]['length'] = $offset + strlen($token) - $open['offset']; }
+            elseif (str_ends_with(rtrim($token), '/-->')) $ranges[] = array('offset' => $offset, 'length' => strlen($token));
+            else { $index = count($ranges); $ranges[] = array('offset' => $offset, 'length' => 0); $stack[] = array('index' => $index, 'offset' => $offset); }
+        }
+        return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
+    }
+
+    /** @param array<string,mixed>|mixed $position */
+    private static function bindingPosition(mixed $position, string $markup, string $search): bool
+    {
+        if (!is_array($position) || 'blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1) return false;
+        foreach (self::blockRanges($markup) as $index => $range) if ($index === $position['block_index'] && $range['offset'] === $position['offset'] && $range['length'] === $position['length'] && $search === substr($markup, $range['offset'], $range['length'])) return true;
+        return false;
+    }
+
+    private static function occurrenceAtOffset(string $markup, string $search, int $offset): int
+    {
+        $occurrence = 0; $cursor = 0;
+        while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); }
+        return 0;
+    }
+
+    private static function occurrenceOffset(string $markup, string $search, int $occurrence): ?int
+    {
+        if ('' === $search || $occurrence < 1) return null;
+        $cursor = 0;
+        for ($index = 0; $index < $occurrence; ++$index) { $cursor = strpos($markup, $search, $cursor); if (false === $cursor) return null; if ($index + 1 < $occurrence) $cursor += strlen($search); }
+        return $cursor;
     }
 
     /** @param array<int,array<int,array<string,mixed>>> $candidates @return array<string,mixed> */
@@ -357,6 +416,13 @@ final class WordPressSitePlan
 
     private function replaceTopLevelShell(string $markup, string $area, string $replacement): ?string
     {
+        $range = $this->topLevelShellRange($markup, $area);
+        return is_array($range) ? substr($markup, 0, $range['offset']) . $replacement . substr($markup, $range['offset'] + $range['length']) : null;
+    }
+
+    /** @return array{offset:int,length:int}|null */
+    private function topLevelShellRange(string $markup, string $area): ?array
+    {
         if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return null;
         $depth = 0; $candidate = null;
         foreach ($matches[0] as $index => $comment) {
@@ -374,7 +440,7 @@ final class WordPressSitePlan
             if (!$selfClosing) ++$depth;
         }
         if (!is_array($candidate) || !is_int($candidate['end'])) return null;
-        return substr($markup, 0, $candidate['start']) . $replacement . substr($markup, $candidate['end']);
+        return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
     }
 
     /** @param mixed $assets @return array<int,array<string,mixed>> */
@@ -781,7 +847,7 @@ final class WordPressSitePlan
      * @param array<int,array<string,mixed>> $routes
      * @return array<int,array<string,mixed>>
      */
-    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes): array
+    private function canonicalEntityBindings(array $declarations, AssetReferenceCanonicalizer $references, array $routes, array $pages): array
     {
         foreach ( $declarations as &$declaration ) {
             if ( ! is_array($declaration) || ! isset($declaration['payload']['entities']) || ! is_array($declaration['payload']['entities']) ) {
@@ -796,6 +862,38 @@ final class WordPressSitePlan
                         $markup = $references->content($binding['search_block_markup'], $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
                     }
+                }
+                unset($binding);
+            }
+            unset($entity);
+        }
+        unset($declaration);
+
+        $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
+        foreach ( $declarations as &$declaration ) {
+            if ( ! is_array($declaration['payload']['entities'] ?? null) ) continue;
+            foreach ( $declaration['payload']['entities'] as &$entity ) {
+                if ( ! is_array($entity['bindings'] ?? null) ) continue;
+                foreach ( $entity['bindings'] as &$binding ) {
+                    $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $position = $binding['position'] ?? null;
+                    $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
+                    if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_string($markup)) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
+                    $ranges = self::blockRanges($markup); $range = null; $blockIndex = null;
+                    if (is_array($position)) {
+                        if ('blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0) throw new InvalidArgumentException('A runtime entity binding has an invalid emitted block position.');
+                        $blockIndex = $position['block_index'];
+                        $range = $ranges[$blockIndex] ?? null;
+                        if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding position no longer identifies an emitted canonical block.');
+                    } else {
+                        $anchorOffset = self::occurrenceOffset($markup, $search, $binding['occurrence']);
+                        foreach (null === $anchorOffset ? array() : $ranges as $index => $candidate) if ($candidate['offset'] === $anchorOffset && $search === substr($markup, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
+                    }
+                    if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.');
+                    $canonical = substr($markup, $range['offset'], $range['length']);
+                    if (!is_string($canonical) || '' === $canonical) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
+                    $binding['search_block_markup'] = $canonical;
+                    $binding['occurrence'] = self::occurrenceAtOffset($markup, $canonical, $range['offset']);
+                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
                 }
                 unset($binding);
             }
