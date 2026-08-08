@@ -428,6 +428,9 @@ final class HtmlTransformer
     /** @var array<string, string> Direct flex-child controls mapped to synthetic wrapper bridge CSS. */
     private array $directFlexButtonStyleRules = array();
 
+    /** @var array<string, string> Full-width controls mapped to synthetic wrapper bridge CSS. */
+    private array $fullWidthButtonStyleRules = array();
+
     /** @var array<string, string> Source wrapper paths promoted into core/button. */
     private array $sourceButtonPresentationMarkers = array();
 
@@ -579,6 +582,7 @@ final class HtmlTransformer
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
         $this->directFlexButtonStyleRules = array();
+        $this->fullWidthButtonStyleRules = array();
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
@@ -1040,6 +1044,9 @@ final class HtmlTransformer
         }
         if ( array() !== $this->directFlexButtonStyleRules ) {
             $cssParts[] = implode("\n", $this->directFlexButtonStyleRules);
+        }
+        if ( array() !== $this->fullWidthButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -3461,6 +3468,9 @@ final class HtmlTransformer
                         if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
                             $this->directFlexButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->directFlexButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $logicalControl);
                         }
+                        if ( 100 === (int) ($attrs['width'] ?? 0) ) {
+                            $this->fullWidthButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->fullWidthButtonStyleRule($this->sourceControlMarkers[$logicalControlPath]);
+                        }
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
@@ -3993,6 +4003,17 @@ final class HtmlTransformer
         return $wrapper . '{display:block!important;gap:0!important;margin:0!important;min-width:0' . $columnGeometry . '}'
             . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
             . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
+    }
+
+    private function fullWidthButtonStyleRule(string $marker): string
+    {
+        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
+        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
+        $link = $button . '>:where(.wp-block-button__link)';
+
+        return $wrapper . '{display:block!important;gap:0!important;margin:0!important;width:100%!important}'
+            . $button . '{display:block!important;margin:0!important;width:100%!important}'
+            . $link . '{box-sizing:border-box;width:100%!important}';
     }
 
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool

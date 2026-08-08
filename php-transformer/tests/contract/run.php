@@ -877,6 +877,16 @@ $assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-con
 $assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing and neutralizes synthetic gap and margin');
 $assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
 
+$fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><a class="btn btn--full selector-submit" href="/submit">Submit</a></section></main>'
+)->toArray();
+$fullWidthAnchorButtonMarkup = (string) ($fullWidthAnchorButton['serialized_blocks'] ?? '');
+$fullWidthAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthAnchorButton['assets'] ?? array()));
+$assert(str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor preserves native core/button width support and its generated marker');
+$assert(! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width anchor without descendants keeps authored root classes out of canonical button markup');
+$assert(str_contains($fullWidthAnchorButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width anchor bridges width through every synthetic wrapper to the canonical link');
+$assert('pass' === ($fullWidthAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width anchor wrapper chain remains editor-valid');
+
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
