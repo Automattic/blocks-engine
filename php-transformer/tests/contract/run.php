@@ -1032,6 +1032,15 @@ $unstyledSelectBlock = $unstyledSelect['blocks'][0] ?? array();
 $assert('core/group' === ($unstyledSelectBlock['blockName'] ?? '') && 'core/list' === ($unstyledSelectBlock['innerBlocks'][1]['blockName'] ?? ''), 'static select without authored presentation evidence retains the readable-list representation');
 $assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-select'), 'unstyled static select does not generate an authored-select native-control block from class identity alone');
 
+$gridSelect = ( new HtmlTransformer() )->transform(
+    '<main><div class="control-grid"><select id="grid-sort" class="catalog-sort"><option>Featured</option></select></div></main>',
+    array('static_css' => '.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.catalog-sort{width:100%;padding:8px}')
+)->toArray();
+$gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
+$gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
+$assert('core/group' === ($gridSelectBlock['blockName'] ?? '') && 'blocks-engine/authored-select' === ($gridSelectBlock['innerBlocks'][0]['blockName'] ?? ''), 'styled select retains the valid compatibility group while its native control remains the authored grid child');
+$assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
+
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
 )->toArray();
