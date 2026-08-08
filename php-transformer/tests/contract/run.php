@@ -856,6 +856,92 @@ $assert(str_contains($descendantSurfaceButtonMarkup, '<!-- wp:button') && str_co
 $assert(str_contains($descendantSurfaceButtonCss, '> :where(.wp-block-button__link)') && str_contains($descendantSurfaceButtonCss, 'min-width:170px') && str_contains($descendantSurfaceButtonCss, 'padding:22px 26px'), 'composite button descendant selectors project their complete painted geometry onto the native link');
 $assert('pass' === ($descendantSurfaceButton['source_reports']['wp_block_validity']['status'] ?? ''), 'composite button surface conversion remains editor-valid');
 
+$flexAnchorButton = ( new HtmlTransformer() )->transform(
+    '<style>.product-row{display:flex;align-items:center;gap:1rem;padding:1rem;background:#123456}.product-row__name{flex:1}</style><main><a class="product-row" href="/product"><span class="product-row__name">Product</span><span>$25</span></a></main>'
+)->toArray();
+$flexAnchorButtonAttrs = $flexAnchorButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? '');
+$flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
+$assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
+$assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker after lowering');
+$assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
+$assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
+
+$flexChainButton = ( new HtmlTransformer() )->transform(
+    '<style>.stack{display:flex;flex-direction:column;gap:2rem}.row{display:flex;align-items:center;gap:1rem;padding:1rem;background:#123456}.row__name{flex:1}</style><main><div class="stack"><a class="row" href="/product"><span class="row__name">Product</span><span>$25</span></a></div></main>'
+)->toArray();
+$flexChainButtonMarkup = (string) ($flexChainButton['serialized_blocks'] ?? '');
+$flexChainButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexChainButton['assets'] ?? array()));
+$assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($flexChainButtonMarkup, 'wp-block-button blocks-engine-control-'), 'direct flex-child anchor carries one generated marker across both synthetic wrappers');
+$assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing while only the synthetic inner wrapper has neutral margin');
+$assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
+
+$flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
+    '<style>.nav{display:flex;align-items:center;gap:1rem}.nav__brand{font-weight:700}.nav__cta{display:inline-flex;padding:.5rem 1rem;background:#123456;color:#fff;margin-right:auto}.nav__action{display:inline-flex;padding:.5rem 1rem;background:#456789;color:#fff}</style><main><nav class="nav"><a class="nav__brand" href="/">Brand</a><a class="nav__cta" href="/start">Start</a><button class="nav__action" type="button">Menu</button></nav></main>'
+)->toArray();
+$flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
+$flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
+$assert(str_contains($flexAnchorAutoMarginMarkup, 'margin-right:auto') && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
+$assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
+$assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
+
+$anchorButtonMarginCases = array(
+    'directional' => array(
+        'source'   => 'margin-left:2rem;margin-right:3rem',
+        'expected' => array( 'right' => '3rem', 'left' => '2rem' ),
+        'css'      => 'margin-left:2rem;margin-right:3rem',
+    ),
+    'shorthand' => array(
+        'source'   => 'margin:1rem 2rem 3rem 4rem',
+        'expected' => array( 'top' => '1rem', 'right' => '2rem', 'bottom' => '3rem', 'left' => '4rem' ),
+        'css'      => 'margin:1rem 2rem 3rem 4rem',
+    ),
+);
+foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
+    $directFlexMarginButton = ( new HtmlTransformer() )->transform(
+        '<style>.stack{display:flex;flex-direction:column}.cta{display:inline-flex;padding:1rem;background:#123456;' . $margin['source'] . '}</style><main><div class="stack"><a class="cta" href="/start">Start</a></div></main>'
+    )->toArray();
+    $directFlexMarginWrapper = $directFlexMarginButton['blocks'][0]['innerBlocks'][0] ?? array();
+    $directFlexMarginInner = $directFlexMarginWrapper['innerBlocks'][0] ?? array();
+    $directFlexMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $directFlexMarginButton['assets'] ?? array()));
+    $assert($margin['expected'] === ($directFlexMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'direct-flex ' . $marginCase . ' anchor margin stays on the outer core/buttons source flex item');
+    $assert(! isset($directFlexMarginInner['attrs']['style']['spacing']['margin']) && str_contains($directFlexMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}'), 'direct-flex ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
+    $assert(str_contains($directFlexMarginCss, $margin['css']) && ! str_contains($directFlexMarginCss, $margin['css'] . '!important'), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+
+    $fullWidthMarginButton = ( new HtmlTransformer() )->transform(
+        '<style>.cta{display:inline-flex;padding:1rem;background:#123456;width:100%;' . $margin['source'] . '}</style><main><section><a class="cta" href="/start">Start</a></section></main>'
+    )->toArray();
+    $fullWidthMarginWrapper = $fullWidthMarginButton['blocks'][0] ?? array();
+    $fullWidthMarginInner = $fullWidthMarginWrapper['innerBlocks'][0] ?? array();
+    $fullWidthMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthMarginButton['assets'] ?? array()));
+    $assert($margin['expected'] === ($fullWidthMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'full-width ' . $marginCase . ' anchor margin stays on the outer core/buttons wrapper');
+    $assert(! isset($fullWidthMarginInner['attrs']['style']['spacing']['margin']) && str_contains($fullWidthMarginCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}'), 'full-width ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
+    $assert(str_contains($fullWidthMarginCss, $margin['css']) && ! str_contains($fullWidthMarginCss, $margin['css'] . '!important'), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+}
+
+$fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
+    '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><a class="btn btn--full selector-submit" href="/submit">Submit</a></section></main>'
+)->toArray();
+$fullWidthAnchorButtonMarkup = (string) ($fullWidthAnchorButton['serialized_blocks'] ?? '');
+$fullWidthAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthAnchorButton['assets'] ?? array()));
+$assert(str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor preserves native core/button width support and its generated marker');
+$assert(! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width anchor without descendants keeps authored root classes out of canonical button markup');
+$assert(str_contains($fullWidthAnchorButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width anchor bridges width through every synthetic wrapper while preserving source wrapper margins');
+$assert('pass' === ($fullWidthAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width anchor wrapper chain remains editor-valid');
+
+$fullWidthNativeButton = ( new HtmlTransformer() )->transform(
+    '<style>button{background:none;border:none}.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><button class="btn btn--full selector-submit" type="button">Submit</button></section></main>'
+)->toArray();
+$fullWidthNativeButtonMarkup = (string) ($fullWidthNativeButton['serialized_blocks'] ?? '');
+$fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
+$assert(100 === ($fullWidthNativeButtonAttrs['width'] ?? null) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button uses native width support and a generated marker instead of source root classes');
+$assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null), 'a filled button variant overrides an earlier native-button background reset without becoming an outline control');
+$assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
+$assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
+
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();

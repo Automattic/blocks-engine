@@ -427,6 +427,12 @@ final class HtmlTransformer
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
     private array $sourceControlMarkers = array();
 
+    /** @var array<string, string> Direct flex-child controls mapped to synthetic wrapper bridge CSS. */
+    private array $directFlexButtonStyleRules = array();
+
+    /** @var array<string, string> Full-width controls mapped to synthetic wrapper bridge CSS. */
+    private array $fullWidthButtonStyleRules = array();
+
     /** @var array<string, string> Source wrapper paths promoted into core/button. */
     private array $sourceButtonPresentationMarkers = array();
 
@@ -578,6 +584,8 @@ final class HtmlTransformer
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
+        $this->directFlexButtonStyleRules = array();
+        $this->fullWidthButtonStyleRules = array();
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
@@ -1036,6 +1044,12 @@ final class HtmlTransformer
         }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
+        }
+        if ( array() !== $this->directFlexButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->directFlexButtonStyleRules);
+        }
+        if ( array() !== $this->fullWidthButtonStyleRules ) {
+            $cssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
         }
 
         $css = trim(implode("\n\n", $cssParts));
@@ -1548,7 +1562,7 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->requiresStandaloneInlineLayoutLeaf($element) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
@@ -3454,6 +3468,12 @@ final class HtmlTransformer
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$logicalControlPath]);
                     if ( 'core/button' === $name ) {
                         $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $attrs, $nativeButtonTextAlignment);
+                        if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
+                            $this->directFlexButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->directFlexButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $logicalControl);
+                        }
+                        if ( 100 === (int) ($attrs['width'] ?? 0) ) {
+                            $this->fullWidthButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->fullWidthButtonStyleRule($this->sourceControlMarkers[$logicalControlPath]);
+                        }
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
@@ -3967,9 +3987,49 @@ final class HtmlTransformer
         return $element->parentNode instanceof DOMElement && $this->isAuthorOwnedLayout($element->parentNode);
     }
 
+    private function isDirectChildOfAuthorFlexLayout(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement
+            && in_array($this->authoredDisplay($element->parentNode), array( 'flex', 'inline-flex' ), true);
+    }
+
+    private function directFlexButtonStyleRule(string $marker, DOMElement $control): string
+    {
+        $parent = $control->parentNode;
+        $parentStyle = $parent instanceof DOMElement ? $this->structuralPresentationDeclarations($parent) : array();
+        $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
+        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
+        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
+        $link = $button . '>:where(.wp-block-button__link)';
+        $columnGeometry = $isColumn ? ';width:100%!important' : '';
+
+        // The outer core/buttons wrapper is the lowered source flex item, so its
+        // authored margins must remain intact. Only core/button is synthetic.
+        return $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
+            . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
+            . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
+    }
+
+    private function fullWidthButtonStyleRule(string $marker): string
+    {
+        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
+        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
+        $link = $button . '>:where(.wp-block-button__link)';
+
+        return $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
+            . $button . '{display:block!important;margin:0!important;width:100%!important}'
+            . $link . '{box-sizing:border-box;width:100%!important}';
+    }
+
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool
     {
         return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
+    }
+
+    private function isDirectChildOfLoweredAuthorControl(DOMElement $element): bool
+    {
+        return $element->parentNode instanceof DOMElement
+            && isset($this->sourceControlPaths[$element->parentNode->getNodePath() ?? '']);
     }
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool

@@ -58,9 +58,13 @@ final class ButtonsPattern
      */
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $isGridItem, callable $createBlock): array
     {
+        $resolvedButtonStyle = trim((string) $resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle);
         if ( $isGridItem($button) ) {
             $attrs['width'] = 100;
+        }
+        if ( 100 === (int) ($attrs['width'] ?? 0) && $resolvedButtonStyle !== trim($button->getAttribute('style')) ) {
+            $this->removeSourceControlClasses($attrs, $button);
         }
         $text = $this->buttonText($button, $innerHtml($button), $materializeSvgImages);
 
@@ -131,18 +135,16 @@ final class ButtonsPattern
                 $attrs['style']['border']['radius'] = '0';
             }
         }
-        // The canonical core/button wrapper is structural. A source control's
-        // classes would otherwise let an unprojected stylesheet paint that outer
-        // div instead of the link that Gutenberg actually renders as the button.
+        // core/button only saves className on its wrapper. Anchor-root selectors
+        // are projected through the generated control marker onto the saved link.
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
 
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
-            'text' => $text,
-            'url'  => $attr($anchor, 'href'),
+            'text'  => $text,
+            'url'   => $attr($anchor, 'href'),
             'title' => $this->buttonAccessibleTitle($anchor, $text),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
@@ -318,7 +320,10 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle);
+        // Resolve native paint before classifying an outline: a generic reset such
+        // as `button { background: none }` can precede a filled button variant.
+        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
         if ( $isOutline ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
@@ -328,7 +333,6 @@ final class ButtonsPattern
         // button renders with its source colors/border instead of the theme default.
         // A button with no paintable styling resolves to no native attributes and
         // stays a default button.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
         if ( array() !== $native ) {
             $attrs = array_merge($attrs, $native);
         }
@@ -420,10 +424,16 @@ final class ButtonsPattern
         $attrs['className'] = implode(' ', $classes);
     }
 
-    private function hasOutlineSignal(DOMElement $element, string $style): bool
+    /** @param array<string, mixed> $native */
+    private function hasOutlineSignal(DOMElement $element, string $style, array $native = array()): bool
     {
         if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
             return true;
+        }
+
+        $background = trim((string) ($native['style']['color']['background'] ?? ''));
+        if ( '' !== $background && ! in_array(strtolower($background), array( 'transparent', 'none' ), true) ) {
+            return false;
         }
 
         $normalized = strtolower($style);
