@@ -291,6 +291,10 @@ final class HtmlTransformer
 
     private bool $descriptionListBlockGenerated = false;
 
+    private bool $formSelectBlockGenerated = false;
+
+    private bool $formInputBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -560,6 +564,8 @@ final class HtmlTransformer
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
         $this->descriptionListBlockGenerated = false;
+        $this->formSelectBlockGenerated = false;
+        $this->formInputBlockGenerated = false;
         $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
@@ -1596,7 +1602,7 @@ final class HtmlTransformer
                 continue;
             }
             $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isExplicitParentFillSvg($element, $declarations))));
+            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isProjectableFillSvg($element, $declarations))));
             if ( array() === $imageMatches ) {
                 continue;
             }
@@ -1638,6 +1644,21 @@ final class HtmlTransformer
             return false;
         }
         return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function isProjectableFillSvg(DOMElement $element, array $declarations): bool
+    {
+        if ( $this->isExplicitParentFillSvg($element, $declarations) ) {
+            return true;
+        }
+        if ( '100%' !== trim((string) ($declarations['width'] ?? ''))
+            || '100%' !== trim((string) ($declarations['height'] ?? ''))
+            || ! preg_match('/(?:^|\s)(?:defer\s+)?x(?:min|mid|max)y(?:min|mid|max)\s+slice(?:\s|$)/i', trim($this->attr($element, 'preserveaspectratio')))
+        ) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -3171,6 +3192,15 @@ final class HtmlTransformer
             );
             if ( null !== $buttons ) {
                 return $buttons;
+            }
+
+            // A select's option text is not prose. Route it before generic text
+            // flow can flatten the control into a paragraph.
+            if ( 'select' === $tagName ) {
+                $selectBlock = $this->readableFormControlBlockFromElement($element);
+                if ( null !== $selectBlock ) {
+                    return $selectBlock;
+                }
             }
 
             $textFlow = $this->textFlowBlockFromElement($element);
@@ -9602,6 +9632,13 @@ final class HtmlTransformer
             }
         }
 
+        if ( 'input' === $tagName ) {
+            $inputBlock = $this->readableInputBlockFromElement($element);
+            if ( null !== $inputBlock ) {
+                return $inputBlock;
+            }
+        }
+
         $summary = $this->readableFormControlText($element);
         if ( '' === $summary ) {
             return null;
@@ -9661,30 +9698,121 @@ final class HtmlTransformer
     {
         $label = $this->readableFormControlLabel($select);
         $this->registerFormControlEcho($label);
-        $optionBlocks = array();
-
-        foreach ( $this->selectOptions($select) as $option ) {
-            $optionLabel = trim((string) ($option['label'] ?? ''));
-            if ( '' === $optionLabel ) {
-                continue;
-            }
-
-            if ( true === ($option['selected'] ?? false) ) {
-                $optionLabel .= ' (selected)';
-            }
-
-            $this->registerFormControlEcho($optionLabel);
-            $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
-        }
-
-        if ( array() === $optionBlocks ) {
+        $options = $this->selectOptions($select);
+        if ( array() === $options ) {
             return null;
         }
+        // Form controls are below the general high-value style boundary, so use
+        // the selector-resolved author cascade directly as the representation
+        // gate. Class/id presence alone is never sufficient.
+        if ( array() === $this->structuralPresentationDeclarations($select) ) {
+            $optionBlocks = array();
+            foreach ( $options as $option ) {
+                $optionLabel = trim((string) ($option['label'] ?? ''));
+                if ( '' === $optionLabel ) {
+                    continue;
+                }
+                if ( true === ($option['selected'] ?? false) ) {
+                    $optionLabel .= ' (selected)';
+                }
+                $this->registerFormControlEcho($optionLabel);
+                $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
+            }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($select), array(
-            $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
-            $this->createBlock('core/list', array(), $optionBlocks, $select),
-        ), $select);
+            return $this->createBlock('core/group', $this->presentationAttributes($select), array(
+                $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
+                $this->createBlock('core/list', array(), $optionBlocks, $select),
+            ), $select);
+        }
+        if ( ! $this->formSelectBlockGenerated ) {
+            $this->generatedBlocks[] = ( new AuthoredSelectBlockGenerator() )->definition();
+            $this->formSelectBlockGenerated = true;
+        }
+        $attrs = array_filter(array(
+            'id' => $this->attr($select, 'id'),
+            'name' => $this->attr($select, 'name'),
+            'ariaLabel' => $this->attr($select, 'aria-label'),
+            'placeholder' => $this->attr($select, 'placeholder'),
+            'className' => $this->attr($select, 'class'),
+            'style' => $this->attr($select, 'style'),
+            'options' => $options,
+            'selectedSummary' => $this->selectedOptionSummary($options),
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        $markup = ( new AuthoredSelectBlockGenerator() )->markup($attrs);
+        $controlBlock = array(
+            'blockName' => AuthoredSelectBlockGenerator::NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+
+        // Keep the long-standing group/anchor contract for callers that address
+        // the converted field structurally. Source identity lives on the native
+        // control, so authored select selectors never style this transparent shell.
+        return $this->createBlock('core/group', array_filter(array(
+            'anchor' => $this->safeAnchor($this->attr($select, 'id')),
+            'className' => 'blocks-engine-authored-select-wrapper',
+        )), array( $controlBlock ));
+    }
+
+    /**
+     * Return a compact native input only when authored presentation is proven by
+     * the resolved CSS cascade. The direct save shape preserves flex-child and
+     * selector semantics that a readable paragraph cannot represent.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readableInputBlockFromElement(DOMElement $input): ?array
+    {
+        if ( array() === $this->structuralPresentationDeclarations($input) ) {
+            return null;
+        }
+        if ( ! $this->formInputBlockGenerated ) {
+            $this->generatedBlocks[] = ( new AuthoredInputBlockGenerator() )->definition();
+            $this->formInputBlockGenerated = true;
+        }
+        $attrs = array_filter(array(
+            'type' => $this->formControlType($input),
+            'id' => $this->attr($input, 'id'),
+            'name' => $this->attr($input, 'name'),
+            'value' => $this->attr($input, 'value'),
+            'placeholder' => $this->attr($input, 'placeholder'),
+            'ariaLabel' => $this->attr($input, 'aria-label'),
+            'className' => $this->attr($input, 'class'),
+            'style' => $this->attr($input, 'style'),
+            'min' => $this->attr($input, 'min'),
+            'max' => $this->attr($input, 'max'),
+            'step' => $this->attr($input, 'step'),
+            'required' => $input->hasAttribute('required'),
+            'disabled' => $input->hasAttribute('disabled'),
+            'readOnly' => $input->hasAttribute('readonly'),
+            'checked' => $input->hasAttribute('checked'),
+        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        $markup = ( new AuthoredInputBlockGenerator() )->markup($attrs);
+
+        return array(
+            'blockName' => AuthoredInputBlockGenerator::NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $options
+     */
+    private function selectedOptionSummary(array $options): string
+    {
+        $selected = array();
+        foreach ( $options as $option ) {
+            if ( ! empty($option['selected']) && '' !== trim((string) ($option['label'] ?? '')) ) {
+                $selected[] = (string) $option['label'];
+            }
+        }
+
+        return array() === $selected ? '' : implode(', ', $selected) . ' (selected)';
     }
 
     /**
@@ -10416,7 +10544,9 @@ final class HtmlTransformer
             $value = $this->attr($option, 'value');
             $optionMetadata = array(
                 'label' => trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? ''),
-                'value' => '' !== $value ? $value : trim($option->textContent ?? ''),
+                // An explicit empty value is a select placeholder semantic, not
+                // a missing value to replace with the visible option label.
+                'value' => $option->hasAttribute('value') ? $value : trim($option->textContent ?? ''),
             );
             if ( $option->hasAttribute('selected') ) {
                 $optionMetadata['selected'] = true;

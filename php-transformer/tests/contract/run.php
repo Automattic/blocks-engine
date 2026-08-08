@@ -713,6 +713,19 @@ $positionedFillRoundTrip = ( new \Automattic\BlocksEngine\PhpTransformer\WordPre
 $assert(str_contains($positionedFillMarkup, 'wp-block-image hero-art be-inline-geometry-') && str_contains($positionedFillCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'positioned SVG fill serializes native image wrapper and image rules with greater specificity than WordPress core intrinsic-image CSS');
 $assert(str_contains($positionedFillRoundTrip, 'wp-block-image hero-art be-inline-geometry-'), 'positioned SVG fill survives the serialized WordPress block parse/save contract without dropping its native fill carrier');
 
+$cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
+    '<style>.grid-scene,.flex-scene{width:640px;height:1496px}.grid-scene{display:grid}.flex-scene{display:flex}.grid-scene svg,.flex-scene svg{width:100%;height:100%}</style><main><div class="grid-scene"><svg class="grid-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div><div class="flex-scene"><svg class="flex-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div></main>'
+)->toArray();
+$cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssOwnedSvgFill['assets'] ?? array()));
+$assert(str_contains($cssOwnedSvgFillCss, '.grid-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.flex-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
+$assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
+
+$intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
+)->toArray();
+$intrinsicSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $intrinsicSvgArtwork['assets'] ?? array()));
+$assert(! str_contains($intrinsicSvgCss, '.intrinsic-scene .wp-block-image > img'), 'intrinsic slice SVGs without CSS-owned width and height do not receive fill-image projection');
+
 $flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.signal-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center}</style><div class="signal-icon" style="background:#7657ff"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/></svg></div>'
 )->toArray();
@@ -973,15 +986,23 @@ $assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary pre
 $assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
 
 $standaloneControls = ( new HtmlTransformer() )->transform(
-    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><select aria-label="Sort products"><option selected>Featured</option><option>Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
-    array('runtime_dom_selectors' => array('.js-sort-select'))
+    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><label for="product-sort">Sort products</label><select id="product-sort" name="products" class="catalog-sort" placeholder="Sort products"><option value="" selected disabled>Choose an order</option><option value="featured">Featured</option><option value="price">Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
+    array('runtime_dom_selectors' => array('.js-sort-select'), 'static_css' => '.catalog-sort{appearance:none;border:2px solid #123;padding:8px}')
 )->toArray();
 $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
-$assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockName'] ?? ''), 'standalone non-runtime select options convert to readable list');
-$assert('core/html' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
+$assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? ''), 'source select label remains a sibling editable block');
+$assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
+$assert('blocks-engine/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
+$authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
+$authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
+$assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
+$assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
+$assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</p>') && ! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label'), 'styled select emits its source label exactly once without a duplicate custom-block label');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select preserves native markup in serialized blocks');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
@@ -990,6 +1011,35 @@ $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][
 $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 $assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
+
+$styledInputs = ( new HtmlTransformer() )->transform(
+    '<main><input id="newsletter" class="footer-newsletter__input" type="email" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" required disabled readonly><input id="plain-input" class="plain-input" type="text" placeholder="Readable summary"><input class="js-filter" type="text" placeholder="Runtime filter"></main>',
+    array('runtime_dom_selectors' => array('.js-filter'), 'static_css' => '.footer-newsletter__input{flex:1;border:1px solid #123;padding:10px}')
+)->toArray();
+$styledInputBlocks = $styledInputs['blocks'][0]['innerBlocks'] ?? array();
+$styledInputMarkup = (string) ($styledInputs['serialized_blocks'] ?? '');
+$assert('blocks-engine/authored-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses an authored-input editable native-control block');
+$assert('core/paragraph' === ($styledInputBlocks[1]['blockName'] ?? ''), 'unstyled static input retains the readable-summary representation');
+$assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-targeted input retains native runtime-island behavior');
+$assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
+$assert(! str_contains($styledInputMarkup, '<!-- wp:html') || str_contains($styledInputMarkup, '<input class="js-filter"'), 'styled static input never uses core/html while runtime input remains compatible');
+$assert('pass' === ($styledInputs['source_reports']['wp_block_validity']['status'] ?? ''), 'compact input serialization passes canonical Gutenberg validity');
+
+$unstyledSelect = ( new HtmlTransformer() )->transform(
+    '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
+)->toArray();
+$unstyledSelectBlock = $unstyledSelect['blocks'][0] ?? array();
+$assert('core/group' === ($unstyledSelectBlock['blockName'] ?? '') && 'core/list' === ($unstyledSelectBlock['innerBlocks'][1]['blockName'] ?? ''), 'static select without authored presentation evidence retains the readable-list representation');
+$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-select'), 'unstyled static select does not generate an authored-select native-control block from class identity alone');
+
+$gridSelect = ( new HtmlTransformer() )->transform(
+    '<main><div class="control-grid"><select id="grid-sort" class="catalog-sort"><option>Featured</option></select></div></main>',
+    array('static_css' => '.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.catalog-sort{width:100%;padding:8px}')
+)->toArray();
+$gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
+$gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
+$assert('core/group' === ($gridSelectBlock['blockName'] ?? '') && 'blocks-engine/authored-select' === ($gridSelectBlock['innerBlocks'][0]['blockName'] ?? ''), 'styled select retains the valid compatibility group while its native control remains the authored grid child');
+$assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
@@ -1027,7 +1077,7 @@ $artifactControlSelectors = ( new ArtifactCompiler() )->compile(
 )->toArray();
 $artifactControlMarkup = (string) ($artifactControlSelectors['serialized_blocks'] ?? '');
 $assert(! str_contains($artifactControlMarkup, '<input id="newsletter-email"'), 'artifact compiler converts generically queried static input to readable block output');
-$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler converts generically queried static select to readable block output');
+$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler retains readable static select output without authored presentation evidence');
 $assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact static input readable output preserves placeholder text');
 $assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
 $assert(str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM in serialized blocks');
@@ -3471,6 +3521,26 @@ $assert(isset($companionBlock['assets']['index.js']), 'companion block carries e
 $assert(! isset($companionBlock['assets']['render.php']), 'render is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
+
+$authoredControlsCompanion = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html' => '<link rel="stylesheet" href="controls.css"><main><select class="authored-select"><option>One</option></select><input class="authored-input" type="text"></main>',
+            'controls.css' => '.authored-select{appearance:none;border:1px solid}.authored-input{border:1px solid;padding:1rem}',
+        ),
+    )
+)->toArray();
+$authoredControlsPayload = $authoredControlsCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$authoredControlBlocks = $authoredControlsPayload['blocks'] ?? array();
+$assert(array( 'authored-select', 'authored-input' ) === array_column($authoredControlBlocks, 'name'), 'styled authored controls compile into companion entries using only their canonical short slugs');
+$authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
+$authoredInputCompanion = $authoredControlBlocks[1] ?? array();
+$assert('blocks-engine/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
+$assert('blocks-engine/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
+preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
+$assert(array( 'blocks-engine/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
+$assert(array( 'blocks-engine/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
 
 $scriptCompanion = $compiler->compile(
     array(
