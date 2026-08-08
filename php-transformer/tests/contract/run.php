@@ -886,6 +886,40 @@ $assert(str_contains($flexAnchorAutoMarginMarkup, 'margin-right:auto') && 2 === 
 $assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
+$anchorButtonMarginCases = array(
+    'directional' => array(
+        'source'   => 'margin-left:2rem;margin-right:3rem',
+        'expected' => array( 'right' => '3rem', 'left' => '2rem' ),
+        'css'      => 'margin-left:2rem;margin-right:3rem',
+    ),
+    'shorthand' => array(
+        'source'   => 'margin:1rem 2rem 3rem 4rem',
+        'expected' => array( 'top' => '1rem', 'right' => '2rem', 'bottom' => '3rem', 'left' => '4rem' ),
+        'css'      => 'margin:1rem 2rem 3rem 4rem',
+    ),
+);
+foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
+    $directFlexMarginButton = ( new HtmlTransformer() )->transform(
+        '<style>.stack{display:flex;flex-direction:column}.cta{display:inline-flex;padding:1rem;background:#123456;' . $margin['source'] . '}</style><main><div class="stack"><a class="cta" href="/start">Start</a></div></main>'
+    )->toArray();
+    $directFlexMarginWrapper = $directFlexMarginButton['blocks'][0]['innerBlocks'][0] ?? array();
+    $directFlexMarginInner = $directFlexMarginWrapper['innerBlocks'][0] ?? array();
+    $directFlexMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $directFlexMarginButton['assets'] ?? array()));
+    $assert($margin['expected'] === ($directFlexMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'direct-flex ' . $marginCase . ' anchor margin stays on the outer core/buttons source flex item');
+    $assert(! isset($directFlexMarginInner['attrs']['style']['spacing']['margin']) && str_contains($directFlexMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}'), 'direct-flex ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
+    $assert(str_contains($directFlexMarginCss, $margin['css']) && ! str_contains($directFlexMarginCss, $margin['css'] . '!important'), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+
+    $fullWidthMarginButton = ( new HtmlTransformer() )->transform(
+        '<style>.cta{display:inline-flex;padding:1rem;background:#123456;width:100%;' . $margin['source'] . '}</style><main><section><a class="cta" href="/start">Start</a></section></main>'
+    )->toArray();
+    $fullWidthMarginWrapper = $fullWidthMarginButton['blocks'][0] ?? array();
+    $fullWidthMarginInner = $fullWidthMarginWrapper['innerBlocks'][0] ?? array();
+    $fullWidthMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthMarginButton['assets'] ?? array()));
+    $assert($margin['expected'] === ($fullWidthMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'full-width ' . $marginCase . ' anchor margin stays on the outer core/buttons wrapper');
+    $assert(! isset($fullWidthMarginInner['attrs']['style']['spacing']['margin']) && str_contains($fullWidthMarginCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}'), 'full-width ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
+    $assert(str_contains($fullWidthMarginCss, $margin['css']) && ! str_contains($fullWidthMarginCss, $margin['css'] . '!important'), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+}
+
 $fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
     '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style><main><section><a class="btn btn--full selector-submit" href="/submit">Submit</a></section></main>'
 )->toArray();
