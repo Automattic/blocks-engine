@@ -986,15 +986,20 @@ $assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary pre
 $assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
 
 $standaloneControls = ( new HtmlTransformer() )->transform(
-    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><select aria-label="Sort products"><option selected>Featured</option><option>Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
-    array('runtime_dom_selectors' => array('.js-sort-select'))
+    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><label for="product-sort">Sort products</label><select id="product-sort" name="products" class="catalog-sort" placeholder="Sort products"><option value="" selected disabled>Choose an order</option><option value="featured">Featured</option><option value="price">Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
+    array('runtime_dom_selectors' => array('.js-sort-select'), 'static_css' => '.catalog-sort{appearance:none;border:2px solid #123;padding:8px}')
 )->toArray();
 $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
-$assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockName'] ?? ''), 'standalone non-runtime select options convert to readable list');
-$assert('core/html' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
+$assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? ''), 'source select label remains a sibling editable block');
+$assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
+$assert('blocks-engine/form-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses a compact editable native-control block inside its compatibility wrapper');
+$assert('core/html' === ($standaloneControlBlocks[3]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM output');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<option value="" selected disabled>Choose an order</option>'), 'compact select preserves selected placeholder option state');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select id="product-sort" name="products" placeholder="Sort products" class="catalog-sort">'), 'compact select preserves native id, name, placeholder, and CSS selector identity');
+$assert(1 === substr_count((string) ($standaloneControls['serialized_blocks'] ?? ''), '>Sort products</p>') && ! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<label'), 'styled select emits its source label exactly once without a duplicate custom-block label');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<!-- wp:html') || str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'only the runtime-targeted select uses core/html');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select preserves native markup in serialized blocks');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'runtime-targeted select keeps behavior-hook class on native markup');
@@ -1003,6 +1008,22 @@ $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][
 $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 $assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
+
+$unstyledSelect = ( new HtmlTransformer() )->transform(
+    '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
+)->toArray();
+$unstyledSelectBlock = $unstyledSelect['blocks'][0] ?? array();
+$assert('core/group' === ($unstyledSelectBlock['blockName'] ?? '') && 'core/list' === ($unstyledSelectBlock['innerBlocks'][1]['blockName'] ?? ''), 'static select without authored presentation evidence retains the readable-list representation');
+$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/form-select'), 'unstyled static select does not generate a compact native-control block from class identity alone');
+
+$gridSelect = ( new HtmlTransformer() )->transform(
+    '<main><div class="control-grid"><select id="grid-sort" class="catalog-sort"><option>Featured</option></select></div></main>',
+    array('static_css' => '.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.catalog-sort{width:100%;padding:8px}')
+)->toArray();
+$gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
+$gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
+$assert('core/group' === ($gridSelectBlock['blockName'] ?? '') && 'blocks-engine/form-select' === ($gridSelectBlock['innerBlocks'][0]['blockName'] ?? ''), 'styled select retains the valid compatibility group while its native control remains the authored grid child');
+$assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input type="search" name="s" placeholder="Search articles" aria-label="Search articles"></div>'
@@ -1040,7 +1061,7 @@ $artifactControlSelectors = ( new ArtifactCompiler() )->compile(
 )->toArray();
 $artifactControlMarkup = (string) ($artifactControlSelectors['serialized_blocks'] ?? '');
 $assert(! str_contains($artifactControlMarkup, '<input id="newsletter-email"'), 'artifact compiler converts generically queried static input to readable block output');
-$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler converts generically queried static select to readable block output');
+$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler retains readable static select output without authored presentation evidence');
 $assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact static input readable output preserves placeholder text');
 $assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
 $assert(str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM in serialized blocks');
