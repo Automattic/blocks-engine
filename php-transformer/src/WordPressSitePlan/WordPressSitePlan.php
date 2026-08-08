@@ -29,9 +29,9 @@ final class WordPressSitePlan
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
-        $references = new AssetReferenceCanonicalizer($tokens);
         $documents = $this->decideDocuments($compiled['pages'] ?? null);
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents));
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
         // Restore the semantic shell candidates before deriving binding positions.
         // Extracted parts intentionally contain only their inner markup; the page
@@ -920,7 +920,7 @@ final class WordPressSitePlan
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
         $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
-        $jsonPattern = '/(["\'](?:url|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
+        $jsonPattern = '/(["\'](?:url|href|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
         $offset = 0;
         while (preg_match($jsonPattern, $content, $match, PREG_OFFSET_CAPTURE, $offset)) {
             if (null !== $this->routeReference($match[2][0], $origin, $routes)) {
@@ -1012,18 +1012,37 @@ final class WordPressSitePlan
     }
     private static function assertNoLocalBrowserReferences(string $content, string $sourcePath = '', string $context = 'markup'): void
     {
-        $assertReference = static function (string $candidate, string $attribute) use ($sourcePath, $context): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $url)) throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); };
+        $assertReference = static function (string $candidate, string $attribute, string $element = '') use ($sourcePath, $context): void { $url = trim(preg_split('/\s+/', trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8')))[0] ?? ''); $route = str_starts_with($url, '/') && (str_starts_with($attribute, 'json:route_') || ('href' === $attribute && in_array($element, array('a', 'area'), true)) || ('action' === $attribute && 'form' === $element)); if ('' !== $url && !str_starts_with($url, self::TOKEN_PREFIX) && !$route && !preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $url)) throw new ValidationException(sprintf('WordPress site plan contains unresolved local browser reference %s.', $url), array('source_path' => $sourcePath, 'document_kind' => $context, 'declaration_kind' => 'browser_reference', 'declaration_index' => 0, 'reason' => 'unresolved_local_browser_reference', 'fields' => array('context' => $context, 'attribute' => $attribute, 'value' => $url))); };
         $assertCss = static function (string $css, string $cssContext) use ($assertReference): void { \Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter::rewrite(html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), static function (string $url) use ($assertReference, $cssContext): string { $assertReference($url, $cssContext . ':url'); return $url; }); if (preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]*)"|\'([^\']*)\'|([^\s\)"\';]+))/i', html_entity_decode($css, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $matches, PREG_SET_ORDER)) foreach ($matches as $match) $assertReference((string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? '')), $cssContext . ':@import'); };
+        $assertJsonAttributes = null;
+        $assertJsonAttributes = static function (array $attributes, bool $route) use (&$assertJsonAttributes, $assertReference): void {
+            foreach ($attributes as $name => $value) {
+                if (is_array($value)) { $assertJsonAttributes($value, $route); continue; }
+                if (!is_string($name) || !is_string($value) || !in_array(strtolower($name), array('url', 'src', 'href', 'poster', 'action', 'srcset'), true)) continue;
+                $routeField = $route && 'url' === strtolower($name) ? 'route_url' : (in_array(strtolower($name), array('href', 'action'), true) ? 'route_' . strtolower($name) : strtolower($name));
+                foreach ('srcset' === strtolower($name) ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, 'json:' . $routeField);
+            }
+        };
         foreach (self::htmlMarkupNodes($content) as $node) {
             if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
-                foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name);
+                foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name']);
             }
             if ('style' === $node['kind']) $assertCss($node['css'], 'style_block');
-            if ('comment' === $node['kind'] && preg_match('~^\s*wp:~i', $node['content']) && preg_match_all('~(?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022)(.*?)(?:"|\\\\u0022)~is', $node['content'], $fields, PREG_SET_ORDER)) foreach ($fields as $field) foreach ('srcset' === strtolower($field[1]) ? self::srcsetCandidates($field[2]) : array($field[2]) as $candidate) $assertReference((string) $candidate, 'json:' . strtolower($field[1]));
+            if ('comment' === $node['kind'] && preg_match('~^\s*wp:~i', $node['content'])) {
+                $attributes = self::blockCommentAttributes($node['content']);
+                if (is_array($attributes)) {
+                    $assertJsonAttributes($attributes, self::jsonUrlIsRoute($node['content']));
+                } elseif (preg_match_all('~(?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022)(.*?)(?:"|\\\\u0022)~is', $node['content'], $fields, PREG_SET_ORDER)) {
+                    foreach ($fields as $field) foreach ('srcset' === strtolower($field[1]) ? self::srcsetCandidates($field[2]) : array($field[2]) as $candidate) $assertReference((string) $candidate, 'json:' . strtolower($field[1]));
+                }
+            }
         }
     }
+    /** @return array<string,mixed>|null */
+    private static function blockCommentAttributes(string $comment): ?array { if (!preg_match('~^\s*wp:[^\s{]+\s+(\{.*\})\s*/?\s*$~s', $comment, $payload)) return null; $attributes = json_decode($payload[1], true); return is_array($attributes) ? $attributes : null; }
+    private static function jsonUrlIsRoute(string $comment): bool { if (!preg_match('~^\s*wp:([^\s{]+)~i', $comment, $block)) return false; return in_array(strtolower($block[1]), array('navigation-link', 'navigation-submenu', 'button', 'social-link'), true); }
     /** @return array<int,string> */
     private static function srcsetCandidates(string $srcset): array
     {
