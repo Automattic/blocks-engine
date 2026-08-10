@@ -57,6 +57,20 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
+    /**
+     * Reference viewport width (px) for resolving responsive image constraints
+     * (aspect-ratio/object-fit) to the single value WordPress' core/image carries.
+     * min-width @media overrides at or below this width may win over the base rule.
+     */
+    private const DESKTOP_REFERENCE_WIDTH = 1440;
+
+    /**
+     * Root font size (px) used to resolve `em`/`rem` media-query breakpoints.
+     * Media features resolve these against the initial value, not any authored
+     * font-size, so the CSS default is the correct constant rather than a guess.
+     */
+    private const ROOT_FONT_SIZE_PX = 16;
+
     private const MAX_FORM_TOPOLOGY_DEPTH = 8;
 
     private const MAX_FORM_TOPOLOGY_NODES = 128;
@@ -11107,6 +11121,13 @@ final class HtmlTransformer
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
         $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($originalUrl)), static fn ($value): bool => '' !== $value);
 
+        // A shape constraint (aspect-ratio + object-fit) applied to the <img> via
+        // a wrapper the transform flattens (e.g. `.hero-frame img`) is lost once
+        // the carrier element is gone. Promote it to native aspectRatio/scale
+        // attributes so WordPress reproduces the authored crop. `+` never
+        // overrides an attribute already resolved above.
+        $attrs += $this->imageShapeConstraintAttributes($image);
+
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
@@ -11747,6 +11768,184 @@ final class HtmlTransformer
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
+     * Resolve the shape constraint the authored CSS applies to the <img> at the
+     * desktop viewport, and carry it as native core/image attributes.
+     *
+     * This applies to ANY image whose resolved CSS carries the pair, however the
+     * rule reaches it -- a rule on the image itself, a blanket `img` rule, or a
+     * descendant rule. The flattened wrapper (`.hero-frame img`) is the
+     * motivating case rather than the boundary: core/image has no slot for such
+     * a wrapper, so once the carrier is dropped the constraint survives only as
+     * block attributes. An image already matching the pair loses nothing by
+     * having it stated natively.
+     *
+     * Conservative by design: emit aspectRatio/scale only when the resolved
+     * style carries BOTH an explicit, well-formed aspect-ratio AND
+     * object-fit:cover|contain. Plain images gain nothing.
+     *
+     * @return array<string, string>
+     */
+    private function imageShapeConstraintAttributes(DOMElement $image): array
+    {
+        $declarations = $this->structuralPresentationDeclarations($image);
+        $aspectRatio  = $this->normalizedAspectRatio(
+            $this->desktopViewportDeclaration($image, 'aspect-ratio', (string) ($declarations['aspect-ratio'] ?? ''))
+        );
+        // `object-fit:cover !important` is a common defence against core's
+        // `.wp-block-image img` rules. Strip importance symmetrically with
+        // normalizedAspectRatio, or the keyword never matches the allowlist below
+        // and the whole promotion silently declines.
+        $scale        = strtolower($this->cssValueWithoutImportant(
+            $this->desktopViewportDeclaration($image, 'object-fit', (string) ($declarations['object-fit'] ?? ''))
+        ));
+
+        if ( '' === $aspectRatio || ! in_array($scale, array( 'cover', 'contain' ), true) ) {
+            return array();
+        }
+
+        return array(
+            'aspectRatio' => $aspectRatio,
+            'scale'       => $scale,
+        );
+    }
+
+    /**
+     * WordPress `core/image` carries a SINGLE aspectRatio/scale, but authored CSS
+     * often makes these responsive: a base rule plus `@media (min-width: N)`
+     * overrides. The block must reflect what renders at the primary/desktop
+     * viewport, so among the base value and every matching min-width override we
+     * pick the value from the widest min-width breakpoint (<= the desktop
+     * reference width). max-width-bounded (mobile) media rules are ignored; the
+     * base value wins only when no qualifying min-width override declares it.
+     * Ties at one breakpoint go to the last rule, as the cascade decides them.
+     */
+    private function desktopViewportDeclaration(DOMElement $element, string $property, string $baseValue): string
+    {
+        $winningWidth = -1;
+        $winningValue = $baseValue;
+        // A declaration in the element's own `style` attribute outranks every
+        // matched stylesheet rule at normal importance, whatever viewport that
+        // rule is bound to. $baseValue already carries it.
+        $inlineValue     = (string) ($this->cssDeclarations($this->attr($element, 'style'))[$property] ?? '');
+        $inlineOwns      = '' !== trim($inlineValue);
+        $inlineImportant = $inlineOwns && $this->cssValueIsImportant($inlineValue);
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( ! isset($rule['declarations'][$property]) || ! isset($rule['conditions']) ) {
+                continue;
+            }
+            if ( $inlineOwns && ( $inlineImportant || ! $this->cssValueIsImportant((string) $rule['declarations'][$property]) ) ) {
+                continue;
+            }
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $minWidth = $this->conditionsDesktopMinWidth($rule['conditions']);
+            if ( null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH ) {
+                continue;
+            }
+            if ( $minWidth >= $winningWidth ) {
+                $winningWidth = $minWidth;
+                $winningValue = (string) $rule['declarations'][$property];
+            }
+        }
+
+        return $winningValue;
+    }
+
+    /**
+     * The min-width (px) at which a conditional rule's `@media` prelude(s) begin
+     * to apply, or null when the rule is not a pure min-width desktop override:
+     * a non-`@media` condition, a negated query, a media type that is not the
+     * rendered screen, any `max-width` bound (mobile-capped range), or a media
+     * feature without a usable px min-width all disqualify it. Nested conditions
+     * must all qualify; the effective breakpoint is the widest.
+     *
+     * @param list<string> $conditions
+     */
+    private function conditionsDesktopMinWidth(array $conditions): ?int
+    {
+        $minWidth = 0;
+
+        foreach ( $conditions as $condition ) {
+            $condition = trim($condition);
+            if ( 1 !== preg_match('/^@media\b/i', $condition) ) {
+                return null;
+            }
+            // `not` inverts the feature test, so a min-width it names is the
+            // breakpoint below which the rule applies -- the opposite of a
+            // desktop override.
+            if ( 1 === preg_match('/\bnot\b/i', $condition) ) {
+                return null;
+            }
+            // Only `screen`/`all` describe the viewport the block renders at; a
+            // `print` (or speech/tv) crop must never become the block's crop.
+            if ( 1 === preg_match('/^@media\s+(?:only\s+)?([a-z-]+)/i', $condition, $typeMatch)
+                && ! in_array(strtolower($typeMatch[1]), array( 'all', 'screen' ), true)
+            ) {
+                return null;
+            }
+            if ( 1 === preg_match('/max-width\s*:/i', $condition) ) {
+                return null;
+            }
+            if ( 1 !== preg_match('/min-width\s*:\s*(\d+(?:\.\d+)?)\s*(px|r?em)\b/i', $condition, $matches) ) {
+                return null;
+            }
+            // `em`/`rem` breakpoints resolve against the root font size in a
+            // media query -- an `em` here is never the element's own font size.
+            $breakpoint = (float) $matches[1];
+            if ( 'px' !== strtolower($matches[2]) ) {
+                $breakpoint *= self::ROOT_FONT_SIZE_PX;
+            }
+            $minWidth = max($minWidth, (int) round($breakpoint));
+        }
+
+        return $minWidth;
+    }
+
+    private function cssValueWithoutImportant(string $value): string
+    {
+        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+    }
+
+    private function cssValueIsImportant(string $value): bool
+    {
+        return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+    }
+
+    /**
+     * Normalize a CSS aspect-ratio value to WordPress' attribute form (`4/3`,
+     * `1`). Returns '' for auto/keyword/compound values the crop cannot rely on.
+     *
+     * A zero component is also refused. `aspect-ratio:0/3` is a degenerate ratio
+     * that collapses the box to nothing; authored CSS gets away with it because
+     * some other declaration constrains the element, but the promoted block
+     * attribute carries no such company.
+     */
+    private function normalizedAspectRatio(string $value): string
+    {
+        $value = strtolower($this->cssValueWithoutImportant($value));
+        if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
+            return '';
+        }
+
+        if ( preg_match('#^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$#', $value, $matches) ) {
+            if ( 0.0 === (float) $matches[1] || 0.0 === (float) $matches[2] ) {
+                return '';
+            }
+
+            return $matches[1] . '/' . $matches[2];
+        }
+
+        if ( preg_match('#^\d+(?:\.\d+)?$#', $value) ) {
+            return 0.0 === (float) $value ? '' : $value;
+        }
+
+        return '';
     }
 
     /**

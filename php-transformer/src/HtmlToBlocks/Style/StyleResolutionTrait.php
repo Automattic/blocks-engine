@@ -1218,7 +1218,7 @@ trait StyleResolutionTrait
 
     /**
      * @param list<string> $conditions
-     * @param array<int, array{selector: string, declarations: array<string, string>}> $rules
+     * @param array<int, array{selector: string, declarations: array<string, string>, conditions: list<string>}> $rules
      */
     private function collectConditionalStyleRules(string $css, array $conditions, array &$rules): void
     {
@@ -1277,7 +1277,7 @@ trait StyleResolutionTrait
             foreach (explode(',', (string) $event['prelude']) as $selector) {
                 $selector = trim($selector);
                 if ('' !== $selector && ! str_starts_with($selector, '@') && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
-                    $rules[] = array('selector' => $selector, 'declarations' => $declarations);
+                    $rules[] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
                 }
             }
         }
@@ -1525,6 +1525,7 @@ trait StyleResolutionTrait
             'max-width',
             'min-height',
             'min-width',
+            'object-fit',
             'order',
             'padding',
             'padding-bottom',

@@ -787,28 +787,39 @@ final class BlockFactory
      */
     private function imageDimensionStyle(array $attrs): string
     {
-        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) && ! array_key_exists('scale', $attrs) ) {
+        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) && ! array_key_exists('scale', $attrs) && ! array_key_exists('aspectRatio', $attrs) ) {
             return '';
         }
 
         $style = array();
+        // WordPress' image save writes aspect-ratio ahead of object-fit when an
+        // aspectRatio attribute is present (typically alongside scale).
+        if ( array_key_exists('aspectRatio', $attrs) && null !== $attrs['aspectRatio'] && '' !== (string) $attrs['aspectRatio'] ) {
+            $style[] = 'aspect-ratio:' . (string) $attrs['aspectRatio'];
+        }
+
         if ( array_key_exists('scale', $attrs) && null !== $attrs['scale'] ) {
             $style[] = 'object-fit:' . (string) $attrs['scale'];
         }
 
-        if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
-            $style[] = 'width:' . (string) $attrs['width'];
-        }
-
-        if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-            // Gutenberg's image save shape keeps percentage widths as width-only
-            // styles. The image's intrinsic dimensions (including an SVG viewBox)
-            // provide the automatic aspect ratio without serializing height:auto.
-            if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
-                $style[] = 'height:auto';
+        // WordPress' image save applies dimension styles (including the forced
+        // height:auto) only when a width or height attribute is provided; an
+        // aspectRatio/scale-only image carries no width/height styles at all.
+        if ( array_key_exists('width', $attrs) || array_key_exists('height', $attrs) ) {
+            if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
+                $style[] = 'width:' . (string) $attrs['width'];
             }
-        } else {
-            $style[] = 'height:' . (string) $attrs['height'];
+
+            if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
+                // Gutenberg's image save shape keeps percentage widths as width-only
+                // styles. The image's intrinsic dimensions (including an SVG viewBox)
+                // provide the automatic aspect ratio without serializing height:auto.
+                if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
+                    $style[] = 'height:auto';
+                }
+            } else {
+                $style[] = 'height:' . (string) $attrs['height'];
+            }
         }
 
         return implode(';', $style);
