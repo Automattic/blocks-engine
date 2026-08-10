@@ -1026,6 +1026,7 @@ final class WordPressSitePlan
         foreach (self::htmlMarkupNodes($content) as $node) {
             if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
+                if ('action' === $name && 'form' !== $node['name']) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
                 foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name']);
             }

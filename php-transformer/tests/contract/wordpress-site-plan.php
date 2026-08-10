@@ -622,6 +622,8 @@ $duplicateExternalFirst = $plan; $duplicateExternalFirst['pages'][0]['canonical_
 WordPressSitePlan::assertValid($duplicateExternalFirst); $assert(true, 'Validation ignores later duplicate browser attribute values.');
 $formAction = $plan; $formAction['pages'][0]['canonical_block_markup'] .= '<form action="back"><button>Back</button></form>'; $formAction['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($formAction['pages'][0]['canonical_block_markup']);
 $throws(static fn() => WordPressSitePlan::assertValid($formAction), 'Validation rejects unresolved local form action references.');
+$customAction = $plan; $customAction['pages'][0]['canonical_block_markup'] .= '<fb:like action="like"></fb:like>'; $customAction['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($customAction['pages'][0]['canonical_block_markup']);
+WordPressSitePlan::assertValid($customAction); $assert(true, 'Validation ignores non-URL action metadata on custom elements.');
 $semanticAction = $plan; $semanticAction['pages'][0]['canonical_block_markup'] .= '<div data-options="{&quot;action&quot;:&quot;message&quot;}"></div>'; $semanticAction['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($semanticAction['pages'][0]['canonical_block_markup']);
 WordPressSitePlan::assertValid($semanticAction); $assert(true, 'Validation does not classify semantic JSON action values as browser references.');
 $embeddedIframe = $plan; $embeddedIframe['pages'][0]['canonical_block_markup'] .= '<div data-html="&lt;iframe src=&quot;https://www.youtube.com/embed/hs5KoEYi0R8?feature=oembed&quot;&gt;&lt;/iframe&gt;"></div>'; $embeddedIframe['pages'][0]['content_hash'] = WordPressSitePlan::contentHash($embeddedIframe['pages'][0]['canonical_block_markup']);
