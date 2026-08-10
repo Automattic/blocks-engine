@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
@@ -795,6 +796,7 @@ final class HtmlTransformer
                 'gutenberg_incompatibilities' => $this->gutenbergIncompatibilities,
                 'author_layout_topology' => $authorLayoutTopologyFindings,
                 'source_provenance'    => $sourceProvenance,
+                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
                 'runtime_islands'      => $this->runtimeIslands,
@@ -3421,7 +3423,7 @@ final class HtmlTransformer
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
             $attrs['content'] = $this->stripDecorativeSvgFromRichText((string) ($attrs['content'] ?? ''));
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
-                return $this->blockFactory->create('core/html', array( 'content' => $this->safeFallbackHtml($sourceElement) ));
+                return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($sourceElement) ), array(), $sourceElement);
             }
         }
 
@@ -4978,12 +4980,16 @@ final class HtmlTransformer
      */
     private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
     {
+        $sourceHtml = $this->safeFallbackHtml($element);
         return array_merge(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
             'selector'          => $this->elementSelector($element),
             'source_attributes' => $this->safeSourceAttributes($element),
             'source_fragment'   => $this->safeSourceFragment($element),
+            'source_digest'     => hash('sha256', $sourceHtml),
+            'source_bytes'      => strlen($sourceHtml),
+            'source_path'       => $this->fallbackProvenance['source'] ?? '',
             'context'           => $this->sourceContext($element),
         ), $this->sourceConversionMetadata($blockName, $element));
     }

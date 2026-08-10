@@ -30,6 +30,7 @@ final class ConversionReportProjection
             'selector_summary'      => self::selectorSummary($sourceReports, $fallbacks),
             'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbacks),
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
+            'core_html_fallback_evidence' => self::coreHtmlFallbackEvidence($sourceReports),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
@@ -456,6 +457,14 @@ final class ConversionReportProjection
     {
         $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
         return is_array($html['source_provenance'] ?? null) ? $html['source_provenance'] : array();
+    }
+
+    /** @param array<string, mixed> $sourceReports @return array<string, mixed> */
+    private static function coreHtmlFallbackEvidence(array $sourceReports): array
+    {
+        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
+        $evidence = $sourceReports['core_html_fallback_evidence'] ?? ($html['core_html_fallback_evidence'] ?? array());
+        return is_array($evidence) ? $evidence : array();
     }
 
     /**
