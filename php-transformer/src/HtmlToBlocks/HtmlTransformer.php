@@ -64,6 +64,13 @@ final class HtmlTransformer
      */
     private const DESKTOP_REFERENCE_WIDTH = 1440;
 
+    /**
+     * Root font size (px) used to resolve `em`/`rem` media-query breakpoints.
+     * Media features resolve these against the initial value, not any authored
+     * font-size, so the CSS default is the correct constant rather than a guess.
+     */
+    private const ROOT_FONT_SIZE_PX = 16;
+
     private const MAX_FORM_TOPOLOGY_DEPTH = 8;
 
     private const MAX_FORM_TOPOLOGY_NODES = 128;
@@ -11764,10 +11771,16 @@ final class HtmlTransformer
     }
 
     /**
-     * Resolve a shape constraint the authored CSS applies to the <img> itself,
-     * including through an ancestor wrapper the transform flattens (a descendant
-     * rule like `.hero-frame img`). WordPress' core/image has no slot for such a
-     * wrapper, so the constraint only survives as native block attributes.
+     * Resolve the shape constraint the authored CSS applies to the <img> at the
+     * desktop viewport, and carry it as native core/image attributes.
+     *
+     * This applies to ANY image whose resolved CSS carries the pair, however the
+     * rule reaches it -- a rule on the image itself, a blanket `img` rule, or a
+     * descendant rule. The flattened wrapper (`.hero-frame img`) is the
+     * motivating case rather than the boundary: core/image has no slot for such
+     * a wrapper, so once the carrier is dropped the constraint survives only as
+     * block attributes. An image already matching the pair loses nothing by
+     * having it stated natively.
      *
      * Conservative by design: emit aspectRatio/scale only when the resolved
      * style carries BOTH an explicit, well-formed aspect-ratio AND
@@ -11781,7 +11794,11 @@ final class HtmlTransformer
         $aspectRatio  = $this->normalizedAspectRatio(
             $this->desktopViewportDeclaration($image, 'aspect-ratio', (string) ($declarations['aspect-ratio'] ?? ''))
         );
-        $scale        = strtolower(trim(
+        // `object-fit:cover !important` is a common defence against core's
+        // `.wp-block-image img` rules. Strip importance symmetrically with
+        // normalizedAspectRatio, or the keyword never matches the allowlist below
+        // and the whole promotion silently declines.
+        $scale        = strtolower($this->cssValueWithoutImportant(
             $this->desktopViewportDeclaration($image, 'object-fit', (string) ($declarations['object-fit'] ?? ''))
         ));
 
@@ -11803,14 +11820,24 @@ final class HtmlTransformer
      * pick the value from the widest min-width breakpoint (<= the desktop
      * reference width). max-width-bounded (mobile) media rules are ignored; the
      * base value wins only when no qualifying min-width override declares it.
+     * Ties at one breakpoint go to the last rule, as the cascade decides them.
      */
     private function desktopViewportDeclaration(DOMElement $element, string $property, string $baseValue): string
     {
         $winningWidth = -1;
         $winningValue = $baseValue;
+        // A declaration in the element's own `style` attribute outranks every
+        // matched stylesheet rule at normal importance, whatever viewport that
+        // rule is bound to. $baseValue already carries it.
+        $inlineValue     = (string) ($this->cssDeclarations($this->attr($element, 'style'))[$property] ?? '');
+        $inlineOwns      = '' !== trim($inlineValue);
+        $inlineImportant = $inlineOwns && $this->cssValueIsImportant($inlineValue);
 
         foreach ( $this->conditionalStyleRules as $rule ) {
             if ( ! isset($rule['declarations'][$property]) || ! isset($rule['conditions']) ) {
+                continue;
+            }
+            if ( $inlineOwns && ( $inlineImportant || ! $this->cssValueIsImportant((string) $rule['declarations'][$property]) ) ) {
                 continue;
             }
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
@@ -11821,7 +11848,7 @@ final class HtmlTransformer
             if ( null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH ) {
                 continue;
             }
-            if ( $minWidth > $winningWidth ) {
+            if ( $minWidth >= $winningWidth ) {
                 $winningWidth = $minWidth;
                 $winningValue = (string) $rule['declarations'][$property];
             }
@@ -11833,9 +11860,10 @@ final class HtmlTransformer
     /**
      * The min-width (px) at which a conditional rule's `@media` prelude(s) begin
      * to apply, or null when the rule is not a pure min-width desktop override:
-     * a non-`@media` condition, any `max-width` bound (mobile-capped range), or a
-     * media feature without a usable px min-width all disqualify it. Nested
-     * conditions must all qualify; the effective breakpoint is the widest.
+     * a non-`@media` condition, a negated query, a media type that is not the
+     * rendered screen, any `max-width` bound (mobile-capped range), or a media
+     * feature without a usable px min-width all disqualify it. Nested conditions
+     * must all qualify; the effective breakpoint is the widest.
      *
      * @param list<string> $conditions
      */
@@ -11844,38 +11872,77 @@ final class HtmlTransformer
         $minWidth = 0;
 
         foreach ( $conditions as $condition ) {
-            if ( 1 !== preg_match('/^@media\b/i', trim($condition)) ) {
+            $condition = trim($condition);
+            if ( 1 !== preg_match('/^@media\b/i', $condition) ) {
+                return null;
+            }
+            // `not` inverts the feature test, so a min-width it names is the
+            // breakpoint below which the rule applies -- the opposite of a
+            // desktop override.
+            if ( 1 === preg_match('/\bnot\b/i', $condition) ) {
+                return null;
+            }
+            // Only `screen`/`all` describe the viewport the block renders at; a
+            // `print` (or speech/tv) crop must never become the block's crop.
+            if ( 1 === preg_match('/^@media\s+(?:only\s+)?([a-z-]+)/i', $condition, $typeMatch)
+                && ! in_array(strtolower($typeMatch[1]), array( 'all', 'screen' ), true)
+            ) {
                 return null;
             }
             if ( 1 === preg_match('/max-width\s*:/i', $condition) ) {
                 return null;
             }
-            if ( 1 !== preg_match('/min-width\s*:\s*(\d+(?:\.\d+)?)\s*px/i', $condition, $matches) ) {
+            if ( 1 !== preg_match('/min-width\s*:\s*(\d+(?:\.\d+)?)\s*(px|r?em)\b/i', $condition, $matches) ) {
                 return null;
             }
-            $minWidth = max($minWidth, (int) round((float) $matches[1]));
+            // `em`/`rem` breakpoints resolve against the root font size in a
+            // media query -- an `em` here is never the element's own font size.
+            $breakpoint = (float) $matches[1];
+            if ( 'px' !== strtolower($matches[2]) ) {
+                $breakpoint *= self::ROOT_FONT_SIZE_PX;
+            }
+            $minWidth = max($minWidth, (int) round($breakpoint));
         }
 
         return $minWidth;
     }
 
+    private function cssValueWithoutImportant(string $value): string
+    {
+        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+    }
+
+    private function cssValueIsImportant(string $value): bool
+    {
+        return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+    }
+
     /**
      * Normalize a CSS aspect-ratio value to WordPress' attribute form (`4/3`,
      * `1`). Returns '' for auto/keyword/compound values the crop cannot rely on.
+     *
+     * A zero component is also refused. `aspect-ratio:0/3` is a degenerate ratio
+     * that collapses the box to nothing; authored CSS gets away with it because
+     * some other declaration constrains the element, but the promoted block
+     * attribute carries no such company.
      */
     private function normalizedAspectRatio(string $value): string
     {
-        $value = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value));
+        $value = strtolower($this->cssValueWithoutImportant($value));
         if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
             return '';
         }
 
         if ( preg_match('#^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$#', $value, $matches) ) {
+            if ( 0.0 === (float) $matches[1] || 0.0 === (float) $matches[2] ) {
+                return '';
+            }
+
             return $matches[1] . '/' . $matches[2];
         }
 
         if ( preg_match('#^\d+(?:\.\d+)?$#', $value) ) {
-            return $value;
+            return 0.0 === (float) $value ? '' : $value;
         }
 
         return '';

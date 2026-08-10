@@ -713,6 +713,19 @@ $positionedFillRoundTrip = ( new \Automattic\BlocksEngine\PhpTransformer\WordPre
 $assert(str_contains($positionedFillMarkup, 'wp-block-image hero-art be-inline-geometry-') && str_contains($positionedFillCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'positioned SVG fill serializes native image wrapper and image rules with greater specificity than WordPress core intrinsic-image CSS');
 $assert(str_contains($positionedFillRoundTrip, 'wp-block-image hero-art be-inline-geometry-'), 'positioned SVG fill survives the serialized WordPress block parse/save contract without dropping its native fill carrier');
 
+// The parent-fill intent reads the same whether object-fit is authored inline or
+// in a stylesheet: `object-fit` is a resolvable presentation declaration, so a
+// `.hero-art svg{object-fit:cover}` rule drives the fill carrier exactly as the
+// inline declaration above does, instead of collapsing to intrinsic geometry.
+$stylesheetFillSvg = ( new HtmlTransformer() )->transform(
+    '<style>.hero{position:relative;width:1280px;height:760px}.hero-art{position:absolute;inset:0;width:100%;height:100%}.hero-art svg{object-fit:cover}</style><main><section class="hero"><div class="hero-art"><svg width="100%" height="100%" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></section></main>'
+)->toArray();
+$stylesheetFillMarkup = (string) ($stylesheetFillSvg['serialized_blocks'] ?? '');
+$stylesheetFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $stylesheetFillSvg['assets'] ?? array()));
+$assert(str_contains($stylesheetFillMarkup, 'class="wp-block-image be-inline-geometry-') && str_contains($stylesheetFillMarkup, 'style="line-height:0"'), 'stylesheet-sourced object-fit drives the SVG parent-fill carrier and drops the image line box');
+$assert(str_contains($stylesheetFillCss, '{margin:0;width:100%;height:100%}') && str_contains($stylesheetFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'stylesheet-sourced object-fit projects the same fill rules as an inline object-fit declaration');
+$assert(! str_contains($stylesheetFillMarkup, 'is-resized') && ! str_contains($stylesheetFillMarkup, 'style="width:100%"'), 'stylesheet-sourced object-fit no longer falls back to intrinsic resized geometry');
+
 $cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
     '<style>.grid-scene,.flex-scene{width:640px;height:1496px}.grid-scene{display:grid}.flex-scene{display:flex}.grid-scene svg,.flex-scene svg{width:100%;height:100%}</style><main><div class="grid-scene"><svg class="grid-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div><div class="flex-scene"><svg class="flex-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="#111"/></svg></div></main>'
 )->toArray();

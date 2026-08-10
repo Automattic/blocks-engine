@@ -75,6 +75,74 @@ $assert(
     'serialized fragment blocks carry the native crop attributes'
 );
 
+/**
+ * Resolve the first block's attributes for a fragment compiled against $css.
+ *
+ * @return array<string, mixed>
+ */
+$cropAttributes = static function (string $css) use ($compiler, $fragment): array {
+    $result = $compiler->compileFragment($fragment, 'design/home.html', 'html', array( 'static_css' => $css ));
+    $block = $result->blocks[0] ?? array();
+
+    return is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+};
+
+// `object-fit:cover !important` is the usual defence against core's
+// `.wp-block-image img` rules. Importance must be stripped from the keyword the
+// same way it is from aspect-ratio, or the allowlist never matches and the whole
+// promotion silently declines.
+$important = $cropAttributes(
+    '.hero-figure{margin:0}.hero-frame img{aspect-ratio:4 / 3;object-fit:cover !important}'
+);
+$assert(
+    '4/3' === ($important['aspectRatio'] ?? null) && 'cover' === ($important['scale'] ?? null),
+    'an !important object-fit still promotes, with importance stripped from the scale keyword'
+);
+
+// Breakpoints authored in em/rem resolve against the root font size, so
+// `min-width:64em` is the same 1024px desktop override as `min-width:1024px` and
+// must win over the base rule the same way. (Range syntax stays unsupported.)
+$emBreakpoint = $cropAttributes(
+    '.hero-figure{margin:0}.hero-frame img{aspect-ratio:4 / 3;object-fit:cover}'
+        . '@media (min-width: 64em){.hero-frame img{aspect-ratio:5 / 6}}'
+);
+$assert(
+    '5/6' === ($emBreakpoint['aspectRatio'] ?? null),
+    'an em-authored min-width breakpoint resolves at 16px per em and wins the desktop slot'
+);
+
+// An inline declaration outranks every matched stylesheet rule at normal
+// importance, whatever viewport that rule is bound to. A desktop @media override
+// must not displace it.
+$inlineFragment = '<figure class="hero-figure"><div class="hero-frame">'
+    . '<img src="https://example.com/creative-director.jpg" alt="Creative director portrait" style="aspect-ratio:1/1">'
+    . '</div></figure>';
+$inlineOverMedia = $compiler->compileFragment(
+    $inlineFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.hero-frame img{object-fit:cover}@media (min-width: 1024px){.hero-frame img{aspect-ratio:5 / 6}}' )
+);
+$inlineAttrs = is_array($inlineOverMedia->blocks[0]['attrs'] ?? null) ? $inlineOverMedia->blocks[0]['attrs'] : array();
+$assert(
+    '1/1' === ($inlineAttrs['aspectRatio'] ?? null),
+    'an inline aspect-ratio outranks a desktop @media override at normal importance'
+);
+
+// The inline win is about cascade importance, not about ignoring media rules: an
+// !important override still beats a normal inline declaration.
+$importantMedia = $compiler->compileFragment(
+    $inlineFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.hero-frame img{object-fit:cover}@media (min-width: 1024px){.hero-frame img{aspect-ratio:5 / 6 !important}}' )
+);
+$importantMediaAttrs = is_array($importantMedia->blocks[0]['attrs'] ?? null) ? $importantMedia->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($importantMediaAttrs['aspectRatio'] ?? null),
+    'an !important desktop override still outranks a normal inline aspect-ratio'
+);
+
 if ( 0 < $failures ) {
     exit(1);
 }
