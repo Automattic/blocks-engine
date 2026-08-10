@@ -26,7 +26,7 @@
     { "path": "blocks.0.attrs.scale", "assert": "equals", "value": "cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"aspectRatio\":\"5/6\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"scale\":\"cover\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:5/6;object-fit:cover" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:5/6;object-fit:cover\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"aspectRatio\":\"4/3\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-figure" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

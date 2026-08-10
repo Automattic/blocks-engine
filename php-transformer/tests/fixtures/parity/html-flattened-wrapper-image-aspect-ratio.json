@@ -26,7 +26,7 @@
     { "path": "blocks.0.attrs.scale", "assert": "equals", "value": "cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"aspectRatio\":\"4/3\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"scale\":\"cover\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:4/3;object-fit:cover" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:4/3;object-fit:cover\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-figure" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
