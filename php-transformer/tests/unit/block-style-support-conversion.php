@@ -78,6 +78,18 @@ $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($group
 $assert(! isset($groupAttrs['style']['spacing']['blockGap']), '15: core group save omits block gap without a core layout attribute', json_encode($groupAttrs));
 $assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: core group retains supported dimensions', $groupInnerHtml);
 
+$nativeGridHtml = '<div class="tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1.2rem"><p>Fallback card</p></div>';
+$nativeGridResult = ( new HtmlTransformer() )->transform($nativeGridHtml, array())->toArray();
+$nativeGrid = $nativeGridResult['blocks'][0] ?? array();
+$nativeGridAttrs = is_array($nativeGrid['attrs'] ?? null) ? $nativeGrid['attrs'] : array();
+$nativeGridMarkup = (string) ($nativeGridResult['serialized_blocks'] ?? '');
+$nativeGridCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($nativeGridResult['assets'] ?? null) ? $nativeGridResult['assets'] : array()));
+
+$assert('grid' === ($nativeGridAttrs['layout']['type'] ?? ''), '16a: representative tpl-grid shape retains native Group grid layout', json_encode($nativeGridAttrs));
+$assert(! isset($nativeGridAttrs['style']['spacing']['blockGap']), '16b: native Group grids do not emit noncanonical blockGap attributes', json_encode($nativeGridAttrs));
+$assert(! str_contains($nativeGridMarkup, 'gap:1.2rem'), '16c: native Group grid markup omits inline gap that Gutenberg save does not reproduce', $nativeGridMarkup);
+$assert(str_contains($nativeGridCss, 'gap:1.2rem !important'), '16d: inline native Group grid gap moves to the generated geometry carrier', $nativeGridCss);
+
 $cardHtml = '<section class="pricing-shell" style="max-width:1120px;margin:0 auto;padding:5rem 2rem"><article class="pricing-card" style="max-width:360px;padding:2rem;background:#fff"><h2>Team</h2><p>Scale every launch.</p></article></section>';
 $cardResult = ( new HtmlTransformer() )->transform($cardHtml, array())->toArray();
 $cardShell = $cardResult['blocks'][0] ?? array();
