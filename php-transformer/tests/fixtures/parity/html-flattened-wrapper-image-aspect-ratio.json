@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-flattened-wrapper-image-aspect-ratio",
+  "description": "An authored <img> whose 4/3 crop is applied through an intermediate wrapper the transform flattens (a `.hero-frame img` descendant rule with aspect-ratio + object-fit:cover) promotes the shape constraint to native core/image aspectRatio + scale attributes, so WordPress reproduces the authored crop instead of rendering the image at its intrinsic height.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-flattened-wrapper-image-aspect-ratio.json",
+    "notes": "Derived from a portfolio hero (figure.hero-figure > div.hero-frame > img) where the .hero-frame carrier is dropped by core/image serialization, orphaning the .hero-frame img crop rule."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.hero-figure{margin:0}.hero-frame{position:relative;overflow:hidden;background:#101012}.hero-frame img{width:100%;aspect-ratio:4 / 3;object-fit:cover;filter:contrast(1.06)}</style></head><body><figure class=\"hero-figure\"><div class=\"hero-frame\"><img src=\"https://example.com/creative-director.jpg\" alt=\"Creative director portrait\"></div><figcaption>Creative Director</figcaption></figure></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-figure", "url": "https://example.com/creative-director.jpg", "alt": "Creative director portrait", "aspectRatio": "4/3", "scale": "cover", "caption": "Creative Director" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.attrs.aspectRatio", "assert": "equals", "value": "4/3" },
+    { "path": "blocks.0.attrs.scale", "assert": "equals", "value": "cover" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"aspectRatio\":\"4/3\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"scale\":\"cover\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:4/3;object-fit:cover" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-figure" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

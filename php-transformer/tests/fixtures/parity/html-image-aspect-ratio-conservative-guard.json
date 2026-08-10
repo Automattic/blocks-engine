@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-image-aspect-ratio-conservative-guard",
+  "description": "The aspectRatio/scale promotion is conservative: a plain image with no authored aspect-ratio, and an image whose CSS carries object-fit:cover WITHOUT an aspect-ratio, both stay unchanged and gain no aspectRatio or scale attributes. Only the aspect-ratio AND object-fit pair together triggers the crop promotion.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-image-aspect-ratio-conservative-guard.json",
+    "notes": "Negative guard paired with html-flattened-wrapper-image-aspect-ratio."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.card img{border-radius:6px}.only-fit img{object-fit:cover}</style></head><body><figure class=\"card\"><img src=\"https://example.com/plain.jpg\" alt=\"Plain\"></figure><figure class=\"only-fit\"><img src=\"https://example.com/fit.jpg\" alt=\"Fit only\"></figure></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "card", "url": "https://example.com/plain.jpg", "alt": "Plain" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "className": "only-fit", "url": "https://example.com/fit.jpg", "alt": "Fit only" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "aspectRatio" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"scale\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "aspect-ratio" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "object-fit" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

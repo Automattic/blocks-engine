@@ -787,11 +787,17 @@ final class BlockFactory
      */
     private function imageDimensionStyle(array $attrs): string
     {
-        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) && ! array_key_exists('scale', $attrs) ) {
+        if ( ! array_key_exists('width', $attrs) && ! array_key_exists('height', $attrs) && ! array_key_exists('scale', $attrs) && ! array_key_exists('aspectRatio', $attrs) ) {
             return '';
         }
 
         $style = array();
+        // WordPress' image save writes aspect-ratio ahead of object-fit when an
+        // aspectRatio attribute is present (typically alongside scale).
+        if ( array_key_exists('aspectRatio', $attrs) && null !== $attrs['aspectRatio'] && '' !== (string) $attrs['aspectRatio'] ) {
+            $style[] = 'aspect-ratio:' . (string) $attrs['aspectRatio'];
+        }
+
         if ( array_key_exists('scale', $attrs) && null !== $attrs['scale'] ) {
             $style[] = 'object-fit:' . (string) $attrs['scale'];
         }

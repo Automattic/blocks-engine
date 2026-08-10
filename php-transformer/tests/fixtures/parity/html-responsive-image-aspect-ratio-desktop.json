@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-responsive-image-aspect-ratio-desktop",
+  "description": "An authored <img> with a RESPONSIVE crop (base `.hero-frame img{aspect-ratio:4/3;object-fit:cover}` plus a `@media (min-width:1024px){ .hero-frame img{aspect-ratio:5/6} }` desktop override) promotes the value that renders at the primary/desktop viewport. WordPress core/image carries a single aspectRatio, so the widest min-width breakpoint wins: the block gets 5/6 (portrait), not the 4/3 base (landscape), while scale stays cover.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-responsive-image-aspect-ratio-desktop.json",
+    "notes": "Derived from the portfolio-new hero (projects/portfolio-new/design/home.html) where .hero-frame img is 4/3 at base and 5/6 at min-width:1024px; the desktop viewport renders 5/6."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.hero-figure{margin:0}.hero-frame{position:relative;overflow:hidden;background:#101012}.hero-frame img{width:100%;aspect-ratio:4 / 3;object-fit:cover;filter:contrast(1.06)}@media (min-width: 720px){.hero-frame img{filter:none}}@media (min-width: 1024px){.hero-frame img{aspect-ratio:5 / 6}}</style></head><body><figure class=\"hero-figure\"><div class=\"hero-frame\"><img src=\"https://example.com/creative-director.jpg\" alt=\"Creative director portrait\"></div><figcaption>Creative Director</figcaption></figure></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-figure", "url": "https://example.com/creative-director.jpg", "alt": "Creative director portrait", "aspectRatio": "5/6", "scale": "cover", "caption": "Creative Director" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.attrs.aspectRatio", "assert": "equals", "value": "5/6" },
+    { "path": "blocks.0.attrs.scale", "assert": "equals", "value": "cover" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"aspectRatio\":\"5/6\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"scale\":\"cover\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:5/6;object-fit:cover" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"aspectRatio\":\"4/3\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-figure" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

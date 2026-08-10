@@ -57,6 +57,13 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
 
+    /**
+     * Reference viewport width (px) for resolving responsive image constraints
+     * (aspect-ratio/object-fit) to the single value WordPress' core/image carries.
+     * min-width @media overrides at or below this width may win over the base rule.
+     */
+    private const DESKTOP_REFERENCE_WIDTH = 1440;
+
     private const MAX_FORM_TOPOLOGY_DEPTH = 8;
 
     private const MAX_FORM_TOPOLOGY_NODES = 128;
@@ -11107,6 +11114,13 @@ final class HtmlTransformer
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
         $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($originalUrl)), static fn ($value): bool => '' !== $value);
 
+        // A shape constraint (aspect-ratio + object-fit) applied to the <img> via
+        // a wrapper the transform flattens (e.g. `.hero-frame img`) is lost once
+        // the carrier element is gone. Promote it to native aspectRatio/scale
+        // attributes so WordPress reproduces the authored crop. `+` never
+        // overrides an attribute already resolved above.
+        $attrs += $this->imageShapeConstraintAttributes($image);
+
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
@@ -11747,6 +11761,124 @@ final class HtmlTransformer
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
+     * Resolve a shape constraint the authored CSS applies to the <img> itself,
+     * including through an ancestor wrapper the transform flattens (a descendant
+     * rule like `.hero-frame img`). WordPress' core/image has no slot for such a
+     * wrapper, so the constraint only survives as native block attributes.
+     *
+     * Conservative by design: emit aspectRatio/scale only when the resolved
+     * style carries BOTH an explicit, well-formed aspect-ratio AND
+     * object-fit:cover|contain. Plain images gain nothing.
+     *
+     * @return array<string, string>
+     */
+    private function imageShapeConstraintAttributes(DOMElement $image): array
+    {
+        $declarations = $this->structuralPresentationDeclarations($image);
+        $aspectRatio  = $this->normalizedAspectRatio(
+            $this->desktopViewportDeclaration($image, 'aspect-ratio', (string) ($declarations['aspect-ratio'] ?? ''))
+        );
+        $scale        = strtolower(trim(
+            $this->desktopViewportDeclaration($image, 'object-fit', (string) ($declarations['object-fit'] ?? ''))
+        ));
+
+        if ( '' === $aspectRatio || ! in_array($scale, array( 'cover', 'contain' ), true) ) {
+            return array();
+        }
+
+        return array(
+            'aspectRatio' => $aspectRatio,
+            'scale'       => $scale,
+        );
+    }
+
+    /**
+     * WordPress `core/image` carries a SINGLE aspectRatio/scale, but authored CSS
+     * often makes these responsive: a base rule plus `@media (min-width: N)`
+     * overrides. The block must reflect what renders at the primary/desktop
+     * viewport, so among the base value and every matching min-width override we
+     * pick the value from the widest min-width breakpoint (<= the desktop
+     * reference width). max-width-bounded (mobile) media rules are ignored; the
+     * base value wins only when no qualifying min-width override declares it.
+     */
+    private function desktopViewportDeclaration(DOMElement $element, string $property, string $baseValue): string
+    {
+        $winningWidth = -1;
+        $winningValue = $baseValue;
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( ! isset($rule['declarations'][$property]) || ! isset($rule['conditions']) ) {
+                continue;
+            }
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $minWidth = $this->conditionsDesktopMinWidth($rule['conditions']);
+            if ( null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH ) {
+                continue;
+            }
+            if ( $minWidth > $winningWidth ) {
+                $winningWidth = $minWidth;
+                $winningValue = (string) $rule['declarations'][$property];
+            }
+        }
+
+        return $winningValue;
+    }
+
+    /**
+     * The min-width (px) at which a conditional rule's `@media` prelude(s) begin
+     * to apply, or null when the rule is not a pure min-width desktop override:
+     * a non-`@media` condition, any `max-width` bound (mobile-capped range), or a
+     * media feature without a usable px min-width all disqualify it. Nested
+     * conditions must all qualify; the effective breakpoint is the widest.
+     *
+     * @param list<string> $conditions
+     */
+    private function conditionsDesktopMinWidth(array $conditions): ?int
+    {
+        $minWidth = 0;
+
+        foreach ( $conditions as $condition ) {
+            if ( 1 !== preg_match('/^@media\b/i', trim($condition)) ) {
+                return null;
+            }
+            if ( 1 === preg_match('/max-width\s*:/i', $condition) ) {
+                return null;
+            }
+            if ( 1 !== preg_match('/min-width\s*:\s*(\d+(?:\.\d+)?)\s*px/i', $condition, $matches) ) {
+                return null;
+            }
+            $minWidth = max($minWidth, (int) round((float) $matches[1]));
+        }
+
+        return $minWidth;
+    }
+
+    /**
+     * Normalize a CSS aspect-ratio value to WordPress' attribute form (`4/3`,
+     * `1`). Returns '' for auto/keyword/compound values the crop cannot rely on.
+     */
+    private function normalizedAspectRatio(string $value): string
+    {
+        $value = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value));
+        if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
+            return '';
+        }
+
+        if ( preg_match('#^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$#', $value, $matches) ) {
+            return $matches[1] . '/' . $matches[2];
+        }
+
+        if ( preg_match('#^\d+(?:\.\d+)?$#', $value) ) {
+            return $value;
+        }
+
+        return '';
     }
 
     /**
