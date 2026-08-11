@@ -3462,6 +3462,15 @@ final class HtmlTransformer
                     self::CSS_OWNED_LAYOUT_ITEM_CLASS
                 );
             }
+            if ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') ) {
+                // Core Group's save() does not reproduce a blockGap declaration.
+                // Preserve an authored inline gap in a generated carrier instead
+                // of storing markup that the editor will mark invalid.
+                $gapCarrier = $this->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
+                if ( '' !== $gapCarrier ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
+                }
+            }
             if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
             }
@@ -4163,19 +4172,14 @@ final class HtmlTransformer
         $layout = $attrs['layout'] ?? null;
         if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
             // The source track list is exactly expressible as native grid
-            // layout, so WordPress owns the geometry and no css-owned
-            // demotion is needed. The author gap and container background ride
-            // on block supports so hairline-divider grids (gap:1px plus a
-            // background painting through the gaps) survive even without the
-            // materialized author stylesheet.
+            // layout, so WordPress owns the track geometry. Group save markup
+            // does not serialize blockGap, so source gap remains stylesheet
+            // owned by the normalization in createBlock().
             $declarations = $this->structuralPresentationDeclarations($element);
             $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-            $gap = trim((string) ($declarations['gap'] ?? ''));
-            if ( 1 === preg_match('/^(?:0|[0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))$/i', $gap)
-                && ! isset($style['spacing']['blockGap'])
-                && ! $this->hasConditionalStyleFamily($element, 'layout')
-            ) {
-                $style['spacing'] = array_merge(is_array($style['spacing'] ?? null) ? $style['spacing'] : array(), array( 'blockGap' => $gap ));
+            unset($style['spacing']['blockGap']);
+            if ( empty($style['spacing']) ) {
+                unset($style['spacing']);
             }
             $background = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
             if ( 1 === preg_match('/^(#[0-9a-f]{3,8}|[a-z][a-z-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|var)\([^()]*\))$/i', $background)

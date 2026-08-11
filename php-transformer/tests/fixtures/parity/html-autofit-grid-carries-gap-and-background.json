@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-autofit-grid-carries-gap-and-background",
-  "description": "An auto-fit grid using the hairline-divider technique (gap:1px plus a container background painting through the gaps) must carry both onto the native grid group: the author gap becomes blockGap so WordPress does not substitute its default gap, and the container background becomes a color support so the dividers survive without the author stylesheet.",
+  "description": "An auto-fit grid using the hairline-divider technique (gap:1px plus a container background painting through the gaps) keeps its native grid tracks while source CSS owns its gap: core/group save markup cannot serialize blockGap. The container background remains a color support so the dividers survive without the author stylesheet.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-autofit-grid-carries-gap-and-background.json",
-    "notes": "Derived from a portfolio work grid where gap:1px;background:var(--ink) painted hairline separators between cells; mapping the grid to native layout without carrying the gap rendered WordPress's default block gap instead of 1px dividers."
+    "notes": "Derived from a portfolio work grid where gap:1px;background:var(--ink) painted hairline separators between cells. The source stylesheet retains the gap because core/group does not serialize blockGap in canonical save markup."
   },
   "legacy_comparison": {
     "skip": true,
@@ -28,7 +28,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": "1px" },
+    { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": null },
     { "path": "blocks.0.attrs.style.color.background", "assert": "equals", "value": "#1a1a1a" },
     { "path": "serialized_blocks", "assert": "contains", "value": "is-layout-grid" }
   ]
