@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
+use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -172,12 +173,14 @@ final class ArtifactCompiler
         $allFallbacks = $entryBlocks['fallbacks'];
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
         $allGutenbergGaps = $entryBlocks['gutenberg_gaps'];
+        $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
             $allGeneratedBlocks = array_merge($allGeneratedBlocks, $compiledHtmlDocument['generated_blocks'] ?? array());
             $allGutenbergGaps = array_merge($allGutenbergGaps, $compiledHtmlDocument['gutenberg_gaps'] ?? array());
+            $coreHtmlFallbackEvidence[] = $compiledHtmlDocument['core_html_fallback_evidence'] ?? array();
         }
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
@@ -207,6 +210,7 @@ final class ArtifactCompiler
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
         $sourceReports = array(
+            'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence),
             'artifact' => array(
                 'schema'          => self::INPUT_SCHEMA,
                 'original_schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
@@ -676,7 +680,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -695,12 +699,13 @@ final class ArtifactCompiler
             'superseded_selectors' => $result['superseded_selectors'],
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
             'shell_artifacts' => $result['shell_artifacts'],
+            'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
@@ -718,6 +723,7 @@ final class ArtifactCompiler
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
                 'shell_artifacts' => array(),
+                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
             );
         }
 
@@ -735,6 +741,7 @@ final class ArtifactCompiler
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
                 'shell_artifacts' => array(),
+                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
             );
         }
 
@@ -758,6 +765,7 @@ final class ArtifactCompiler
             'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
+            'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
                 is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),

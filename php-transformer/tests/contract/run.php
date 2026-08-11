@@ -2410,6 +2410,12 @@ $assert(array() === ($unsafeDecorativeSvg['source_reports']['conversion_report']
 $assert(str_contains($unsafeDecorativeContent, '<circle'), 'unsafe decorative inline SVG keeps its shape markup after sanitization');
 $assert(! str_contains($unsafeDecorativeContent, '<script'), 'unsafe decorative inline SVG strips scripts while keeping the shapes');
 $assert(! str_contains($unsafeDecorativeContent, 'onclick'), 'unsafe decorative inline SVG strips event-handler attributes while keeping the shapes');
+$unsafeSvgEvidence = $unsafeDecorativeSvg['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array();
+$unsafeSvgEmission = $unsafeSvgEvidence['emissions'][0] ?? array();
+$assert('blocks-engine/core-html-fallback-evidence/v1' === ($unsafeSvgEvidence['schema'] ?? ''), 'core/html emissions expose versioned fallback evidence');
+$assert('sanitization' === ($unsafeSvgEmission['reason'] ?? '') && '' !== ($unsafeSvgEmission['source_selector'] ?? '') && '' !== ($unsafeSvgEmission['block_path'] ?? ''), 'core/html evidence has a deterministic generic reason and source selector/path');
+$assert(64 === strlen((string) ($unsafeSvgEmission['source_subtree']['digest'] ?? '')) && 64 === strlen((string) ($unsafeSvgEmission['emitted']['content_digest'] ?? '')), 'core/html evidence hashes source and emitted content');
+$assert(! str_contains((string) ($unsafeSvgEmission['source_subtree']['snippet'] ?? ''), 'alert(1)') && ! str_contains((string) ($unsafeSvgEmission['source_subtree']['snippet'] ?? ''), 'onclick'), 'core/html evidence source snippets exclude source values and script payloads');
 
 $interactions = ( new HtmlTransformer() )->transform(
     '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
