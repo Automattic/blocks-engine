@@ -595,6 +595,7 @@ final class ArtifactCompiler
                     $products[$productSlug] = $row;
                 }
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
+                if ( true === ($fallback['control_topology']['truncated'] ?? false) ) continue;
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
