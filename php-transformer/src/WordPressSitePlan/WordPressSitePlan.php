@@ -1026,6 +1026,7 @@ final class WordPressSitePlan
         foreach (self::htmlMarkupNodes($content) as $node) {
             if ('tag' === $node['kind']) foreach ($node['attributes'] as $name => $value) {
                 if (!in_array($name, array('xlink:href', 'srcset', 'src', 'href', 'poster', 'action', 'style'), true)) continue;
+                if ('action' === $name && 'form' !== $node['name']) continue;
                 if ('style' === $name) { $assertCss($value, 'style_attribute'); continue; }
                 foreach ('srcset' === $name ? self::srcsetCandidates($value) : array($value) as $candidate) $assertReference($candidate, $name, $node['name']);
             }
@@ -1035,7 +1036,12 @@ final class WordPressSitePlan
                 if (is_array($attributes)) {
                     $assertJsonAttributes($attributes, self::jsonUrlIsRoute($node['content']));
                 } elseif (preg_match_all('~(?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022)(.*?)(?:"|\\\\u0022)~is', $node['content'], $fields, PREG_SET_ORDER)) {
-                    foreach ($fields as $field) foreach ('srcset' === strtolower($field[1]) ? self::srcsetCandidates($field[2]) : array($field[2]) as $candidate) $assertReference((string) $candidate, 'json:' . strtolower($field[1]));
+                    $route = self::jsonUrlIsRoute($node['content']);
+                    foreach ($fields as $field) {
+                        $name = strtolower($field[1]);
+                        $routeField = $route && 'url' === $name ? 'route_url' : (in_array($name, array('href', 'action'), true) ? 'route_' . $name : $name);
+                        foreach ('srcset' === $name ? self::srcsetCandidates($field[2]) : array($field[2]) as $candidate) $assertReference(str_replace('\\/', '/', (string) $candidate), 'json:' . $routeField);
+                    }
                 }
             }
         }
