@@ -75,6 +75,117 @@ $assert(
     'serialized fragment blocks carry the native crop attributes'
 );
 
+// CSS inspection is based on a matching selector, not a vocabulary-derived
+// class or tag name. A higher-specificity authored rule must still be the value
+// a core-block recognizer sees.
+$arbitraryFragment = '<figure class="q7v"><div class="n3x"><img src="https://example.com/arbitrary.jpg" alt="Arbitrary naming"></div></figure>';
+$arbitrary = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.n3x img{aspect-ratio:1 / 1;object-fit:contain}.q7v .n3x img{aspect-ratio:5 / 6;object-fit:cover}' )
+);
+$arbitraryAttrs = is_array($arbitrary->blocks[0]['attrs'] ?? null) ? $arbitrary->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($arbitraryAttrs['aspectRatio'] ?? null) && 'cover' === ($arbitraryAttrs['scale'] ?? null),
+    'arbitrary class names and authored selector specificity drive native image recognition'
+);
+$arbitraryReverse = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.q7v .n3x img{aspect-ratio:5 / 6;object-fit:cover}.n3x img{aspect-ratio:1 / 1;object-fit:contain}' )
+);
+$arbitraryReverseAttrs = is_array($arbitraryReverse->blocks[0]['attrs'] ?? null) ? $arbitraryReverse->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($arbitraryReverseAttrs['aspectRatio'] ?? null) && 'cover' === ($arbitraryReverseAttrs['scale'] ?? null),
+    'higher-specificity arbitrary selectors win static crop recognition even when authored first'
+);
+$arbitraryResponsive = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.n3x img{aspect-ratio:1 / 1;object-fit:contain}@media (min-width:1024px){.q7v .n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$arbitraryResponsiveAttrs = is_array($arbitraryResponsive->blocks[0]['attrs'] ?? null) ? $arbitraryResponsive->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($arbitraryResponsiveAttrs['aspectRatio'] ?? null) && 'cover' === ($arbitraryResponsiveAttrs['scale'] ?? null),
+    'arbitrary class names retain responsive CSS recognition through the fragment path'
+);
+$arbitraryResponsiveReverse = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@media (min-width:1024px){.q7v .n3x img{aspect-ratio:5 / 6;object-fit:cover}.n3x img{aspect-ratio:1 / 1;object-fit:contain}}' )
+);
+$arbitraryResponsiveReverseAttrs = is_array($arbitraryResponsiveReverse->blocks[0]['attrs'] ?? null) ? $arbitraryResponsiveReverse->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($arbitraryResponsiveReverseAttrs['aspectRatio'] ?? null) && 'cover' === ($arbitraryResponsiveReverseAttrs['scale'] ?? null),
+    'higher-specificity arbitrary selectors win responsive crop recognition even when authored first'
+);
+$conditionalBeforeStatic = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@media (min-width:1024px){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}.n3x img{aspect-ratio:1 / 1;object-fit:contain}' )
+);
+$conditionalBeforeStaticAttrs = is_array($conditionalBeforeStatic->blocks[0]['attrs'] ?? null) ? $conditionalBeforeStatic->blocks[0]['attrs'] : array();
+$assert(
+    '1/1' === ($conditionalBeforeStaticAttrs['aspectRatio'] ?? null) && 'contain' === ($conditionalBeforeStaticAttrs['scale'] ?? null),
+    'a later static rule wins an earlier applicable responsive rule at equal specificity'
+);
+$duplicateDeclarations = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.n3x img{aspect-ratio:5 / 6 !important;aspect-ratio:1 / 1;object-fit:cover !important;object-fit:contain}' )
+);
+$duplicateDeclarationAttrs = is_array($duplicateDeclarations->blocks[0]['attrs'] ?? null) ? $duplicateDeclarations->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($duplicateDeclarationAttrs['aspectRatio'] ?? null) && 'cover' === ($duplicateDeclarationAttrs['scale'] ?? null),
+    'important duplicate crop declarations beat later normal declarations in one rule'
+);
+$inlineDuplicateFragment = '<figure class="q7v"><div class="n3x"><img src="https://example.com/arbitrary.jpg" alt="Arbitrary naming" style="aspect-ratio:5 / 6 !important;aspect-ratio:1 / 1;object-fit:cover !important;object-fit:contain"></div></figure>';
+$inlineDuplicate = $compiler->compileFragment($inlineDuplicateFragment, 'design/home.html', 'html');
+$inlineDuplicateAttrs = is_array($inlineDuplicate->blocks[0]['attrs'] ?? null) ? $inlineDuplicate->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($inlineDuplicateAttrs['aspectRatio'] ?? null) && 'cover' === ($inlineDuplicateAttrs['scale'] ?? null),
+    'important duplicate inline crop declarations beat later normal declarations'
+);
+$layeredCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@layer components{.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$layeredCropAttrs = is_array($layeredCrop->blocks[0]['attrs'] ?? null) ? $layeredCrop->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($layeredCropAttrs['aspectRatio'] ?? null) && 'cover' === ($layeredCropAttrs['scale'] ?? null),
+    'layer-grouped crop declarations remain applicable at desktop'
+);
+$supportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports (aspect-ratio:1 / 1){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$supportedCropAttrs = is_array($supportedCrop->blocks[0]['attrs'] ?? null) ? $supportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($supportedCropAttrs['aspectRatio'] ?? null) && 'cover' === ($supportedCropAttrs['scale'] ?? null),
+    'positively-known supports conditions retain crop declarations'
+);
+$unsupportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports (unknown-crop-feature:value){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$unsupportedCropAttrs = is_array($unsupportedCrop->blocks[0]['attrs'] ?? null) ? $unsupportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($unsupportedCropAttrs['aspectRatio']) && ! isset($unsupportedCropAttrs['scale']),
+    'unresolved supports conditions do not flatten into crop declarations'
+);
+
 /**
  * Resolve the first block's attributes for a fragment compiled against $css.
  *

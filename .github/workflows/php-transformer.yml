@@ -107,7 +107,8 @@ jobs:
           WORDPRESS_TEST_DB: wordpress_site_plan_test
         run: |
           git clone --depth=1 --branch 6.7.4 https://github.com/WordPress/wordpress-develop.git "$WORDPRESS_DEVELOP_DIR"
-          composer config --working-dir="$WORDPRESS_DEVELOP_DIR" --json policy.advisories.ignore-id '{"PKSA-mh9b-91zm-m1gy":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; WPCS is not loaded by the integration test."},"PKSA-rdkp-vv9z-mjkg":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; affected build tooling is not loaded by the integration test."},"PKSA-6vdd-n4sx-knhy":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; affected build tooling is not loaded by the integration test."}}'
+          composer config --working-dir="$WORDPRESS_DEVELOP_DIR" --json policy.advisories.ignore-id '{"PKSA-mh9b-91zm-m1gy":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; WPCS is not loaded by the integration test."},"PKSA-kh6k-gs3g-dgr6":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; PHPCSUtils is not loaded by the integration test."},"PKSA-rdkp-vv9z-mjkg":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; affected build tooling is not loaded by the integration test."},"PKSA-6vdd-n4sx-knhy":{"on-audit":false,"reason":"Pinned WordPress 6.7.4 test runtime; affected build tooling is not loaded by the integration test."}}'
+          composer require --working-dir="$WORDPRESS_DEVELOP_DIR" --dev phpcsstandards/phpcsutils:1.0.12 --no-update
           composer install --working-dir="$WORDPRESS_DEVELOP_DIR" --no-interaction --prefer-dist --no-progress
           for attempt in $(seq 1 30); do
             if mysql --host=127.0.0.1 --port=3306 --user=root --execute='SELECT 1'; then break; fi

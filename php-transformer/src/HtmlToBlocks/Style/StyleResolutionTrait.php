@@ -1065,7 +1065,7 @@ trait StyleResolutionTrait
         }
 
         $inlineStyle = $this->attr($element, 'style');
-        if ( array() === $this->staticStyleRules || ! $this->isHighValueStyledElement($element) ) {
+        if ( array() === $this->staticStyleRules || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
             $this->mergedPresentationStyleCache[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
@@ -1135,6 +1135,25 @@ trait StyleResolutionTrait
         return $this->highValueStyleBoundaryPolicy()->matches($element);
     }
 
+    /** Image crop recognition is structural and selector-driven, not name-driven. */
+    private function hasGenericRecognitionDemand(DOMElement $element): bool
+    {
+        if ('img' !== strtolower($element->tagName)) {
+            return false;
+        }
+
+        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            if (array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations']))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<int, array{selector: string, declarations: array<string, string>, mediaTextDeclarations: list<array{property: string, value: string, important: bool}>, mediaTextSpecificity: array{int, int, int}}>
      */
@@ -1190,6 +1209,96 @@ trait StyleResolutionTrait
         }
 
         return $rules;
+    }
+
+    /**
+     * Preserve source order and duplicate declarations for image crop cascade
+     * resolution. General presentation maps intentionally collapse duplicates.
+     *
+     * @return list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
+     */
+    private function imageShapeStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if (preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches)) {
+            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
+        }
+        $rules = array();
+        $order = 0;
+        $this->collectImageShapeStyleRules(preg_replace('@/\*.*?\*/@s', '', $css) ?? $css, array(), $rules, $order);
+
+        return $rules;
+    }
+
+    /** @param list<string> $conditions @param list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> $rules */
+    private function collectImageShapeStyleRules(string $css, array $conditions, array &$rules, int &$order): void
+    {
+        $directCss = $css;
+        $events = array();
+        for ($offset = 0, $length = strlen($css); $offset < $length; ++$offset) {
+            if ('@' !== $css[$offset]) {
+                continue;
+            }
+            $blockStart = $this->findCssToken($css, '{', $offset);
+            $statementEnd = $this->findCssToken($css, ';', $offset);
+            if (null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart)) {
+                continue;
+            }
+            $end = $this->findMatchingCssBrace($css, $blockStart);
+            if (null === $end) {
+                continue;
+            }
+            $prelude = trim(substr($css, $offset, $blockStart - $offset));
+            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
+            if (preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude)) {
+                $events[] = array('offset' => $offset, 'css' => substr($css, $blockStart + 1, $end - $blockStart - 1), 'conditions' => array_merge($conditions, array($prelude)));
+            }
+            $offset = $end;
+        }
+        if (preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            foreach ($matches as $match) {
+                $events[] = array('offset' => $match[0][1], 'prelude' => $match[1][0], 'body' => $match[2][0], 'conditions' => $conditions);
+            }
+        }
+        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ($events as $event) {
+            if (isset($event['css'])) {
+                $this->collectImageShapeStyleRules($event['css'], $event['conditions'], $rules, $order);
+                continue;
+            }
+            $entries = $this->imageShapeDeclarationEntries((string) $event['body']);
+            if (array() === $entries) {
+                continue;
+            }
+            foreach (explode(',', (string) $event['prelude']) as $selector) {
+                $selector = trim($selector);
+                if ('' === $selector || str_starts_with($selector, '@') || $this->selectorCarriesPseudoState($selector) || ! $this->isSupportedCssSelector($selector)) {
+                    continue;
+                }
+                foreach ($entries as $entry) {
+                    $rules[] = array('selector' => $selector, 'property' => $entry['property'], 'value' => $entry['value'], 'conditions' => $event['conditions'], 'order' => $order++);
+                }
+            }
+        }
+    }
+
+    /** @return list<array{property: string, value: string}> */
+    private function imageShapeDeclarationEntries(string $style): array
+    {
+        $entries = array();
+        foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
+            if (! str_contains($declaration, ':')) {
+                continue;
+            }
+            [$property, $value] = array_map('trim', explode(':', $declaration, 2));
+            $property = strtolower($property);
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            if (in_array($property, array('aspect-ratio', 'object-fit'), true) && '' !== $value) {
+                $entries[] = array('property' => $property, 'value' => $value);
+            }
+        }
+
+        return $entries;
     }
 
     /**
