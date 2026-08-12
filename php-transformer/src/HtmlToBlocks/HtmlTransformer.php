@@ -364,6 +364,9 @@ final class HtmlTransformer
      */
     private array $conditionalStyleRules = array();
 
+    /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
+    private array $imageShapeStyleRules = array();
+
     /**
      * @var array<int, array{selector: string, pseudo: string, declarations: array<string, string>}>
      */
@@ -634,6 +637,7 @@ final class HtmlTransformer
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->conditionalStyleRules = $this->conditionalStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->cssCustomProperties = $this->cssCustomProperties($html, (string) ($options['static_css'] ?? ''));
         $this->resetPresentationResolutionCache();
@@ -11800,16 +11804,19 @@ final class HtmlTransformer
      */
     private function imageShapeConstraintAttributes(DOMElement $image): array
     {
-        $declarations = $this->structuralPresentationDeclarations($image);
+        $declarations = array(
+            'aspect-ratio' => $this->imageShapeDeclaration($image, 'aspect-ratio'),
+            'object-fit' => $this->imageShapeDeclaration($image, 'object-fit'),
+        );
         $aspectRatio  = $this->normalizedAspectRatio(
-            $this->desktopViewportDeclaration($image, 'aspect-ratio', (string) ($declarations['aspect-ratio'] ?? ''))
+            (string) $declarations['aspect-ratio']
         );
         // `object-fit:cover !important` is a common defence against core's
         // `.wp-block-image img` rules. Strip importance symmetrically with
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
         $scale        = strtolower($this->cssValueWithoutImportant(
-            $this->desktopViewportDeclaration($image, 'object-fit', (string) ($declarations['object-fit'] ?? ''))
+            (string) $declarations['object-fit']
         ));
 
         if ( '' === $aspectRatio || ! in_array($scale, array( 'cover', 'contain' ), true) ) {
@@ -11822,57 +11829,65 @@ final class HtmlTransformer
         );
     }
 
-    /**
-     * WordPress `core/image` carries a SINGLE aspectRatio/scale, but authored CSS
-     * often makes these responsive: a base rule plus `@media (min-width: N)`
-     * overrides. The block must reflect what renders at the primary/desktop
-     * viewport, so among the base value and every matching min-width override we
-     * pick the value from the widest min-width breakpoint (<= the desktop
-     * reference width). max-width-bounded (mobile) media rules are ignored; the
-     * base value wins only when no qualifying min-width override declares it.
-     * Ties at one breakpoint go to the last rule, as the cascade decides them.
-     */
-    private function desktopViewportDeclaration(DOMElement $element, string $property, string $baseValue): string
+    /** Resolve one crop declaration at the desktop viewport using the CSS cascade. */
+    private function imageShapeDeclaration(DOMElement $element, string $property): string
     {
-        $winningWidth = -1;
-        $winningValue = $baseValue;
-        // A declaration in the element's own `style` attribute outranks every
-        // matched stylesheet rule at normal importance, whatever viewport that
-        // rule is bound to. $baseValue already carries it.
-        $inlineValue     = (string) ($this->cssDeclarations($this->attr($element, 'style'))[$property] ?? '');
-        $inlineOwns      = '' !== trim($inlineValue);
-        $inlineImportant = $inlineOwns && $this->cssValueIsImportant($inlineValue);
-
-        foreach ( $this->conditionalStyleRules as $rule ) {
-            if ( ! isset($rule['declarations'][$property]) || ! isset($rule['conditions']) ) {
+        $winner = null;
+        foreach ($this->imageShapeStyleRules as $rule) {
+            if ($property !== $rule['property'] || ! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
-            if ( $inlineOwns && ( $inlineImportant || ! $this->cssValueIsImportant((string) $rule['declarations'][$property]) ) ) {
+            if (array() !== $rule['conditions']) {
+                $minWidth = $this->conditionsDesktopMinWidth($rule['conditions']);
+                if (null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH) {
+                    continue;
+                }
+            }
+            $candidate = array(
+                'value' => $rule['value'],
+                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']),
+                'order' => $rule['order'],
+                'inline' => false,
+            );
+            if ($this->imageShapeDeclarationWins($candidate, $winner)) {
+                $winner = $candidate;
+            }
+        }
+        $inlineEntries = $this->imageShapeDeclarationEntries($this->attr($element, 'style'));
+        foreach ($inlineEntries as $index => $entry) {
+            if ($property !== $entry['property']) {
                 continue;
             }
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
-
-            $minWidth = $this->conditionsDesktopMinWidth($rule['conditions']);
-            if ( null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH ) {
-                continue;
-            }
-            if ( $minWidth >= $winningWidth ) {
-                $winningWidth = $minWidth;
-                $winningValue = (string) $rule['declarations'][$property];
+            $candidate = array('value' => $entry['value'], 'specificity' => array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), 'order' => PHP_INT_MAX - count($inlineEntries) + $index, 'inline' => true);
+            if ($this->imageShapeDeclarationWins($candidate, $winner)) {
+                $winner = $candidate;
             }
         }
 
-        return $winningValue;
+        return is_array($winner) ? $winner['value'] : '';
+    }
+
+    /** @param array{value:string,specificity:array{int,int,int},order:int,inline:bool} $candidate @param array{value:string,specificity:array{int,int,int},order:int,inline:bool}|null $current */
+    private function imageShapeDeclarationWins(array $candidate, ?array $current): bool
+    {
+        if (null === $current) {
+            return true;
+        }
+        $candidateImportant = $this->cssValueIsImportant($candidate['value']);
+        $currentImportant = $this->cssValueIsImportant($current['value']);
+        if ($candidateImportant !== $currentImportant) {
+            return $candidateImportant;
+        }
+        $specificity = $this->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
     /**
      * The min-width (px) at which a conditional rule's `@media` prelude(s) begin
-     * to apply, or null when the rule is not a pure min-width desktop override:
-     * a non-`@media` condition, a negated query, a media type that is not the
-     * rendered screen, any `max-width` bound (mobile-capped range), or a media
-     * feature without a usable px min-width all disqualify it. Nested conditions
+     * to apply, or null when a condition cannot be positively evaluated at the
+     * desktop viewport. `@layer` is an unconditional grouping wrapper. A bounded
+     * set of modern crop-relevant `@supports` tests is accepted; unknown feature
+     * queries remain unresolved rather than being flattened. Nested conditions
      * must all qualify; the effective breakpoint is the widest.
      *
      * @param list<string> $conditions
@@ -11883,6 +11898,15 @@ final class HtmlTransformer
 
         foreach ( $conditions as $condition ) {
             $condition = trim($condition);
+            if ( 1 === preg_match('/^@layer\b/i', $condition) ) {
+                continue;
+            }
+            if ( 1 === preg_match('/^@supports\b/i', $condition) ) {
+                if ($this->supportsDesktopImageCropCondition($condition)) {
+                    continue;
+                }
+                return null;
+            }
             if ( 1 !== preg_match('/^@media\b/i', $condition) ) {
                 return null;
             }
@@ -11915,6 +11939,26 @@ final class HtmlTransformer
         }
 
         return $minWidth;
+    }
+
+    /** Bounded browser-capability facts used for crop rules under @supports. */
+    private function supportsDesktopImageCropCondition(string $condition): bool
+    {
+        $query = strtolower(trim(preg_replace('/^@supports\s*/i', '', $condition) ?? ''));
+        $query = preg_replace('/^\((.*)\)$/s', '$1', $query) ?? $query;
+        [$property, $value] = array_pad(array_map('trim', explode(':', $query, 2)), 2, '');
+
+        if ('display' === $property) {
+            return in_array($value, array('flex', 'grid', 'inline-flex', 'inline-grid'), true);
+        }
+        if ('aspect-ratio' === $property) {
+            return '' !== $this->normalizedAspectRatio($value);
+        }
+        if ('object-fit' === $property) {
+            return in_array($value, array('cover', 'contain'), true);
+        }
+
+        return false;
     }
 
     private function cssValueWithoutImportant(string $value): string
