@@ -62,6 +62,7 @@
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
+      "php tests/unit/artifact-normalizer-source-budget.php",
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/description-list-block.php",

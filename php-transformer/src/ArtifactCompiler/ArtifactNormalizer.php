@@ -55,7 +55,10 @@ final class ArtifactNormalizer
                 $reservedPaths[$path] = true;
             }
         }
-        $rawFiles = $this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles, $reservedPaths));
+        $rawFiles = $this->sourceFilesBeforeGeneratedExpansions(
+            $this->withInlineScriptFiles($this->withInlineStyleFiles($rawFiles, $reservedPaths)),
+            $limits['max_files']
+        );
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -305,6 +308,22 @@ final class ArtifactNormalizer
         }
 
         return $expanded;
+    }
+
+    /** @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */
+    private function sourceFilesBeforeGeneratedExpansions(array $files, int $maxFiles): array
+    {
+        if (count($files) <= $maxFiles) return $files;
+        $sourceFiles = array();
+        $generatedFiles = array();
+        foreach ($files as $file) {
+            if (in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true)) {
+                $generatedFiles[] = $file;
+            } else {
+                $sourceFiles[] = $file;
+            }
+        }
+        return array_merge($sourceFiles, $generatedFiles);
     }
 
     /**
