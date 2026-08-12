@@ -89,14 +89,16 @@ final class FallbackEmitter
     private const GENERATION_CONFIDENCE_THRESHOLD = 0.7;
 
     /**
-     * Per-transform dedup registry: structural signature => generated local
-     * block name. Same-shape subtrees reuse ONE generated block type (the
-     * varying content rides the per-instance reference attrs), so we never emit
-     * near-duplicate block types ("no zoo").
+     * Per-transform dedup registry: structure-and-content identity => generated
+     * local block name. Only references with identical sanitized render HTML
+     * reuse a generated block type.
      *
      * @var array<string, string>
      */
     private array $generatedBlockNames = array();
+
+    /** @var array<string, string> */
+    private array $generatedBlockIdentities = array();
 
     /**
      * @param Closure(DOMElement): array<string, mixed> $sourceContextResolver
@@ -120,6 +122,7 @@ final class FallbackEmitter
     public function resetGeneratedBlocks(): void
     {
         $this->generatedBlockNames = array();
+        $this->generatedBlockIdentities = array();
     }
 
     /**
@@ -127,9 +130,9 @@ final class FallbackEmitter
      *
      * At a `core/html` fallback decision (a subtree that mapped to nothing
      * native/Automattic), consult the structural classifier. When it returns
-     * `custom_block` with high confidence, generate a dynamic (PHP-only) block
+     * `custom_block` with high confidence, generate a static-render block
      * definition, register it on the passed-by-reference `$generatedBlocks`
-     * accumulator (deduped by structural signature), and return a self-closing
+     * accumulator (deduped by structure and sanitized content), and return a self-closing
      * block REFERENCE (block name + per-instance attrs, no innerHTML) for the
      * caller to emit instead of raw `core/html`. Returns null to keep the
      * existing fallback behavior whenever the conservative gate is not met.
@@ -160,19 +163,17 @@ final class FallbackEmitter
         }
 
         $signature = $this->structuralSignature($element);
-        if ( isset($this->generatedBlockNames[$signature]) ) {
-            // Dedup: a same-shape subtree already minted this block type; reuse
-            // it and emit only a second reference.
-            $localName = $this->generatedBlockNames[$signature];
+        $identity = $signature . "\0" . $content;
+        if ( isset($this->generatedBlockNames[$identity]) ) {
+            $localName = $this->generatedBlockNames[$identity];
         } else {
-            $localName = $this->generatedBlockLocalName($result->signals(), $signature);
-            $this->generatedBlockNames[$signature] = $localName;
+            $localName = $this->generatedBlockLocalName($result->signals(), $identity);
+            $this->generatedBlockNames[$identity] = $localName;
             $generatedBlocks[] = array(
                 'name'       => $localName,
                 'block_json' => $this->blockGenerator->blockJson($namespace . '/' . $localName, $this->generatedBlockTitle($result->signals())),
-                'render'     => $this->blockGenerator->render(),
-                // Diagnostic-only: the structural signature that this type
-                // covers. Stripped before the payload reaches SSI.
+                'render'     => $this->blockGenerator->render($content),
+                // Diagnostic-only; stripped before the payload reaches SSI.
                 'signature'  => $signature,
             );
         }
@@ -185,8 +186,8 @@ final class FallbackEmitter
 
     /**
      * Canonical structural signature of a subtree: the tag-only DOM skeleton,
-     * ignoring text and attributes. Same shape => same signature => one block
-     * type. Depth-bounded for safety on pathological trees.
+     * ignoring text and attributes. Depth-bounded for safety on pathological
+     * trees; sanitized content is added separately to the generated identity.
      */
     private function structuralSignature(DOMElement $element, int $depth = 0): string
     {
@@ -207,14 +208,23 @@ final class FallbackEmitter
 
     /**
      * Generic, structurally-derived local block name. The stem reflects the
-     * dominant structural shape (never fixture/site strings); the short hash of
-     * the structural signature makes it unique per shape and stable across runs.
+     * dominant structural shape (never fixture/site strings); the full digest of
+     * structure plus sanitized content prevents distinct renders from aliasing.
      *
      * @param array<string, mixed> $signals Classifier structural signals.
      */
-    private function generatedBlockLocalName(array $signals, string $signature): string
+    private function generatedBlockLocalName(array $signals, string $identity): string
     {
-        return $this->generatedBlockStem($signals) . '-' . substr(hash('sha256', $signature), 0, 8);
+        $stem = $this->generatedBlockStem($signals);
+        $name = $stem . '-' . hash('sha256', $identity);
+        $attempt = 0;
+        while ( isset($this->generatedBlockIdentities[$name]) && $this->generatedBlockIdentities[$name] !== $identity ) {
+            ++$attempt;
+            $name = $stem . '-' . hash('sha256', $identity . ':' . $attempt);
+        }
+        $this->generatedBlockIdentities[$name] = $identity;
+
+        return $name;
     }
 
     /**
