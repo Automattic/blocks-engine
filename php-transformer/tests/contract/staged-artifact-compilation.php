@@ -59,8 +59,6 @@ $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
 $assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
-$generatedStylesheet = current(array_filter($sitePlan['assets'] ?? array(), static fn(array $asset): bool => str_starts_with((string) ($asset['source_path'] ?? ''), 'assets/css/source-author-')));
-$assert(is_array($generatedStylesheet) && 'about.html' === ($generatedStylesheet['scopes'][0]['source_path'] ?? null), 'Stylesheets generated while compiling a non-entry document remain scoped to that document route.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
 

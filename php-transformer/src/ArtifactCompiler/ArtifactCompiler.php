@@ -936,6 +936,7 @@ final class ArtifactCompiler
     private function safeHtmlDocumentHtml(string $html, string $entryPath, array $files): string
     {
         $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
+        $html = $this->withoutMaterializedStyleTags($html, $entryPath, $files);
         $html = $this->withoutGlobalTemplatePartShell($html, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
@@ -1064,6 +1065,33 @@ final class ArtifactCompiler
     }
 
     /**
+     * Inline CSS is materialized as a stylesheet asset during normalization.
+     * Remove only styles backed by that asset before block conversion so CSS is
+     * not also classified as unsupported body content.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function withoutMaterializedStyleTags(string $html, string $entryPath, array $files): string
+    {
+        $styleIndex = 0;
+        return preg_replace_callback('/<style\b([^>]*)>(.*?)<\/style>/is', function (array $matches) use ($entryPath, $files, &$styleIndex): string {
+            $attributes = (string) $matches[1];
+            if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) || '' === trim((string) $matches[2]) ) {
+                return (string) $matches[0];
+            }
+
+            ++$styleIndex;
+            foreach ( $files as $file ) {
+                if ( 'inline-style' === ($file['source'] ?? '') && $entryPath === ($file['source_path'] ?? '') && $styleIndex === (int) ($file['stylesheet_index'] ?? 0) && 'css' === ($file['kind'] ?? '') ) {
+                    return '';
+                }
+            }
+
+            return (string) $matches[0];
+        }, $html) ?? $html;
+    }
+
+    /**
      * @param array<string, mixed> $asset
      */
     private function isMaterializedScriptAsset(array $asset): bool
@@ -1096,28 +1124,11 @@ final class ArtifactCompiler
      */
     private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
     {
-        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
-            return '';
-        }
-
         $css = array();
-        foreach ( $matches[0] as $tag ) {
-            $rel = $this->htmlAttribute((string) $tag, 'rel');
-            $href = $this->htmlAttribute((string) $tag, 'href');
-            if ( '' === $href || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $rel) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
-                continue;
-            }
-
-            $path = $this->stylesheetPathFromHref($href, $sourcePath);
-            if ( '' === $path ) {
-                continue;
-            }
-
-            foreach ( $files as $file ) {
-                if ( $path === (string) ($file['path'] ?? '') && 'css' === ($file['kind'] ?? '') && is_string($file['content'] ?? null) ) {
-                    $css[] = $this->artifactRelativeStylesheetContent((string) $file['content'], $path, $files);
-                    break;
-                }
+        foreach ( $this->stylesheetAssetsForSource($html, $sourcePath, $files) as $stylesheet ) {
+            $content = (string) ($stylesheet['content'] ?? '');
+            if ( '' !== trim($content) ) {
+                $css[] = $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files);
             }
         }
 
