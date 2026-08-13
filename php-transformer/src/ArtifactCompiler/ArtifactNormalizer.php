@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 
 /**
@@ -21,7 +22,7 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $artifact
-     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>}
+     * @return array{files: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>, rejected_count: int, bytes: int, limits: array{max_files:int,max_file_bytes:int,max_total_bytes:int}, entrypoints: array<int, string>, source_hash: string, hash_payload: string, runtime_declarations: array<int,array<string,mixed>>, truncation_impact: array<string,mixed>|null}
      */
     public function normalize(array $artifact): array
     {
@@ -31,6 +32,7 @@ final class ArtifactNormalizer
         $entrypoints = array();
         $rejected = 0;
         $bytes = 0;
+        $truncationImpact = null;
         $seenPaths = array();
         $limits = $this->limits($artifact);
 
@@ -72,7 +74,8 @@ final class ArtifactNormalizer
         foreach ( $rawFiles as $index => $file ) {
             if ( count($files) >= $limits['max_files'] ) {
                 ++$rejected;
-                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files']));
+                $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
+                $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
                 break;
             }
 
@@ -188,7 +191,91 @@ final class ArtifactNormalizer
             'source_hash'    => $sourceHash,
             'hash_payload'   => $sourceHash,
             'runtime_declarations' => $runtimeDeclarations,
+            'truncation_impact' => $truncationImpact,
         );
+    }
+
+    /**
+     * Bounded evidence for files omitted solely because the file limit was
+     * reached. Only references from admitted files can affect the compiled
+     * output, so those determine whether the omission is a gating loss.
+     *
+     * @param array<int,array<string,mixed>> $omittedFiles
+     * @param array<int,array<string,mixed>> $admittedFiles
+     * @return array<string,mixed>
+     */
+    private function truncationImpact(array $omittedFiles, array $admittedFiles): array
+    {
+        $byClass = array(
+            'generated' => array('count' => 0, 'bytes' => 0),
+            'source' => array('count' => 0, 'bytes' => 0),
+        );
+        $omittedPaths = array();
+        $pathSamples = array();
+        $seenPaths = array_fill_keys(array_column($admittedFiles, 'path'), true);
+        foreach ( $omittedFiles as $file ) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if ( '' === $path ) {
+                continue;
+            }
+            $payload = $this->payload($file, $path);
+            if ( ! $payload['accepted'] ) {
+                continue;
+            }
+            // Omitted rows share the same canonical namespace as admitted rows.
+            // A later duplicate becomes assets/logo-2.svg, not assets/logo.svg.
+            $path = $this->dedupePath($path, $seenPaths);
+            $seenPaths[$path] = true;
+            $class = in_array((string) ($file['source'] ?? ''), array('inline-style', 'inline-script'), true) ? 'generated' : 'source';
+            ++$byClass[$class]['count'];
+            $byClass[$class]['bytes'] += $payload['bytes'];
+            $omittedPaths[$path] = $class;
+            $pathSamples[] = array('path' => $path, 'source_class' => $class, 'bytes' => $payload['bytes']);
+        }
+        usort($pathSamples, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
+
+        $referenceSamples = array();
+        $references = new ReferenceAnalyzer();
+        foreach ( $admittedFiles as $file ) {
+            if ( ! empty($file['binary']) ) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            $candidates = 'css' === ($file['kind'] ?? '')
+                ? $references->cssReferenceCandidates((string) ($file['content'] ?? ''), $path)
+                : (in_array($file['kind'] ?? '', array('html', 'blocks'), true) ? $references->htmlReferenceCandidates((string) ($file['content'] ?? ''), $path) : array());
+            foreach ( $candidates as $candidate ) {
+                $resolvedPath = ArtifactPath::resolveRelativePath($candidate['url'], $path);
+                if ( ! isset($omittedPaths[$resolvedPath]) ) {
+                    continue;
+                }
+                $referenceSamples[] = array(
+                    'source_path' => $path,
+                    'selector' => $candidate['selector'],
+                    'attribute' => $candidate['attribute'],
+                    'resolved_path' => $resolvedPath,
+                    'source_class' => $omittedPaths[$resolvedPath],
+                );
+            }
+        }
+        usort($referenceSamples, static fn(array $left, array $right): int => strcmp(json_encode($left) ?: '', json_encode($right) ?: ''));
+
+        $omittedCount = $byClass['generated']['count'] + $byClass['source']['count'];
+        $omittedBytes = $byClass['generated']['bytes'] + $byClass['source']['bytes'];
+        $impact = array(
+            'schema' => 'blocks-engine/artifact-truncation-impact/v1',
+            'completeness' => array() === $referenceSamples ? 'warning' : 'gating_loss',
+            'omitted_count' => $omittedCount,
+            'omitted_bytes' => $omittedBytes,
+            'omitted_by_source_class' => $byClass,
+            'omitted_path_samples' => array_slice($pathSamples, 0, 10),
+            'reference_reachability' => array(
+                'referenced_omitted_count' => count(array_unique(array_column($referenceSamples, 'resolved_path'))),
+                'reference_samples' => array_slice($referenceSamples, 0, 10),
+            ),
+        );
+        $impact['evidence_hash'] = hash('sha256', RuntimeDeclarations::canonicalJson($impact));
+        return $impact;
     }
 
     /** @param array<string,mixed> $artifact @return array{max_files:int,max_file_bytes:int,max_total_bytes:int} */
