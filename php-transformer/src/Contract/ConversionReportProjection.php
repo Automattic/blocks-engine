@@ -34,6 +34,7 @@ final class ConversionReportProjection
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
+            'editability_report'    => is_array($sourceReports['editability_report'] ?? null) ? $sourceReports['editability_report'] : array(),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
             'runtime_islands'      => self::runtimeIslands($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
