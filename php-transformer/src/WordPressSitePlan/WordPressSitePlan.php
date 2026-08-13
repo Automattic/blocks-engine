@@ -168,6 +168,8 @@ final class WordPressSitePlan
             throw new InvalidArgumentException('WordPress site plan must declare exactly one token for each asset.');
         }
         $partSlugs = array();
+        $overrideTemplateSlugs = array();
+        foreach ($plan['template_parts'] as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (is_string($slug)) $overrideTemplateSlugs[$slug] = true;
         foreach ( $plan['template_parts'] as $part ) {
             self::assertDocument($part, 'template part', true, $tokens);
             if ($part['content_hash'] !== self::contentHash($part['canonical_block_markup'])) throw new InvalidArgumentException('WordPress site plan template part has a stale content hash.');
@@ -225,6 +227,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException('WordPress site plan template part lacks its canonical write.');
             }
             $boundTemplates = in_array($part['placement']['kind'] ?? null, array('entry_shell', 'shared_shell'), true) ? $part['placement']['template_slugs'] : array();
+            foreach (array_keys($overrideTemplateSlugs) as $slug) if (!in_array($slug, $part['placement']['excluded_template_slugs'] ?? array(), true)) $boundTemplates[] = $slug;
             foreach ( $plan['templates'] as $template ) {
                 $references = substr_count($template['canonical_block_markup'], '"slug":"' . $part['slug'] . '"');
                 if (in_array($template['slug'], $boundTemplates, true) && 1 !== $references) throw new InvalidArgumentException('WordPress site plan template part binding is invalid.');
@@ -292,28 +295,54 @@ final class WordPressSitePlan
     {
         $parts = array(); $diagnostics = array();
         foreach (array('footer', 'header') as $area) {
+            $candidates = array(); $clusters = array(); $excluded = array(); $overrides = array();
+            $templateSlugs = array(); $excludedTemplateSlugs = array();
             if (isset($reservedSlugs[$area])) {
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell conflicts with an existing template part.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'existing_template_part'));
                 continue;
             }
-            $candidates = array();
             $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
             if (array() === $applicable) continue;
             foreach ($applicable as $index => $page) foreach ($page['shell_candidates'] ?? array() as $candidate) if ($area === ($candidate['area'] ?? null)) $candidates[$index][] = $candidate;
-            if (count($candidates) !== count($applicable) || array_filter($candidates, static fn(array $rows): bool => 1 !== count($rows))) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_incomplete', 'severity' => 'info', 'message' => "{$area} shell candidates are not present exactly once on every page.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'incomplete', $candidates));
+            foreach ($applicable as $index => $page) {
+                $rows = $candidates[$index] ?? array();
+                if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
+                $candidate = $rows[0];
+                $candidateIdentity = hash('sha256', $area . "\0" . json_encode($candidate['classes']) . "\0" . $candidate['markup']);
+                $clusters[$candidateIdentity]['candidate'] = $candidate;
+                $clusters[$candidateIdentity]['indexes'][] = $index;
+            }
+            uasort($clusters, static fn(array $left, array $right): int => count($right['indexes']) <=> count($left['indexes']) ?: strcmp($left['candidate']['source_path'], $right['candidate']['source_path']));
+            $identity = array_key_first($clusters);
+            $cluster = null === $identity ? null : $clusters[$identity];
+            $runnerUp = array_values($clusters)[1] ?? null;
+            if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
+                $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
+                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
                 continue;
             }
-            $first = $candidates[array_key_first($candidates)][0];
-            $identity = hash('sha256', $area . "\0" . json_encode($first['classes']) . "\0" . $first['markup']);
-            foreach ($candidates as $rows) if ($identity !== hash('sha256', $area . "\0" . json_encode($rows[0]['classes']) . "\0" . $rows[0]['markup'])) {
-                $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell candidates are not semantically equivalent across every page.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'non_equivalent', $candidates));
-                continue 2;
+            $first = $cluster['candidate'];
+            foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
+            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page') : array('index');
+            if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
+                $selected = in_array($index, $cluster['indexes'], true);
+                if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
+                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'index'; } elseif ($selected) $templateSlugs[] = 'page';
+                if (!$selected) {
+                    $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
+                    if (isset($overrides[$slug])) {
+                        $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
+                        continue 2;
+                    }
+                    $overrides[$slug] = $index;
+                }
             }
+            $templateSlugs = array_values(array_unique($templateSlugs));
+            $excludedTemplateSlugs = array_keys($overrides ?? array());
             $withoutShells = array();
             $retainedForRuntimeBinding = false;
-            foreach ($pages as $index => $page) {
-                if (!empty($page['synthetic'])) continue;
+            foreach ($cluster['indexes'] as $index) {
+                $page = $pages[$index];
                 $withoutShell = $this->withoutTopLevelShell($page['canonical_block_markup'], $area);
                 if (null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
@@ -321,8 +350,8 @@ final class WordPressSitePlan
                 }
                 $withoutShells[$index] = $withoutShell;
             }
-            foreach ($pages as $index => $page) {
-                if (!empty($page['synthetic'])) continue;
+            foreach ($cluster['indexes'] as $index) {
+                $page = $pages[$index];
                 $range = $this->topLevelShellRange($page['canonical_block_markup'], $area);
                 $containsBinding = is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']);
                 if ($containsBinding) {
@@ -338,13 +367,13 @@ final class WordPressSitePlan
             }
             foreach ($runtimeDeclarations as &$declaration) unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); unset($declaration);
             $runtimeDeclarations = RuntimeDeclarations::normalizeList($runtimeDeclarations);
-            $singlePage = 1 === count($applicable);
+            $singlePage = 1 === count($applicable) && 1 === count($cluster['indexes']);
             $sourcePath = $singlePage ? $pages[array_key_first($applicable)]['source_path'] : 'wordpress-site-plan/shared/' . $area;
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
-            $templateSlugs = $singlePage ? array('front-page') : array('index', 'page', 'front-page');
+            if ($singlePage) $templateSlugs = array('front-page');
             $partMarkup = $first['template_part_markup'];
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
-            $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted one semantically equivalent {$area} shell for all pages.", 'area' => $area, 'page_count' => count($applicable));
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
+            $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
         return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
@@ -691,7 +720,7 @@ final class WordPressSitePlan
         });
         $markup = static function (string $templateSlug) use ($bound): string {
             $before = ''; $after = '';
-            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true)) {
+            foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['area'] . '"} /-->' . "\n";
                 if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
             }
@@ -701,6 +730,9 @@ final class WordPressSitePlan
         $templates = array($make('index', 'templates/index.html', $markup('index')));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
+        $overrides = array();
+        foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
+        foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
         return $templates;
     }
 
