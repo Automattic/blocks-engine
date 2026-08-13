@@ -11013,6 +11013,17 @@ final class HtmlTransformer
             'controls' => $element->hasAttribute('controls'),
         )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
 
+        if ( 'video' === $tagName ) {
+            foreach ( array( 'autoplay', 'loop', 'muted' ) as $attribute ) {
+                if ( $element->hasAttribute($attribute) ) {
+                    $attrs[$attribute] = true;
+                }
+            }
+            if ( $element->hasAttribute('playsinline') ) {
+                $attrs['playsInline'] = true;
+            }
+        }
+
         return $this->createBlock('core/' . $tagName, $attrs, array(), $element);
     }
 
@@ -11117,7 +11128,6 @@ final class HtmlTransformer
         }
         $width = $this->attr($image, 'width');
         $height = $this->attr($image, 'height');
-        $sourceAttrs = $picture instanceof DOMElement ? $this->pictureSourceAttributes($picture) : array();
         if ( '' !== $width || '' !== $height ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
         }
@@ -11126,8 +11136,6 @@ final class HtmlTransformer
             'url'    => $url,
             'alt'    => $this->attr($image, 'alt'),
             'title'  => $this->attr($image, 'title'),
-            'srcset' => $this->resolvedAssetImageSrcset('' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? '')),
-            'sizes'  => '' !== $this->attr($image, 'sizes') ? $this->attr($image, 'sizes') : (string) ($sourceAttrs['sizes'] ?? ''),
             'width'  => $width,
             'height' => $height,
         )), static fn ($value): bool => '' !== $value);

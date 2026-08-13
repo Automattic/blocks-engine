@@ -139,7 +139,12 @@ final class AssetReferenceCanonicalizer
     private static function json(string $comment, callable $replace): string
     {
         return preg_replace_callback('~((?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022))(.*?)(?:"|\\\\u0022)~is', static function (array $match) use ($replace): string {
-            $value = 'srcset' === strtolower($match[2]) ? self::srcset($match[3], $replace) : $replace($match[3]);
+            $jsonReplace = static function (string $reference) use ($replace): string {
+                $normalized = str_replace('\\/', '/', $reference);
+                $value = $replace($normalized);
+                return $normalized === $value ? $reference : $value;
+            };
+            $value = 'srcset' === strtolower($match[2]) ? self::srcset($match[3], $jsonReplace) : $jsonReplace($match[3]);
             return $match[1] . $value . (str_contains($match[0], '\\u0022') ? '\\u0022' : '"');
         }, $comment) ?? $comment;
     }

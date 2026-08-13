@@ -16,9 +16,9 @@
     "content": "<picture class=\"hero-picture\"><source media=\"(min-width: 800px)\" srcset=\"https://example.com/hero-large.jpg 1200w\" sizes=\"100vw\"><img src=\"https://example.com/hero.jpg\" alt=\"Hero\"></picture><div class=\"gallery-grid\" data-layout=\"grid\"><figure><picture><source srcset=\"https://example.com/one-large.jpg 900w\"><img src=\"https://example.com/one.jpg\" alt=\"One\"></picture><figcaption>One caption</figcaption></figure><figure class=\"tile\"><img src=\"https://example.com/two.jpg\" alt=\"Two\" width=\"400\" height=\"300\"><figcaption>Two caption</figcaption></figure><figcaption>Gallery caption</figcaption></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-picture", "url": "https://example.com/hero.jpg", "alt": "Hero", "srcset": "https://example.com/hero-large.jpg 1200w", "sizes": "100vw" } },
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-picture", "url": "https://example.com/hero.jpg", "alt": "Hero" } },
     { "path": "blocks.1", "name": "core/gallery", "attrs": { "className": "gallery-grid", "caption": "Gallery caption" } },
-    { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/one.jpg", "alt": "One", "srcset": "https://example.com/one-large.jpg 900w", "caption": "One caption" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/one.jpg", "alt": "One", "caption": "One caption" } },
     { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized", "url": "https://example.com/two.jpg", "alt": "Two", "width": "400", "height": "300", "caption": "Two caption" } }
   ],
   "expected_fallbacks": [],

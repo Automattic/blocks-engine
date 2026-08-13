@@ -475,7 +475,7 @@ final class Runtime
     private function serializeBlockAttributes(array $attrs): string
     {
         $encoded = $this->encodeJson($attrs);
-        $encoded = preg_replace('/--/', '\\u002d\\u002d', $encoded) ?? $encoded;
+        $encoded = str_replace('--', '\\u002d\\u002d', $encoded);
         $encoded = preg_replace('/</', '\\u003c', $encoded) ?? $encoded;
         $encoded = preg_replace('/>/', '\\u003e', $encoded) ?? $encoded;
         $encoded = preg_replace('/&/', '\\u0026', $encoded) ?? $encoded;

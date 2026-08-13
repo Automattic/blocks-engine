@@ -63,6 +63,29 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
+$assert(
+    array(
+        'autoplay'    => true,
+        'loop'        => true,
+        'muted'       => true,
+        'playsInline' => true,
+    ) === array_intersect_key($videoResult['blocks'][0]['attrs'] ?? array(), array_flip(array( 'autoplay', 'loop', 'muted', 'playsInline' ))),
+    'video playback attributes should map to canonical core/video attributes'
+);
+$assert(
+    str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
+    'video playback attributes should be preserved in native save markup'
+);
+
+$responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
+$assert(
+    ! isset($responsiveImageResult['blocks'][0]['attrs']['srcset'], $responsiveImageResult['blocks'][0]['attrs']['sizes'])
+        && ! str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'srcset=')
+        && ! str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'sizes='),
+    'native image save markup should omit responsive attributes that core/image cannot serialize'
+);
+
 $referenceAnalyzer = new ReferenceAnalyzer();
 $htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
 $assert('href' === ($htmlCandidates[0]['attribute'] ?? ''), 'reference analyzer extracts HTML href references');

@@ -21,6 +21,17 @@ $serialized = $runtime->serializeBlocks($blocks);
 assertSame('<!-- wp:paragraph {"content":"Hello"} --><p>Hello</p><!-- /wp:paragraph -->', $serialized, 'Fallback serializer should preserve block comments and inner HTML.');
 assertSame('wordpress_serialize_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback serializer should expose a diagnostic.');
 
+$customPropertyMarkup = $runtime->serializeBlocks(array(array(
+    'blockName'    => 'core/paragraph',
+    'attrs'        => array('style' => array('typography' => array('fontSize' => 'var(--responsive-font-size,20px)'))),
+    'innerBlocks'  => array(),
+    'innerHTML'    => '<p style="font-size:var(--responsive-font-size,20px)">Text</p>',
+    'innerContent' => array('<p style="font-size:var(--responsive-font-size,20px)">Text</p>'),
+)));
+$escapedHyphen = chr(92) . 'u002d';
+assertSame(true, str_contains($customPropertyMarkup, 'var(' . $escapedHyphen . $escapedHyphen . 'responsive-font-size,20px)'), 'Fallback serializer should retain escaped CSS custom-property hyphens.');
+assertSame(false, str_contains($customPropertyMarkup, 'var(u002du002dresponsive-font-size,20px)'), 'Fallback serializer should not drop custom-property escape backslashes.');
+
 // Dynamic/nested blocks (core/navigation et al.) save() to null inner HTML, so
 // the WordPress-free fallback serializer must emit canonical comment-delimited
 // markup recursively rather than rendering static HTML. A standalone navigation
