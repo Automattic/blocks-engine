@@ -71,15 +71,18 @@ final class ArtifactCompiler
      * @param array<string,mixed> $artifact
      * @return array<string,mixed>
      */
-    public function prepareShared(array $artifact): array
+    public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
+        if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
+        }
         $partition = $this->partitionArtifact($artifact);
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
 
         return array(
             'schema' => self::SHARED_PLAN_SCHEMA,
-            'digest' => RuntimeDeclarations::hash(array('artifact' => $sharedArtifact, 'files' => $normalized['files'])),
+            'digest' => $this->planDigest(array('artifact' => $sharedArtifact, 'files' => $normalized['files'])),
             'artifact' => $sharedArtifact,
             'limits' => $normalized['limits'],
             'diagnostics' => $normalized['diagnostics'],
@@ -94,9 +97,12 @@ final class ArtifactCompiler
      * @param array<string,mixed> $sharedPlan
      * @return array<string,mixed>
      */
-    public function preparePage(array $artifact, array $sharedPlan, string $pageId): array
+    public function preparePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
+        if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            return $this->prepareReferencedStage($artifact, 'page', $pageId, $payloadReader, (string) $sharedPlan['digest']);
+        }
         $partition = $this->partitionArtifact($artifact);
         if (!isset($partition['pages'][$pageId])) {
             throw new \InvalidArgumentException('The requested page ownership id is not present in the artifact.');
@@ -106,7 +112,7 @@ final class ArtifactCompiler
 
         return array(
             'schema' => self::PAGE_PLAN_SCHEMA,
-            'digest' => RuntimeDeclarations::hash(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pageId, 'artifact' => $pageArtifact, 'files' => $normalized['files'])),
+            'digest' => $this->planDigest(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pageId, 'artifact' => $pageArtifact, 'files' => $normalized['files'])),
             'shared_digest' => $sharedPlan['digest'],
             'page_id' => $pageId,
             'artifact' => $pageArtifact,
@@ -122,10 +128,11 @@ final class ArtifactCompiler
      * @param array<string,mixed> $sharedPlan
      * @param array<int,array<string,mixed>> $pagePlans
      */
-    public function compose(array $sharedPlan, array $pagePlans): TransformerResult
+    public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): TransformerResult
     {
         $this->assertSharedPlan($sharedPlan);
-        $files = $sharedPlan['artifact']['files'];
+        $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $files = $sharedArtifact['files'];
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         foreach ($pagePlans as $pagePlan) {
@@ -134,10 +141,11 @@ final class ArtifactCompiler
                 throw new \InvalidArgumentException(sprintf('Composition received more than one staged page plan for page id "%s".', $pagePlan['page_id']));
             }
             $seen[$pagePlan['page_id']] = true;
-            $files = array_merge($files, $pagePlan['artifact']['files']);
+            $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
+            $files = array_merge($files, $pageArtifact['files']);
         }
         $this->assertUniqueComposedPaths($files);
-        $artifact = $sharedPlan['artifact'];
+        $artifact = $sharedArtifact;
         $artifact['files'] = self::sortedByPath($files);
 
         return $this->compile($artifact);
@@ -418,6 +426,115 @@ final class ArtifactCompiler
         return $artifact;
     }
 
+    /** @param array<string,mixed> $artifact */
+    private function containsPayloadReferences(array $artifact): bool
+    {
+        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+            if (is_array($file) && isset($file['payload_reference'])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resolve only one ownership partition, then replace the prepared payloads
+     * with their portable references before returning the serializable plan.
+     *
+     * @return array<string,mixed>
+     */
+    private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
+    {
+        $stageArtifact = $artifact;
+        $stageArtifact['files'] = array();
+        $references = array();
+        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
+            if (!is_array($file)) continue;
+            $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
+            $ownership = $file['metadata']['compilation'] ?? null;
+            $fileScope = is_array($ownership) && isset($ownership['scope']) ? $ownership['scope'] : (str_ends_with(strtolower($path), '.html') ? 'page' : 'shared');
+            $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            if ($scope !== $fileScope || ('page' === $scope && $pageId !== $filePageId)) continue;
+            if (isset($file['payload_reference'])) {
+                $reference = $this->payloadReference($file['payload_reference']);
+                $content = $this->readPayload($reference, $payloadReader);
+                unset($file['payload_reference']);
+                $file['content'] = $content;
+                $references[$path] = $reference;
+            }
+            $stageArtifact['files'][] = $file;
+        }
+        $partition = $this->partitionArtifact($stageArtifact);
+        $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
+        $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
+        $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
+        $plan = array(
+            'schema' => 'shared' === $scope ? self::SHARED_PLAN_SCHEMA : self::PAGE_PLAN_SCHEMA,
+            'artifact' => $planArtifact,
+            'limits' => $normalized['limits'],
+            'diagnostics' => $normalized['diagnostics'],
+            'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
+        );
+        if ('page' === $scope) {
+            $plan['shared_digest'] = $sharedDigest;
+            $plan['page_id'] = $pageId;
+        }
+        foreach ($plan['artifact']['files'] as &$file) {
+            if (!isset($references[$file['path']])) continue;
+            unset($file['content'], $file['content_base64']);
+            $file['payload_reference'] = $references[$file['path']];
+        }
+        unset($file);
+        $hashInput = 'shared' === $scope
+            ? array('artifact' => $plan['artifact'])
+            : array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact']);
+        $plan['digest'] = $this->planDigest($hashInput);
+        return $plan;
+    }
+
+    /** @param mixed $reference @return array{schema:string,id:string,bytes:int,sha256:string} */
+    private function payloadReference(mixed $reference): array
+    {
+        if (!is_array($reference) || 'blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !is_string($reference['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $reference['sha256'])) {
+            throw new \InvalidArgumentException('A payload reference requires a schema, id, byte count, and sha256 hex digest.');
+        }
+        return array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']);
+    }
+
+    /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
+    private function readPayload(array $reference, PayloadReader $payloadReader): string
+    {
+        $content = $payloadReader->read($reference);
+        if (strlen($content) !== $reference['bytes'] || !hash_equals($reference['sha256'], hash('sha256', $content))) {
+            throw new \InvalidArgumentException('The payload reader returned bytes that do not match the payload reference.');
+        }
+        return $content;
+    }
+
+    /** @param array<string,mixed> $artifact @return array<string,mixed> */
+    private function materializePlanArtifact(array $artifact, ?PayloadReader $payloadReader): array
+    {
+        foreach ($artifact['files'] as &$file) {
+            if (!isset($file['payload_reference'])) continue;
+            if (null === $payloadReader) throw new \InvalidArgumentException('Composition requires a payload reader for referenced staged payloads.');
+            $reference = $this->payloadReference($file['payload_reference']);
+            $content = $this->readPayload($reference, $payloadReader);
+            unset($file['payload_reference']);
+            if (!empty($file['binary'])) {
+                $file['content'] = '';
+                $file['content_base64'] = base64_encode($content);
+            } else {
+                $file['content'] = $content;
+            }
+        }
+        unset($file);
+        return $artifact;
+    }
+
+    /** @param array<string,mixed> $hashInput */
+    private function planDigest(array $hashInput): string
+    {
+        return RuntimeDeclarations::hash($hashInput);
+    }
+
     /** @param array<string,mixed> $sharedPlan */
     private function assertSharedPlan(array $sharedPlan): void
     {
@@ -428,7 +545,7 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
         $this->assertPlanDigest(
-            array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']),
+            $this->containsPayloadReferences($sharedPlan['artifact']) ? array('artifact' => $sharedPlan['artifact']) : array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']),
             $sharedPlan['digest'] ?? null,
             'shared'
         );
@@ -456,7 +573,7 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged page plan requires its serialized artifact payload.');
         }
         $this->assertPlanDigest(
-            array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
+            $this->containsPayloadReferences($pagePlan['artifact']) ? array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact']) : array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
             $pagePlan['digest'] ?? null,
             'page'
         );
@@ -468,7 +585,7 @@ final class ArtifactCompiler
         if (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest)) {
             throw new \InvalidArgumentException(sprintf('A staged %s plan requires a sha256 hex digest.', $label));
         }
-        if (!hash_equals(RuntimeDeclarations::hash($hashInput), $digest)) {
+        if (!hash_equals($this->planDigest($hashInput), $digest)) {
             throw new \InvalidArgumentException(sprintf('The staged %s plan digest does not match its serialized artifact payload.', $label));
         }
     }

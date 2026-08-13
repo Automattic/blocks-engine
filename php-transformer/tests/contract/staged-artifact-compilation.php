@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -80,5 +81,39 @@ $collidingArtifact = $artifact;
 $collidingArtifact['files'][0]['metadata'] = array('compilation' => array('scope' => 'page', 'id' => 'about.html'));
 $collidingPage = $compiler->preparePage($collidingArtifact, $shared, 'about.html');
 $throws(static fn() => $compiler->compose($shared, array($collidingPage)), 'Composition rejects staged plans that collide on an artifact path.');
+
+// References carry only portable identity metadata. The reader is injected by
+// the consumer, keeping the compiler independent of the backing store.
+$referencedArtifact = $artifact;
+$payloads = array();
+foreach ($referencedArtifact['files'] as &$file) {
+    $content = $file['content'];
+    $id = 'payload:' . $file['path'];
+    $payloads[$id] = $content;
+    unset($file['content']);
+    $file['payload_reference'] = array('schema' => 'blocks-engine/payload-reference/v1', 'id' => $id, 'bytes' => strlen($content), 'sha256' => hash('sha256', $content));
+}
+unset($file);
+$reader = new class($payloads) implements PayloadReader {
+    public array $reads = array();
+    public function __construct(private array $payloads) {}
+    public function read(array $reference): string { $this->reads[] = $reference['id']; if (!isset($this->payloads[$reference['id']])) throw new InvalidArgumentException('missing'); return $this->payloads[$reference['id']]; }
+};
+$referencedShared = $compiler->prepareShared($referencedArtifact, $reader);
+$assert(array('payload:assets/site.css') === $reader->reads, 'Shared reference preparation reads only the shared partition.');
+$reader->reads = array();
+$referencedPages = array();
+foreach ($pageIds as $pageId) $referencedPages[] = $compiler->preparePage($referencedArtifact, $referencedShared, $pageId, $reader);
+$assert(4 === count($reader->reads) && !in_array('payload:assets/site.css', $reader->reads, true), 'Page reference preparation reads only requested page payloads.');
+$assert(!isset($referencedShared['artifact']['files'][0]['content']) && isset($referencedShared['artifact']['files'][0]['payload_reference']), 'Prepared reference plans remain serializable without hydrated payload bytes.');
+$reader->reads = array();
+$referencedResult = $compiler->compose($referencedShared, array_reverse($referencedPages), $reader)->toArray();
+$assert(($whole['blocks'] ?? array()) === ($referencedResult['blocks'] ?? array()) && ($whole['serialized_blocks'] ?? '') === ($referencedResult['serialized_blocks'] ?? '') && ($whole['assets'] ?? array()) === ($referencedResult['assets'] ?? array()) && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($referencedResult['source_reports']['wordpress_site_plan'] ?? array()) && ($whole['source_reports']['materialization_plan'] ?? array()) === ($referencedResult['source_reports']['materialization_plan'] ?? array()), 'Referenced staged compilation produces the same deterministic output as inline compilation.');
+$assert(5 === count($reader->reads), 'Composition lazily reads each selected referenced payload once.');
+$assert($referencedShared['digest'] === $compiler->prepareShared($referencedArtifact, new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return $this->payloads[$reference['id']]; } } )['digest'], 'Reference-backed shared plan digests are deterministic.');
+$corrupt = new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return 'corrupt'; } };
+$throws(static fn() => $compiler->prepareShared($referencedArtifact, $corrupt), 'Reference preparation rejects corrupt payload bytes and sha256.');
+$missing = new class implements PayloadReader { public function read(array $reference): string { throw new InvalidArgumentException('missing'); } };
+$throws(static fn() => $compiler->compose($referencedShared, $referencedPages, $missing), 'Composition rejects missing referenced payloads.');
 
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");
