@@ -108,7 +108,38 @@ describe('canonicalize inventory metadata', () => {
       index: FALLBACK_INVENTORY_CAP - 1,
       html: `\n<div>Fallback ${FALLBACK_INVENTORY_CAP - 1}</div>\n`,
     });
+    expect(result.htmlIslandOccurrences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ html: '\n<div>Fallback 0</div>\n', count: 1 }),
+      ]),
+    );
+    expect(result).toMatchObject({ htmlIslandDistinctCount: total, htmlIslandOccurrencesTruncated: true });
     expect(result.degraded).toBe(false);
+  });
+
+  it('retains exact counts for repeated islands beyond the evidence cap', () => {
+    const total = FALLBACK_INVENTORY_CAP + 25;
+    const result = canonicalize(Array.from({ length: total }, () => htmlBlock('<div>Shared fallback</div>')).join(''));
+
+    expect(result.htmlIslands).toHaveLength(FALLBACK_INVENTORY_CAP);
+    expect(result.htmlIslandOccurrences).toEqual([expect.objectContaining({ html: '\n<div>Shared fallback</div>\n', count: total })]);
+    expect(result).toMatchObject({ htmlIslandDistinctCount: 1, htmlIslandOccurrencesTruncated: false });
+  });
+
+  it('keeps capped-prefix variants structurally distinct without retaining their tails', () => {
+    const prefix = `<div>${'x'.repeat(HTML_FINDING_CHAR_CAP)}`;
+    const result = canonicalize(`${htmlBlock(`${prefix}first-tail</div>`)}${htmlBlock(`${prefix}second-tail</div>`)}`);
+
+    expect(result.htmlIslandOccurrences).toHaveLength(2);
+    expect(result.htmlIslandOccurrences.map((occurrence) => occurrence.html)).toEqual([
+      result.htmlIslandOccurrences[0]?.html,
+      result.htmlIslandOccurrences[0]?.html,
+    ]);
+    expect(result.htmlIslandOccurrences[0]?.html).toHaveLength(HTML_FINDING_CHAR_CAP);
+    expect(result.htmlIslandOccurrences[0]?.html).not.toContain('first-tail');
+    expect(result.htmlIslandOccurrences[0]?.html).not.toContain('second-tail');
+    expect(new Set(result.htmlIslandOccurrences.map((occurrence) => occurrence.fingerprint)).size).toBe(2);
+    expect(result).toMatchObject({ htmlIslandDistinctCount: 2, htmlIslandOccurrencesTruncated: false });
   });
 
   it('truncates each html island before returning inventory over IPC', () => {
@@ -144,6 +175,9 @@ describe('canonicalize inventory metadata', () => {
             blockCount: 0,
             htmlIslands: [],
             htmlIslandCount: 0,
+            htmlIslandOccurrences: [],
+            htmlIslandDistinctCount: 0,
+            htmlIslandOccurrencesTruncated: false,
             degraded: true,
           },
         ]);

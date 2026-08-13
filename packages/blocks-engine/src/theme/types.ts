@@ -1,5 +1,5 @@
 import type { WorkerPool } from '../pool/types.js';
-import type { ConvertReportStatus } from '../report/schema.js';
+import type { ConversionFinding, ConvertReportStatus } from '../report/schema.js';
 import type { RegionSelectionReport } from './region-audit.js';
 import type { SectionSpec } from './section-spec.js';
 import type { FormRemainder, SectionRenderOptions } from './native-reconstruct-types.js';
@@ -88,10 +88,29 @@ export interface ThemeConversionPageDiagnostic {
   status: ConvertReportStatus;
   fallbackCount: number;
   degraded: boolean;
+  findings: ConversionFinding[];
+  findingsTruncated: boolean;
+}
+
+export interface ThemeConversionDiagnosticGroup {
+  fingerprint: string;
+  repairBucket: string;
+  code: string;
+  occurrenceCount: number;
+  affectedSourceCount: number;
+  sourceExamples: string[];
+  sharedShell: boolean;
+  truncated: boolean;
 }
 
 export interface ThemeConversionDiagnostics {
   pages: ThemeConversionPageDiagnostic[];
+  groups: ThemeConversionDiagnosticGroup[];
+  occurrenceCount: number;
+  repairFamilyCount: number;
+  repairFamilyCountTruncated: boolean;
+  unrepresentedFallbackOccurrenceCount: number;
+  unrepresentedFallbackDistinctCount: number;
   totalFallbacks: number;
   pagesWithFallbacks: number;
   degradedPages: number;

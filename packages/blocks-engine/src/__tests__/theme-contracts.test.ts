@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkerPool } from '../pool/types.js';
+import type { ConversionFinding } from '../report/schema.js';
 import {
   assemble,
   applyHoistSwaps,
@@ -55,6 +56,7 @@ import {
   type TemplatePlan,
   type ThemeBuildResult,
   type ThemeConversionDiagnostics,
+  type ThemeConversionDiagnosticGroup,
   type ThemeConversionPageDiagnostic,
   type ThemeDiagnostics,
   type ThemeMeta,
@@ -324,12 +326,20 @@ type CompileOnlyThemeContractAssignments = {
       status: 'success';
       fallbackCount: number;
       degraded: boolean;
+      findings: ConversionFinding[];
+      findingsTruncated: boolean;
     }
   >;
   themeConversionDiagnostics: Satisfies<
     ThemeConversionDiagnostics,
     {
       pages: ThemeConversionPageDiagnostic[];
+      groups: ThemeConversionDiagnosticGroup[];
+      occurrenceCount: number;
+      repairFamilyCount: number;
+      repairFamilyCountTruncated: boolean;
+      unrepresentedFallbackOccurrenceCount: number;
+      unrepresentedFallbackDistinctCount: number;
       totalFallbacks: number;
       pagesWithFallbacks: number;
       degradedPages: number;

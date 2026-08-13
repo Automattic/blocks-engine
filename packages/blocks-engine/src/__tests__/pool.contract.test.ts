@@ -51,6 +51,13 @@ describe('worker pool contract', () => {
         html: string;
       }[];
       htmlIslandCount: number;
+      htmlIslandOccurrences?: {
+        fingerprint: string;
+        html: string;
+        count: number;
+      }[];
+      htmlIslandDistinctCount?: number;
+      htmlIslandOccurrencesTruncated?: boolean;
       degraded: boolean;
     }>();
 

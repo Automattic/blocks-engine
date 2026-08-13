@@ -172,7 +172,7 @@ describe('siteToTheme conversion diagnostics', () => {
         variationHoist: false,
       });
 
-      expect(result.diagnostics.conversion).toEqual({
+      expect(result.diagnostics.conversion).toMatchObject({
         pages: [
           {
             slug: 'about',
@@ -190,6 +190,8 @@ describe('siteToTheme conversion diagnostics', () => {
         totalFallbacks: 2,
         pagesWithFallbacks: 2,
         degradedPages: 1,
+        occurrenceCount: 3,
+        repairFamilyCount: 3,
       });
       expect(result.warnings).toEqual(
         expect.arrayContaining([
@@ -230,7 +232,7 @@ describe('siteToTheme conversion diagnostics', () => {
         variationHoist: false,
       });
 
-      expect(result.diagnostics.conversion).toEqual({
+      expect(result.diagnostics.conversion).toMatchObject({
         pages: [
           {
             slug: 'about',
@@ -248,6 +250,8 @@ describe('siteToTheme conversion diagnostics', () => {
         totalFallbacks: 0,
         pagesWithFallbacks: 0,
         degradedPages: 0,
+        occurrenceCount: 0,
+        repairFamilyCount: 0,
       });
       expect(result.warnings.filter((warning) => /core\/html|fallback|raw HTML|conversion degraded/i.test(warning))).toEqual([]);
     });

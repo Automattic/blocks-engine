@@ -1,12 +1,20 @@
 import { walkBlocks } from '../block-tree.js';
+import { createHash } from 'node:crypto';
 import { HTML_FINDING_CHAR_CAP } from '../report/limits.js';
 import { FALLBACK_INVENTORY_CAP } from '../report/schema.js';
+import { sanitize } from '../sanitize.js';
 import { bootstrap } from './bootstrap.js';
 import { requireWp } from './require-wp.js';
 
 export type HtmlIsland = {
   index: number;
   html: string;
+};
+
+export type HtmlIslandOccurrence = {
+  fingerprint: string;
+  html: string;
+  count: number;
 };
 
 export type CanonicalizeResult = {
@@ -16,6 +24,9 @@ export type CanonicalizeResult = {
   blockCount: number;
   htmlIslands: HtmlIsland[];
   htmlIslandCount: number;
+  htmlIslandOccurrences: HtmlIslandOccurrence[];
+  htmlIslandDistinctCount: number;
+  htmlIslandOccurrencesTruncated: boolean;
   degraded: boolean;
 };
 
@@ -377,10 +388,15 @@ function collectInventory(rawBlocks: RawBlock[]): {
   blockCount: number;
   htmlIslands: HtmlIsland[];
   htmlIslandCount: number;
+  htmlIslandOccurrences: HtmlIslandOccurrence[];
+  htmlIslandDistinctCount: number;
+  htmlIslandOccurrencesTruncated: boolean;
 } {
   let blockCount = 0;
   let htmlIslandCount = 0;
   const htmlIslands: HtmlIsland[] = [];
+  const distinctOccurrenceHashes = new Set<string>();
+  const sampledOccurrences = new Map<string, { html: string; count: number }>();
 
   walkBlocks(rawBlocks, (block) => {
     blockCount++;
@@ -393,6 +409,16 @@ function collectInventory(rawBlocks: RawBlock[]): {
       index: htmlIslandCount,
       html: truncateHtmlIsland(block.innerHTML || ''),
     };
+    const sanitizedHtml = sanitize(block.innerHTML || '');
+    const fingerprint = createHash('sha256').update(sanitizedHtml).digest('hex');
+    distinctOccurrenceHashes.add(fingerprint);
+    if (sampledOccurrences.has(fingerprint) || sampledOccurrences.size < FALLBACK_INVENTORY_CAP) {
+      const occurrence = sampledOccurrences.get(fingerprint);
+      sampledOccurrences.set(fingerprint, {
+        html: occurrence?.html ?? truncateHtmlIsland(sanitizedHtml),
+        count: (occurrence?.count ?? 0) + 1,
+      });
+    }
     if (htmlIslands.length < FALLBACK_INVENTORY_CAP) {
       htmlIslands.push(island);
     }
@@ -403,6 +429,9 @@ function collectInventory(rawBlocks: RawBlock[]): {
     blockCount,
     htmlIslands,
     htmlIslandCount,
+    htmlIslandOccurrences: [...sampledOccurrences].map(([fingerprint, occurrence]) => ({ fingerprint, ...occurrence })),
+    htmlIslandDistinctCount: distinctOccurrenceHashes.size,
+    htmlIslandOccurrencesTruncated: distinctOccurrenceHashes.size > sampledOccurrences.size,
   };
 }
 
@@ -495,6 +524,9 @@ export function canonicalize(markup: string): CanonicalizeResult {
       blockCount: 0,
       htmlIslands: [],
       htmlIslandCount: 0,
+      htmlIslandOccurrences: [],
+      htmlIslandDistinctCount: 0,
+      htmlIslandOccurrencesTruncated: false,
       degraded: true,
     };
   }
