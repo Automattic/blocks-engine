@@ -29,7 +29,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  * generation), the payload is empty and the compiler omits it. This class does
  * not decide what becomes a custom block; it packages two sources into the
  * scaffold contract: block types the artifact already declares via block.json,
- * and the dynamic blocks the transformer generated at core/html fallbacks
+ * and the static-render blocks the transformer generated at core/html fallbacks
  * (issue #497), which already arrive in the per-block shape.
  */
 final class CompanionPluginPayload
@@ -48,7 +48,7 @@ final class CompanionPluginPayload
      * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
-     * @param array<int, array<string, mixed>> $generatedBlocks     Dynamic blocks generated at core/html fallbacks (issue #497).
+     * @param array<int, array<string, mixed>> $generatedBlocks     Static-render blocks generated at core/html fallbacks (issue #497).
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
      * @return array<string, mixed> Empty array when there are no generated blocks or preserved scripts.
      */
@@ -67,7 +67,7 @@ final class CompanionPluginPayload
             }
         }
 
-        // Append dynamically generated custom blocks (the classify -> route ->
+        // Append generated custom blocks (the classify -> route ->
         // generate producer link). These already arrive in scaffold()'s per-block
         // shape, so they only need normalizing and name-deduping against detected
         // block types.
@@ -176,7 +176,7 @@ final class CompanionPluginPayload
     /**
      * Normalize a generated-block entry to scaffold()'s per-block contract.
      * Generated blocks already declare a sanitizable name, a block_json object,
-     * and a dynamic render; producer-only diagnostic keys (e.g. signature) are
+     * and static render HTML; producer-only diagnostic keys (e.g. signature) are
      * dropped so only contract keys reach SSI.
      *
      * @param array<string, mixed> $block Generated-block entry from the transformer.

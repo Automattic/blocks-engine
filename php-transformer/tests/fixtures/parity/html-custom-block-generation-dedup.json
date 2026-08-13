@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-custom-block-generation-dedup",
-  "description": "Two structurally identical custom_block subtrees generate ONE block TYPE, reused: the output carries two self-closing references to the same generated block name (varying content travels on each reference's attrs) and source_reports.generated_blocks holds a single type definition. Structural-signature dedup means no near-duplicate block types (issue #497).",
+  "description": "Two structurally identical custom_block subtrees with different content generate distinct deterministic block types so each reference resolves to its own exact sanitized static render (issue #853).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-custom-block-generation-dedup.json",
-    "notes": "Same shape twice; the block name is derived from the structural signature so both subtrees collapse to one type."
+    "notes": "Same shape twice with different content; identity includes the structural signature and sanitized render HTML."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,18 +16,20 @@
     "content": "<my-pricing><div class=\"tier\"><h3>Basic</h3><p>$9</p></div><div class=\"tier\"><h3>Pro</h3><p>$19</p></div><div class=\"tier\"><h3>Max</h3><p>$49</p></div></my-pricing><my-pricing><div class=\"tier\"><h3>Team</h3><p>$99</p></div><div class=\"tier\"><h3>Scale</h3><p>$199</p></div><div class=\"tier\"><h3>Enterprise</h3><p>$499</p></div></my-pricing>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/collection-623e0f92" },
-    { "path": "blocks.1", "name": "custom/collection-623e0f92" }
+    { "path": "blocks.0", "name": "custom/collection-42ba83f51ffea3a7df69ca6f8c29d50848fd6a809917172303a2c79f3802c9bd" },
+    { "path": "blocks.1", "name": "custom/collection-0052c4e3e144007c1555b52535bc8fa1cc0ba06151a45c5d62b8b7ba7b91b35d" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.blockName", "assert": "equals", "value": "custom/collection-623e0f92" },
-    { "path": "blocks.1.blockName", "assert": "equals", "value": "custom/collection-623e0f92" },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "custom/collection-42ba83f51ffea3a7df69ca6f8c29d50848fd6a809917172303a2c79f3802c9bd" },
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "custom/collection-0052c4e3e144007c1555b52535bc8fa1cc0ba06151a45c5d62b8b7ba7b91b35d" },
     { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<h3>Basic</h3>" },
     { "path": "blocks.1.attrs.content", "assert": "contains", "value": "<h3>Team</h3>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "source_reports.generated_blocks", "assert": "count", "count": 1 }
+    { "path": "source_reports.generated_blocks", "assert": "count", "count": 2 },
+    { "path": "source_reports.generated_blocks.0.render", "assert": "equals", "value": "<div class=\"tier\"><h3>Basic</h3><p>$9</p></div><div class=\"tier\"><h3>Pro</h3><p>$19</p></div><div class=\"tier\"><h3>Max</h3><p>$49</p></div>" },
+    { "path": "source_reports.generated_blocks.1.render", "assert": "equals", "value": "<div class=\"tier\"><h3>Team</h3><p>$99</p></div><div class=\"tier\"><h3>Scale</h3><p>$199</p></div><div class=\"tier\"><h3>Enterprise</h3><p>$499</p></div>" }
   ]
 }

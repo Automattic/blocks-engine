@@ -295,7 +295,7 @@ final class HtmlTransformer
     private array $nativeDisclosureRootIds = array();
 
     /**
-     * Generated dynamic custom-block definitions produced at `core/html`
+     * Generated static-render custom-block definitions produced at `core/html`
      * fallback decisions (issue #497). Surfaced under
      * `source_reports.generated_blocks` and packaged into the companion-plugin
      * payload by the ArtifactCompiler.
@@ -3277,7 +3277,7 @@ final class HtmlTransformer
             // Producer link (issue #497): this is a core/html fallback decision —
             // the element mapped to nothing native/Automattic. If the structural
             // classifier identifies it as a high-confidence custom_block, generate
-            // a dynamic block and emit a self-closing reference instead of raw
+            // a static-render block and emit a self-closing reference instead of raw
             // core/html. Otherwise keep the existing fallback diagnostic.
             $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
             if ( null !== $generated ) {
