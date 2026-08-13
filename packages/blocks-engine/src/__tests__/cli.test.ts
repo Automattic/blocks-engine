@@ -40,6 +40,12 @@ function themeResult(outDir: string, written: string[] = ['theme.json']): ThemeB
     diagnostics: {
       conversion: {
         pages: [],
+        groups: [],
+        occurrenceCount: 0,
+        repairFamilyCount: 0,
+        repairFamilyCountTruncated: false,
+        unrepresentedFallbackOccurrenceCount: 0,
+        unrepresentedFallbackDistinctCount: 0,
         totalFallbacks: 0,
         pagesWithFallbacks: 0,
         degradedPages: 0,

@@ -70,6 +70,9 @@ export function canonicalizeSentinelFor(html: string): FixResult {
     blockCount: 0,
     htmlIslands: [],
     htmlIslandCount: 0,
+    htmlIslandOccurrences: [],
+    htmlIslandDistinctCount: 0,
+    htmlIslandOccurrencesTruncated: false,
     degraded: true,
   };
 }

@@ -1,3 +1,4 @@
+import type { HtmlIslandOccurrence } from '../wp/canonicalize.js';
 import type { PoolEvent } from './events.js';
 
 export interface RawConvertResult {
@@ -17,6 +18,9 @@ export interface FixResult {
   blockCount: number;
   htmlIslands: HtmlIsland[];
   htmlIslandCount: number;
+  htmlIslandOccurrences?: HtmlIslandOccurrence[];
+  htmlIslandDistinctCount?: number;
+  htmlIslandOccurrencesTruncated?: boolean;
   degraded: boolean;
 }
 
