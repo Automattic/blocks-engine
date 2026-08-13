@@ -5180,6 +5180,10 @@ final class HtmlTransformer
             return false;
         }
 
+        if ( $this->isInertHiddenEmptyElement($element) ) {
+            return false;
+        }
+
         if ( $this->shouldPreserveWrapper($element) ) {
             return true;
         }
@@ -5190,6 +5194,28 @@ final class HtmlTransformer
 
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
             return false;
+        }
+
+        return true;
+    }
+
+    private function isInertHiddenEmptyElement(DOMElement $element): bool
+    {
+        if ( 0 !== $this->childElementCount($element)
+            || '' !== trim($element->textContent ?? '')
+            || ! $this->sourceElementStartsHidden($element)
+            || $this->isRuntimeDomTarget($element)
+            || $this->hasConditionalStyleFamily($element, 'layout')
+            || $this->hasConditionalStyleFamily($element, 'visibility')
+            || $this->hasConditionalStyleFamily($element, 'opacity')
+        ) {
+            return false;
+        }
+
+        foreach ( array( 'id', 'role', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby' ) as $attribute ) {
+            if ( '' !== trim($this->attr($element, $attribute)) ) {
+                return false;
+            }
         }
 
         return true;

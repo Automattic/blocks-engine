@@ -4127,6 +4127,20 @@ $assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must
 $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
 $assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
 
+$hiddenEmptyResult = (new HtmlTransformer())->transform(
+    '<main><div class="caption" style="display:none;font-size:90%"></div>'
+    . '<div id="runtime-panel" style="display:none"></div>'
+    . '<div id="anchor-panel" style="display:none"></div>'
+    . '<div class="responsive-panel" style="display:none"></div></main>',
+    array(
+        'runtime_dom_selectors' => array('#runtime-panel'),
+        'static_css' => '@media (min-width:600px){.responsive-panel{display:block}}',
+    )
+)->toArray();
+$assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'inert hidden empty elements are pruned instead of becoming empty groups');
+$assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
+$assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
+
 fwrite(STDOUT, "Canonical block style attributes contract passed.\n");
 
 fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
