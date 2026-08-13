@@ -225,6 +225,7 @@ final class ArtifactCompiler
                 'files_by_mime'   => $this->countBy($normalized['files'], 'mime_type'),
                 'files_by_source' => $this->countBy($normalized['files'], 'source'),
                 'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
+                'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
                     'max_files'       => $normalized['limits']['max_files'],
                     'max_file_bytes'  => $normalized['limits']['max_file_bytes'],
