@@ -27,6 +27,8 @@ $previousTheme = get_stylesheet();
 $previousTemplate = get_template();
 $previousShowOnFront = get_option('show_on_front');
 $previousPageOnFront = get_option('page_on_front');
+$previousUserId = get_current_user_id();
+$editorUserId = 0;
 $pageIds = array();
 try {
 if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) throw new RuntimeException('Could not create integration theme directory.');
@@ -73,6 +75,9 @@ $responsiveArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'i
 $responsivePlan = $responsiveArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $responsiveResolved = (new WordPressSitePlanResolver())->resolve($responsivePlan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
 $responsiveMarkup = (string) ($responsiveResolved['pages'][0]['resolved_block_markup'] ?? '');
+$editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
+if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
+wp_set_current_user($editorUserId);
 $responsiveId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Responsive fallback', 'post_content' => $responsiveMarkup), true);
 if (is_wp_error($responsiveId)) throw new RuntimeException($responsiveId->get_error_message());
 $pageIds['responsive-fallback'] = $responsiveId;
@@ -142,6 +147,11 @@ $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($ne
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
+    wp_set_current_user($previousUserId);
+    if ($editorUserId > 0) {
+        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
+        wp_delete_user($editorUserId);
+    }
     update_option('show_on_front', $previousShowOnFront); update_option('page_on_front', $previousPageOnFront);
     if ('' !== $previousTheme) switch_theme($previousTheme);
     wp_clean_themes_cache();
