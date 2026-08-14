@@ -114,7 +114,7 @@ final class ArtifactNormalizer
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
             $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
             $contentBase64 = $payload['content_base64'];
-            if ( $binary && '' === $contentBase64 ) {
+            if ( $binary && '' === $contentBase64 && !is_array($payload['payload_reference'] ?? null) ) {
                 $contentBase64 = base64_encode($payload['content']);
             }
             $entrypoint = in_array($path, $safeEntrypoints, true) || ! empty($file['entrypoint']) || 'entry' === $declaredRole;
@@ -139,8 +139,20 @@ final class ArtifactNormalizer
                     'hash'        => hash('sha256', '' !== $contentBase64 ? $contentBase64 : $payload['content']),
                 ),
             );
+            $rawSha256 = is_array($payload['payload_reference'] ?? null)
+                ? $payload['payload_reference']['sha256']
+                : hash('sha256', '' !== $contentBase64 ? (string) base64_decode($contentBase64, true) : $payload['content']);
+            if ($binary) {
+                $normalized['raw_sha256'] = $rawSha256;
+                // The established wire digest hashes canonical base64. A raw-byte
+                // digest alone cannot yield it without hydrating the payload.
+                if ('' !== $contentBase64) $normalized['transport_sha256'] = hash('sha256', $contentBase64);
+            }
             if ( '' !== $contentBase64 ) {
                 $normalized['content_base64'] = $contentBase64;
+            }
+            if ( is_array($payload['payload_reference'] ?? null) ) {
+                $normalized['payload_reference'] = $payload['payload_reference'];
             }
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
@@ -611,10 +623,17 @@ final class ArtifactNormalizer
 
     /**
      * @param array<string, mixed> $file
-     * @return array{accepted: bool, content: string, content_base64: string, encoding: string, binary: bool, bytes: int, diagnostics: array<int, array<string, mixed>>}
+     * @return array{accepted: bool, content: string, content_base64: string, encoding: string, binary: bool, bytes: int, diagnostics: array<int, array<string, mixed>>, payload_reference?: array{schema:string,id:string,bytes:int,sha256:string}}
      */
     private function payload(array $file, string $path): array
     {
+        if (is_array($file['payload_reference'] ?? null)) {
+            $reference = $file['payload_reference'];
+            if ('blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !is_string($reference['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $reference['sha256'])) {
+                return array('accepted' => false, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => false, 'bytes' => 0, 'diagnostics' => array($this->diagnostic('invalid_payload_reference', 'warning', 'An artifact file was ignored because its payload reference is invalid.', array('path' => $path))));
+            }
+            return array('accepted' => true, 'content' => '', 'content_base64' => '', 'encoding' => 'reference', 'binary' => true, 'bytes' => $reference['bytes'], 'diagnostics' => array(), 'payload_reference' => array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']));
+        }
         if ( is_string($file['content_base64'] ?? null) ) {
             $base64 = preg_replace('/\s+/', '', $file['content_base64']) ?? '';
             $decoded = base64_decode($base64, true);
@@ -820,7 +839,7 @@ final class ArtifactNormalizer
         usort($files, static fn(array $left, array $right): int => strcmp((string) $left['path'], (string) $right['path']));
         $context = hash_init('sha256');
         foreach ( $files as $file ) {
-            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (string) $file['content'];
+            $content = isset($file['content_base64']) ? (string) $file['content_base64'] : (isset($file['payload_reference']) ? (string) $file['payload_reference']['sha256'] : (string) $file['content']);
             hash_update($context, $file['path'] . "\0" . $file['kind'] . "\0" . ($file['mime_type'] ?? '') . "\0");
             hash_update($context, $content);
             hash_update($context, "\0");

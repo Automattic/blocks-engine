@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
@@ -41,6 +42,23 @@ final class ArtifactCompiler
 	/** @var array<string, string> */
 	private array $wordpressCompatCssCache = array();
 
+    private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $filesByPath = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $imageFiles = array();
+
+    /** @var array<int, string> */
+    private array $scriptContents = array();
+
+    /** @var array<string, array<int, string>> */
+    private array $scriptDomSelectorCache = array();
+
+    /** @var array<string, array<string, bool>> */
+    private array $scriptControlSelectorCache = array();
+
     /**
      * Resolve the runtime selector context used when a caller converts one
      * source document or landmark separately from full artifact compilation.
@@ -54,6 +72,7 @@ final class ArtifactCompiler
             'entrypoint' => $sourcePath,
             'files'      => $files,
         ));
+        $this->indexFiles($normalized['files']);
 
         return array(
             'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
@@ -72,15 +91,18 @@ final class ArtifactCompiler
      * @param array<string,mixed> $artifact
      * @return array<string,mixed>
      */
-    public function prepareShared(array $artifact): array
+    public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
+        if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
+        }
         $partition = $this->partitionArtifact($artifact);
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
 
         return array(
             'schema' => self::SHARED_PLAN_SCHEMA,
-            'digest' => RuntimeDeclarations::hash(array('artifact' => $sharedArtifact, 'files' => $normalized['files'])),
+            'digest' => $this->planDigest(array('artifact' => $sharedArtifact, 'files' => $normalized['files'])),
             'artifact' => $sharedArtifact,
             'limits' => $normalized['limits'],
             'diagnostics' => $normalized['diagnostics'],
@@ -95,9 +117,12 @@ final class ArtifactCompiler
      * @param array<string,mixed> $sharedPlan
      * @return array<string,mixed>
      */
-    public function preparePage(array $artifact, array $sharedPlan, string $pageId): array
+    public function preparePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
+        if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            return $this->prepareReferencedStage($artifact, 'page', $pageId, $payloadReader, (string) $sharedPlan['digest']);
+        }
         $partition = $this->partitionArtifact($artifact);
         if (!isset($partition['pages'][$pageId])) {
             throw new \InvalidArgumentException('The requested page ownership id is not present in the artifact.');
@@ -107,7 +132,7 @@ final class ArtifactCompiler
 
         return array(
             'schema' => self::PAGE_PLAN_SCHEMA,
-            'digest' => RuntimeDeclarations::hash(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pageId, 'artifact' => $pageArtifact, 'files' => $normalized['files'])),
+            'digest' => $this->planDigest(array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pageId, 'artifact' => $pageArtifact, 'files' => $normalized['files'])),
             'shared_digest' => $sharedPlan['digest'],
             'page_id' => $pageId,
             'artifact' => $pageArtifact,
@@ -123,10 +148,11 @@ final class ArtifactCompiler
      * @param array<string,mixed> $sharedPlan
      * @param array<int,array<string,mixed>> $pagePlans
      */
-    public function compose(array $sharedPlan, array $pagePlans): TransformerResult
+    public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): TransformerResult
     {
         $this->assertSharedPlan($sharedPlan);
-        $files = $sharedPlan['artifact']['files'];
+        $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $files = $sharedArtifact['files'];
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         foreach ($pagePlans as $pagePlan) {
@@ -135,10 +161,11 @@ final class ArtifactCompiler
                 throw new \InvalidArgumentException(sprintf('Composition received more than one staged page plan for page id "%s".', $pagePlan['page_id']));
             }
             $seen[$pagePlan['page_id']] = true;
-            $files = array_merge($files, $pagePlan['artifact']['files']);
+            $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
+            $files = array_merge($files, $pageArtifact['files']);
         }
         $this->assertUniqueComposedPaths($files);
-        $artifact = $sharedPlan['artifact'];
+        $artifact = $sharedArtifact;
         $artifact['files'] = self::sortedByPath($files);
 
         return $this->compile($artifact);
@@ -152,6 +179,7 @@ final class ArtifactCompiler
         $startedAt = hrtime(true);
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
+        $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
@@ -167,6 +195,7 @@ final class ArtifactCompiler
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
+        $this->indexFiles($normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
@@ -427,6 +456,131 @@ final class ArtifactCompiler
         return $artifact;
     }
 
+    /** @param array<string,mixed> $artifact */
+    private function containsPayloadReferences(array $artifact): bool
+    {
+        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+            if (is_array($file) && isset($file['payload_reference'])) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resolve only one ownership partition, then replace the prepared payloads
+     * with their portable references before returning the serializable plan.
+     *
+     * @return array<string,mixed>
+     */
+    private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
+    {
+        $stageArtifact = $artifact;
+        $stageArtifact['files'] = array();
+        $references = array();
+        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
+            if (!is_array($file)) continue;
+            $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
+            $ownership = $file['metadata']['compilation'] ?? null;
+            $fileScope = is_array($ownership) && isset($ownership['scope']) ? $ownership['scope'] : (str_ends_with(strtolower($path), '.html') ? 'page' : 'shared');
+            $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            if ($scope !== $fileScope || ('page' === $scope && $pageId !== $filePageId)) continue;
+            if (isset($file['payload_reference'])) {
+                $reference = $this->payloadReference($file['payload_reference']);
+                if ($this->isReferenceBackedBinary($file)) {
+                    $references[$path] = $reference;
+                } else {
+                    $content = $this->readPayload($reference, $payloadReader);
+                    unset($file['payload_reference']);
+                    $file['content'] = $content;
+                    $references[$path] = $reference;
+                }
+            }
+            $stageArtifact['files'][] = $file;
+        }
+        $partition = $this->partitionArtifact($stageArtifact);
+        $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
+        $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
+        $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
+        $plan = array(
+            'schema' => 'shared' === $scope ? self::SHARED_PLAN_SCHEMA : self::PAGE_PLAN_SCHEMA,
+            'artifact' => $planArtifact,
+            'limits' => $normalized['limits'],
+            'diagnostics' => $normalized['diagnostics'],
+            'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
+        );
+        if ('page' === $scope) {
+            $plan['shared_digest'] = $sharedDigest;
+            $plan['page_id'] = $pageId;
+        }
+        foreach ($plan['artifact']['files'] as &$file) {
+            if (!isset($references[$file['path']])) continue;
+            unset($file['content'], $file['content_base64']);
+            $file['payload_reference'] = $references[$file['path']];
+        }
+        unset($file);
+        $hasReferences = $this->containsPayloadReferences($plan['artifact']);
+        $hashInput = 'shared' === $scope
+            ? ($hasReferences ? array('artifact' => $plan['artifact']) : array('artifact' => $plan['artifact'], 'files' => $normalized['files']))
+            : ($hasReferences ? array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact']) : array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact'], 'files' => $normalized['files']));
+        $plan['digest'] = $this->planDigest($hashInput);
+        return $plan;
+    }
+
+    /** @param mixed $reference @return array{schema:string,id:string,bytes:int,sha256:string} */
+    private function payloadReference(mixed $reference): array
+    {
+        if (!is_array($reference) || 'blocks-engine/payload-reference/v1' !== ($reference['schema'] ?? null) || !is_string($reference['id'] ?? null) || '' === $reference['id'] || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 0 || !is_string($reference['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $reference['sha256'])) {
+            throw new \InvalidArgumentException('A payload reference requires a schema, id, byte count, and sha256 hex digest.');
+        }
+        return array('schema' => $reference['schema'], 'id' => $reference['id'], 'bytes' => $reference['bytes'], 'sha256' => $reference['sha256']);
+    }
+
+    /** @param array{schema:string,id:string,bytes:int,sha256:string} $reference */
+    private function readPayload(array $reference, PayloadReader $payloadReader): string
+    {
+        $content = $payloadReader->read($reference);
+        if (strlen($content) !== $reference['bytes'] || !hash_equals($reference['sha256'], hash('sha256', $content))) {
+            throw new \InvalidArgumentException('The payload reader returned bytes that do not match the payload reference.');
+        }
+        return $content;
+    }
+
+    /** @param array<string,mixed> $artifact @return array<string,mixed> */
+    private function materializePlanArtifact(array $artifact, ?PayloadReader $payloadReader): array
+    {
+        foreach ($artifact['files'] as &$file) {
+            if (!isset($file['payload_reference'])) continue;
+            if (null === $payloadReader) throw new \InvalidArgumentException('Composition requires a payload reader for referenced staged payloads.');
+            $reference = $this->payloadReference($file['payload_reference']);
+            if ($this->isReferenceBackedBinary($file)) continue;
+            $content = $this->readPayload($reference, $payloadReader);
+            unset($file['payload_reference']);
+            if (!empty($file['binary'])) {
+                $file['content'] = '';
+                $file['content_base64'] = base64_encode($content);
+            } else {
+                $file['content'] = $content;
+            }
+        }
+        unset($file);
+        return $artifact;
+    }
+
+    /** @param array<string,mixed> $file */
+    private function isReferenceBackedBinary(array $file): bool
+    {
+        if (!isset($file['payload_reference'])) return false;
+        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
+        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
+        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
+        return !str_starts_with($mime, 'text/') && !in_array($mime, array('application/javascript', 'application/json', 'application/ecmascript'), true) && !in_array($extension, array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg'), true);
+    }
+
+    /** @param array<string,mixed> $hashInput */
+    private function planDigest(array $hashInput): string
+    {
+        return RuntimeDeclarations::hash($hashInput);
+    }
+
     /** @param array<string,mixed> $sharedPlan */
     private function assertSharedPlan(array $sharedPlan): void
     {
@@ -437,7 +591,7 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
         $this->assertPlanDigest(
-            array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']),
+            $this->containsPayloadReferences($sharedPlan['artifact']) ? array('artifact' => $sharedPlan['artifact']) : array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']),
             $sharedPlan['digest'] ?? null,
             'shared'
         );
@@ -465,7 +619,7 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged page plan requires its serialized artifact payload.');
         }
         $this->assertPlanDigest(
-            array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
+            $this->containsPayloadReferences($pagePlan['artifact']) ? array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact']) : array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
             $pagePlan['digest'] ?? null,
             'page'
         );
@@ -477,7 +631,7 @@ final class ArtifactCompiler
         if (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest)) {
             throw new \InvalidArgumentException(sprintf('A staged %s plan requires a sha256 hex digest.', $label));
         }
-        if (!hash_equals(RuntimeDeclarations::hash($hashInput), $digest)) {
+        if (!hash_equals($this->planDigest($hashInput), $digest)) {
             throw new \InvalidArgumentException(sprintf('The staged %s plan digest does not match its serialized artifact payload.', $label));
         }
     }
@@ -756,7 +910,7 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
@@ -1212,7 +1366,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
     {
-        $paths = array_fill_keys(array_column($files, 'path'), true);
+        $paths = array() !== $this->filesByPath ? $this->filesByPath : array_fill_keys(array_column($files, 'path'), true);
         return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
             if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
             preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
@@ -2321,6 +2475,10 @@ final class ArtifactCompiler
      */
     private function allScriptContents(array $files): array
     {
+        if ( array() !== $this->filesByPath ) {
+            return $this->scriptContents;
+        }
+
         $scripts = array();
         foreach ( $files as $file ) {
             if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
@@ -2368,6 +2526,11 @@ final class ArtifactCompiler
      */
     private function scriptDomSelectors(string $script): array
     {
+        $cacheKey = hash('sha256', $script);
+        if ( isset($this->scriptDomSelectorCache[$cacheKey]) ) {
+            return $this->scriptDomSelectorCache[$cacheKey];
+        }
+
         $selectors = array();
         if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $id ) {
@@ -2417,7 +2580,7 @@ final class ArtifactCompiler
             }
         }
 
-        return array_keys($selectors);
+        return $this->scriptDomSelectorCache[$cacheKey] = array_keys($selectors);
     }
 
     private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
@@ -2531,6 +2694,11 @@ final class ArtifactCompiler
      */
     private function scriptControlRuntimeSelectors(string $script): array
     {
+        $cacheKey = hash('sha256', $script);
+        if ( isset($this->scriptControlSelectorCache[$cacheKey]) ) {
+            return $this->scriptControlSelectorCache[$cacheKey];
+        }
+
         $selectors = array();
         $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
 
@@ -2566,7 +2734,7 @@ final class ArtifactCompiler
             }
         }
 
-        return $selectors;
+        return $this->scriptControlSelectorCache[$cacheKey] = $selectors;
     }
 
     private function scriptSelectorPattern(): string
@@ -2889,7 +3057,8 @@ final class ArtifactCompiler
     private function assetMetadataForSource(string $sourcePath, array $files): array
     {
         $metadata = array();
-        foreach ( $files as $file ) {
+        $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
+        foreach ( $candidates as $file ) {
             if ( $this->isMaterializedHtmlDocument($file) ) {
                 continue;
             }
@@ -3205,6 +3374,9 @@ final class ArtifactCompiler
                     'content_encoding' => $asset['content_encoding'] ?? $asset['encoding'] ?? '',
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
+                    'payload_reference' => $asset['payload_reference'] ?? null,
+                    'raw_sha256'       => $asset['raw_sha256'] ?? null,
+                    'transport_sha256' => $asset['transport_sha256'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
                     'source_hash'      => $asset['source_hash'] ?? '',
                     'source_role'      => $asset['source_role'] ?? '',
@@ -3465,6 +3637,16 @@ final class ArtifactCompiler
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
             }
+            if ( is_string($file['raw_sha256'] ?? null) ) {
+                $asset['raw_sha256'] = $file['raw_sha256'];
+            }
+            if ( is_array($file['payload_reference'] ?? null) ) {
+                $asset['payload_reference'] = $file['payload_reference'];
+                $asset['raw_sha256'] = $file['raw_sha256'] ?? $file['payload_reference']['sha256'];
+            }
+            if ( is_string($file['transport_sha256'] ?? null) ) {
+                $asset['transport_sha256'] = $file['transport_sha256'];
+            }
             if ( empty($file['binary']) && ! $this->isUnsafeSvgAsset($file) ) {
                 $asset['content'] = $file['content'];
             }
@@ -3606,6 +3788,7 @@ final class ArtifactCompiler
      */
     private function isSafeImageAsset(array $asset): bool
     {
+        if (isset($asset['payload_reference'])) return true;
         if ( 'image/svg+xml' !== ($asset['mime_type'] ?? '') ) {
             return true;
         }
@@ -3649,6 +3832,10 @@ final class ArtifactCompiler
             return null;
         }
 
+        if ( isset($this->filesByPath[$path]) ) {
+            return $this->filesByPath[$path];
+        }
+
         foreach ( $files as $file ) {
             if ( $path === ($file['path'] ?? '') ) {
                 return $file;
@@ -3658,6 +3845,35 @@ final class ArtifactCompiler
         return null;
     }
 
+    /**
+     * Build immutable lookup state for one normalized artifact compilation.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function indexFiles(array $files): void
+    {
+        $this->filesByPath = array();
+        $this->imageFiles = array();
+        $this->scriptContents = array();
+        $this->scriptDomSelectorCache = array();
+        $this->scriptControlSelectorCache = array();
+
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) ) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            if ( '' !== $path ) {
+                $this->filesByPath[$path] = $file;
+            }
+            if ( str_starts_with((string) ($file['mime_type'] ?? ''), 'image/') && ! $this->isMaterializedHtmlDocument($file) ) {
+                $this->imageFiles[] = $file;
+            }
+            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
+                $this->scriptContents[] = (string) $file['content'];
+            }
+        }
+    }
     private function resolveHtmlReferencePath(string $reference, string $entryPath): string
     {
         return ArtifactPath::resolveRelativePath($reference, $entryPath);

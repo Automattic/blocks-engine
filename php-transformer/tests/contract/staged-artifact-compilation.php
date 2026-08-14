@@ -4,18 +4,21 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $artifact = array(
     'entrypoints' => array('index.html'),
     'files' => array(
-        array('path' => 'assets/site.css', 'content' => 'main{color:#123}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+        array('path' => 'assets/site.css', 'content' => 'main{color:#123;background:url(logo.png)}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
         array('path' => 'assets/about.css', 'content' => '.about-grid{display:grid;grid-template-columns:1fr 1fr}', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'about.html'))),
         array('path' => 'about.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/about.css"><main class="about-grid"><h1>About</h1></main>'),
         array('path' => 'contact.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Contact</h1></main>'),
         array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Home</h1></main>'),
+        array('path' => 'assets/logo.png', 'content_base64' => base64_encode('binary-png-fixture'), 'mime_type' => 'image/png', 'metadata' => array('compilation' => array('scope' => 'shared'))),
     ),
 );
 $forms = array();
@@ -26,14 +29,14 @@ $assert($formsPayloadBytes > 262144 && $formsPayloadBytes < RuntimeDeclarations:
 $artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $formsPayload));
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
-$assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 1 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation emits a bounded immutable shared plan and digest.');
+$assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation emits a bounded immutable shared plan and digest.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
 $inlineArtifact = $artifact;
 $inlineArtifact['files'][2]['content'] .= '<style>main{gap:1rem}</style><script>console.log("about");</script>';
 $inlineShared = $compiler->prepareShared($inlineArtifact);
-$assert(1 === $inlineShared['summary']['file_count'], 'Shared preparation excludes page-owned inline expansions.');
+$assert(2 === $inlineShared['summary']['file_count'], 'Shared preparation excludes page-owned inline expansions.');
 $assert(4 === $compiler->preparePage($inlineArtifact, $inlineShared, 'about.html')['summary']['file_count'], 'Page preparation owns explicit and inline page assets with the page html.');
 
 $pageIds = array('index.html', 'about.html', 'contact.html');
@@ -81,5 +84,63 @@ $collidingArtifact = $artifact;
 $collidingArtifact['files'][0]['metadata'] = array('compilation' => array('scope' => 'page', 'id' => 'about.html'));
 $collidingPage = $compiler->preparePage($collidingArtifact, $shared, 'about.html');
 $throws(static fn() => $compiler->compose($shared, array($collidingPage)), 'Composition rejects staged plans that collide on an artifact path.');
+
+// References carry only portable identity metadata. The reader is injected by
+// the consumer, keeping the compiler independent of the backing store.
+$referencedArtifact = $artifact;
+$payloads = array();
+foreach ($referencedArtifact['files'] as &$file) {
+    $content = is_string($file['content_base64'] ?? null) ? base64_decode($file['content_base64'], true) : $file['content'];
+    $id = 'payload:' . $file['path'];
+    $payloads[$id] = $content;
+    unset($file['content'], $file['content_base64']);
+    $file['payload_reference'] = array('schema' => 'blocks-engine/payload-reference/v1', 'id' => $id, 'bytes' => strlen($content), 'sha256' => hash('sha256', $content));
+}
+unset($file);
+$reader = new class($payloads) implements PayloadReader {
+    public array $reads = array();
+    public function __construct(private array $payloads) {}
+    public function read(array $reference): string { $this->reads[] = $reference['id']; if (!isset($this->payloads[$reference['id']])) throw new InvalidArgumentException('missing'); return $this->payloads[$reference['id']]; }
+};
+$referencedShared = $compiler->prepareShared($referencedArtifact, $reader);
+$assert(array('payload:assets/site.css') === $reader->reads, 'Shared reference preparation hydrates only text payloads in the shared partition.');
+$reader->reads = array();
+$referencedPages = array();
+foreach ($pageIds as $pageId) $referencedPages[] = $compiler->preparePage($referencedArtifact, $referencedShared, $pageId, $reader);
+$assert(4 === count($reader->reads) && !in_array('payload:assets/site.css', $reader->reads, true), 'Page reference preparation reads only requested page payloads.');
+$assert(!isset($referencedShared['artifact']['files'][0]['content']) && isset($referencedShared['artifact']['files'][0]['payload_reference']), 'Prepared reference plans remain serializable without hydrated payload bytes.');
+$reader->reads = array();
+$referencedResult = $compiler->compose($referencedShared, array_reverse($referencedPages), $reader)->toArray();
+$assert(($whole['blocks'] ?? array()) === ($referencedResult['blocks'] ?? array()) && ($whole['serialized_blocks'] ?? '') === ($referencedResult['serialized_blocks'] ?? ''), 'Referenced staged compilation preserves the text compilation output of inline compilation.');
+$inlineWrites = array_column($whole['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
+$referencePlan = $referencedResult['source_reports']['wordpress_site_plan'] ?? array();
+$referenceAssets = array_column($referencePlan['assets'] ?? array(), null, 'source_path');
+$referenceWrites = array_column($referencePlan['writes'] ?? array(), null, 'target_path');
+$binary = $payloads['payload:assets/logo.png'];
+$inlineAsset = $siteAssets['assets/logo.png'];
+$referenceAsset = $referenceAssets['assets/logo.png'];
+$inlineMaterialization = array_column($whole['source_reports']['materialization_plan']['assets'] ?? array(), null, 'path')['assets/logo.png'] ?? array();
+$referenceMaterialization = array_column($referencedResult['source_reports']['materialization_plan']['assets'] ?? array(), null, 'path')['assets/logo.png'] ?? array();
+$assert('base64' === ($inlineWrites['assets/assets/logo.png']['payload']['encoding'] ?? null) && base64_encode($binary) === ($inlineWrites['assets/assets/logo.png']['payload']['data'] ?? null), 'Inline binary compilation retains the existing base64 write transport.');
+$assert(array('source_path' => $inlineAsset['source_path'], 'target_path' => $inlineAsset['target_path'], 'token' => $inlineAsset['token'], 'bytes' => $inlineAsset['bytes'], 'binary' => $inlineAsset['binary'], 'raw_sha256' => $inlineAsset['raw_sha256']) === array('source_path' => $referenceAsset['source_path'], 'target_path' => $referenceAsset['target_path'], 'token' => $referenceAsset['token'], 'bytes' => $referenceAsset['bytes'], 'binary' => $referenceAsset['binary'], 'raw_sha256' => $referenceAsset['raw_sha256']) && hash('sha256', base64_encode($binary)) === ($inlineAsset['transport_sha256'] ?? null) && !isset($referenceAsset['transport_sha256'], $referenceAsset['content_base64']) && ($referenceAsset['payload_reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceAsset['content_hash'] ?? null), 'Inline and referenced binaries retain identical semantic identity and raw digest; representation intentionally differs only as canonical base64 transport versus raw-byte reference.');
+$assert('reference' === ($referenceWrites['assets/assets/logo.png']['payload']['encoding'] ?? null) && ($referenceWrites['assets/assets/logo.png']['payload']['reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceWrites['assets/assets/logo.png']['raw_sha256'] ?? null), 'Referenced binary assets survive to matching materialization writes with their raw-byte SHA.');
+$assert(($referenceMaterialization['payload_reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceMaterialization['raw_sha256'] ?? null) && !isset($referenceMaterialization['content_base64'], $referenceMaterialization['transport_sha256']) && base64_encode($binary) === ($inlineMaterialization['content_base64'] ?? null) && hash('sha256', base64_encode($binary)) === ($inlineMaterialization['transport_sha256'] ?? null), 'Materialization plans preserve reference identity and raw digest while inline transport retains its canonical base64 digest.');
+$svgReferencePlan = $referencePlan;
+$svgReferencePlan['assets'][array_search('assets/logo.png', array_column($svgReferencePlan['assets'], 'source_path'), true)]['mime_type'] = 'image/svg+xml';
+$throws(static fn() => WordPressSitePlan::assertValid($svgReferencePlan), 'WordPress plan validation rejects reference-backed SVG assets because SVG payloads must be hydrated for publication safety.');
+$mismatchedReferencePlan = $referencePlan;
+$mismatchedReferencePlan['writes'][array_search('assets/assets/logo.png', array_column($mismatchedReferencePlan['writes'], 'target_path'), true)]['raw_sha256'] = str_repeat('0', 64);
+$throws(static fn() => WordPressSitePlan::assertValid($mismatchedReferencePlan), 'WordPress plan validation rejects reference writes whose raw hash does not match the declared asset reference.');
+$assert(5 === count($reader->reads) && !in_array('payload:assets/logo.png', $reader->reads, true), 'Composition lazily reads text payloads while preserving binary references.');
+$assert($referencedShared['digest'] === $compiler->prepareShared($referencedArtifact, new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return $this->payloads[$reference['id']]; } } )['digest'], 'Reference-backed shared plan digests are deterministic.');
+$pageOnlyArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'payload_reference' => $referencedArtifact['files'][4]['payload_reference'])));
+$pageOnlyShared = $compiler->prepareShared($pageOnlyArtifact, $reader);
+$pageOnlyShared = json_decode(json_encode($pageOnlyShared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$pageOnlyPage = $compiler->preparePage($pageOnlyArtifact, $pageOnlyShared, 'index.html', $reader);
+$assert(isset($pageOnlyPage['artifact']['files'][0]['payload_reference']), 'A serialized empty shared reference partition remains valid for a page-only artifact.');
+$corrupt = new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return 'corrupt'; } };
+$throws(static fn() => $compiler->prepareShared($referencedArtifact, $corrupt), 'Reference preparation rejects corrupt payload bytes and sha256.');
+$missing = new class implements PayloadReader { public function read(array $reference): string { throw new InvalidArgumentException('missing'); } };
+$throws(static fn() => $compiler->compose($referencedShared, $referencedPages, $missing), 'Composition rejects missing referenced payloads.');
 
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

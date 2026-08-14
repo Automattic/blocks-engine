@@ -549,7 +549,10 @@ final class HtmlTransformer
 
     private bool $preserveShellLandmarks = false;
 
-    public function __construct(private readonly Runtime $runtime = new Runtime())
+    public function __construct(
+        private readonly Runtime $runtime = new Runtime(),
+        private readonly HtmlTransformerAnalysisCache $analysisCache = new HtmlTransformerAnalysisCache()
+    )
     {
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
@@ -650,11 +653,30 @@ final class HtmlTransformer
         $this->authorClassSpecificityShim = '';
         $this->authorIdSpecificityShim = '';
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
-        $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
-        $this->conditionalStyleRules = $this->conditionalStyleRules($html, (string) ($options['static_css'] ?? ''));
-        $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, (string) ($options['static_css'] ?? ''));
-        $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, (string) ($options['static_css'] ?? ''));
-        $this->cssCustomProperties = $this->cssCustomProperties($html, (string) ($options['static_css'] ?? ''));
+        $staticCss = (string) ($options['static_css'] ?? '');
+        $styleAnalysisKey = $this->styleAnalysisKey($html, $staticCss);
+        if ( $styleAnalysisKey === ($this->analysisCache->style['key'] ?? null) ) {
+            $this->staticStyleRules = $this->analysisCache->style['static'];
+            $this->conditionalStyleRules = $this->analysisCache->style['conditional'];
+            $this->imageShapeStyleRules = $this->analysisCache->style['image_shape'];
+            $this->staticPseudoElementStyleRules = $this->analysisCache->style['pseudo'];
+            $this->cssCustomProperties = $this->analysisCache->style['custom_properties'];
+        } else {
+            ++$this->analysisCache->styleBuilds;
+            $this->staticStyleRules = $this->staticStyleRules($html, $staticCss);
+            $this->conditionalStyleRules = $this->conditionalStyleRules($html, $staticCss);
+            $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, $staticCss);
+            $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, $staticCss);
+            $this->cssCustomProperties = $this->cssCustomProperties($html, $staticCss);
+            $this->analysisCache->style = array(
+                'key' => $styleAnalysisKey,
+                'static' => $this->staticStyleRules,
+                'conditional' => $this->conditionalStyleRules,
+                'image_shape' => $this->imageShapeStyleRules,
+                'pseudo' => $this->staticPseudoElementStyleRules,
+                'custom_properties' => $this->cssCustomProperties,
+            );
+        }
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
@@ -1167,21 +1189,33 @@ final class HtmlTransformer
             }
         }
 
-		$sourceTagSelectorNames = array();
-		$authorSelectors = array();
-		( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames, &$authorSelectors): string {
-			foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-				$parsed = $this->parsedCssSelector($selector);
-				$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
-				foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
-					$tagName = strtolower($typeSpan['name']);
-					if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
-						$sourceTagSelectorNames[$tagName] = true;
+		$authorAnalysisKey = hash('sha256', $this->combinedAuthorCss);
+        if ( $authorAnalysisKey === ($this->analysisCache->authorSelectors['key'] ?? null) ) {
+            $sourceTagSelectorNames = $this->analysisCache->authorSelectors['source_tags'];
+            $authorSelectors = $this->analysisCache->authorSelectors['selectors'];
+        } else {
+			++$this->analysisCache->authorSelectorBuilds;
+			$sourceTagSelectorNames = array();
+			$authorSelectors = array();
+			( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames, &$authorSelectors): string {
+				foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+					$parsed = $this->parsedCssSelector($selector);
+					$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
+					foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
+						$tagName = strtolower($typeSpan['name']);
+						if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
+							$sourceTagSelectorNames[$tagName] = true;
+						}
 					}
 				}
-			}
-			return $prelude;
-		});
+				return $prelude;
+			});
+            $this->analysisCache->authorSelectors = array(
+                'key' => $authorAnalysisKey,
+                'source_tags' => $sourceTagSelectorNames,
+                'selectors' => $authorSelectors,
+            );
+        }
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
@@ -1340,6 +1374,16 @@ final class HtmlTransformer
             $cssParts[] = $staticCss;
         }
         return trim(implode("\n\n", $cssParts));
+    }
+
+    private function styleAnalysisKey(string $html, string $staticCss): string
+    {
+        $inlineStyles = array();
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $inlineStyles = array_map('trim', $matches[1]);
+        }
+
+        return hash('sha256', trim($staticCss) . "\0" . implode("\0", $inlineStyles));
     }
 
     /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
