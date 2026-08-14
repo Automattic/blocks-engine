@@ -216,6 +216,12 @@ trait DomHelpersTrait
             function (array $matches): string {
                 $attribute = strtolower($matches[1]);
                 $value = $matches[3] ?? $matches[4] ?? $matches[5] ?? '';
+                if ( 'srcset' === $attribute ) {
+                    $srcset = $this->safeFallbackSrcset($value);
+                    return '' === $srcset
+                        ? ''
+                        : ' ' . $matches[1] . '="' . htmlspecialchars($srcset, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                }
                 return $this->isFallbackUrlAttribute($attribute) && ! $this->safeFallbackUrl($value, $attribute)
                     ? ''
                     : $matches[0];
@@ -242,6 +248,48 @@ trait DomHelpersTrait
             'action', 'archive', 'background', 'cite', 'codebase', 'data', 'formaction',
             'href', 'longdesc', 'manifest', 'ping', 'poster', 'profile', 'src', 'usemap', 'xlink:href',
         ), true);
+    }
+
+    /**
+     * Keep only safe srcset candidates while retaining their source-selection
+     * descriptors. The URL policy deliberately matches fallback image `src`.
+     */
+    private function safeFallbackSrcset(string $srcset): string
+    {
+        $candidates = array();
+        $length = strlen($srcset);
+        $offset = 0;
+
+        while ( $offset < $length ) {
+            while ( $offset < $length && ( ctype_space($srcset[$offset]) || ',' === $srcset[$offset] ) ) {
+                ++$offset;
+            }
+            if ( $offset >= $length ) {
+                break;
+            }
+
+            $start = $offset;
+            $isDataUrl = str_starts_with(strtolower(substr($srcset, $offset)), 'data:');
+            while ( $offset < $length && ! ctype_space($srcset[$offset]) && ( $isDataUrl || ',' !== $srcset[$offset] ) ) {
+                ++$offset;
+            }
+            $url = substr($srcset, $start, $offset - $start);
+
+            while ( $offset < $length && ctype_space($srcset[$offset]) ) {
+                ++$offset;
+            }
+            $descriptorStart = $offset;
+            while ( $offset < $length && ',' !== $srcset[$offset] ) {
+                ++$offset;
+            }
+            $descriptor = trim(substr($srcset, $descriptorStart, $offset - $descriptorStart));
+
+            if ( $this->safeFallbackUrl($url, 'src') ) {
+                $candidates[] = $url . ( '' !== $descriptor ? ' ' . $descriptor : '' );
+            }
+        }
+
+        return implode(', ', $candidates);
     }
 
     private function safeFallbackUrl(string $url, string $attribute): bool

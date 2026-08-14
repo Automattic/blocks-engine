@@ -225,6 +225,18 @@ final class HtmlTransformer
     private readonly FallbackEmitter $fallbackEmitter;
 
     /**
+     * Responsive image markup core/image cannot represent without invalidating
+     * its native save shape. Collected separately because image conversion is
+     * also used by pattern callbacks that do not receive the fallback accumulator.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $responsiveImageFallbacks = array();
+
+    /** @var array<string, bool> */
+    private array $responsiveImageFallbackSelectors = array();
+
+    /**
      * @var array<string, string>
      */
     private array $fallbackProvenance = array();
@@ -591,6 +603,8 @@ final class HtmlTransformer
         $this->formSelectBlockGenerated = false;
         $this->formInputBlockGenerated = false;
         $this->formControlEchoTexts = array();
+        $this->responsiveImageFallbacks = array();
+        $this->responsiveImageFallbackSelectors = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackEmitter->resetGeneratedBlocks();
@@ -722,6 +736,7 @@ final class HtmlTransformer
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
@@ -3038,11 +3053,18 @@ final class HtmlTransformer
 
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
+            // A gallery can only contain native image blocks. Preserve the
+            // complete media collection before author-layout recognition can
+            // create a core/gallery with a responsive core/html child.
+            if ( $this->hasResponsiveImageSources($element) && $this->hasGalleryMediaItems($element) ) {
+                return $this->responsiveImageFallbackBlock($element);
+            }
+
             if ( $this->isDirectChildOfAuthorOwnedLayout($element) && '' !== $this->attr($element, 'role') ) {
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            if ( in_array($tagName, array( 'div', 'section', 'article' ), true) ) {
+            if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->hasResponsiveImageSources($element) ) {
                 // A strict two-pane media/text candidate is a more specific
                 // recognition than generic author-owned layout preservation:
                 // media-text candidates are by definition authored flex/grid
@@ -3362,6 +3384,12 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasResponsiveImageSources($element) ) {
+            // GalleryPattern probes child conversions before it knows whether it
+            // has enough images. Avoid emitting speculative child fallbacks.
+            return $this->hasGalleryMediaItems($element) ? $this->responsiveImageFallbackBlock($element) : null;
+        }
+
         return $this->galleryPattern->match(
             $element,
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
@@ -3402,6 +3430,28 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    private function hasGalleryMediaItems(DOMElement $element): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'figcaption' === strtolower($child->tagName) ) {
+                if ( ! $child instanceof DOMElement ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! in_array(strtolower($child->tagName), array( 'figure', 'img', 'picture' ), true) ) {
+                return false;
+            }
+            ++$items;
+        }
+
+        return $items >= 2;
     }
 
     /**
@@ -11073,6 +11123,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->hasResponsiveImageSources($picture) ) {
+            return $this->responsiveImageFallbackBlock($figure ?? $picture);
+        }
+
         return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
     }
 
@@ -11116,6 +11170,10 @@ final class HtmlTransformer
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
+        if ( $this->hasResponsiveImageSources($picture ?? $image) ) {
+            return $this->responsiveImageFallbackBlock($figure ?? $picture ?? $image);
+        }
+
         $originalUrl = $this->safeImageUrl($this->attr($image, 'src'));
         $url = $this->resolvedAssetImageUrl($originalUrl);
         if ( '' === $url ) {
@@ -11162,6 +11220,59 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+    }
+
+    private function hasResponsiveImageSources(DOMElement $element): bool
+    {
+        if ( 'img' === strtolower($element->tagName) ) {
+            return '' !== $this->attr($element, 'srcset') || '' !== $this->attr($element, 'sizes');
+        }
+
+        foreach ( $element->getElementsByTagName('source') as $source ) {
+            if ( $source instanceof DOMElement && '' !== $this->attr($source, 'srcset') ) {
+                return true;
+            }
+        }
+
+        foreach ( $element->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && ( '' !== $this->attr($image, 'srcset') || '' !== $this->attr($image, 'sizes') ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Preserve responsive sources as valid raw HTML rather than placing
+     * unsupported attributes in a core/image save shape.
+     *
+     * @return array<string, mixed>
+     */
+    private function responsiveImageFallbackBlock(DOMElement $element): array
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $selector = $this->elementSelector($element);
+        if ( ! isset($this->responsiveImageFallbackSelectors[$selector]) ) {
+            $this->responsiveImageFallbackSelectors[$selector] = true;
+            $this->responsiveImageFallbacks[] = FallbackDiagnostic::build(array(
+                'type'            => 'html',
+                'reason'          => 'responsive_image_fallback',
+                'diagnostic_code' => 'html_responsive_image_fallback',
+                'message'         => 'Responsive image sources were preserved as sanitized core/html because core/image cannot serialize srcset, sizes, or picture source selection.',
+                'source_format'   => 'html',
+                'tag'             => strtolower($element->tagName),
+                'selector'        => $selector,
+                'attributes'      => $this->htmlAttributes($element),
+                'context'         => $this->sourceContext($element),
+                'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+                'html'            => $boundedHtml['html'],
+                'html_bytes'      => $boundedHtml['bytes'],
+                'html_truncated'  => $boundedHtml['truncated'],
+            ), $this->fallbackProvenance);
+        }
+
+        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
     }
 
     /**

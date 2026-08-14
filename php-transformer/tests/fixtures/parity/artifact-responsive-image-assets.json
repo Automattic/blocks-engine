@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-responsive-image-assets",
-  "description": "Compiles nested artifact HTML images into editor-valid core/image markup while retaining responsive candidates in source asset analysis.",
+  "description": "Preserves nested artifact responsive image sources through a valid core/html fallback when core/image cannot serialize them.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-responsive-image-assets.json",
-    "notes": "Covers generic nested relative image path resolution and source srcset asset analysis without projecting unsupported responsive attributes into core/image save markup."
+    "notes": "Covers generic nested relative image path resolution, source srcset analysis, and valid fallback preservation of responsive image selection."
   },
   "legacy_comparison": {
     "skip": true,
@@ -36,12 +36,13 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/images/hero.png", "alt": "Hero", "width": "600", "height": "400", "caption": "Hero image", "className": "product-card is-resized" } }
+    { "path": "blocks.0", "name": "core/html" }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "diagnostic_code": "html_responsive_image_fallback", "tag": "figure", "reason": "responsive_image_fallback" }
+  ],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "diagnostics", "assert": "count", "count": 0 },
+    { "path": "status", "assert": "equals", "value": "failed" },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },
@@ -50,9 +51,10 @@
     { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 2 },
     { "path": "source_reports.materialization_plan.assets.0.path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.materialization_plan.assets.1.path", "assert": "equals", "value": "assets/images/hero-small.png" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/images/hero.png\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "srcset=" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "sizes=" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"../../assets/images/hero.png\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "sizes=" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "../../missing/ghost.png" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }
   ]
 }

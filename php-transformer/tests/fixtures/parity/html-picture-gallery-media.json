@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-picture-gallery-media",
-  "description": "Converts responsive picture images and gallery-like figure groups into generic core media blocks.",
+  "description": "Preserves responsive picture images and gallery-like figure groups through valid core/html fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-picture-gallery-media.json",
@@ -16,18 +16,19 @@
     "content": "<picture class=\"hero-picture\"><source media=\"(min-width: 800px)\" srcset=\"https://example.com/hero-large.jpg 1200w\" sizes=\"100vw\"><img src=\"https://example.com/hero.jpg\" alt=\"Hero\"></picture><div class=\"gallery-grid\" data-layout=\"grid\"><figure><picture><source srcset=\"https://example.com/one-large.jpg 900w\"><img src=\"https://example.com/one.jpg\" alt=\"One\"></picture><figcaption>One caption</figcaption></figure><figure class=\"tile\"><img src=\"https://example.com/two.jpg\" alt=\"Two\" width=\"400\" height=\"300\"><figcaption>Two caption</figcaption></figure><figcaption>Gallery caption</figcaption></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-picture", "url": "https://example.com/hero.jpg", "alt": "Hero" } },
-    { "path": "blocks.1", "name": "core/gallery", "attrs": { "className": "gallery-grid", "caption": "Gallery caption" } },
-    { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/one.jpg", "alt": "One", "caption": "One caption" } },
-    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized", "url": "https://example.com/two.jpg", "alt": "Two", "width": "400", "height": "300", "caption": "Two caption" } }
+    { "path": "blocks.0", "name": "core/html" },
+    { "path": "blocks.1", "name": "core/html" }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "diagnostic_code": "html_responsive_image_fallback", "tag": "picture", "reason": "responsive_image_fallback" },
+    { "diagnostic_code": "html_responsive_image_fallback", "tag": "div", "reason": "responsive_image_fallback" }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figcaption class=\"blocks-gallery-caption wp-element-caption\">Gallery caption</figcaption>" },
-    { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\"https://example.com/hero-large.jpg 1200w\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\"https://example.com/one-large.jpg 900w\"" },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }
