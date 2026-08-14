@@ -1101,6 +1101,16 @@ final class HtmlTransformer
         if ( '' !== trim($authorCss) ) {
             $cssParts[] = $authorCss;
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            // The source mobile menu hides its desktop list container. Core
+            // navigation owns that responsive swap now, so keep the block host
+            // visible and let core hide only its responsive inner container.
+            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
+            if ( '' !== $mobileOverlayBackground ) {
+                $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
+            }
+        }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
         }
@@ -1136,6 +1146,25 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    private function sourceMobileNavigationOverlayBackground(): string
+    {
+        $background = '';
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+            $selector = strtolower((string) ($rule['selector'] ?? ''));
+            if ( ! str_contains($selector, 'nav') || ! preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $selector) ) {
+                continue;
+            }
+
+            $declarations = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $candidate = trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? ''));
+            if ( '' !== $candidate && ! in_array(strtolower($candidate), array( 'none', 'transparent', 'inherit', 'initial', 'unset' ), true) ) {
+                $background = $candidate;
+            }
+        }
+
+        return $background;
     }
 
     private function richTextMarkerResetCss(): string

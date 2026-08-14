@@ -2110,8 +2110,15 @@ final class ArtifactCompiler
     private function mapNavigationStructureSelector(string $selector, string $body): array
     {
         $selector = $this->selectorWithoutComments($selector);
-        if ( str_contains($selector, '.wp-block-navigation')
-            || ! preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE) ) {
+        if ( str_contains($selector, '.wp-block-navigation') ) {
+            return array();
+        }
+
+        $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
+        if ( 1 !== $hasListMatch ) {
+            $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=\s+[^,{]*blocks-engine-source-li-)/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
+        }
+        if ( 1 !== $hasListMatch ) {
             return array();
         }
 

@@ -730,6 +730,7 @@ final class FontMaterializationPlanBuilder
 
     private function normalizeFamily(string $family): string
     {
+        $family = preg_replace('/\s*!important\s*$/i', '', $family) ?? $family;
         return trim($family, " \t\n\r\0\x0B\"'");
     }
 
