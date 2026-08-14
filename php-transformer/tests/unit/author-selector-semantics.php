@@ -314,7 +314,7 @@ $assert(
     && 'core/group' === ($nestedGridItemChildren[0]['blockName'] ?? '')
     && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
     && 'core/paragraph' === ($nestedGridItemChildren[0]['innerBlocks'][0]['blockName'] ?? '')
-    && str_contains($nestedGridItemCss, ':where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
+    && str_contains($nestedGridItemCss, ':root :where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
     && 'pass' === ($nestedGridItem['source_reports']['wp_block_validity']['status'] ?? ''),
     'semantic Group layout items neutralize only their generated paragraph children while retaining valid native blocks'
 );
