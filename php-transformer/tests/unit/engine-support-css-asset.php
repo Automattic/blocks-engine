@@ -213,9 +213,29 @@ foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' 
 }
 
 $neutralizer = '.wp-block-group.blocks-engine-css-owned-layout>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
-$assert(str_contains($beforeCss, $neutralizer), 'G5: css-owned-layout direct-child constrained geometry neutralizer lives in engine-support');
-$plain = ( new HtmlTransformer() )->transform('<p>Plain content.</p>')->toArray();
-$assert(! str_contains($cssFor($plain, 'engine-support'), 'blocks-engine-css-owned-layout'), 'G5: css-owned-layout neutralizer is absent without its marker');
+$layoutStaticAssets = $layoutItems['source_reports']['materialization_plan']['assets'] ?? array();
+$layoutWordPressAssets = $layoutItems['source_reports']['wordpress_site_plan']['assets'] ?? array();
+$layoutStaticCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', is_array($layoutStaticAssets) ? $layoutStaticAssets : array()));
+$layoutWordPressCompat = array_values(array_filter(
+    is_array($layoutWordPressAssets) ? $layoutWordPressAssets : array(),
+    static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        && str_contains((string) ($asset['content'] ?? ''), $neutralizer)
+));
+$assert(! str_contains($layoutStaticCss, $neutralizer) && 1 === count($layoutWordPressCompat), 'C2: css-owned-layout neutralizer is absent from static materialization and present in after-author WordPress compatibility CSS');
+
+$saasHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/solved/15-saas/index.html');
+$saas = ( new ArtifactCompiler() )->compile(array( 'generated_html' => $saasHtml ))->toArray();
+$saasStaticAssets = $saas['source_reports']['materialization_plan']['assets'] ?? array();
+$saasStaticCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', is_array($saasStaticAssets) ? $saasStaticAssets : array()));
+$normalizedSaasStaticCss = preg_replace('/\s+/', '', $saasStaticCss) ?? '';
+$assert(
+    ! str_contains($saasStaticCss, $neutralizer)
+        && str_contains($normalizedSaasStaticCss, 'max-width:1160px')
+        && str_contains($normalizedSaasStaticCss, 'margin-right:auto')
+        && str_contains($normalizedSaasStaticCss, 'margin-left:24px'),
+    'C3: solved 15-saas static CSS omits the neutralizer and preserves authored max-width and horizontal margins'
+);
 
 $richTextMarkup = (string) ($richText['serialized_blocks'] ?? '');
 $assert(
