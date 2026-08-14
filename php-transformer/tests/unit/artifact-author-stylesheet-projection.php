@@ -289,16 +289,18 @@ $directNestedList = ( new HtmlTransformer() )->transform('<ol><li>Stage<ul><li>L
 $assert(2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list')) && 2 === count($findBlocks($directNestedList['blocks'] ?? array(), 'core/list-item')), 'direct-child nested lists continue to serialize as native nested list blocks');
 
 $nativeTable = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="table.css"><main><table><thead><tr><th>Layer</th><th>Owns</th></tr></thead><tbody><tr><th>Blocks Engine</th><td>Compilation</td></tr><tr><th>Importer</th><td><div class="paragraph">Materialization</div></td></tr></tbody></table></main>' ),
-        array( 'path' => 'table.css', 'kind' => 'css', 'content' => 'th,td{padding:1.35rem 1rem;vertical-align:top}thead th{font-size:.66rem;text-transform:uppercase}tbody th{width:22%;font-size:.9rem}tbody td{width:39%;color:#4c5851;font-size:.86rem}div.paragraph{padding-bottom:20px}' ),
+        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="/table.css"><main><table><thead><tr><th>Layer</th><th>Owns</th></tr></thead><tbody><tr><th>Blocks Engine</th><td class="stack-cell">Compilation</td></tr><tr><th>Importer</th><td class="stack-cell"><div class="paragraph">Materialization</div></td></tr></tbody></table></main>' ),
+        array( 'path' => 'website/table.css', 'kind' => 'css', 'content' => 'th,td{padding:1.35rem 1rem;vertical-align:top}thead th{font-size:.66rem;text-transform:uppercase}tbody th{width:22%;font-size:.9rem}tbody td{width:39%;color:#4c5851;font-size:.86rem}div.paragraph{padding-bottom:20px}@media(max-width:600px){td.stack-cell{display:block;width:100%;padding:10px 0}}' ),
     ),
 ) )->toArray();
 $nativeTableMarkup = (string) ($nativeTable['serialized_blocks'] ?? '');
-$nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'table.css' === ($asset['path'] ?? '')), 'content'));
+$nativeTableCss = implode("\n", array_column(array_filter($nativeTable['assets'] ?? array(), static fn (array $asset): bool => 'website/table.css' === ($asset['path'] ?? '')), 'content'));
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)"><table/', $nativeTableMarkup, $nativeTableMarker) === 1 && str_contains($nativeTableMarkup, '<!-- wp:table'), 'external table stylesheet retains a native core/table with an isolated projection marker');
 $assert(str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>thead>tr:nth-child(1)>th:nth-child(1):not(blocks-engine-specificity-') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2):not(blocks-engine-specificity-') && ! str_contains($nativeTableCss, ':where(.' . ($nativeTableMarker[1] ?? '') . '>table>') && str_contains($nativeTableCss, 'padding:1.35rem 1rem'), 'direct th and td selectors use an isolated table class and exact path that beats .wp-block-table td/th defaults');
 $assert(str_contains($nativeTableCss, 'font-size:.66rem') && str_contains($nativeTableCss, 'width:22%') && str_contains($nativeTableCss, 'width:39%'), 'thead and tbody cell selectors retain their external stylesheet presentation');
+$assert(str_contains($nativeTableCss, '@media(max-width:600px)') && str_contains($nativeTableCss, '.' . ($nativeTableMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(2)') && str_contains($nativeTableCss, 'display:block;width:100%;padding:10px 0'), 'external responsive cell selectors project through the isolated native table marker');
 $assert(preg_match('/<div class="paragraph (blocks-engine-source-div-[^"]+)">Materialization<\/div>/', $nativeTableMarkup, $nativeTableDescendantMarker) === 1 && str_contains($nativeTableCss, ':where(.' . ($nativeTableDescendantMarker[1] ?? '') . ')') && str_contains($nativeTableCss, 'padding-bottom:20px'), 'preserved table-cell descendants retain source-tag selector markers');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($nativeTableMarkup)['status'], 'projected artifact table markup remains editor-valid');
 
