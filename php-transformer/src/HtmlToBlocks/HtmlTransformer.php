@@ -1033,13 +1033,15 @@ final class HtmlTransformer
 
     private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
     {
-        $cssParts = array();
+        $beforeAuthorCssParts = array();
+        $authorCssParts = array();
+        $afterAuthorCssParts = array();
         $authorCss = '';
         if ( $includeAuthorStyles && '' !== $this->combinedAuthorCss ) {
             $authorCss = $this->rewriteAuthorStylesheet($this->combinedAuthorCss);
             $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
             if ( '' !== trim($split['preamble']) ) {
-                $cssParts[] = $split['preamble'];
+                $authorCssParts[] = $split['preamble'];
             }
             $authorCss = $split['stylesheet'];
         }
@@ -1048,79 +1050,92 @@ final class HtmlTransformer
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
             // remain able to override them.
-            $cssParts[] = $geometryCss;
+            $beforeAuthorCssParts[] = $geometryCss;
         }
         $markerReset = $this->richTextMarkerResetCss();
         if ( '' !== $markerReset ) {
-            $cssParts[] = $markerReset;
+            $beforeAuthorCssParts[] = $markerReset;
         }
         if ( str_contains($serializedBlocks, self::SYNTHETIC_PARAGRAPH_CLASS) ) {
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
-            $cssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
+            $beforeAuthorCssParts[] = ':where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
-            $cssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+            $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
-            $cssParts[] = ':where(.' . self::CSS_OWNED_FLOW_CLASS . ')>p{margin-top:0;margin-bottom:0}';
+            $beforeAuthorCssParts[] = ':where(.' . self::CSS_OWNED_FLOW_CLASS . ')>p{margin-top:0;margin-bottom:0}';
         }
         if ( str_contains($serializedBlocks, self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
             // their valid paragraph host must not create a line box in document flow.
-            $cssParts[] = ':where(.' . self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
+            $beforeAuthorCssParts[] = ':where(.' . self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
-            $cssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
+            $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
-            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            $beforeAuthorCssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_FLOW_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
             // carried grid geometry (gap) owns the spacing between items. The
             // carrier rides groups and lists, so the reset is class-scoped.
-            $cssParts[] = ':where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            $beforeAuthorCssParts[] = ':where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
+            // Core's constrained-layout child geometry must not override the
+            // inline axis owned by the source flex or grid layout.
+            $beforeAuthorCssParts[] = '.wp-block-group.' . self::CSS_OWNED_LAYOUT_CLASS . '>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
             // A semantic Group used as a direct grid/flex item contains native
             // paragraph blocks. Neutralize only those generated inner defaults.
-            $cssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            $beforeAuthorCssParts[] = ':where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+            $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
         if ( array() !== $this->nativeSearchTriggerCssRules ) {
-            $cssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
+            $beforeAuthorCssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
         }
         if ( '' !== trim($authorCss) ) {
-            $cssParts[] = $authorCss;
+            $authorCssParts[] = $authorCss;
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // The source mobile menu hides its desktop list container. Core
             // navigation owns that responsive swap now, so keep the block host
             // visible and let core hide only its responsive inner container.
-            $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
             $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
             if ( '' !== $mobileOverlayBackground ) {
-                $cssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
+                $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
         }
         if ( array() !== $this->nativeButtonStyleRules ) {
-            $cssParts[] = implode("\n", $this->nativeButtonStyleRules);
+            $afterAuthorCssParts[] = implode("\n", $this->nativeButtonStyleRules);
         }
         if ( array() !== $this->directFlexButtonStyleRules ) {
-            $cssParts[] = implode("\n", $this->directFlexButtonStyleRules);
+            $afterAuthorCssParts[] = implode("\n", $this->directFlexButtonStyleRules);
         }
         if ( array() !== $this->fullWidthButtonStyleRules ) {
-            $cssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
+            $afterAuthorCssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
         }
 
+        $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
+        $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
+        $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
+    }
+
+    /** @param array<int, string> $cssParts */
+    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix): void
+    {
         $css = trim(implode("\n\n", $cssParts));
         if ( '' === $css ) {
             return;
@@ -1128,15 +1143,16 @@ final class HtmlTransformer
 
         $content = $css . "\n";
         $hash = hash('sha256', $content);
-        $path = 'assets/css/source-author-' . substr($hash, 0, 16) . '.css';
+        $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
 
         $this->generatedAssets[$path] = array(
-            'source'      => 'author-css',
+            'source'      => $source,
             'source_path' => '',
             'path'        => $path,
             'target_path' => $path,
             'kind'        => 'css',
             'role'        => 'stylesheet',
+            'stylesheet_placement' => $placement,
             'mime_type'   => 'text/css',
             'media_type'  => 'text/css',
             'content'     => $content,
@@ -1435,14 +1451,8 @@ final class HtmlTransformer
     private function authorStylesheetProjections(): array
     {
         $projections = array();
-        $markerReset = $this->richTextMarkerResetCss();
         foreach ( $this->authorStylesheetAssets as $asset ) {
             $content = $this->rewriteAuthorStylesheet($asset['content']);
-            if ( '' !== $markerReset ) {
-                $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($content);
-                $content = $split['preamble'] . $markerReset . "\n" . $split['stylesheet'];
-                $markerReset = '';
-            }
             $hash = hash('sha256', $content);
             $projections[] = array(
                 'path'        => $asset['path'],
@@ -5024,10 +5034,10 @@ final class HtmlTransformer
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
-        if ( '' === $marker && ! isset($declarations['background-color']) ) {
+        if ( ! isset($declarations['background-color']) ) {
             $declarations['background-color'] = 'transparent';
         }
-        if ( '' === $marker && ! isset($declarations['color']) ) {
+        if ( ! isset($declarations['color']) ) {
             $declarations['color'] = 'inherit';
         }
 

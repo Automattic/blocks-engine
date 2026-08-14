@@ -17,12 +17,13 @@ $assert = static function (bool $condition, string $message) use (&$failures, &$
 };
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
 $css = static function (array $result): string {
+    $parts = array();
     foreach ( $result['assets'] ?? array() as $asset ) {
         if ( 'css' === ($asset['kind'] ?? '') ) {
-            return (string) ($asset['content'] ?? '');
+            $parts[] = (string) ($asset['content'] ?? '');
         }
     }
-    return '';
+    return implode("\n", $parts);
 };
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
@@ -211,7 +212,7 @@ $assert(str_contains($richTextPillMarkup, '<mark class="pill"') && str_contains(
 $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:4rem;color:var(--amber)}</style><p><span class="quote-mark">&quot;</span>Testimonial</p>');
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);
-$assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker reset stays below projected author paint instead of overriding it inline');
+$assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker carries an inline transparent background while explicit author color remains authoritative after the reset');
 
 $richTextPunctuation = $transform('<style>.quote-mark{font-size:4rem}</style><p><span class="quote-mark">"</span>The team\'s launch</p>');
 $richTextPunctuationMarkup = (string) ($richTextPunctuation['serialized_blocks'] ?? '');

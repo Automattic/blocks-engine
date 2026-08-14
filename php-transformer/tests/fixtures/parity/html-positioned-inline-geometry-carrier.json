@@ -43,12 +43,12 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<script" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:" },
     { "path": "assets.0.content", "assert": "contains", "value": "position:absolute" },
-    { "path": "assets.0.content", "assert": "contains", "value": "z-index:2" },
+    { "path": "assets.1.content", "assert": "contains", "value": "z-index:2" },
     { "path": "assets.0.content", "assert": "contains", "value": "inset:1rem auto auto 2rem !important" },
     { "path": "assets.0.content", "assert": "contains", "value": "margin-top:0;margin-bottom:0" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-semantic-" },
-    { "path": "assets.0.content", "assert": "contains", "value": ".x > strong::before{content:" },
-    { "path": "assets.0.content", "assert": "contains", "value": "backdrop-filter:blur(1px)" },
+    { "path": "assets.1.content", "assert": "contains", "value": ":where(.blocks-engine-semantic-" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".x > strong::before{content:" },
+    { "path": "assets.1.content", "assert": "contains", "value": "backdrop-filter:blur(1px)" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "fallbacks", "assert": "count", "count": 1 }
   ]

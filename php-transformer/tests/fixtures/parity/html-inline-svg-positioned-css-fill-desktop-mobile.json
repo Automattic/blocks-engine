@@ -22,7 +22,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"height\":\"728.88px\"" },
-    { "path": "assets.1.content", "assert": "contains", "value": ".hero-art :where(figure)" },
-    { "path": "assets.1.content", "assert": "contains", "value": ".wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:cover" }
+    { "path": "assets.2.content", "assert": "contains", "value": ".hero-art :where(figure)" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:cover" }
   ]
 }
