@@ -161,7 +161,7 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 Run the package contract, parity fixtures, and clean package-install proof with `composer test`. The checked-in fixtures assert current transformer behavior, and the install proof verifies that Composer can install `automattic/blocks-engine-php-transformer` from the `php-transformer/` package root without symlinking back to the working tree.
 
-Run the real WordPress materialization integration against a standard WordPress test-suite runtime with `REQUIRE_WP_TESTS=1 WP_TESTS_DIR=/path/to/wordpress-develop/tests/phpunit composer test:wordpress-integration`. Without `REQUIRE_WP_TESTS=1`, the command reports an explicit local skip when that runtime is unavailable. CI provisions WordPress `6.7.4`, MySQL `8.0.36`, and runs the required form of this command in `.github/workflows/php-transformer.yml`.
+Run the real WordPress materialization integration against a standard WordPress test-suite runtime with `REQUIRE_WP_TESTS=1 WP_TESTS_DIR=/path/to/wordpress-develop/tests/phpunit composer test:wordpress-integration`. Without `REQUIRE_WP_TESTS=1`, the command reports an explicit local skip when that runtime is unavailable. CI provisions WordPress `7.0.4`, MySQL `8.0.36`, and runs the required form of this command in `.github/workflows/php-transformer.yml`.
 
 ## Release Consumption
 
