@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
@@ -40,6 +41,23 @@ final class ArtifactCompiler
 	/** @var array<string, string> */
 	private array $wordpressCompatCssCache = array();
 
+    private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $filesByPath = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $imageFiles = array();
+
+    /** @var array<int, string> */
+    private array $scriptContents = array();
+
+    /** @var array<string, array<int, string>> */
+    private array $scriptDomSelectorCache = array();
+
+    /** @var array<string, array<string, bool>> */
+    private array $scriptControlSelectorCache = array();
+
     /**
      * Resolve the runtime selector context used when a caller converts one
      * source document or landmark separately from full artifact compilation.
@@ -53,6 +71,7 @@ final class ArtifactCompiler
             'entrypoint' => $sourcePath,
             'files'      => $files,
         ));
+        $this->indexFiles($normalized['files']);
 
         return array(
             'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
@@ -159,6 +178,7 @@ final class ArtifactCompiler
         $startedAt = hrtime(true);
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
+        $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
@@ -174,6 +194,7 @@ final class ArtifactCompiler
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
+        $this->indexFiles($normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
@@ -880,7 +901,7 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
@@ -1336,7 +1357,7 @@ final class ArtifactCompiler
     /** @param array<int, array<string, mixed>> $files */
     private function artifactRelativeStylesheetContent(string $content, string $stylesheetPath, array $files): string
     {
-        $paths = array_fill_keys(array_column($files, 'path'), true);
+        $paths = array() !== $this->filesByPath ? $this->filesByPath : array_fill_keys(array_column($files, 'path'), true);
         return CssUrlRewriter::rewrite($content, static function (string $reference) use ($stylesheetPath, $paths): string {
             if ('' === $reference || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) return $reference;
             preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
@@ -2445,6 +2466,10 @@ final class ArtifactCompiler
      */
     private function allScriptContents(array $files): array
     {
+        if ( array() !== $this->filesByPath ) {
+            return $this->scriptContents;
+        }
+
         $scripts = array();
         foreach ( $files as $file ) {
             if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
@@ -2492,6 +2517,11 @@ final class ArtifactCompiler
      */
     private function scriptDomSelectors(string $script): array
     {
+        $cacheKey = hash('sha256', $script);
+        if ( isset($this->scriptDomSelectorCache[$cacheKey]) ) {
+            return $this->scriptDomSelectorCache[$cacheKey];
+        }
+
         $selectors = array();
         if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $id ) {
@@ -2541,7 +2571,7 @@ final class ArtifactCompiler
             }
         }
 
-        return array_keys($selectors);
+        return $this->scriptDomSelectorCache[$cacheKey] = array_keys($selectors);
     }
 
     private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
@@ -2655,6 +2685,11 @@ final class ArtifactCompiler
      */
     private function scriptControlRuntimeSelectors(string $script): array
     {
+        $cacheKey = hash('sha256', $script);
+        if ( isset($this->scriptControlSelectorCache[$cacheKey]) ) {
+            return $this->scriptControlSelectorCache[$cacheKey];
+        }
+
         $selectors = array();
         $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
 
@@ -2690,7 +2725,7 @@ final class ArtifactCompiler
             }
         }
 
-        return $selectors;
+        return $this->scriptControlSelectorCache[$cacheKey] = $selectors;
     }
 
     private function scriptSelectorPattern(): string
@@ -3013,7 +3048,8 @@ final class ArtifactCompiler
     private function assetMetadataForSource(string $sourcePath, array $files): array
     {
         $metadata = array();
-        foreach ( $files as $file ) {
+        $candidates = array() !== $this->filesByPath ? $this->imageFiles : $files;
+        foreach ( $candidates as $file ) {
             if ( $this->isMaterializedHtmlDocument($file) ) {
                 continue;
             }
@@ -3787,6 +3823,10 @@ final class ArtifactCompiler
             return null;
         }
 
+        if ( isset($this->filesByPath[$path]) ) {
+            return $this->filesByPath[$path];
+        }
+
         foreach ( $files as $file ) {
             if ( $path === ($file['path'] ?? '') ) {
                 return $file;
@@ -3796,6 +3836,35 @@ final class ArtifactCompiler
         return null;
     }
 
+    /**
+     * Build immutable lookup state for one normalized artifact compilation.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function indexFiles(array $files): void
+    {
+        $this->filesByPath = array();
+        $this->imageFiles = array();
+        $this->scriptContents = array();
+        $this->scriptDomSelectorCache = array();
+        $this->scriptControlSelectorCache = array();
+
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) ) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            if ( '' !== $path ) {
+                $this->filesByPath[$path] = $file;
+            }
+            if ( str_starts_with((string) ($file['mime_type'] ?? ''), 'image/') && ! $this->isMaterializedHtmlDocument($file) ) {
+                $this->imageFiles[] = $file;
+            }
+            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
+                $this->scriptContents[] = (string) $file['content'];
+            }
+        }
+    }
     private function resolveHtmlReferencePath(string $reference, string $entryPath): string
     {
         return ArtifactPath::resolveRelativePath($reference, $entryPath);

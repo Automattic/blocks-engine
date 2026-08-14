@@ -89,6 +89,7 @@
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php",
       "php tests/unit/deterministic-row-deduplicator.php",
+      "php tests/unit/html-transformer-shared-analysis-cache.php",
       "php tests/unit/compile-fragment-author-stylesheet.php"
     ],
     "test:parity": "php tests/parity/run.php",
