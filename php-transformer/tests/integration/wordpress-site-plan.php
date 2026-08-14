@@ -27,19 +27,22 @@ $previousTheme = get_stylesheet();
 $previousTemplate = get_template();
 $previousShowOnFront = get_option('show_on_front');
 $previousPageOnFront = get_option('page_on_front');
+$previousUserId = get_current_user_id();
+$editorUserId = 0;
 $pageIds = array();
 try {
 if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) throw new RuntimeException('Could not create integration theme directory.');
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<!doctype html><html><head><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
+    'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.home-owned{color:#123456}</style><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
     'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    'assets/global.css' => '.global-presentation{display:block}',
     'assets/head.js' => 'window.headAsset=true;',
     'assets/defer.js' => 'window.deferAsset=true;',
     'assets/async.js' => 'window.asyncAsset=true;',
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
     'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
-    'nested/about.html' => '<!doctype html><html><head><script src="assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
+    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.about-owned{color:#654321}</style><script src="assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
     'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
     array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
@@ -68,6 +71,25 @@ if (is_wp_error($positionedSvgId)) throw new RuntimeException($positionedSvgId->
 $pageIds['positioned-svg'] = $positionedSvgId;
 $positionedSvgSaved = (string) get_post_field('post_content', $positionedSvgId);
 $assert(str_contains($positionedSvgCss, '.wp-block-image.be-inline-geometry-') && str_contains($positionedSvgCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}') && str_contains($positionedSvgSaved, 'wp-block-image hero-art be-inline-geometry-') && 'core/image' === (parse_blocks($positionedSvgSaved)[0]['innerBlocks'][0]['blockName'] ?? null), 'WordPress parses and saves positioned SVG fill as a native core/image while its desktop/mobile parent-fill CSS defeats core intrinsic-image sizing.');
+$responsiveArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><picture><source media="(min-width: 800px)" srcset="assets/hero-large.jpg 1200w" sizes="100vw"><img src="assets/hero.jpg" srcset="assets/hero.jpg 600w, assets/hero-2x.jpg 1200w" sizes="(max-width: 799px) 100vw, 50vw" alt="Hero"></picture><div class="gallery"><figure><img src="assets/gallery-one.jpg" srcset="assets/gallery-one-2x.jpg 2x" alt="Gallery one"></figure><figure><img src="assets/gallery-two.jpg" alt="Gallery two"></figure></div></main>', 'assets/hero.jpg' => 'hero', 'assets/hero-2x.jpg' => 'hero-2x', 'assets/hero-large.jpg' => 'hero-large', 'assets/gallery-one.jpg' => 'gallery-one', 'assets/gallery-one-2x.jpg' => 'gallery-one-2x', 'assets/gallery-two.jpg' => 'gallery-two')))->toArray();
+$responsivePlan = $responsiveArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$responsiveResolved = (new WordPressSitePlanResolver())->resolve($responsivePlan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
+$responsiveMarkup = (string) ($responsiveResolved['pages'][0]['resolved_block_markup'] ?? '');
+$editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
+if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
+wp_set_current_user($editorUserId);
+$responsiveId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Responsive fallback', 'post_content' => $responsiveMarkup), true);
+if (is_wp_error($responsiveId)) throw new RuntimeException($responsiveId->get_error_message());
+$pageIds['responsive-fallback'] = $responsiveId;
+$responsiveSaved = (string) get_post_field('post_content', $responsiveId);
+$responsiveRendered = do_blocks($responsiveSaved);
+$responsiveBase = home_url('/wp-content/themes/' . $theme . '/assets/assets/');
+$responsiveBlocks = parse_blocks($responsiveSaved);
+$assert('core/group' === ($responsiveBlocks[0]['blockName'] ?? null) && 'core/html' === ($responsiveBlocks[0]['innerBlocks'][0]['blockName'] ?? null) && 'core/html' === ($responsiveBlocks[0]['innerBlocks'][1]['blockName'] ?? null) && str_contains($responsiveRendered, '<picture>') && str_contains($responsiveRendered, 'media="(min-width: 800px)"') && str_contains($responsiveRendered, $responsiveBase . 'hero-large.jpg 1200w') && str_contains($responsiveRendered, $responsiveBase . 'hero.jpg 600w, ' . $responsiveBase . 'hero-2x.jpg 1200w') && str_contains($responsiveRendered, 'sizes="(max-width: 799px) 100vw, 50vw"') && str_contains($responsiveRendered, $responsiveBase . 'gallery-one-2x.jpg 2x') && str_contains($responsiveRendered, 'class="gallery"') && !str_contains($responsiveSaved, '<!-- wp:gallery'), 'WordPress persists, reloads, parses, and renders materialized picture source selection and mixed responsive gallery markup through explicit core/html fallbacks.');
+$videoMarkup = (string) ((new HtmlTransformer())->transform('<video src="hero.mp4" autoplay loop muted playsinline controls></video>')->toArray()['serialized_blocks'] ?? '');
+$videoSaved = serialize_blocks(parse_blocks($videoMarkup));
+$videoRendered = do_blocks($videoSaved);
+$assert('core/video' === (parse_blocks($videoSaved)[0]['blockName'] ?? null) && str_contains($videoSaved, '"playsInline":true') && str_contains($videoRendered, '<video src="hero.mp4" controls="controls" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'), 'WordPress parses, serializes, and renders native core/video playback attributes without invalid markup.');
 $fixture87Styles = '.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
 $fixture87 = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>', 'assets/site.css' => $fixture87Styles)))->toArray();
 $fixture87Saved = serialize_blocks(parse_blocks((string) ($fixture87['serialized_blocks'] ?? '')));
@@ -81,6 +103,12 @@ $assert('page' === get_option('show_on_front') && $pageIds[$readingOperation['fr
 $essay = get_post($pagesBySource['notes/essay.html'] ?? 0); $essayPlan = $pageDeclarations['notes/essay.html'] ?? array();
 $assert($essay && 'post' === $essay->post_type && 0 === (int) $essay->post_parent && ($essayPlan['reconciliation_identity'] ?? null) === get_post_meta($essay->ID, '_blocks_engine_reconciliation_identity', true), 'Reference materialization honors operation post_type, keeps posts parentless, and persists the runtime reconciliation identity.');
 $frontPage = get_post((int) get_option('page_on_front')); if (!$frontPage) throw new RuntimeException('Could not load front page.');
+$editorCss = static function (WP_Post $post): string { $settings = apply_filters('block_editor_settings_all', array('styles' => array()), new WP_Block_Editor_Context(array('name' => 'core/edit-post', 'post' => $post))); return implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $settings['styles'] ?? array())); };
+$frontEditorCss = $editorCss($frontPage);
+$nestedAbout = get_post($pagesBySource['nested/about.html']); if (!$nestedAbout) throw new RuntimeException('Could not load nested about page.');
+$aboutEditorCss = $editorCss($nestedAbout);
+$assert(str_contains($frontEditorCss, '.global-presentation{display:block}') && str_contains($frontEditorCss, '.home-owned{color:#123456}') && !str_contains($frontEditorCss, '.about-owned{color:#654321}') && str_contains($frontEditorCss, 'blocks-engine-presentation:'), 'Front-page editor receives global and front-page presentation assets with content-addressed evidence.');
+$assert(str_contains($aboutEditorCss, '.global-presentation{display:block}') && str_contains($aboutEditorCss, '.about-owned{color:#654321}') && !str_contains($aboutEditorCss, '.home-owned{color:#123456}') && str_contains($aboutEditorCss, 'blocks-engine-presentation:'), 'Nested-page editor receives global and route-owned presentation assets while excluding unrelated route CSS.');
 global $wp_query;
 $setRequest = static function (WP_Post $post, bool $frontPage) use (&$wp_query): void { $page = 'page' === $post->post_type; $uri = $page ? get_page_uri($post) : ''; $wp_query->is_front_page = $frontPage; $wp_query->is_page = $page; $wp_query->is_single = !$page; $wp_query->is_home = false; $wp_query->is_singular = true; $wp_query->post = $post; $wp_query->posts = array($post); $wp_query->queried_object = $post; $wp_query->queried_object_id = $post->ID; $wp_query->query_vars = $page ? array('page_id' => $post->ID, 'pagename' => $uri) : array('p' => $post->ID, 'post_type' => 'post'); setup_postdata($post); };
 $resetScripts = static function (): WP_Scripts { $scripts = wp_scripts(); $scripts->queue = array(); $scripts->to_do = array(); $scripts->done = array(); $scripts->in_footer = array(); $scripts->groups = array(); return $scripts; };
@@ -119,6 +147,11 @@ $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($ne
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
+    wp_set_current_user($previousUserId);
+    if ($editorUserId > 0) {
+        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
+        wp_delete_user($editorUserId);
+    }
     update_option('show_on_front', $previousShowOnFront); update_option('page_on_front', $previousPageOnFront);
     if ('' !== $previousTheme) switch_theme($previousTheme);
     wp_clean_themes_cache();

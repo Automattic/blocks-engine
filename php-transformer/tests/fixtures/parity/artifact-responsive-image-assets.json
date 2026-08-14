@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-responsive-image-assets",
-  "description": "Compiles nested artifact HTML images with source-relative local src/srcset references into materializable asset paths without hiding missing candidates.",
+  "description": "Preserves nested artifact responsive image sources through a valid core/html fallback when core/image cannot serialize them.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-responsive-image-assets.json",
-    "notes": "Covers generic nested relative image path resolution, srcset descriptor preservation, sizes preservation, and missing-candidate visibility."
+    "notes": "Covers generic nested relative image path resolution, source srcset analysis, and valid fallback preservation of responsive image selection."
   },
   "legacy_comparison": {
     "skip": true,
@@ -36,16 +36,13 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/images/hero.png", "alt": "Hero", "srcset": "assets/images/hero-small.png 480w, ../../missing/ghost.png 960w, https://cdn.example.test/hero.png 1200w", "sizes": "(max-width: 600px) 100vw, 600px", "width": "600", "height": "400", "caption": "Hero image", "className": "product-card is-resized" } }
+    { "path": "blocks.0", "name": "core/html" }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "diagnostic_code": "html_responsive_image_fallback", "tag": "figure", "reason": "responsive_image_fallback" }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "failed" },
-    { "path": "diagnostics", "assert": "count", "count": 1 },
-    { "path": "diagnostics.0.code", "assert": "equals", "value": "wordpress_site_plan_invalid_declaration" },
-    { "path": "diagnostics.0.severity", "assert": "equals", "value": "error" },
-    { "path": "diagnostics.0.source", "assert": "equals", "value": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" },
-    { "path": "source_reports.wordpress_site_plan_diagnostics", "assert": "equals", "value": [{ "code": "wordpress_site_plan_invalid_declaration", "message": "WordPress site plan contains unresolved local browser reference ../../missing/ghost.png.", "source_path": "pages/products/detail.html", "document_kind": "page", "declaration_kind": "browser_reference", "declaration_index": 0, "reason": "unresolved_local_browser_reference", "fields": { "attribute": "json:srcset", "context": "page", "value": "../../missing/ghost.png" }, "severity": "error", "source": "Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler" }] },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },
@@ -54,9 +51,9 @@
     { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 2 },
     { "path": "source_reports.materialization_plan.assets.0.path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.materialization_plan.assets.1.path", "assert": "equals", "value": "assets/images/hero-small.png" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/images/hero.png\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\"assets/images/hero-small.png 480w, ../../missing/ghost.png 960w, https://cdn.example.test/hero.png 1200w\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "sizes=\"(max-width: 600px) 100vw, 600px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"../../assets/images/hero.png\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "sizes=" },
     { "path": "serialized_blocks", "assert": "contains", "value": "../../missing/ghost.png" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }
   ]

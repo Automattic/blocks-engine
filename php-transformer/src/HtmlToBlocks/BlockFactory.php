@@ -742,13 +742,11 @@ final class BlockFactory
         }
 
         $imageAttrs = array(
-            'src'    => $attrs['url'] ?? '',
-            'alt'    => $attrs['alt'] ?? '',
-            'title'  => $attrs['title'] ?? '',
-            'srcset' => $attrs['srcset'] ?? '',
-            'sizes'  => $attrs['sizes'] ?? '',
-            'class'  => $this->mergeClassNames(! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '', $borderSupport['classes']),
-            'style'  => trim($this->imageDimensionStyle($attrs) . ';' . $borderSupport['style'], ';'),
+            'src'   => $attrs['url'] ?? '',
+            'alt'   => $attrs['alt'] ?? '',
+            'title' => $attrs['title'] ?? '',
+            'class' => $this->mergeClassNames(! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '', $borderSupport['classes']),
+            'style' => trim($this->imageDimensionStyle($attrs) . ';' . $borderSupport['style'], ';'),
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
@@ -886,6 +884,12 @@ final class BlockFactory
             'height'   => (string) ($attrs['height'] ?? ''),
             'controls' => ! empty($attrs['controls']) ? 'controls' : '',
         );
+        if ( 'video' === $tagName ) {
+            $mediaAttrs['autoplay']   = ! empty($attrs['autoplay']) ? 'autoplay' : '';
+            $mediaAttrs['loop']       = ! empty($attrs['loop']) ? 'loop' : '';
+            $mediaAttrs['muted']      = ! empty($attrs['muted']) ? 'muted' : '';
+            $mediaAttrs['playsinline'] = ! empty($attrs['playsInline']) ? 'playsinline' : '';
+        }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
 
         return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';

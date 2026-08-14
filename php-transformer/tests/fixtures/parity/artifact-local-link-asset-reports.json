@@ -101,6 +101,11 @@
       "diagnostic_code": "html_unsupported_element",
       "tag": "link",
       "reason": "unsupported_element"
+    },
+    {
+      "diagnostic_code": "html_responsive_image_fallback",
+      "tag": "img",
+      "reason": "responsive_image_fallback"
     }
   ]
 }

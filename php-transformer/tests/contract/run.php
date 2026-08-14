@@ -63,6 +63,48 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
+$assert(
+    array(
+        'autoplay'    => true,
+        'loop'        => true,
+        'muted'       => true,
+        'playsInline' => true,
+    ) === array_intersect_key($videoResult['blocks'][0]['attrs'] ?? array(), array_flip(array( 'autoplay', 'loop', 'muted', 'playsInline' ))),
+    'video playback attributes should map to canonical core/video attributes'
+);
+$assert(
+    str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
+    'video playback attributes should be preserved in native save markup'
+);
+
+$responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
+$assert(
+    'core/html' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
+        && str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'srcset="hero.jpg 1x, hero-2x.jpg 2x"')
+        && str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'sizes="100vw"')
+        && 'html_responsive_image_fallback' === ($responsiveImageResult['fallbacks'][0]['diagnostic_code'] ?? null),
+    'responsive image sources should use the valid core/html fallback instead of lossy core/image markup'
+);
+$responsiveSrcsetSanitization = ( new HtmlTransformer() )->transform('<picture><source srcset="javascript:alert(1) 1x, safe.webp 2x"><img src="hero.jpg" srcset="data:image/png;base64,aGVsbG8= 1x, blob:https://example.com/id 2x, hero-2x.jpg 3x"></picture>')->toArray();
+$responsiveSrcsetMarkup = (string) ($responsiveSrcsetSanitization['serialized_blocks'] ?? '');
+$assert(
+    str_contains($responsiveSrcsetMarkup, 'safe.webp 2x')
+        && str_contains($responsiveSrcsetMarkup, 'data:image/png;base64,aGVsbG8= 1x')
+        && str_contains($responsiveSrcsetMarkup, 'hero-2x.jpg 3x')
+        && ! str_contains($responsiveSrcsetMarkup, 'javascript:')
+        && ! str_contains($responsiveSrcsetMarkup, 'blob:'),
+    'responsive core/html fallback strips unsafe srcset candidates while retaining safe URLs and descriptors'
+);
+$responsiveGallery = ( new HtmlTransformer() )->transform('<div class="gallery"><figure><img src="one.jpg" srcset="one-2x.jpg 2x"></figure><figure><img src="two.jpg"></figure></div>')->toArray();
+$assert(
+    'core/html' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
+        && 1 === count($responsiveGallery['fallbacks'] ?? array())
+        && 'div' === ($responsiveGallery['fallbacks'][0]['tag'] ?? null)
+        && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
+    'responsive gallery media is preserved as one fallback instead of a gallery with core/html children'
+);
+
 $referenceAnalyzer = new ReferenceAnalyzer();
 $htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
 $assert('href' === ($htmlCandidates[0]['attribute'] ?? ''), 'reference analyzer extracts HTML href references');

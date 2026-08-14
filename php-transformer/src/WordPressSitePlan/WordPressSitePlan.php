@@ -856,6 +856,24 @@ final class WordPressSitePlan
             $attributes[$handle] = array_filter(array('type' => $script['type'], 'nomodule' => $script['nomodule'], 'integrity' => $script['integrity'], 'crossorigin' => $script['crossorigin'], 'referrerpolicy' => $script['referrerpolicy'], 'fetchpriority' => $script['fetchpriority'], 'async' => $script['async'] && $script['module'], 'defer' => $script['defer'] && ($script['async'] || $script['module'])), static fn(mixed $value): bool => false !== $value && null !== $value);
         }
         $lines[] = "}, 1 );";
+        $editorStyles = array();
+        foreach ($assets as $asset) if ('css' === $asset['kind']) $editorStyles[] = array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes']);
+        if (array() !== $editorStyles) {
+            $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
+            $lines[] = "    \$post = \$context->post ?? null; if ( ! \$post instanceof WP_Post ) return \$settings;";
+            $lines[] = '    $styles = ' . var_export($editorStyles, true) . ';';
+            $lines[] = "    foreach ( \$styles as \$style ) {";
+            $lines[] = "        \$matches = false; foreach ( \$style['scopes'] as \$scope ) {";
+            $lines[] = "            if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
+            $lines[] = "            if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
+            $lines[] = "        }";
+            $lines[] = "        if ( ! \$matches ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
+            $lines[] = "        if ( false !== \$css ) \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' );";
+            $lines[] = "    }";
+            $lines[] = "    return \$settings;";
+            $lines[] = "}, 10, 2 );";
+        }
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
