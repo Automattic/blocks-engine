@@ -154,6 +154,13 @@ final class BlockFactory
             unset($attrs['inlineGeometryStyle']);
         }
 
+        // Group save() only reproduces registered block-support styles. Arbitrary
+        // source geometry already rides on the generated carrier class, so
+        // duplicating it in saved markup makes the block invalid in Gutenberg.
+        if ( 'core/group' === $name && preg_match('/(?:^|\s)be-inline-geometry-[^\s]+(?:\s|$)/', (string) ($attrs['className'] ?? '')) ) {
+            unset($attrs['inlineGeometryStyle']);
+        }
+
         if ( 'core/separator' === $name ) {
             unset($attrs['style']['spacing']['margin']['left'], $attrs['style']['spacing']['margin']['right']);
             if ( empty($attrs['style']['spacing']['margin']) ) {
