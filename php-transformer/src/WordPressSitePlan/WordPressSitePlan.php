@@ -869,7 +869,7 @@ final class WordPressSitePlan
             $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
             $lines[] = "        }";
             $lines[] = "        if ( ! \$matches ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
-            $lines[] = "        if ( false !== \$css ) \$settings['styles'][] = array( 'css' => '/* blocks-engine-presentation:' . \$style['content_hash'] . ' */' . \"\\n\" . \$css, '__unstableType' => 'theme' );";
+            $lines[] = "        if ( false !== \$css ) \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' );";
             $lines[] = "    }";
             $lines[] = "    return \$settings;";
             $lines[] = "}, 10, 2 );";
