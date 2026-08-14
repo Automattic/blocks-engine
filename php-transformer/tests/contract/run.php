@@ -2613,7 +2613,7 @@ $artifactNavStructureCss = $compiler->compile(
         'entry' => 'index.html',
         'files' => array(
             'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body class="menu-ready"><header><nav class="desktop-nav"><ul class="site-menu"><li><a href="#one">One</a></li></ul></nav></header></body></html>',
-            'styles.css' => '@media screen and (min-width:1025px){body.menu-ready .desktop-nav ul.site-menu{visibility:hidden;opacity:0}body.menu-ready .desktop-nav ul.site-menu.visible{visibility:visible;opacity:1}body.menu-ready .desktop-nav/* menu, desktop */ ul.site-menu>li{display:flex;align-items:center;margin-right:30px}body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}.nav\\,alternate ul.site-menu>li{gap:4px}.desktop-nav ul.site-menu:has([data-kind="/* promoted */"])>li{order:2}}',
+            'styles.css' => '.desktop-nav li{float:left}@media(max-width:700px){.site-menu{display:none!important}}@media screen and (min-width:1025px){body.menu-ready .desktop-nav ul.site-menu{visibility:hidden;opacity:0}body.menu-ready .desktop-nav ul.site-menu.visible{visibility:visible;opacity:1}body.menu-ready .desktop-nav/* menu, desktop */ ul.site-menu>li{display:flex;align-items:center;margin-right:30px}body.menu-ready .desktop-nav ul.site-menu>li a{font-family:Montserrat,sans-serif;font-size:16px;color:#000;text-transform:lowercase;padding-bottom:7px}.nav\\,alternate ul.site-menu>li{gap:4px}.desktop-nav ul.site-menu:has([data-kind="/* promoted */"])>li{order:2}}',
         ),
     )
 )->toArray();
@@ -2627,9 +2627,24 @@ $assert(str_contains($artifactNavStructureStaticCss, '.nav\\,alternate.site-menu
 $assert(str_contains($artifactNavStructureStaticCss, '[data-kind="/* promoted */"]') && str_contains($artifactNavStructureStaticCss, 'order:2'), 'artifact navigation projection preserves comment-like text inside quoted selector values');
 $artifactNavStructureCompatOffset = strpos($artifactNavStructureStaticCss, 'wp-compat: project source list navigation structure');
 $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '' : substr($artifactNavStructureStaticCss, $artifactNavStructureCompatOffset);
+$artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
+$assert(str_contains($artifactNavStructureCompatCss, '.desktop-nav.wp-block-navigation .wp-block-navigation__container .wp-block-navigation-item { float:left }'), 'artifact navigation projection maps classed navigation ancestor item selectors onto core navigation structure', $artifactNavStructureCompatCss);
+$assert(str_contains($artifactNavStructureAssetCss, '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}'), 'list navigation keeps the core responsive host visible when source mobile CSS hides its legacy menu container', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
+
+$artifactMobileNavOverlay = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><nav class="desktop-nav"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><div class="mobile-nav"><nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></div></body></html>',
+            'styles.css' => '.desktop-nav a{color:#fff}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}',
+        ),
+    )
+)->toArray();
+$artifactMobileNavOverlayAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactMobileNavOverlay['assets'] ?? array()));
+$assert(str_contains($artifactMobileNavOverlayAssetCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}'), 'deduplicated mobile navigation projects its authored background authoritatively over the core overlay default', $artifactMobileNavOverlayAssetCss);
 
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
@@ -3328,6 +3343,9 @@ $assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? nu
 $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
+$importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
+$assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
+$assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
 
 $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '',

@@ -1350,7 +1350,7 @@ final class ArtifactCompiler
                 if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
                     continue;
                 }
-                $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+                $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
                 $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
                 $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
                 $file = $byPath[$path] ?? null;
@@ -1395,7 +1395,7 @@ final class ArtifactCompiler
             if ( ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel')) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
                 continue;
             }
-            $originalPath = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
+            $originalPath = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
             if ( '' === $originalPath || ! isset($byPath[$originalPath]) || 'css' !== ($files[$byPath[$originalPath]]['kind'] ?? '') ) {
                 continue;
             }
@@ -1426,9 +1426,41 @@ final class ArtifactCompiler
         return $files;
     }
 
-    private function stylesheetPathFromHref(string $href, string $sourcePath): string
+    /** @param array<int, array<string, mixed>> $files */
+    private function stylesheetPathFromHref(string $href, string $sourcePath, array $files = array()): string
     {
-        return ArtifactPath::resolveRelativePath((string) preg_replace('/[?#].*$/', '', $href), $sourcePath);
+        $href = (string) preg_replace('/[?#].*$/', '', $href);
+        if ( ! str_starts_with($href, '/') ) {
+            return ArtifactPath::resolveRelativePath($href, $sourcePath);
+        }
+
+        return $this->artifactRootRelativePath($href, $sourcePath, array_fill_keys(array_column($files, 'path'), true));
+    }
+
+    /** @param array<string, true> $paths */
+    private function artifactRootRelativePath(string $reference, string $sourcePath, array $paths): string
+    {
+        $relative = ArtifactPath::safeRelativePath(ltrim($reference, '/'));
+        if ( '' === $relative || isset($paths[$relative]) ) {
+            return $relative;
+        }
+
+        $sourceSegments = explode('/', dirname($sourcePath));
+        $matches = array();
+        foreach ( array_keys($paths) as $path ) {
+            if ( ! str_ends_with($path, '/' . $relative) ) {
+                continue;
+            }
+            $candidateSegments = explode('/', dirname($path));
+            $common = 0;
+            while ( isset($sourceSegments[$common], $candidateSegments[$common]) && $sourceSegments[$common] === $candidateSegments[$common] ) {
+                ++$common;
+            }
+            $matches[] = array( 'path' => $path, 'common' => $common );
+        }
+        usort($matches, static fn (array $left, array $right): int => $right['common'] <=> $left['common'] ?: strcmp($left['path'], $right['path']));
+
+        return isset($matches[0]) && $matches[0]['common'] > 0 ? (string) $matches[0]['path'] : $relative;
     }
 
     private function stylesheetOccurrencePath(string $path, int $occurrence): string
@@ -2078,8 +2110,15 @@ final class ArtifactCompiler
     private function mapNavigationStructureSelector(string $selector, string $body): array
     {
         $selector = $this->selectorWithoutComments($selector);
-        if ( str_contains($selector, '.wp-block-navigation')
-            || ! preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE) ) {
+        if ( str_contains($selector, '.wp-block-navigation') ) {
+            return array();
+        }
+
+        $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
+        if ( 1 !== $hasListMatch ) {
+            $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=\s+[^,{]*blocks-engine-source-li-)/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
+        }
+        if ( 1 !== $hasListMatch ) {
             return array();
         }
 
