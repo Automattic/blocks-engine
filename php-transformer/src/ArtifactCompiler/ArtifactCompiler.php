@@ -455,10 +455,14 @@ final class ArtifactCompiler
             if ($scope !== $fileScope || ('page' === $scope && $pageId !== $filePageId)) continue;
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
-                $content = $this->readPayload($reference, $payloadReader);
-                unset($file['payload_reference']);
-                $file['content'] = $content;
-                $references[$path] = $reference;
+                if ($this->isReferenceBackedBinary($file)) {
+                    $references[$path] = $reference;
+                } else {
+                    $content = $this->readPayload($reference, $payloadReader);
+                    unset($file['payload_reference']);
+                    $file['content'] = $content;
+                    $references[$path] = $reference;
+                }
             }
             $stageArtifact['files'][] = $file;
         }
@@ -483,9 +487,10 @@ final class ArtifactCompiler
             $file['payload_reference'] = $references[$file['path']];
         }
         unset($file);
+        $hasReferences = $this->containsPayloadReferences($plan['artifact']);
         $hashInput = 'shared' === $scope
-            ? array('artifact' => $plan['artifact'])
-            : array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact']);
+            ? ($hasReferences ? array('artifact' => $plan['artifact']) : array('artifact' => $plan['artifact'], 'files' => $normalized['files']))
+            : ($hasReferences ? array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact']) : array('shared_digest' => $sharedDigest, 'page_id' => $pageId, 'artifact' => $plan['artifact'], 'files' => $normalized['files']));
         $plan['digest'] = $this->planDigest($hashInput);
         return $plan;
     }
@@ -516,6 +521,7 @@ final class ArtifactCompiler
             if (!isset($file['payload_reference'])) continue;
             if (null === $payloadReader) throw new \InvalidArgumentException('Composition requires a payload reader for referenced staged payloads.');
             $reference = $this->payloadReference($file['payload_reference']);
+            if ($this->isReferenceBackedBinary($file)) continue;
             $content = $this->readPayload($reference, $payloadReader);
             unset($file['payload_reference']);
             if (!empty($file['binary'])) {
@@ -527,6 +533,16 @@ final class ArtifactCompiler
         }
         unset($file);
         return $artifact;
+    }
+
+    /** @param array<string,mixed> $file */
+    private function isReferenceBackedBinary(array $file): bool
+    {
+        if (!isset($file['payload_reference'])) return false;
+        $mime = strtolower((string) ($file['mime_type'] ?? $file['type'] ?? ''));
+        if ('image/svg+xml' === $mime || str_ends_with(strtolower((string) ($file['path'] ?? '')), '.svg')) return false;
+        $extension = strtolower(pathinfo((string) ($file['path'] ?? ''), PATHINFO_EXTENSION));
+        return !str_starts_with($mime, 'text/') && !in_array($mime, array('application/javascript', 'application/json', 'application/ecmascript'), true) && !in_array($extension, array('css', 'html', 'htm', 'js', 'mjs', 'json', 'md', 'markdown', 'mdx', 'svg'), true);
     }
 
     /** @param array<string,mixed> $hashInput */
@@ -3313,6 +3329,9 @@ final class ArtifactCompiler
                     'content_encoding' => $asset['content_encoding'] ?? $asset['encoding'] ?? '',
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
+                    'payload_reference' => $asset['payload_reference'] ?? null,
+                    'raw_sha256'       => $asset['raw_sha256'] ?? null,
+                    'transport_sha256' => $asset['transport_sha256'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
                     'source_hash'      => $asset['source_hash'] ?? '',
                     'source_role'      => $asset['source_role'] ?? '',
@@ -3573,6 +3592,16 @@ final class ArtifactCompiler
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
             }
+            if ( is_string($file['raw_sha256'] ?? null) ) {
+                $asset['raw_sha256'] = $file['raw_sha256'];
+            }
+            if ( is_array($file['payload_reference'] ?? null) ) {
+                $asset['payload_reference'] = $file['payload_reference'];
+                $asset['raw_sha256'] = $file['raw_sha256'] ?? $file['payload_reference']['sha256'];
+            }
+            if ( is_string($file['transport_sha256'] ?? null) ) {
+                $asset['transport_sha256'] = $file['transport_sha256'];
+            }
             if ( empty($file['binary']) && ! $this->isUnsafeSvgAsset($file) ) {
                 $asset['content'] = $file['content'];
             }
@@ -3714,6 +3743,7 @@ final class ArtifactCompiler
      */
     private function isSafeImageAsset(array $asset): bool
     {
+        if (isset($asset['payload_reference'])) return true;
         if ( 'image/svg+xml' !== ($asset['mime_type'] ?? '') ) {
             return true;
         }
