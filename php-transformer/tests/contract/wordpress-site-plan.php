@@ -251,6 +251,48 @@ $projectedAnchorResult['source_reports']['compiled_site']['runtime_declarations'
 $projectedAnchorPlan = (new WordPressSitePlan())->fromResult($projectedAnchorResult);
 $projectedAnchorBindings = current(array_filter($projectedAnchorPlan['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'] ?? array();
 $assert(2 === count($projectedAnchorBindings) && $projectedAnchorBindings[0]['search_block_markup'] === $projectedAnchorBindings[1]['search_block_markup'] && array(0, 1) === array_map(static fn(array $binding): int => $binding['position']['block_index'], $projectedAnchorBindings) && array(1, 2) === array_column($projectedAnchorBindings, 'occurrence'), 'Distinct positioned source anchors that route-canonicalize identically retain their block indexes and canonical occurrences.');
+$reprojectedSequenceResult = $projectedAnchorResult;
+$reprojectedSequenceResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = '<!-- wp:paragraph --><p>Canonical prelude</p><!-- /wp:paragraph -->' . $firstProjectedAnchor . $secondProjectedAnchor;
+$reprojectedSequencePlan = (new WordPressSitePlan())->fromResult($reprojectedSequenceResult);
+$reprojectedSequenceBindings = current(array_filter($reprojectedSequencePlan['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'] ?? array();
+$assert(array(1, 2) === array_map(static fn(array $binding): int => $binding['position']['block_index'], $reprojectedSequenceBindings) && array(1, 2) === array_column($reprojectedSequenceBindings, 'occurrence'), 'Canonical reprojection rebinds provider anchors after an emitted block sequence changes without trusting stale traversal indexes.');
+$collisionAnchorResult = $projectedAnchorResult;
+$collisionAnchorResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = $firstProjectedAnchor . $firstProjectedAnchor . $secondProjectedAnchor;
+$collisionAnchorBindings = current(array_filter((new WordPressSitePlan())->fromResult($collisionAnchorResult)['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'] ?? array();
+$assert(array(0, 2) === array_map(static fn(array $binding): int => $binding['position']['block_index'], $collisionAnchorBindings) && array(1, 3) === array_column($collisionAnchorBindings, 'occurrence'), 'Canonical reprojection preserves exact bound targets when an identical unbound canonical block is inserted.');
+$retainedAnchorPlan = (new WordPressSitePlan())->fromResult($projectedAnchorResult);
+$retainedAnchorResult = $projectedAnchorResult;
+$retainedAnchorResult['source_reports']['compiled_site']['runtime_declarations'] = $retainedAnchorPlan['runtime_declarations'];
+$retainedAnchorResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = '<!-- wp:paragraph --><p>Canonical prelude</p><!-- /wp:paragraph -->' . $firstProjectedAnchor . $secondProjectedAnchor;
+$retainedAnchorBindings = current(array_filter((new WordPressSitePlan())->fromResult($retainedAnchorResult)['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'] ?? array();
+$assert(array(1, 2) === array_map(static fn(array $binding): int => $binding['position']['block_index'], $retainedAnchorBindings) && array(1, 2) === array_column($retainedAnchorBindings, 'occurrence'), 'Retained canonical positions preserve both projected anchor identities across reprojection.');
+$retainedCollisionResult = $retainedAnchorResult;
+$retainedCollisionResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = $firstProjectedAnchor . $firstProjectedAnchor . $secondProjectedAnchor;
+$retainedCollisionBindings = current(array_filter((new WordPressSitePlan())->fromResult($retainedCollisionResult)['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'] ?? array();
+$assert(array(0, 2) === array_map(static fn(array $binding): int => $binding['position']['block_index'], $retainedCollisionBindings) && array(1, 3) === array_column($retainedCollisionBindings, 'occurrence'), 'Retained projected anchors preserve exact targets through identical unbound canonical blocks.');
+$ambiguousAnchorResult = $retainedCollisionResult;
+foreach ($ambiguousAnchorResult['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { unset($declaration['payload']['entities'][0]['bindings'][1]['projected_anchor'], $declaration['payload']['entities'][0]['bindings'][1]['position']); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
+unset($declaration);
+$ambiguousAnchorResult['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($ambiguousAnchorResult['source_reports']['compiled_site']['runtime_declarations']);
+$throws(static fn() => (new WordPressSitePlan())->fromResult($ambiguousAnchorResult), 'Canonical reprojection fails closed when an identical target has no retained source identity or offset.');
+$duplicateSourceAnchor = '<!-- wp:navigation-link {"url":"index.html"} /-->';
+$boundSecondDuplicateResult = $projectedAnchorResult;
+$boundSecondDuplicateResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = $duplicateSourceAnchor . $duplicateSourceAnchor;
+foreach ($boundSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { $entity = $declaration['payload']['entities'][0]; $entity['bindings'] = array(array('schema' => 'generic/block-binding/v1', 'role' => 'form', 'source_path' => 'index.html', 'search_block_markup' => $duplicateSourceAnchor, 'occurrence' => 2, 'position' => array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => 1, 'offset' => strlen($duplicateSourceAnchor), 'length' => strlen($duplicateSourceAnchor)))); $declaration['payload']['entities'] = array($entity); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
+unset($declaration);
+$boundSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($boundSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations']);
+$boundSecondDuplicatePlan = (new WordPressSitePlan())->fromResult($boundSecondDuplicateResult);
+$ambiguousSecondDuplicateResult = $boundSecondDuplicateResult;
+$ambiguousSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations'] = $boundSecondDuplicatePlan['runtime_declarations'];
+foreach ($ambiguousSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations'] as &$declaration) if ('forms' === ($declaration['type'] ?? null)) { $declaration['payload']['entities'][0]['bindings'][0]['projected_anchor']['source_occurrence_count'] = 2; unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']); }
+unset($declaration);
+$ambiguousSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations'] = RuntimeDeclarations::normalizeList($ambiguousSecondDuplicateResult['source_reports']['compiled_site']['runtime_declarations']);
+$ambiguousSecondDuplicateResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = $duplicateSourceAnchor . $duplicateSourceAnchor . $duplicateSourceAnchor;
+$throws(static fn() => (new WordPressSitePlan())->fromResult($ambiguousSecondDuplicateResult), 'A bound second duplicate fails closed when an identical source insertion before it makes its retained identity ambiguous.');
+$partialBindingResult = $boundSecondDuplicateResult;
+$partialBindingResult['source_reports']['compiled_site']['pages'][0]['block_markup'] = '<!-- wp:paragraph --><p>Canonical prelude</p><!-- /wp:paragraph -->' . $duplicateSourceAnchor . $duplicateSourceAnchor;
+$partialBinding = current(array_filter((new WordPressSitePlan())->fromResult($partialBindingResult)['runtime_declarations'], static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)))['payload']['entities'][0]['bindings'][0] ?? array();
+$assert(2 === ($partialBinding['position']['block_index'] ?? null) && 2 === ($partialBinding['occurrence'] ?? null), 'A partial binding remains provable when its source occurrence and stable anchor identity survive reprojection.');
 $switchbackRoot = dirname(__DIR__, 3) . '/fixtures/websites/20-switchback-woocommerce-extra-hard';
 $switchbackFiles = array();
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($switchbackRoot, FilesystemIterator::SKIP_DOTS)) as $switchbackFile) if ($switchbackFile->isFile()) $switchbackFiles[substr($switchbackFile->getPathname(), strlen($switchbackRoot) + 1)] = file_get_contents($switchbackFile->getPathname());
@@ -269,6 +311,7 @@ $switchbackResolvedPages = array_column($switchbackResolved['pages'] ?? array(),
 $switchbackResolvedProducts = current(array_filter($switchbackResolved['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'products' === ($declaration['type'] ?? null)));
 $switchbackResolvedBindings = array_merge(...array_map(static fn(array $entity): array => $entity['bindings'] ?? array(), $switchbackResolvedProducts['payload']['entities'] ?? array()));
 $assert(array() !== $switchbackResolvedBindings && array_reduce($switchbackResolvedBindings, static fn(bool $valid, array $binding): bool => $valid && ($binding['occurrence'] ?? 0) === substr_count(substr((string) ($switchbackResolvedPages[$binding['source_path']] ?? ''), 0, (int) ($binding['position']['offset'] ?? -1) + (int) ($binding['position']['length'] ?? 0)), (string) ($binding['search_block_markup'] ?? '')), true), 'Fixture 20 provider bindings resolve to exact source-page occurrences for materializers.');
+$assert(true === (static function () use ($switchbackPlan): bool { WordPressSitePlan::assertValid($switchbackPlan); return true; })(), 'Fixture 20 independently validates its canonical binding positions and occurrences.');
 $unsafeFormScript = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'contact.html' => '<main><form id="contact"><input id="email" type="email" name="email"><button type="submit">Send</button></form></main><script data-blocks-engine-superseded-by="#contact">const form = document.getElementById("contact"); fetch("/track"); if (form) form.addEventListener("submit", function (event) { event.preventDefault(); });</script>')))->toArray()['source_reports']['wordpress_site_plan'];
 $unsafeFormDeclarations = array(); foreach ($unsafeFormScript['runtime_declarations'] as $declaration) $unsafeFormDeclarations[$declaration['kind'] . ':' . ($declaration['type'] ?? $declaration['capability'])] = $declaration;
 $unsafeSupersededScripts = array_merge(...array_map(static fn(array $entity): array => $entity['superseded_scripts'] ?? array(), $unsafeFormDeclarations['entity_collection:forms']['payload']['entities']));

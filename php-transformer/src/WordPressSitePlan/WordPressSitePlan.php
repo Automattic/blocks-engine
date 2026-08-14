@@ -59,9 +59,8 @@ final class WordPressSitePlan
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $shells['parts']);
         $runtimeDeclarations = $shells['runtime_declarations'];
-        foreach ($runtimeDeclarations as &$declaration) foreach ($declaration['payload']['entities'] ?? array() as &$entity) foreach ($entity['bindings'] ?? array() as &$binding) unset($binding['position']);
-        unset($binding, $entity, $declaration);
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
+        foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
         $templates = $this->templates($pages, $parts);
         $operations = $this->operations($pages);
@@ -263,7 +262,7 @@ final class WordPressSitePlan
             $markup = $references->content($document['block_markup'], $document['source_path']);
             $canonical = $this->routeLinks($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
-            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
+            $row = array('source_path' => $document['source_path'], 'slug' => self::value($document, 'slug'), 'title' => self::value($document, 'title'), 'post_type' => self::value((array) ($document['metadata'] ?? array()), 'post_type', 'page'), 'parent_source_path' => self::value((array) ($document['metadata'] ?? array()), 'parent_source_path'), 'entrypoint' => ! empty($document['entrypoint']), 'area' => $part ? self::value($document, 'area', 'uncategorized') : null, 'placement' => $part && is_array($document['placement'] ?? null) ? $document['placement'] : ($part ? array('kind' => 'unbound') : null), 'canonical_block_markup' => $canonical, '_projected_source_block_markup' => $document['block_markup'], 'metadata' => is_array($document['metadata'] ?? null) ? $document['metadata'] : array(), 'document_metadata' => $this->documentMetadata($document, $references, $routes), 'provenance' => is_array($document['provenance'] ?? null) ? $document['provenance'] : array(), 'reconciliation_identity' => self::identity($part ? 'template-part' : 'page', $document['source_path'], $target), 'content_hash' => self::contentHash($canonical));
             if (!$part && is_array($document['content_decision'] ?? null)) {
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
@@ -923,7 +922,9 @@ final class WordPressSitePlan
                 }
                 foreach ( $entity['bindings'] as &$binding ) {
                     if ( is_array($binding) && is_string($binding['search_block_markup'] ?? null) && is_string($binding['source_path'] ?? null) ) {
-                        $markup = $references->content($binding['search_block_markup'], $binding['source_path']);
+                        $sourceMarkup = $binding['search_block_markup'];
+                        if (!is_array($binding['projected_anchor'] ?? null)) $binding['projected_anchor'] = array_filter(array('schema' => 'blocks-engine/projected-binding-anchor/v1', 'source_block_markup' => $sourceMarkup, 'source_occurrence' => $binding['occurrence'] ?? null, 'source_position' => $binding['position'] ?? null), static fn(mixed $value): bool => null !== $value);
+                        $markup = $references->content($sourceMarkup, $binding['source_path']);
                         $binding['search_block_markup'] = $this->routeLinks($markup, $binding['source_path'], $routes);
                     }
                 }
@@ -934,42 +935,70 @@ final class WordPressSitePlan
         unset($declaration);
 
         $markupBySource = array_column($pages, 'canonical_block_markup', 'source_path');
-        foreach ( $declarations as &$declaration ) {
-            if ( ! is_array($declaration['payload']['entities'] ?? null) ) continue;
-            foreach ( $declaration['payload']['entities'] as &$entity ) {
-                if ( ! is_array($entity['bindings'] ?? null) ) continue;
-                foreach ( $entity['bindings'] as &$binding ) {
-                    $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $position = $binding['position'] ?? null;
-                    $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
-                    if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_string($markup)) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
-                    $ranges = self::blockRanges($markup); $range = null; $blockIndex = null;
-                    if (is_array($position)) {
-                        if ('blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0) throw new InvalidArgumentException('A runtime entity binding has an invalid emitted block position.');
-                        $blockIndex = $position['block_index'];
-                        $range = $ranges[$blockIndex] ?? null;
-                        if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding position no longer identifies an emitted canonical block.');
-                    } else {
-                        $anchorOffset = self::occurrenceOffset($markup, $search, $binding['occurrence']);
-                        foreach (null === $anchorOffset ? array() : $ranges as $index => $candidate) if ($candidate['offset'] === $anchorOffset && $search === substr($markup, $candidate['offset'], $candidate['length'])) { $range = $candidate; $blockIndex = $index; break; }
-                    }
-                    if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.');
-                    $canonical = substr($markup, $range['offset'], $range['length']);
-                    if (!is_string($canonical) || '' === $canonical) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
-                    $binding['search_block_markup'] = $canonical;
-                    $binding['occurrence'] = self::occurrenceAtOffset($markup, $canonical, $range['offset']);
-                    $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
-                }
+        $sourceMarkupBySource = array_column($pages, '_projected_source_block_markup', 'source_path');
+        $groups = array();
+        foreach ($declarations as $declarationIndex => $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entityIndex => $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $bindingIndex => $binding) {
+            $source = $binding['source_path'] ?? null; $search = $binding['search_block_markup'] ?? null; $position = $binding['position'] ?? null;
+            $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
+            if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_string($markup)) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
+            if (is_array($position) && ('blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1)) throw new InvalidArgumentException('A runtime entity binding has an invalid emitted block position.');
+            $groups[$source . "\n" . $search][] = array('id' => $declarationIndex . ':' . $entityIndex . ':' . $bindingIndex, 'source' => $source, 'declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'source_offset' => is_array($position) ? $position['offset'] : null, 'source_occurrence' => $binding['occurrence'], 'canonical_position' => false, 'markup' => $markup, 'source_markup' => $sourceMarkupBySource[$source] ?? null, 'search' => $search);
+        }
+        foreach ($groups as $bindings) {
+            usort($bindings, static fn(array $left, array $right): int => array($left['source_offset'] ?? PHP_INT_MAX, $left['source_occurrence'], $left['declaration'], $left['entity'], $left['binding']) <=> array($right['source_offset'] ?? PHP_INT_MAX, $right['source_occurrence'], $right['declaration'], $right['entity'], $right['binding']));
+            $identities = array();
+            foreach ($bindings as $identity) {
+                $key = is_int($identity['source_offset']) ? 'offset:' . $identity['source_offset'] : 'occurrence:' . $identity['source_occurrence'];
+                if (isset($identities[$key])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
+                $identities[$key] = true;
+            }
+            $markup = $bindings[0]['markup']; $search = $bindings[0]['search']; $ranges = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
+            if (count($ranges) < count($bindings)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+            $claimedOffsets = array(); $claimedBindings = array(); $resolved = array();
+            foreach ($bindings as $identity) {
+                $position = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['position'] ?? null;
+                if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !self::bindingPosition($position, $markup, $search)) continue;
+                if (isset($claimedOffsets[$position['offset']])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
+                $claimedOffsets[$position['offset']] = true;
+                $claimedBindings[$identity['id']] = true;
+                $resolved[] = array($identity, array('offset' => $position['offset'], 'length' => $position['length']));
+            }
+            $remainingBindings = array_values(array_filter($bindings, static fn(array $identity): bool => !isset($claimedBindings[$identity['id']])));
+            $remainingRanges = array_values(array_filter($ranges, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
+            foreach ($remainingBindings as $identity) {
+                $anchor = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor'] ?? null;
+                if (!is_array($anchor) || 'blocks-engine/projected-binding-anchor/v1' !== ($anchor['schema'] ?? null) || !is_string($anchor['source_block_markup'] ?? null)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+                $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
+                if (!is_string($sourceMarkup)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+                $sourceRanges = self::blockRanges($sourceMarkup); $canonicalRanges = self::blockRanges($markup);
+                $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length'])));
+                if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
+                $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($anchor['source_block_markup'] === substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, $anchor['source_block_markup'], $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
+                if (array() === $candidates) { $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length']))); $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length']) && !isset($claimedOffsets[$range['offset']]))); if (1 === count($sourceMatches) && 1 === count($canonicalMatches)) $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $canonicalMatches[0]); }
+                if (1 !== count($candidates)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+                $claimedOffsets[$candidates[0]['canonical']['offset']] = true; $resolved[] = array($identity, $candidates[0]['canonical']);
+            }
+            foreach ($resolved as $resolvedEntry) {
+                [$identity, $range] = $resolvedEntry;
+                if (!is_array($range)) throw new InvalidArgumentException('A runtime entity binding no longer identifies an emitted canonical block.');
+                $canonical = substr($markup, $range['offset'], $range['length']);
+                $blockIndex = array_search($range, self::blockRanges($markup), true);
+                if (!is_string($canonical) || '' === $canonical || !is_int($blockIndex)) throw new InvalidArgumentException('A runtime entity binding resolved to empty canonical block markup.');
+                $binding = &$declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']];
+                $binding['search_block_markup'] = $canonical;
+                $binding['occurrence'] = self::occurrenceAtOffset($markup, $canonical, $range['offset']);
+                $binding['position'] = array('schema' => 'blocks-engine/runtime-binding-position/v1', 'block_index' => $blockIndex, 'offset' => $range['offset'], 'length' => $range['length']);
                 unset($binding);
             }
-            unset($entity);
         }
-        unset($declaration);
 
         // Rewriting binding markup changes the payload, so drop the derived
         // hashes and re-normalize to recompute canonical identity and content
         // hashes; the reconciliation identity (source path + kind) is stable.
         foreach ( $declarations as &$declaration ) {
             if ( is_array($declaration) ) {
+                foreach ($declaration['payload']['entities'] ?? array() as &$entity) foreach ($entity['bindings'] ?? array() as &$binding) unset($binding['_canonical_position']);
+                unset($binding, $entity);
                 unset($declaration['payload_hash'], $declaration['content_hash']);
             }
         }
