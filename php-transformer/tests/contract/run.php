@@ -4141,6 +4141,26 @@ $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'in
 $assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
 $assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
 
+$runtimeGeometryResult = (new HtmlTransformer())->transform(
+    '<main><div id="runtime-geometry" style="width:290px !important;height:62px !important"></div></main>',
+    array('runtime_dom_selectors' => array('#runtime-geometry'))
+)->toArray();
+$findBlockByAnchor = static function (array $blocks, string $anchor) use (&$findBlockByAnchor): ?array {
+    foreach ($blocks as $block) {
+        if (! is_array($block)) continue;
+        if ($anchor === ($block['attrs']['anchor'] ?? '')) return $block;
+        $found = $findBlockByAnchor($block['innerBlocks'] ?? array(), $anchor);
+        if (null !== $found) return $found;
+    }
+    return null;
+};
+$runtimeGeometryBlock = $findBlockByAnchor($runtimeGeometryResult['blocks'], 'runtime-geometry');
+$runtimeGeometryCss = implode("\n", array_column(array_filter($runtimeGeometryResult['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$assert(is_array($runtimeGeometryBlock) && 'core/group' === ($runtimeGeometryBlock['blockName'] ?? ''), 'runtime-targeted empty geometry remains represented as a Group');
+$assert(! str_contains((string) ($runtimeGeometryBlock['innerHTML'] ?? ''), 'style='), 'runtime Group saved markup does not duplicate arbitrary geometry that core save cannot reproduce');
+$assert(str_contains($runtimeGeometryCss, 'width:290px !important') && str_contains($runtimeGeometryCss, 'height:62px !important'), 'runtime Group geometry remains preserved by its generated carrier stylesheet');
+$assert(! str_contains($runtimeGeometryCss, '!important !important'), 'runtime Group carrier emits valid priority for source-important geometry');
+
 fwrite(STDOUT, "Canonical block style attributes contract passed.\n");
 
 fwrite(STDOUT, "HTML-to-blocks contract passed.\n");

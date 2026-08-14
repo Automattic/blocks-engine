@@ -348,12 +348,7 @@ trait StyleResolutionTrait
                 continue;
             }
             $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
-            if (! $carrierOwnsInlineGeometry && 1 === preg_match('/\s*!important\s*$/i', $rawValue)) {
-                continue;
-            }
-            $value = $carrierOwnsInlineGeometry
-                ? trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue)
-                : $rawValue;
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
             if ( in_array($property, array( 'background', 'background-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }
