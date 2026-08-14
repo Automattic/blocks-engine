@@ -28,7 +28,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 $assets = $result['assets'] ?? array();
 $assetPaths = array_column($assets, 'path');
 $assert(array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 0, 6)
-    && 1 === preg_match('#^assets/css/source-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'allocated repeated-link alias avoids authored path collisions while preserving source occurrence order');
+    && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'allocated repeated-link alias avoids authored path collisions while preserving source occurrence and support placement order');
 foreach ( $assets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
     $hash = hash('sha256', $content);
@@ -54,7 +54,7 @@ $richText = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $richTextAssets = $richText['assets'] ?? array();
-$assert(str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[0]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker reset before the first projected author stylesheet');
+$assert('engine-support' === ($richTextAssets[0]['source'] ?? '') && 'before-author' === ($richTextAssets[0]['stylesheet_placement'] ?? '') && str_starts_with((string) ($richTextAssets[0]['content'] ?? ''), ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains((string) ($richTextAssets[1]['content'] ?? ''), '{color:#e8a020}') && ! str_contains((string) ($richTextAssets[1]['content'] ?? ''), 'background-color:transparent;color:inherit'), 'artifact projection emits one marker-reset support asset before the first projected author stylesheet');
 
 $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><p><span class="accent">Text</span></p></body></html>' ),
@@ -62,7 +62,7 @@ $importedFont = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 ) ) )->toArray();
 $importedFontAssets = array_column($importedFont['assets'] ?? array(), null, 'path');
 $importedFontCss = (string) ($importedFontAssets['style.css']['content'] ?? '');
-$assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && strpos($importedFontCss, '@import') < strpos($importedFontCss, ':where(mark)'), 'author stylesheet imports remain before generated marker and geometry rules');
+$assert(str_starts_with($importedFontCss, '@import url("https://fonts.googleapis.com/css2?family=Inter");') && ! str_contains($importedFontCss, ':where(mark)') && 'before-author' === ($importedFont['assets'][0]['stylesheet_placement'] ?? '') && 'style.css' === ($importedFont['assets'][1]['path'] ?? ''), 'author stylesheet imports retain their leading preamble while marker support loads from a preceding asset');
 
 $inlineLayoutLeaves = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span><span class="card-label">assets/</span></div><p>Ordinary <strong>prose</strong> and <span>inline text</span>.</p>' ),
@@ -200,9 +200,25 @@ $multiPage = ( new ArtifactCompiler() )->compile(array(
         array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '.quote-mark{color:#e8a020}' ),
     ),
 ) )->toArray();
-$multiPageAuthorAssets = array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')));
-$assert(1 === count($multiPageAuthorAssets), 'identical generated author stylesheets are emitted once across HTML routes');
+$multiPageSupportAssets = array_values(array_filter($multiPage['assets'] ?? array(), static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '')));
+$assert(1 === count($multiPageSupportAssets), 'identical generated engine support stylesheets are emitted once across HTML routes');
+$multiPageAssetPaths = array_column($multiPage['assets'] ?? array(), 'path');
+$multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan']['assets'] ?? array();
+$assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
+
+$siblingSupport = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="index.css"><main><p>Home</p></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="about.css"><main><div class="grid"><div>A</div><div>B</div></div></main>' ),
+        array( 'path' => 'index.css', 'kind' => 'css', 'content' => 'p{margin:0}' ),
+        array( 'path' => 'about.css', 'kind' => 'css', 'content' => '.grid{display:grid;grid-template-columns:1fr 1fr}' ),
+    ),
+) )->toArray();
+$siblingSupportAssets = $siblingSupport['assets'] ?? array();
+$siblingWordPressAssets = $siblingSupport['source_reports']['wordpress_site_plan']['assets'] ?? array();
+$assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', (string) ($siblingSupportAssets[0]['path'] ?? '')) && 'before-author' === ($siblingSupportAssets[0]['stylesheet_placement'] ?? '') && 'index.css' === ($siblingSupportAssets[1]['path'] ?? '') && 'about.css' === ($siblingSupportAssets[2]['path'] ?? '') && 'about.html' === ($siblingSupportAssets[0]['compilation']['id'] ?? '') && 'about.html' === ($siblingWordPressAssets[0]['scopes'][0]['source_path'] ?? ''), 'non-entry page support stays page-scoped and precedes every author stylesheet');
 
 $externalLayouts = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
@@ -315,7 +331,7 @@ $tableNormalizationCss = implode("\n", array_column(array_filter($tableNormaliza
 $assert(preg_match('/<figure class="wp-block-table (blocks-engine-table-[^"]+)">/', $tableNormalizationMarkup, $tableNormalizationMarker) === 1, 'native table normalization uses an isolated table marker');
 $tableCellReset = '.' . ($tableNormalizationMarker[1] ?? '') . '>table th,.' . ($tableNormalizationMarker[1] ?? '') . '>table td{border:0}';
 $tableBottomBorder = '.' . ($tableNormalizationMarker[1] ?? '') . '>table>tbody>tr:nth-child(1)>td:nth-child(1)';
-$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableBottomBorder) < strpos($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides while the more-specific projected bottom-only rules restore the source geometry');
+$assert(str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && ! str_contains($tableNormalizationCss, '.wp-block-table.' . ($tableNormalizationMarker[1] ?? '') . '{margin:0}') && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table{border-collapse:collapse;border-spacing:0}') && str_contains($tableNormalizationCss, $tableCellReset) && str_contains($tableNormalizationCss, '.' . ($tableNormalizationMarker[1] ?? '') . '>table>thead{border-bottom:0}') && false !== strpos($tableNormalizationCss, $tableCellReset) && false !== strpos($tableNormalizationCss, $tableBottomBorder) && strpos($tableNormalizationCss, $tableCellReset) < strpos($tableNormalizationCss, $tableBottomBorder) && str_contains($tableNormalizationCss, $tableBottomBorder . ':not(blocks-engine-specificity-'), 'collapsed border tables clear all synthetic cell sides before projected bottom-only author rules restore the source geometry');
 $assert(str_contains($tableNormalizationCss, '.table-wrap{margin-bottom:2rem}') && str_contains($tableNormalizationCss, 'table{margin:3rem 0}') && str_contains($tableNormalizationCss, 'table{border-collapse:collapse;border-spacing:0}'), 'authored wrapper and table margins remain in the source stylesheet rather than becoming a broad table override');
 $assert('pass' === ( new Runtime() )->validateBlockSerialization($tableNormalizationMarkup)['status'], 'table normalization preserves editor-valid native markup');
 

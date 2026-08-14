@@ -219,18 +219,14 @@ final class ArtifactCompiler
         $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
-        $geometryAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && str_contains((string) ($asset['content'] ?? ''), '.be-inline-geometry-')));
-        $otherGeneratedAssets = array_values(array_filter($entryBlocks['assets'], static fn (array $asset): bool => ! in_array($asset, $geometryAssets, true)));
-        if ( is_array($entry) ) {
-            $entryOwnership = $this->fileOwnership($entry);
-            foreach ( $geometryAssets as &$generatedAsset ) $generatedAsset['compilation'] ??= $entryOwnership;
-            unset($generatedAsset);
-            foreach ( $otherGeneratedAssets as &$generatedAsset ) if ('css' === ($generatedAsset['kind'] ?? null)) $generatedAsset['compilation'] ??= $entryOwnership;
-            unset($generatedAsset);
-        }
-        // Runtime loads the manifest in array order. Put carrier CSS before
-        // authored assets so authored !important declarations preserve cascade.
-        $assets = array_merge($geometryAssets, $manifestAssets, $otherGeneratedAssets);
+        $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
+        $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
+        $beforeAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? '')));
+        $afterAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'after-author' === ($asset['stylesheet_placement'] ?? '')));
+        $otherGeneratedAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => ! in_array($asset, $beforeAuthorAssets, true) && ! in_array($asset, $afterAuthorAssets, true)));
+        // Runtime loads the manifest in array order. Placement metadata keeps
+        // engine support on its intended side of the authored stylesheets.
+        $assets = array_merge($beforeAuthorAssets, $manifestAssets, $otherGeneratedAssets, $afterAuthorAssets);
         if ( null !== $wordpressCompatAsset ) {
             $assets[] = $wordpressCompatAsset;
         }
@@ -432,6 +428,60 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('Page file compilation ownership requires a bounded nonblank page id.');
         }
         return array('scope' => 'page', 'id' => $ownership['id']);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $entryAssets
+     * @param array{scope:string,id:string} $entryOwnership
+     * @param array<string,array<string,mixed>> $compiledHtmlDocuments
+     * @param array<int,array<string,mixed>> $files
+     * @return array<int,array<string,mixed>>
+     */
+    private function generatedAssetsForDocuments(array $entryAssets, array $entryOwnership, array $compiledHtmlDocuments, array $files): array
+    {
+        $assets = array();
+        $assetIndexes = array();
+        $append = static function (array $documentAssets, array $ownership) use (&$assets, &$assetIndexes): void {
+            foreach ( $documentAssets as $asset ) {
+                if ( ! is_array($asset) ) {
+                    continue;
+                }
+                if ( 'css' === ($asset['kind'] ?? null) ) {
+                    $asset['compilation'] ??= $ownership;
+                }
+                $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+                $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload);
+                if ( ! isset($assetIndexes[$identity]) ) {
+                    $assetIndexes[$identity] = count($assets);
+                    $assets[] = $asset;
+                    continue;
+                }
+                $index = $assetIndexes[$identity];
+                if ( 'css' !== ($asset['kind'] ?? null) ) {
+                    continue;
+                }
+                $existingOwnership = $assets[$index]['compilation'] ?? null;
+                $assetOwnership = $asset['compilation'] ?? null;
+                if ( $existingOwnership !== $assetOwnership ) {
+                    $assets[$index]['compilation'] = array('scope' => 'shared');
+                }
+            }
+        };
+
+        $append($entryAssets, $entryOwnership);
+        $filesByPath = array_column($files, null, 'path');
+        foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
+            $file = $filesByPath[$sourcePath] ?? array('path' => $sourcePath, 'kind' => 'html');
+            $append(
+                array_values(array_filter(
+                    is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array(),
+                    static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)
+                )),
+                $this->fileOwnership($file)
+            );
+        }
+
+        return $assets;
     }
 
     /**
@@ -3404,6 +3454,7 @@ final class ArtifactCompiler
                     'target_path'      => $asset['target_path'] ?? $asset['path'] ?? '',
                     'kind'             => $asset['kind'] ?? '',
                     'role'             => $asset['role'] ?? '',
+                    'stylesheet_placement' => $asset['stylesheet_placement'] ?? '',
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
                     'media'            => $asset['media'] ?? '',
