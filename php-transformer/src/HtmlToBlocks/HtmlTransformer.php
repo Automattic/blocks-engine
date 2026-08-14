@@ -1088,11 +1088,6 @@ final class HtmlTransformer
             // carrier rides groups and lists, so the reset is class-scoped.
             $beforeAuthorCssParts[] = ':where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
-        if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
-            // Core's constrained-layout child geometry must not override the
-            // inline axis owned by the source flex or grid layout.
-            $beforeAuthorCssParts[] = '.wp-block-group.' . self::CSS_OWNED_LAYOUT_CLASS . '>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
-        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
             // A semantic Group used as a direct grid/flex item contains native
             // paragraph blocks. Neutralize only those generated inner defaults.
@@ -5034,10 +5029,10 @@ final class HtmlTransformer
             $declarations['--blocks-engine-richtext-marker'] = $marker;
         }
 
-        if ( ! isset($declarations['background-color']) ) {
+        if ( '' === $marker && ! isset($declarations['background-color']) ) {
             $declarations['background-color'] = 'transparent';
         }
-        if ( ! isset($declarations['color']) ) {
+        if ( '' === $marker && ! isset($declarations['color']) ) {
             $declarations['color'] = 'inherit';
         }
 

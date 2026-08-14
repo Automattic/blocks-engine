@@ -27,7 +27,7 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "GIRTH" },
-    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets", "assert": "count", "count": 1 },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group blocks-engine-css-owned-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

@@ -213,34 +213,23 @@ foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' 
 }
 
 $neutralizer = '.wp-block-group.blocks-engine-css-owned-layout>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
-$layoutStaticAssets = $layoutItems['source_reports']['materialization_plan']['assets'] ?? array();
-$layoutWordPressAssets = $layoutItems['source_reports']['wordpress_site_plan']['assets'] ?? array();
-$layoutStaticCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', is_array($layoutStaticAssets) ? $layoutStaticAssets : array()));
-$layoutWordPressCompat = array_values(array_filter(
-    is_array($layoutWordPressAssets) ? $layoutWordPressAssets : array(),
-    static fn (array $asset): bool => 'wordpress-compat' === ($asset['source'] ?? '')
-        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
-        && str_contains((string) ($asset['content'] ?? ''), $neutralizer)
-));
-$assert(! str_contains($layoutStaticCss, $neutralizer) && 1 === count($layoutWordPressCompat), 'C2: css-owned-layout neutralizer is absent from static materialization and present in after-author WordPress compatibility CSS');
-
-$saasHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/solved/15-saas/index.html');
-$saas = ( new ArtifactCompiler() )->compile(array( 'generated_html' => $saasHtml ))->toArray();
-$saasStaticAssets = $saas['source_reports']['materialization_plan']['assets'] ?? array();
-$saasStaticCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', is_array($saasStaticAssets) ? $saasStaticAssets : array()));
-$normalizedSaasStaticCss = preg_replace('/\s+/', '', $saasStaticCss) ?? '';
-$assert(
-    ! str_contains($saasStaticCss, $neutralizer)
-        && str_contains($normalizedSaasStaticCss, 'max-width:1160px')
-        && str_contains($normalizedSaasStaticCss, 'margin-right:auto')
-        && str_contains($normalizedSaasStaticCss, 'margin-left:24px'),
-    'C3: solved 15-saas static CSS omits the neutralizer and preserves authored max-width and horizontal margins'
-);
+$layoutCssSurfaces = array($beforeCss);
+foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' ) as $reportName ) {
+    foreach ( $layoutItems['source_reports'][$reportName]['assets'] ?? array() as $asset ) {
+        if ( is_array($asset) && 'css' === ($asset['kind'] ?? '') ) {
+            $layoutCssSurfaces[] = (string) ($asset['content'] ?? '');
+        }
+    }
+}
+$assert(! str_contains(implode("\n", $layoutCssSurfaces), $neutralizer), 'G5: css-owned-layout neutralizer is absent from every compiler output');
+$assert(! str_contains((string) ($layoutItems['serialized_blocks'] ?? ''), 'max-width:none!important'), 'G5: css-owned-layout neutralizer is absent from serialized block markup');
 
 $richTextMarkup = (string) ($richText['serialized_blocks'] ?? '');
 $assert(
-    1 === preg_match('/<mark\b[^>]*style="[^"]*--blocks-engine-richtext-marker:[^"]*background-color:transparent[^"]*color:inherit[^"]*"/', $richTextMarkup),
-    'G6: richtext-marker mark carries inline transparent background and inherited color'
+    1 === preg_match('/<mark\b[^>]*style="[^"]*--blocks-engine-richtext-marker:[^"]*"/', $richTextMarkup)
+        && ! str_contains($richTextMarkup, 'background-color:transparent')
+        && ! str_contains($richTextMarkup, 'color:inherit'),
+    'G6: richtext-marker mark defers neutral background and color to engine support CSS'
 );
 $assert(str_contains($beforeCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}'), 'G6: richTextMarkerResetCss remains in engine-support');
 
