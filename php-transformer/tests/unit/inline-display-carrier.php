@@ -61,11 +61,17 @@ $cases = array(
         'style' => 'display:flex;flex-direction:column;flex-wrap:wrap;align-items:center;justify-content:center;gap:2rem',
         'declarations' => 'display:flex;flex-direction:column;flex-wrap:wrap;align-items:center;justify-content:center;gap:2rem',
     ),
+    'mixed-specificity' => array(
+        'class' => 'display-owner-specificity',
+        'style' => 'display:block',
+        'declarations' => 'display:block',
+        'following_css' => 'div{display:block}',
+    ),
 );
 
 foreach ( $cases as $name => $case ) {
     $className = $case['class'];
-    $html = '<style>.' . $className . '{display:grid;align-items:start;gap:3rem}</style>'
+    $html = '<style>.' . $className . '{display:grid;align-items:start;gap:3rem}' . ($case['following_css'] ?? '') . '</style>'
         . '<div class="' . $className . '" style="' . $case['style'] . '"><p>First</p><p>Second</p></div>';
     $result = ( new HtmlTransformer() )->transform($html, array())->toArray();
     $serialized = (string) ($result['serialized_blocks'] ?? '');
