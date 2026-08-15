@@ -47,7 +47,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group blocks-engine-css-owned-layout\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-blocks-engine-author-layout" },
-    { "path": "source_reports.wordpress_site_plan.assets.0.content", "assert": "contains", "value": ":where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}" },
+    { "path": "source_reports.wordpress_site_plan.assets.0.content", "assert": "contains", "value": ":root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }
