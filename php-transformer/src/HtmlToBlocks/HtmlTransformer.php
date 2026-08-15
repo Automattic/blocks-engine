@@ -10664,7 +10664,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( $control->hasAttribute('required') ) {
+        if ( $control->hasAttribute('required') || 'true' === strtolower(trim($this->attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
         }
         if ( $control->hasAttribute('disabled') ) {

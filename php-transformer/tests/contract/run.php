@@ -627,6 +627,10 @@ $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
+$requiredFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form><input name="email" required><textarea name="message" aria-required="true"></textarea><button type="submit">Send</button></form></main>')))->toArray();
+$requiredFormDeclarations = array_values(array_filter($requiredFormPlan['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['controls'] ?? array();
+$assert(true === ($requiredFormControls[0]['required'] ?? null) && true === ($requiredFormControls[1]['required'] ?? null), 'generic form declarations normalize native and ARIA required semantics through artifact compilation');
 $boundedTopologyHtml = static function (int $extraControls): string {
     $controls = '';
     for ( $index = 0; $index < 63; ++$index ) $controls .= '<div><input name="field-' . $index . '"></div>';
