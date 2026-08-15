@@ -65,9 +65,24 @@ trait StyleResolutionTrait
     /**
      * @return list<string>
      */
-    private function inlineGeometryProperties(): array
+    private function inlineLayoutCarrierProperties(): array
     {
         return array(
+            'display',
+            'flex-direction',
+            'flex-wrap',
+            'align-items',
+            'justify-content',
+            'gap',
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function inlineGeometryProperties(): array
+    {
+        return array_merge($this->inlineLayoutCarrierProperties(), array(
             'width',
             'height',
             'min-width',
@@ -79,7 +94,7 @@ trait StyleResolutionTrait
             'flex-basis',
             'object-fit',
             'object-position',
-        );
+        ));
     }
 
     /**
@@ -337,6 +352,17 @@ trait StyleResolutionTrait
             : $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
+        if ( $this->inlineDisplayOverridesAuthorLayout($element, $declarations) ) {
+            $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
+            if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {
+                $properties = array_values(array_diff(
+                    $properties,
+                    array( 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap' )
+                ));
+            }
+        } else {
+            $properties = array_values(array_diff($properties, $this->inlineLayoutCarrierProperties()));
+        }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
             && ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
@@ -367,25 +393,93 @@ trait StyleResolutionTrait
             return '';
         }
 
-        // Emit carried declarations in source order: with per-declaration
-        // !important, last-write-wins is decided by rule order, and an
-        // alphabetical sort silently flips shorthand/longhand winners
-        // (grid vs grid-template-columns, gap vs column-gap). Values not
-        // present inline (forced/custom-property fallbacks) sort last.
+        // Emit carried declarations in source order. For declarations sharing
+        // a priority tier, last-write-wins is decided by rule order, and an
+        // alphabetical sort silently flips shorthand/longhand winners (grid vs
+        // grid-template-columns, gap vs column-gap). Values not present inline
+        // (forced/custom-property fallbacks) sort last.
         $sourceOrder = array_flip(array_keys($declarations));
         uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
-        $declarations = array();
+        $layoutDeclarations = array();
+        $importantDeclarations = array();
+        $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
+        $inlineLayoutPropertyLookup = array_fill_keys($this->inlineLayoutCarrierProperties(), true);
         foreach ($geometry as $property => $value) {
+            if ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) ) {
+                // Preserve source inline layout over a later plain author class
+                // without preventing an authored !important declaration from
+                // retaining its normal cascade priority.
+                $layoutDeclarations[] = $property . ':' . $value;
+                continue;
+            }
+
             // A converted inline declaration must continue to outrank authored
             // normal selectors, including ID selectors. Authored !important
             // rules retain their normal cascade priority through specificity.
-            $declarations[] = $property . ':' . $value . ' !important';
+            $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
-        $rule = implode(';', $declarations);
-        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
-        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+        $signature = implode(';', array_merge($layoutDeclarations, $importantDeclarations));
+        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $signature);
+        $rules = array();
+        if ( array() !== $layoutDeclarations ) {
+            $rules[] = ':root .' . $className . '{' . implode(';', $layoutDeclarations) . '}';
+        }
+        if ( array() !== $importantDeclarations ) {
+            $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
+        }
+        $this->generatedGeometryRules[$className] = implode("\n", $rules);
 
         return $className;
+    }
+
+    /**
+     * An inline display needs a carrier only when materialized author CSS would
+     * otherwise reassert a different layout mode on the transformed element.
+     * Conditional variants count because the inline declaration owns every
+     * viewport in the source document.
+     *
+     * @param array<string, string> $inlineDeclarations
+     */
+    private function inlineDisplayOverridesAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
+    {
+        $inlineDisplay = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($inlineDeclarations['display'] ?? '')
+        )));
+        if ( '' === $inlineDisplay ) {
+            return false;
+        }
+
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            $authorDisplay = strtolower(trim((string) preg_replace(
+                '/\s*!\s*important\s*$/i',
+                '',
+                (string) ($rule['declarations']['display'] ?? '')
+            )));
+            if ( '' !== $authorDisplay && $inlineDisplay !== $authorDisplay ) {
+                return true;
+            }
+        }
+
+        foreach ( $this->conditionalStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            $conditionalDisplay = strtolower(trim((string) preg_replace(
+                '/\s*!\s*important\s*$/i',
+                '',
+                (string) ($rule['declarations']['display'] ?? '')
+            )));
+            if ( '' !== $conditionalDisplay && $inlineDisplay !== $conditionalDisplay ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
