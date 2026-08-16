@@ -80,9 +80,22 @@ trait StyleResolutionTrait
     /**
      * @return list<string>
      */
+    private function inlineListMarkerCarrierProperties(): array
+    {
+        return array(
+            'list-style',
+            'list-style-type',
+            'list-style-position',
+            'list-style-image',
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
     private function inlineGeometryProperties(): array
     {
-        return array_merge($this->inlineLayoutCarrierProperties(), array(
+        return array_merge($this->inlineLayoutCarrierProperties(), $this->inlineListMarkerCarrierProperties(), array(
             'width',
             'height',
             'min-width',
@@ -375,7 +388,7 @@ trait StyleResolutionTrait
             }
             $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
             $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
-            if ( in_array($property, array( 'background', 'background-image' ), true) ) {
+            if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }
             if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
@@ -400,16 +413,18 @@ trait StyleResolutionTrait
         // (forced/custom-property fallbacks) sort last.
         $sourceOrder = array_flip(array_keys($declarations));
         uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
-        $layoutDeclarations = array();
+        $normalPriorityDeclarations = array();
         $importantDeclarations = array();
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->inlineLayoutCarrierProperties(), true);
+        $inlineListMarkerPropertyLookup = array_fill_keys($this->inlineListMarkerCarrierProperties(), true);
         foreach ($geometry as $property => $value) {
-            if ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) ) {
-                // Preserve source inline layout over a later plain author class
-                // without preventing an authored !important declaration from
-                // retaining its normal cascade priority.
-                $layoutDeclarations[] = $property . ':' . $value;
+            if ( isset($inlineListMarkerPropertyLookup[$property])
+                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
+            ) {
+                // Preserve source inline layout and list markers over a later
+                // plain author class without introducing !important.
+                $normalPriorityDeclarations[] = $property . ':' . $value;
                 continue;
             }
 
@@ -418,11 +433,11 @@ trait StyleResolutionTrait
             // rules retain their normal cascade priority through specificity.
             $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
-        $signature = implode(';', array_merge($layoutDeclarations, $importantDeclarations));
+        $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
         $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $signature);
         $rules = array();
-        if ( array() !== $layoutDeclarations ) {
-            $rules[] = ':root .' . $className . '{' . implode(';', $layoutDeclarations) . '}';
+        if ( array() !== $normalPriorityDeclarations ) {
+            $rules[] = ':root .' . $className . '{' . implode(';', $normalPriorityDeclarations) . '}';
         }
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
@@ -1758,7 +1773,7 @@ trait StyleResolutionTrait
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            $allowsImageUrl = in_array($name, array( 'background', 'background-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
+            $allowsImageUrl = in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
                 $declarations[$name] = $value;
             }
