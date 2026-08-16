@@ -374,6 +374,30 @@ $compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintH
 $compoundCandidateProbe = ( new StaticStyleParityProbe() )->extract(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($compoundPaintMarkup), $compoundPaintCssAsset);
 $assert(0 < (int) ($compoundSourceProbe['summary']['styled_total'] ?? 0) && 0 < (int) ($compoundCandidateProbe['summary']['styled_total'] ?? 0), '62: layered background cascade case produces nonzero source and candidate style probes', json_encode(array($compoundSourceProbe['summary'] ?? array(), $compoundCandidateProbe['summary'] ?? array())));
 
+$amberQuoteHtml = '<blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
+$amberQuoteResult = ( new HtmlTransformer() )->transform($amberQuoteHtml, array())->toArray();
+$amberQuote = $amberQuoteResult['blocks'][0] ?? array();
+$amberQuoteAttrs = is_array($amberQuote['attrs'] ?? null) ? $amberQuote['attrs'] : array();
+$amberQuoteCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $amberQuoteResult['assets'] ?? array()));
+$amberQuoteLeftBorder = is_array($amberQuoteAttrs['style']['border']['left'] ?? null) ? $amberQuoteAttrs['style']['border']['left'] : array();
+
+$assert(
+    'core/quote' === ($amberQuote['blockName'] ?? '')
+        && '1.2rem' === ($amberQuoteAttrs['style']['spacing']['padding']['left'] ?? '')
+        && 'var(--head)' === ($amberQuoteAttrs['style']['typography']['fontFamily'] ?? '')
+        && '2.2rem' === ($amberQuoteAttrs['style']['typography']['fontSize'] ?? '')
+        && '700' === ($amberQuoteAttrs['style']['typography']['fontWeight'] ?? '')
+        && '-.02em' === ($amberQuoteAttrs['style']['typography']['letterSpacing'] ?? ''),
+    'N1 setup: amber quote exercises native spacing and typography conversion',
+    json_encode($amberQuote)
+);
+$assert(
+    array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === $amberQuoteLeftBorder
+        || str_contains($amberQuoteCss, 'border-left:2px solid var(--secondary)'),
+    'N1: amber quote retains its authored left border through native support or a carrier',
+    json_encode(array( 'attrs' => $amberQuoteAttrs, 'css' => $amberQuoteCss ))
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);
