@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-autofit-grid-carries-gap-and-background",
-  "description": "An auto-fit grid using the hairline-divider technique (gap:1px plus a container background painting through the gaps) keeps its native grid tracks while source CSS owns its gap: core/group save markup cannot serialize blockGap. The container background remains a color support so the dividers survive without the author stylesheet.",
+  "description": "An auto-fit grid using the hairline-divider technique (gap:1px plus a container background painting through the gaps) stays entirely under author CSS ownership: core's grid layout support hardcodes auto-fill, which would retain the tracks auto-fit collapses. The author rule keeps the tracks, the hairline gap, and the divider background together, so the technique survives intact rather than being split across a native layout attribute and a color support.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-autofit-grid-carries-gap-and-background.json",
-    "notes": "Derived from a portfolio work grid where gap:1px;background:var(--ink) painted hairline separators between cells. The source stylesheet retains the gap because core/group does not serialize blockGap in canonical save markup."
+    "notes": "Derived from a portfolio work grid where gap:1px;background:var(--ink) painted hairline separators between cells. The gap and the background must stay with the track list in one author rule: promoting either to a block support while the tracks stay in CSS splits a single visual technique across two owners."
   },
   "legacy_comparison": {
     "skip": true,
@@ -20,7 +20,8 @@
       "path": "blocks.0",
       "name": "core/group",
       "attrs": {
-        "layout": { "type": "grid", "minimumColumnWidth": "240px" }
+        "layout": null,
+        "className": "work-grid blocks-engine-css-owned-layout blocks-engine-css-owned-grid"
       }
     }
   ],
@@ -29,7 +30,9 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.attrs.style.spacing.blockGap", "assert": "equals", "value": null },
-    { "path": "blocks.0.attrs.style.color.background", "assert": "equals", "value": "#1a1a1a" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "is-layout-grid" }
+    { "path": "blocks.0.attrs.style.color.background", "assert": "equals", "value": null },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "is-layout-grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".work-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:1px;background:#1a1a1a}" }
   ]
 }

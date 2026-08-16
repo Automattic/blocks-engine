@@ -82,7 +82,7 @@ $assert(! str_contains($groupInnerHtml, 'display:flex') && ! str_contains($group
 $assert(! isset($groupAttrs['style']['spacing']['blockGap']), '15: core group save omits block gap without a core layout attribute', json_encode($groupAttrs));
 $assert(str_contains($groupInnerHtml, 'min-height:100svh'), '16: core group retains supported dimensions', $groupInnerHtml);
 
-$nativeGridHtml = '<div class="tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1.2rem"><p>Fallback card</p></div>';
+$nativeGridHtml = '<div class="tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(290px, 1fr));gap:1.2rem"><p>Fallback card</p></div>';
 $nativeGridResult = ( new HtmlTransformer() )->transform($nativeGridHtml, array())->toArray();
 $nativeGrid = $nativeGridResult['blocks'][0] ?? array();
 $nativeGridAttrs = is_array($nativeGrid['attrs'] ?? null) ? $nativeGrid['attrs'] : array();
@@ -93,6 +93,17 @@ $assert('grid' === ($nativeGridAttrs['layout']['type'] ?? ''), '16a: representat
 $assert(! isset($nativeGridAttrs['style']['spacing']['blockGap']), '16b: native Group grids do not emit noncanonical blockGap attributes', json_encode($nativeGridAttrs));
 $assert(! str_contains($nativeGridMarkup, 'gap:1.2rem'), '16c: native Group grid markup omits inline gap that Gutenberg save does not reproduce', $nativeGridMarkup);
 $assert(str_contains($nativeGridCss, 'gap:1.2rem !important'), '16d: inline native Group grid gap moves to the generated geometry carrier', $nativeGridCss);
+
+// The same shape authored with auto-fit is NOT natively expressible: core's
+// layout support hardcodes auto-fill, which retains the tracks auto-fit
+// collapses. See tests/unit/auto-fit-grid-carrier.php for the full contract.
+$autoFitGridResult = ( new HtmlTransformer() )->transform(
+    '<div class="tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1.2rem"><p>Fallback card</p></div>',
+    array()
+)->toArray();
+$autoFitGridAttrs = is_array($autoFitGridResult['blocks'][0]['attrs'] ?? null) ? $autoFitGridResult['blocks'][0]['attrs'] : array();
+
+$assert(! isset($autoFitGridAttrs['layout']), '16e: the same shape authored with auto-fit stays under CSS ownership', json_encode($autoFitGridAttrs));
 
 $unorderedListSource = '<ul style="list-style:none"><li>Alpha</li></ul>';
 $unorderedListResult = ( new HtmlTransformer() )->transform($unorderedListSource)->toArray();

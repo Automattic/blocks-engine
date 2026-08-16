@@ -453,6 +453,21 @@ final class HtmlTransformer
         'place-items',
     );
 
+    /** @var list<string> Inline flex declarations carried to the generated stylesheet for css-owned flex containers. */
+    private const CSS_OWNED_FLEX_CARRIER_PROPERTIES = array(
+        'display',
+        'flex-flow',
+        'flex-direction',
+        'flex-wrap',
+        'gap',
+        'row-gap',
+        'column-gap',
+        'align-content',
+        'align-items',
+        'justify-content',
+        'place-content',
+    );
+
     private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
@@ -4403,6 +4418,10 @@ final class HtmlTransformer
             return $this->cssOwnedGridAttributes($element);
         }
 
+        if ( $this->isCssOwnedFlexElement($element) ) {
+            $attrs = $this->cssOwnedFlexAttributes($element);
+        }
+
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),
@@ -4421,6 +4440,49 @@ final class HtmlTransformer
         );
 
         return $attrs;
+    }
+
+    private function isCssOwnedFlexElement(DOMElement $element): bool
+    {
+        $display = strtolower(trim((string) preg_replace(
+            '/\s*!important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+        )));
+
+        return in_array($display, array( 'flex', 'inline-flex' ), true);
+    }
+
+    /**
+     * Attributes for a block hosting an author flex container demoted to CSS
+     * ownership. The demotion below drops the native `layout` attribute, which
+     * was the only thing expressing the flex container, so without carrying the
+     * authored `display:flex` the children stack. The inline declarations ride
+     * to the generated stylesheet on a carrier class exactly as
+     * CSS_OWNED_GRID_CARRIER_PROPERTIES does for grids; class-owned ones are
+     * already retained by author stylesheet materialization.
+     *
+     * An inline display that overrides class-owned layout is already carried
+     * complete by inlineGeometryClassName(), at the non-important specificity
+     * tier that keeps authored !important rules winning. Forcing those same
+     * properties would move them to the !important tier, so that case is left
+     * alone.
+     *
+     * @return array<string, mixed>
+     */
+    private function cssOwnedFlexAttributes(DOMElement $element): array
+    {
+        $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        if ( $this->inlineDisplayOverridesAuthorLayout($element, $inlineDeclarations) ) {
+            return $this->presentationAttributes($element);
+        }
+
+        // Carry only the inline-present properties so the fallback to
+        // mapper-synthesized declarations cannot invent a `gap` that
+        // overrides explicit row-gap/column-gap values.
+        $carriedProperties = array_values(array_intersect(self::CSS_OWNED_FLEX_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
+
+        return $this->presentationAttributes($element, array(), $carriedProperties);
     }
 
     private function isCssOwnedGridElement(DOMElement $element): bool

@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-autofit-grid-stays-css-owned",
+  "description": "An author-CSS grid container using repeat(auto-fit, minmax(W, 1fr)) is NOT expressible as native WordPress grid layout: wp-includes/block-supports/layout.php hardcodes auto-fill in every branch that renders minimumColumnWidth, and auto-fill retains the tracks auto-fit collapses. The container must take the css-owned-GRID path, where the author rule keeps owning the exact authored track list — not the css-owned-FLOW demotion, which drops display:grid and stacks the cards in a single column.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-autofit-grid-stays-css-owned.json",
+    "notes": "Derived from a portfolio homepage where .work-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)) } collapsed to a vertical stack after transform, because the demotion at the time dropped display:grid along with the layout attribute. Converting to a native layout attribute traded that stack for a different wrong geometry: WordPress rendered the tracks as auto-fill, retaining empty tracks and squeezing the cards into part of the measure. The css-owned-grid carrier is the path that reproduces the authored tracks exactly."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer layout classification behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.work-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:24px}.work-card h3{margin:0}</style></head><body><section class=\"work-grid\"><div class=\"work-card\"><h3>Ledger</h3><p>Design system for a fintech team.</p></div><div class=\"work-card\"><h3>Atlas</h3><p>Mapping tools for field research.</p></div><div class=\"work-card\"><h3>Relay</h3><p>Realtime dashboard for dispatch.</p></div></section></body></html>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": { "layout": null, "className": "work-grid blocks-engine-css-owned-layout blocks-engine-css-owned-grid" }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "is-layout-grid" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "minimumColumnWidth" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-css-owned-flow" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
+    { "path": "assets.1.content", "assert": "contains", "value": ".work-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:24px}" }
+  ]
+}
