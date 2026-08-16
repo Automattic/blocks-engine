@@ -168,6 +168,19 @@ final class StyleAttributeMapper
         if ( '' !== trim((string) ($border['radius'] ?? '')) ) {
             $declarations[] = 'border-radius:' . trim((string) $border['radius']);
         }
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array();
+            if ( '' !== trim((string) ($sideBorder['color'] ?? '')) ) {
+                $classes[]      = 'has-border-color';
+                $declarations[] = 'border-' . $side . '-color:' . trim((string) $sideBorder['color']);
+            }
+            if ( '' !== trim((string) ($sideBorder['style'] ?? '')) ) {
+                $declarations[] = 'border-' . $side . '-style:' . trim((string) $sideBorder['style']);
+            }
+            if ( '' !== trim((string) ($sideBorder['width'] ?? '')) ) {
+                $declarations[] = 'border-' . $side . '-width:' . trim((string) $sideBorder['width']);
+            }
+        }
 
         // Match the core style engine: dimensions precede spacing in save().
         $dimensions = is_array($style['dimensions'] ?? null) ? $style['dimensions'] : array();
@@ -448,22 +461,21 @@ final class StyleAttributeMapper
     private function border(array $declarations, array &$consumed): array
     {
         $border    = array();
-        $shorthand = $this->parseBorderShorthand((string) ($declarations['border'] ?? ''));
-        if ( isset($declarations['border']) ) {
-            $consumed['border'] = true;
-        }
-
-        $width = trim((string) ($declarations['border-width'] ?? $shorthand['width'] ?? ''));
-        if ( '' === $width ) {
-            $width = $this->uniformBorderSideValue('width', $declarations, $consumed);
-        }
-        $style = strtolower(trim((string) ($declarations['border-style'] ?? $shorthand['style'] ?? '')));
-        $colorValue = $this->cssColor((string) ($declarations['border-color'] ?? $shorthand['color'] ?? ''));
-        foreach ( array( 'border-width', 'border-style', 'border-color' ) as $name ) {
-            if ( isset($declarations[ $name ]) ) {
+        $positions = array_flip(array_keys($declarations));
+        foreach ( array_keys($declarations) as $name ) {
+            if ( $this->isMappedBorderProperty($name) ) {
                 $consumed[ $name ] = true;
             }
         }
+
+        $global = array();
+        foreach ( array( 'width', 'style', 'color' ) as $component ) {
+            $global[ $component ] = $this->borderComponentCandidate($declarations, $positions, $component);
+        }
+
+        $width      = trim($global['width']['value']);
+        $style      = strtolower(trim($global['style']['value']));
+        $colorValue = $this->cssColor($global['color']['value']);
 
         $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $colorValue && '' === $style );
         if ( ! $noBorder ) {
@@ -477,35 +489,127 @@ final class StyleAttributeMapper
                 $border['color'] = $colorValue;
             }
         }
+        $hasGlobalBorder = isset($border['width']) || isset($border['style']) || isset($border['color']);
 
         $radius = trim((string) ($declarations['border-radius'] ?? ''));
         if ( '' !== $radius ) {
-            $consumed['border-radius'] = true;
-            $border['radius']          = $radius;
+            $border['radius'] = $radius;
         }
+
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            $sideComponents = array();
+            foreach ( array( 'width', 'style', 'color' ) as $component ) {
+                $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side);
+                if ( $candidate['index'] > $global[ $component ]['index'] ) {
+                    $sideComponents[ $component ] = $candidate['value'];
+                }
+            }
+
+            $sideWidth = trim((string) ($sideComponents['width'] ?? ''));
+            $sideStyle = strtolower(trim((string) ($sideComponents['style'] ?? '')));
+            $sideColor = $this->cssColor((string) ($sideComponents['color'] ?? ''));
+
+            $sideValues = array();
+            $noSideBorder = 'none' === $sideStyle || ( '' !== $sideWidth && (float) $sideWidth === 0.0 && '' === $sideColor && '' === $sideStyle );
+            if ( ! $noSideBorder || $hasGlobalBorder ) {
+                if ( '' !== $sideWidth && ( (float) $sideWidth !== 0.0 || $hasGlobalBorder ) ) {
+                    $sideValues['width'] = $sideWidth;
+                }
+                if ( '' !== $sideStyle && ( 'none' !== $sideStyle || $hasGlobalBorder ) ) {
+                    $sideValues['style'] = $sideStyle;
+                }
+                if ( '' !== $sideColor ) {
+                    $sideValues['color'] = $sideColor;
+                }
+            }
+            if ( array() !== $sideValues ) {
+                $border[ $side ] = $sideValues;
+            }
+        }
+
+        $this->collapseUniformBorderSideComponent($border, 'width');
 
         return $border;
     }
 
     /**
-     * Collapse equal physical side values into the canonical border support.
-     * Unequal sides remain under author stylesheet ownership.
+     * Return the last authored global or per-side value for one border component.
+     * A shorthand participates even when it omits the component because CSS
+     * shorthands reset omitted values to their initial state.
      *
      * @param array<string, string> $declarations
-     * @param array<string, bool> $consumed
+     * @param array<string, int> $positions
+     * @return array{value: string, index: int}
      */
-    private function uniformBorderSideValue(string $property, array $declarations, array &$consumed): string
+    private function borderComponentCandidate(array $declarations, array $positions, string $component, string $side = ''): array
     {
-        $names = array_map(static fn (string $side): string => 'border-' . $side . '-' . $property, array( 'top', 'right', 'bottom', 'left' ));
-        $values = array_map(static fn (string $name): string => trim((string) ($declarations[ $name ] ?? '')), $names);
-        if ( in_array('', $values, true) || 1 !== count(array_unique($values)) ) {
-            return '';
+        $shorthandName = '' === $side ? 'border' : 'border-' . $side;
+        $longhandName  = $shorthandName . '-' . $component;
+        $candidate     = array( 'value' => '', 'index' => -1 );
+
+        if ( isset($declarations[ $shorthandName ]) ) {
+            $shorthand = $this->parseBorderShorthand($declarations[ $shorthandName ]);
+            $initialValues = array(
+                'width' => 'medium',
+                'style' => 'none',
+                'color' => 'currentColor',
+            );
+            $candidate = array(
+                'value' => array() === $shorthand ? '' : (string) ($shorthand[ $component ] ?? $initialValues[ $component ]),
+                'index' => $positions[ $shorthandName ],
+            );
         }
 
-        foreach ( $names as $name ) {
-            $consumed[ $name ] = true;
+        if ( isset($declarations[ $longhandName ]) && $positions[ $longhandName ] > $candidate['index'] ) {
+            $candidate = array(
+                'value' => $declarations[ $longhandName ],
+                'index' => $positions[ $longhandName ],
+            );
         }
-        return $values[0];
+
+        return $candidate;
+    }
+
+    private function isMappedBorderProperty(string $name): bool
+    {
+        if ( in_array($name, array( 'border', 'border-width', 'border-style', 'border-color', 'border-radius' ), true) ) {
+            return true;
+        }
+
+        return (bool) preg_match('/^border-(?:top|right|bottom|left)(?:-(?:width|style|color))?$/', $name);
+    }
+
+    /**
+     * Collapse four equal physical side values into one canonical component and
+     * remove the now-redundant side objects.
+     *
+     * @param array<string, mixed> $border
+     */
+    private function collapseUniformBorderSideComponent(array &$border, string $component): void
+    {
+        $sides  = array( 'top', 'right', 'bottom', 'left' );
+        $values = array();
+        foreach ( $sides as $side ) {
+            $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array();
+            $value      = trim((string) ($sideBorder[ $component ] ?? ''));
+            if ( '' === $value ) {
+                return;
+            }
+            $values[] = $value;
+        }
+
+        if ( 1 !== count(array_unique($values)) ) {
+            return;
+        }
+
+        foreach ( $sides as $side ) {
+            unset($border[ $side ][ $component ]);
+            if ( array() === $border[ $side ] ) {
+                unset($border[ $side ]);
+            }
+        }
+        unset($border[ $component ]);
+        $border = array( $component => $values[0] ) + $border;
     }
 
     /**

@@ -55,6 +55,9 @@ final class Runtime
      */
     private array $diagnostics = array();
 
+    /** @var array<string, array<string, mixed>>|null */
+    private ?array $fallbackCoreBlockSupports = null;
+
     public function hasWordPress(): bool
     {
         return $this->canParseBlocks()
@@ -123,21 +126,41 @@ final class Runtime
     }
 
     /**
+     * Whether the registered block type declares support for one authored border
+     * component. WordPress still exposes border support under the historical
+     * `__experimentalBorder` key in block.json; accept the stabilized `border`
+     * key as well. Unknown block metadata fails closed so callers can retain the
+     * declaration through a CSS carrier instead of emitting an ignored attribute.
+     */
+    public function blockSupportsBorder(string $blockName, string $component): bool
+    {
+        if ( ! in_array($component, array( 'color', 'style', 'width' ), true) ) {
+            return false;
+        }
+
+        $supports = $this->registeredBlockSupports($blockName);
+        if ( null === $supports ) {
+            $supports = $this->fallbackBlockSupports($blockName);
+        }
+        if ( null === $supports ) {
+            return false;
+        }
+
+        $border = $supports['border'] ?? $supports['__experimentalBorder'] ?? false;
+        if ( true === $border ) {
+            return true;
+        }
+
+        return is_array($border) && true === ($border[ $component ] ?? false);
+    }
+
+    /**
      * @return array<int, string>
      */
     private function registeredCoreBlockNames(): array
     {
-        if ( ! class_exists('WP_Block_Type_Registry') || ! method_exists('WP_Block_Type_Registry', 'get_instance') ) {
-            return array();
-        }
-
-        $registry = \WP_Block_Type_Registry::get_instance();
-        if ( ! is_object($registry) || ! method_exists($registry, 'get_all_registered') ) {
-            return array();
-        }
-
         $names = array();
-        foreach ( $registry->get_all_registered() as $key => $blockType ) {
+        foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
             $name = is_string($key) ? $key : '';
             if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
                 $name = $blockType->name;
@@ -152,6 +175,66 @@ final class Runtime
         sort($names);
 
         return $names;
+    }
+
+    /**
+     * @return array<string|int, object>
+     */
+    private function registeredBlockTypes(): array
+    {
+        if ( ! class_exists('WP_Block_Type_Registry') || ! method_exists('WP_Block_Type_Registry', 'get_instance') ) {
+            return array();
+        }
+
+        $registry = \WP_Block_Type_Registry::get_instance();
+        if ( ! is_object($registry) || ! method_exists($registry, 'get_all_registered') ) {
+            return array();
+        }
+
+        $registered = $registry->get_all_registered();
+        return is_array($registered) ? $registered : array();
+    }
+
+    /**
+     * Resolve support from the block type's registered declaration, never from a
+     * transformer-owned block-name allowlist.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function registeredBlockSupports(string $blockName): ?array
+    {
+        foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
+            $name = is_string($key) ? $key : '';
+            if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
+                $name = $blockType->name;
+            }
+            if ( $blockName !== $name || ! is_object($blockType) ) {
+                continue;
+            }
+
+            return is_array($blockType->supports ?? null) ? $blockType->supports : array();
+        }
+
+        return null;
+    }
+
+    /**
+     * Standalone transforms have no WP_Block_Type_Registry. Load the generated
+     * WordPress 6.6 declaration snapshot so the same block.json support check is
+     * still available. Live registered declarations always take precedence.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fallbackBlockSupports(string $blockName): ?array
+    {
+        if ( null === $this->fallbackCoreBlockSupports ) {
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-6.6-core-block-supports.json';
+            $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+            $this->fallbackCoreBlockSupports = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
+        }
+
+        $supports = $this->fallbackCoreBlockSupports[ $blockName ] ?? null;
+        return is_array($supports) ? $supports : null;
     }
 
     /**
