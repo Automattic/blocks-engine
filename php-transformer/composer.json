@@ -87,6 +87,7 @@
       "php tests/unit/navigation-underline-color-resolver.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/button-style-resolver.php",
+      "php tests/unit/button-font-family-carry.php",
       "php tests/unit/button-visual-probe-diagnostics.php",
       "php tests/unit/shell-landmark-policy.php",
       "php tests/unit/block-style-support-conversion.php",
