@@ -372,6 +372,12 @@ final class NavigationPattern implements PatternRecognizerInterface
      * happen to contain the vocabulary, not claims that the anchor is branding.
      * Substring-searching prose for `brand` and `logo` classified both as
      * branding and hoisted a real menu item out of its menu.
+     *
+     * `rel` is read as a token attribute for consistency, but note that no
+     * standard link relation matches this vocabulary: `rel="home"` does NOT
+     * qualify, because the vocabulary carries `home-link` and `home-logo` rather
+     * than a bare `home`. Only an authored `rel` such as `logo` or `home-link`
+     * reaches it, so today the `rel` read is very nearly inert.
      */
     private function hasBrandAnchorSignal(DOMElement $anchor): bool
     {

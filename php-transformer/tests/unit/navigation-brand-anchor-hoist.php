@@ -311,8 +311,15 @@ $prose = static function (string $attribute, string $value) use ($transform, $fi
         static fn (array $block): bool => 'nav' === (string) ($block['attrs']['tagName'] ?? '')
     ));
 
+    // A carrier group holds a core/navigation beside the hoisted block. A nav
+    // group with NO core/navigation inside it is the deferral guard's generic
+    // conversion instead, which is a different path and must not be read as a
+    // hoist.
+    $navigations = $findBlocks($blocks, 'core/navigation');
+
     return array(
-        'carriers' => count($carriers),
+        'carriers' => array() === $navigations ? 0 : count($carriers),
+        'deferred' => array() !== $carriers && array() === $navigations,
         'links' => count($findBlocks($blocks, 'core/navigation-link')),
     );
 };
@@ -325,6 +332,27 @@ foreach ( array( 'aria-label' => 'Brand new products', 'title' => 'Download our 
         json_encode($prosed)
     );
 }
+
+// The token attributes still carry a cue, and `rel` is one of them. A recognised
+// cue reaches `hasDirectBrandingAnchorBesideListNavigation()` first, which defers
+// the whole container — the pre-existing path for an allowlisted brand, not the
+// carrier. What matters here is that the cue is SEEN, so the anchor is never
+// absorbed as a menu item.
+$relCue = $prose('rel', 'home-link');
+$assert(
+    true === $relCue['deferred'] && 0 === $relCue['links'],
+    'a brand cue authored in rel is recognised, so the container defers instead of absorbing the anchor',
+    json_encode($relCue)
+);
+
+// `rel="home"` is NOT in the vocabulary — it carries `home-link` and `home-logo`,
+// not a bare `home` — so this anchor stays an ordinary menu item.
+$bareRel = $prose('rel', 'home');
+$assert(
+    0 === $bareRel['carriers'] && false === $bareRel['deferred'] && 3 === $bareRel['links'],
+    'rel="home" is not in the brand vocabulary, so it leaves the anchor a menu item',
+    json_encode($bareRel)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand anchor hoist contract: {$failures} failed, {$passes} passed\n");
