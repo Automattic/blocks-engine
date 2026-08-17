@@ -166,6 +166,59 @@ $assert(
     '' !== $growShrinkRule ? $growShrinkRule : $growShrinkCss
 );
 
+// -- core/media-text already consumes the media child's sizing to derive the
+// split ratio. The media child is absorbed into the block attributes and is
+// never serialized, so it must not also receive a carrier: that would apply
+// sizing twice, once as an attribute and once as !important CSS.
+$mediaText = $transform(
+    '<section style="display:flex;gap:2rem;align-items:center">'
+    . '<div style="flex:0 0 40%;flex-basis:40%"><img src="hero.jpg" alt="Hero" width="800" height="600"></div>'
+    . '<div><h2>Studio</h2><p>Body copy long enough to bear text in the media-text pattern.</p></div>'
+    . '</section>'
+);
+$mediaTextMarkup = (string) ($mediaText['serialized_blocks'] ?? '');
+$mediaTextRules = $carrierRules($cssFor($mediaText, 'engine-support'));
+
+$assert(
+    str_contains($mediaTextMarkup, 'wp:media-text'),
+    'media-text: the fixture still reaches the core/media-text pattern',
+    substr($mediaTextMarkup, 0, 200)
+);
+$assert(
+    str_contains($mediaTextMarkup, '"mediaWidth":40'),
+    'media-text: the split ratio is still derived from the media child',
+    substr($mediaTextMarkup, 0, 200)
+);
+$assert(
+    '' === $ruleWith($mediaTextRules, 'flex:0 0 40%'),
+    'media-text: the consumed media child gets no carrier, so sizing is never applied twice',
+    implode(' | ', $mediaTextRules)
+);
+
+// -- A bare <img> serializes inside a generated <figure>, and that figure is
+// the element occupying the flex-child slot. The carrier has to land on the
+// wrapper that is actually the flex item, not on the source node.
+$injectedFigure = $transform(
+    '<div style="display:flex;gap:1rem">'
+    . '<img style="flex:0 0 200px" src="a.jpg" alt="A" width="200" height="200">'
+    . '<p>Sibling copy that keeps the row from collapsing.</p>'
+    . '<p>Third sibling so the media-text pattern does not claim the row.</p>'
+    . '</div>'
+);
+$injectedFigureMarkup = (string) ($injectedFigure['serialized_blocks'] ?? '');
+$injectedFigureCss = $cssFor($injectedFigure, 'engine-support');
+
+$assert(
+    str_contains($ruleWith($carrierRules($injectedFigureCss), 'flex:0 0 200px'), 'flex:0 0 200px !important'),
+    'injected figure: the image sizing survives into a carrier rule',
+    $injectedFigureCss
+);
+$assert(
+    1 === preg_match('/<figure class="[^"]*wp-block-image[^"]*be-inline-geometry-[a-f0-9]+[^"]*"/', $injectedFigureMarkup),
+    'injected figure: the carrier lands on the generated figure, which is the flex child',
+    $injectedFigureMarkup
+);
+
 // -- Control: a class-owned shorthand has nothing inline to carry; the author
 // stylesheet already retains the declaration and no carrier is invented.
 $classOwned = $transform(
