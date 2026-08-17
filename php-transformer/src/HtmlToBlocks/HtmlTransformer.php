@@ -3648,6 +3648,7 @@ final class HtmlTransformer
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
                 $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
             }
+            $attrs = $this->applyDeclaredBorderSupport($name, $attrs, $sourceElement);
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
@@ -3673,6 +3674,74 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /**
+     * WordPress ignores style.border components that the registered block type
+     * does not declare. Keep supported components native; move only unsupported
+     * width/style/color values into the existing deterministic carrier. Border
+     * radius deliberately stays on the pre-existing native path unchanged.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function applyDeclaredBorderSupport(string $name, array $attrs, DOMElement $sourceElement): array
+    {
+        $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
+        if ( array() === $border ) {
+            return $attrs;
+        }
+
+        $fallback = array();
+        foreach ( array( 'width', 'style', 'color' ) as $component ) {
+            if ( ! array_key_exists($component, $border) || $this->runtime->blockSupportsBorder($name, $component) ) {
+                continue;
+            }
+            $fallback[ $component ] = $border[ $component ];
+            unset($border[ $component ]);
+        }
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array();
+            foreach ( array( 'width', 'style', 'color' ) as $component ) {
+                if ( ! array_key_exists($component, $sideBorder) || $this->runtime->blockSupportsBorder($name, $component) ) {
+                    continue;
+                }
+                $fallback[ $side ][ $component ] = $sideBorder[ $component ];
+                unset($sideBorder[ $component ]);
+            }
+            if ( array() === $sideBorder ) {
+                unset($border[ $side ]);
+            } else {
+                $border[ $side ] = $sideBorder;
+            }
+        }
+
+        if ( array() === $fallback ) {
+            return $attrs;
+        }
+
+        $fallbackStyle = $this->styleAttributeMapper()->serialize(array( 'border' => $fallback ))['style'];
+        $fallbackDeclarations = $this->cssDeclarations($fallbackStyle);
+        $carrier = $this->inlineGeometryClassName(
+            $sourceElement,
+            array(),
+            array_keys($fallbackDeclarations),
+            $fallbackDeclarations
+        );
+        if ( '' !== $carrier ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+        }
+
+        if ( array() === $border ) {
+            unset($attrs['style']['border']);
+        } else {
+            $attrs['style']['border'] = $border;
+        }
+        if ( empty($attrs['style']) ) {
+            unset($attrs['style']);
+        }
+
+        return $attrs;
     }
 
     /**

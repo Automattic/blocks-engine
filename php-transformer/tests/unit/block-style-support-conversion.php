@@ -54,7 +54,11 @@ $uniformBorder = ( new StyleAttributeMapper() )->map(array(
     'border-style' => 'solid',
     'border-color' => '#ffffff',
 ));
-$assert('12.808px' === ($uniformBorder['style']['border']['width'] ?? ''), '8a: equal physical border widths collapse into canonical border support', json_encode($uniformBorder));
+$assert(
+    array( 'width' => '12.808px', 'style' => 'solid', 'color' => '#ffffff' ) === ($uniformBorder['style']['border'] ?? array()),
+    '8a: equal physical border widths collapse without redundant side objects',
+    json_encode($uniformBorder)
+);
 
 $classBorderImage = ( new HtmlTransformer() )->transform(
     '<img class="photo" src="/photo.jpg" alt="Portrait">',
@@ -373,6 +377,227 @@ $assert(str_contains($compoundPaintCssAsset, '.gallery{--card-overlay:#203040;--
 $compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintHtml, $compoundPaintCss);
 $compoundCandidateProbe = ( new StaticStyleParityProbe() )->extract(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($compoundPaintMarkup), $compoundPaintCssAsset);
 $assert(0 < (int) ($compoundSourceProbe['summary']['styled_total'] ?? 0) && 0 < (int) ($compoundCandidateProbe['summary']['styled_total'] ?? 0), '62: layered background cascade case produces nonzero source and candidate style probes', json_encode(array($compoundSourceProbe['summary'] ?? array(), $compoundCandidateProbe['summary'] ?? array())));
+
+$amberQuoteHtml = '<blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
+$amberQuoteResult = ( new HtmlTransformer() )->transform($amberQuoteHtml, array())->toArray();
+$amberQuote = $amberQuoteResult['blocks'][0] ?? array();
+$amberQuoteAttrs = is_array($amberQuote['attrs'] ?? null) ? $amberQuote['attrs'] : array();
+$amberQuoteCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $amberQuoteResult['assets'] ?? array()));
+$amberQuoteLeftBorder = is_array($amberQuoteAttrs['style']['border']['left'] ?? null) ? $amberQuoteAttrs['style']['border']['left'] : array();
+
+$assert(
+    'core/quote' === ($amberQuote['blockName'] ?? '')
+        && '1.2rem' === ($amberQuoteAttrs['style']['spacing']['padding']['left'] ?? '')
+        && 'var(--head)' === ($amberQuoteAttrs['style']['typography']['fontFamily'] ?? '')
+        && '2.2rem' === ($amberQuoteAttrs['style']['typography']['fontSize'] ?? '')
+        && '700' === ($amberQuoteAttrs['style']['typography']['fontWeight'] ?? '')
+        && '-.02em' === ($amberQuoteAttrs['style']['typography']['letterSpacing'] ?? ''),
+    'N1 setup: amber quote exercises native spacing and typography conversion',
+    json_encode($amberQuote)
+);
+$assert(
+    array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === $amberQuoteLeftBorder
+        || (
+            str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important')
+            && str_contains($amberQuoteCss, 'border-left-style:solid !important')
+            && str_contains($amberQuoteCss, 'border-left-width:2px !important')
+        ),
+    'N1: amber quote retains its authored left border through native support or a carrier',
+    json_encode(array( 'attrs' => $amberQuoteAttrs, 'css' => $amberQuoteCss ))
+);
+
+$borderMapper = new StyleAttributeMapper();
+$shorthandBorder = $borderMapper->map(array( 'border' => '2px solid red' ));
+$leftBorder = $borderMapper->map(array( 'border-left' => '2px solid var(--secondary)' ));
+$individualBorder = $borderMapper->map(array(
+    'border-width' => '3px',
+    'border-style' => 'dashed',
+    'border-color' => '#123456',
+));
+$globalThenLeftBorder = $borderMapper->map(array(
+    'border' => '4px dashed blue',
+    'border-left' => '2px solid red',
+));
+$leftThenGlobalBorder = $borderMapper->map(array(
+    'border-left' => '2px solid red',
+    'border' => '4px dashed blue',
+));
+$globalThenNoLeftBorder = $borderMapper->map(array(
+    'border' => '4px solid blue',
+    'border-left' => 'none',
+));
+$globalThenColorOnlyLeftBorder = $borderMapper->map(array(
+    'border' => '4px solid blue',
+    'border-left' => 'red',
+));
+$assert(
+    array( 'width' => '2px', 'style' => 'solid', 'color' => 'red' ) === ($shorthandBorder['style']['border'] ?? array()),
+    'N2: border shorthand maps to native width, style, and color',
+    json_encode($shorthandBorder)
+);
+$assert(
+    array( 'left' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) ) === ($leftBorder['style']['border'] ?? array()),
+    'N2: per-side border shorthand maps to the native left-side object',
+    json_encode($leftBorder)
+);
+$assert(
+    array( 'width' => '3px', 'style' => 'dashed', 'color' => '#123456' ) === ($individualBorder['style']['border'] ?? array()),
+    'N2: individual border width, style, and color forms map natively',
+    json_encode($individualBorder)
+);
+$assert(
+    array(
+        'width' => '4px',
+        'style' => 'dashed',
+        'color' => 'blue',
+        'left' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'red' ),
+    ) === ($globalThenLeftBorder['style']['border'] ?? array()),
+    'N2: a later per-side shorthand overrides an earlier global shorthand',
+    json_encode($globalThenLeftBorder)
+);
+$assert(
+    array( 'width' => '4px', 'style' => 'dashed', 'color' => 'blue' ) === ($leftThenGlobalBorder['style']['border'] ?? array()),
+    'N2: a later global shorthand resets an earlier per-side shorthand',
+    json_encode($leftThenGlobalBorder)
+);
+$assert(
+    'none' === ($globalThenNoLeftBorder['style']['border']['left']['style'] ?? ''),
+    'N2: a later none side shorthand actively cancels an earlier global border',
+    json_encode($globalThenNoLeftBorder)
+);
+$assert(
+    array( 'width' => 'medium', 'style' => 'none', 'color' => 'red' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
+    'N2: a partial side shorthand resets omitted components instead of inheriting the global border',
+    json_encode($globalThenColorOnlyLeftBorder)
+);
+
+$nativeBorderGroupResult = ( new HtmlTransformer() )->transform(
+    '<section style="border-left:2px solid var(--secondary)"><p>Native border</p></section>',
+    array()
+)->toArray();
+$nativeBorderGroup = $nativeBorderGroupResult['blocks'][0] ?? array();
+$nativeBorderGroupAttrs = is_array($nativeBorderGroup['attrs'] ?? null) ? $nativeBorderGroup['attrs'] : array();
+$nativeBorderGroupMarkup = (string) ($nativeBorderGroupResult['serialized_blocks'] ?? '');
+$assert(
+    'core/group' === ($nativeBorderGroup['blockName'] ?? '')
+        && array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === ($nativeBorderGroupAttrs['style']['border']['left'] ?? array())
+        && ! str_contains((string) ($nativeBorderGroupAttrs['className'] ?? ''), 'be-inline-geometry-')
+        && str_contains($nativeBorderGroupMarkup, 'border-left-color:var(--secondary)')
+        && str_contains($nativeBorderGroupMarkup, 'border-left-style:solid')
+        && str_contains($nativeBorderGroupMarkup, 'border-left-width:2px'),
+    'N2: a border-supporting Group serializes the native per-side border',
+    json_encode(array( 'block' => $nativeBorderGroup, 'markup' => $nativeBorderGroupMarkup ))
+);
+
+$matchedNativeBorderGroupResult = ( new HtmlTransformer() )->transform(
+    '<section class="matched-border"><p>Matched native border</p></section>',
+    array( 'static_css' => '.matched-border{border-left:3px dotted #123456}' )
+)->toArray();
+$matchedNativeBorderGroup = $matchedNativeBorderGroupResult['blocks'][0] ?? array();
+$matchedNativeBorderGroupAttrs = is_array($matchedNativeBorderGroup['attrs'] ?? null) ? $matchedNativeBorderGroup['attrs'] : array();
+$assert(
+    array( 'width' => '3px', 'style' => 'dotted', 'color' => '#123456' ) === ($matchedNativeBorderGroupAttrs['style']['border']['left'] ?? array())
+        && ! str_contains((string) ($matchedNativeBorderGroupAttrs['className'] ?? ''), 'be-inline-geometry-'),
+    'N2: matched stylesheet per-side shorthand reaches native Group border support',
+    json_encode($matchedNativeBorderGroupResult)
+);
+
+$repeatedBorderGroupResult = ( new HtmlTransformer() )->transform(
+    '<section style="border-left:2px solid red;border:4px dashed blue;border-left:1px dotted green"><p>Ordered native border</p></section>',
+    array()
+)->toArray();
+$repeatedBorderGroupAttrs = $repeatedBorderGroupResult['blocks'][0]['attrs'] ?? array();
+$assert(
+    '4px' === ($repeatedBorderGroupAttrs['style']['border']['width'] ?? '')
+        && 'dashed' === ($repeatedBorderGroupAttrs['style']['border']['style'] ?? '')
+        && 'blue' === ($repeatedBorderGroupAttrs['style']['border']['color'] ?? '')
+        && array( 'width' => '1px', 'style' => 'dotted', 'color' => 'green' ) === ($repeatedBorderGroupAttrs['style']['border']['left'] ?? array()),
+    'N2: a repeated side shorthand after a global shorthand keeps its final authored position',
+    json_encode($repeatedBorderGroupResult)
+);
+
+$radiusRoundTrip = $borderMapper->map(array( 'border-radius' => 'var(--radius)' ));
+$assert(
+    array( 'radius' => 'var(--radius)' ) === ($radiusRoundTrip['style']['border'] ?? array())
+        && 'border-radius:var(--radius)' === $borderMapper->serialize($radiusRoundTrip['style'])['style'],
+    'N3: existing radius mapping and serialization round-trip unchanged',
+    json_encode($radiusRoundTrip)
+);
+
+$assert(
+    ! isset($amberQuoteAttrs['style']['border'])
+        && str_contains((string) ($amberQuoteAttrs['className'] ?? ''), 'be-inline-geometry-')
+        && str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important')
+        && str_contains($amberQuoteCss, 'border-left-style:solid !important')
+        && str_contains($amberQuoteCss, 'border-left-width:2px !important'),
+    'N4: a Quote without declared border support uses the carrier and emits no ignored native border attribute',
+    json_encode(array( 'attrs' => $amberQuoteAttrs, 'css' => $amberQuoteCss ))
+);
+
+// The core style engine attaches `has-border-color` to the uniform
+// `border.color` definition only; `border.{side}` carries no classnames. The
+// class is an all-sides signal because core ships
+// `html :where(.has-border-color){border-style:solid}` in
+// wp-includes/css/dist/block-library/common.css. Emitting it for a one-sided
+// authored border makes WordPress paint the three unauthored sides at the
+// initial `medium` width (3px) in `currentColor`, growing the box by 6px.
+$sideOnlyBorderSerialized = $borderMapper->serialize(array(
+    'border' => array( 'left' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) ),
+));
+$assert(
+    '' === $sideOnlyBorderSerialized['classes'],
+    'N5: a per-side border color emits no all-sides has-border-color class',
+    json_encode($sideOnlyBorderSerialized)
+);
+$assert(
+    'border-left-color:var(--secondary);border-left-style:solid;border-left-width:2px' === $sideOnlyBorderSerialized['style'],
+    'N5: a per-side border still serializes its own side declarations',
+    json_encode($sideOnlyBorderSerialized)
+);
+
+$uniformBorderSerialized = $borderMapper->serialize(array(
+    'border' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'red' ),
+));
+$assert(
+    'has-border-color' === $uniformBorderSerialized['classes'],
+    'N5: a uniform border color keeps the core has-border-color class',
+    json_encode($uniformBorderSerialized)
+);
+
+$assert(
+    ! str_contains($nativeBorderGroupMarkup, 'has-border-color'),
+    'N5: a Group with only an authored left border serializes without has-border-color',
+    $nativeBorderGroupMarkup
+);
+
+// A shorthand that omits a component resets it to its initial value, but that
+// value is not authored. Serializing it would put an inline declaration the
+// author never wrote above their own state rules: `.card{border:2px solid
+// transparent}` plus `.card:hover{border-color:var(--x)}` would freeze the card
+// at `currentColor`. The substituted initial value settles precedence only.
+$transparentShorthandBorder = $borderMapper->map(array( 'border' => '2px solid transparent' ));
+$assert(
+    array( 'width' => '2px', 'style' => 'solid' ) === ($transparentShorthandBorder['style']['border'] ?? array()),
+    'N6: a shorthand whose color is unusable emits no substituted currentColor',
+    json_encode($transparentShorthandBorder)
+);
+$colorlessShorthandBorder = $borderMapper->map(array( 'border' => '1px solid' ));
+$assert(
+    array( 'width' => '1px', 'style' => 'solid' ) === ($colorlessShorthandBorder['style']['border'] ?? array()),
+    'N6: a shorthand that omits the color emits no substituted currentColor',
+    json_encode($colorlessShorthandBorder)
+);
+$colorlessSideShorthandBorder = $borderMapper->map(array( 'border-bottom' => '1px solid' ));
+$assert(
+    array( 'bottom' => array( 'width' => '1px', 'style' => 'solid' ) ) === ($colorlessSideShorthandBorder['style']['border'] ?? array()),
+    'N6: a per-side shorthand that omits the color emits no substituted currentColor',
+    json_encode($colorlessSideShorthandBorder)
+);
+$assert(
+    array( 'width' => 'medium', 'style' => 'none', 'color' => 'red' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
+    'N6: substituted initial values still cancel a global border this mapper emits',
+    json_encode($globalThenColorOnlyLeftBorder)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");

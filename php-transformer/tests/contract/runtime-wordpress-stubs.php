@@ -99,6 +99,17 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
                 'plugin/card' => (object) array('name' => 'plugin/card'),
                 (object) array('name' => 'core/math'),
                 'core/accordion' => (object) array('name' => 'core/accordion'),
+                'core/group' => (object) array(
+                    'name' => 'core/group',
+                    'supports' => array(
+                        '__experimentalBorder' => array(
+                            'color' => true,
+                            'style' => false,
+                            'width' => true,
+                        ),
+                    ),
+                ),
+                'core/quote' => (object) array('name' => 'core/quote', 'supports' => array()),
             );
         }
     }
@@ -120,7 +131,10 @@ assertSame(array('stub' => 'ids="1,2"'), $runtime->parseShortcodeAttributes('ids
 assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/demo')), 'Runtime should delegate JSON encoding to wp_json_encode().');
 assertSame('stub html <tag>', $runtime->escapeHtml('<tag>'), 'Runtime should delegate HTML escaping to esc_html().');
 assertSame('stub attr "value"', $runtime->escapeAttribute('"value"'), 'Runtime should delegate attribute escaping to esc_attr().');
-assertSame(array('core/accordion', 'core/icon', 'core/math'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
+assertSame(array('core/accordion', 'core/group', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
+assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Runtime should resolve border width from the registered Group declaration.');
+assertSame(false, $runtime->blockSupportsBorder('core/group', 'style'), 'Registered Group metadata should override the standalone snapshot component by component.');
+assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'A registered Quote declaration without border support should fail closed.');
 
 fwrite(STDOUT, "WordPress runtime stub contract passed.\n");
 

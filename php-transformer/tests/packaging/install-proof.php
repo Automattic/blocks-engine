@@ -40,6 +40,7 @@ $requiredFiles = array(
     'docs/contracts/php-transformer-visual-parity-fixture.schema.json',
     'docs/contracts/php-transformer-visual-parity-report.schema.json',
     'docs/contracts/visual-parity-report.md',
+    'resources/wordpress-6.6-core-block-supports.json',
     'tools/visual-parity/package-lock.json',
     'tools/visual-parity/package.json',
     'tools/visual-parity/bin/visual-parity.mjs',
@@ -53,9 +54,23 @@ foreach ( $requiredFiles as $requiredFile ) {
         exit(1);
     }
 }
-$result = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<h1>Proof</h1>')->toArray();
+$transformer = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer();
+$result = $transformer->transform('<h1>Proof</h1>')->toArray();
 if ('success' !== ($result['status'] ?? '') || '' === ($result['serialized_blocks'] ?? '')) {
     fwrite(STDERR, "php-transformer install proof failed\n");
+    exit(1);
+}
+$group = $transformer->transform('<section style="border-left:2px solid red"><p>Native</p></section>')->toArray();
+$groupBorder = $group['blocks'][0]['attrs']['style']['border']['left'] ?? null;
+if (array('width' => '2px', 'style' => 'solid', 'color' => 'red') !== $groupBorder) {
+    fwrite(STDERR, "php-transformer install proof failed native border support\n");
+    exit(1);
+}
+$quote = $transformer->transform('<blockquote style="border-left:2px solid red">Fallback</blockquote>')->toArray();
+$quoteAttrs = $quote['blocks'][0]['attrs'] ?? array();
+$quoteCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $quote['assets'] ?? array()));
+if (isset($quoteAttrs['style']['border']) || ! str_contains((string) ($quoteAttrs['className'] ?? ''), 'be-inline-geometry-') || ! str_contains($quoteCss, 'border-left-width:2px !important')) {
+    fwrite(STDERR, "php-transformer install proof failed unsupported border fallback\n");
     exit(1);
 }
 PHP;

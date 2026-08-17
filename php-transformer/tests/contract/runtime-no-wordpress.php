@@ -12,6 +12,12 @@ $availableCoreBlocks = $runtime->availableCoreBlockNames();
 assertSame(true, in_array('core/accordion', $availableCoreBlocks, true), 'Fallback native target metadata should include core/accordion.');
 assertSame(true, in_array('core/icon', $availableCoreBlocks, true), 'Fallback native target metadata should include core/icon.');
 assertSame(true, in_array('core/math', $availableCoreBlocks, true), 'Fallback native target metadata should include core/math.');
+assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Standalone support resolution should load Group width support from the generated WordPress declaration snapshot.');
+assertSame(true, $runtime->blockSupportsBorder('core/group', 'style'), 'Standalone support resolution should load Group style support from the generated WordPress declaration snapshot.');
+assertSame(true, $runtime->blockSupportsBorder('core/group', 'color'), 'Standalone support resolution should load Group color support from the generated WordPress declaration snapshot.');
+assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'Standalone support resolution should treat WordPress 6.6 Quote as lacking border support.');
+assertSame(true, $runtime->blockSupportsBorder('core/image', 'width'), 'Standalone support resolution should load Image width support from its declaration.');
+assertSame(false, $runtime->blockSupportsBorder('core/image', 'style'), 'Standalone support resolution should honor Image declarations that omit border style support.');
 
 $blocks = $runtime->parseBlocks('<!-- wp:paragraph {"content":"Hello"} --><p>Hello</p><!-- /wp:paragraph -->');
 assertSame('core/paragraph', $blocks[0]['blockName'] ?? null, 'Fallback parser should parse serialized block comments.');

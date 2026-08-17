@@ -1695,14 +1695,26 @@ trait StyleResolutionTrait
             'background-size',
             'aspect-ratio',
             'border',
+            'border-bottom',
+            'border-bottom-color',
+            'border-bottom-style',
             'border-color',
+            'border-left',
+            'border-left-color',
+            'border-left-style',
             'border-radius',
+            'border-right',
+            'border-right-color',
+            'border-right-style',
             'border-style',
             'border-bottom-width',
             'border-collapse',
             'border-left-width',
             'border-right-width',
             'border-spacing',
+            'border-top',
+            'border-top-color',
+            'border-top-style',
             'border-top-width',
             'border-width',
             'box-shadow',
@@ -1775,6 +1787,10 @@ trait StyleResolutionTrait
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             $allowsImageUrl = in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
+                // Keep the surviving declaration at its final authored position.
+                // Border shorthands and longhands reset one another in source
+                // order, so overwriting a prior key in place is not sufficient.
+                unset($declarations[$name]);
                 $declarations[$name] = $value;
             }
         }
