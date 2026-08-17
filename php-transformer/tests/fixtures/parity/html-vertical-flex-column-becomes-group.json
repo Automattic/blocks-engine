@@ -28,7 +28,7 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group hero be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout blocks-engine-css-owned-flow\">" },
-    { "path": "assets.0.content", "assert": "contains", "value": "{display:flex !important;flex-direction:column !important;gap:1rem !important}" },
+    { "path": "assets.0.content", "assert": "contains", "value": "{display:flex;flex-direction:column;gap:1rem}" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-button__link" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:columns" }

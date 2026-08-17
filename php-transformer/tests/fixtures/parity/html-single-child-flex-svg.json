@@ -28,7 +28,7 @@
     { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "GIRTH" },
     { "path": "assets", "assert": "count", "count": 2 },
-    { "path": "assets.1.content", "assert": "contains", "value": "{display:flex !important;justify-content:center !important}" },
+    { "path": "assets.1.content", "assert": "contains", "value": "{display:flex;justify-content:center}" },
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-group be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
