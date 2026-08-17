@@ -275,13 +275,21 @@ $assert(
 // The arm is a deliberately narrow allowlist, not a general "carry every
 // leftover declaration" rule: animation, filter and counter-reset have side
 // effects and sit outside this defect family.
+// The companion `max-width` is load-bearing: it mints a carrier, so these three
+// assertions are proving the properties are ABSENT FROM a rule that exists,
+// rather than passing vacuously against an empty carrier string.
 $sideEffects = $transform(
-    '<section><div style="animation:pulse 2s infinite;filter:blur(2px);counter-reset:step 0;">'
+    '<section><div style="animation:pulse 2s infinite;filter:blur(2px);counter-reset:step 0;max-width:40rem;">'
     . '<p>Copy inside a decorated wrapper.</p></div></section>'
 );
 $sideEffectsCss = $cssFor($sideEffects, 'engine-support');
 $sideEffectRules = $tierRules($sideEffectsCss);
 
+$assert(
+    '' !== $anyWith($sideEffectRules, 'max-width:40rem'),
+    'unmatched arm: the companion declaration mints a carrier, so the negative assertions below are non-vacuous',
+    $sideEffectsCss
+);
 foreach ( array( 'animation', 'filter', 'counter-reset' ) as $property ) {
     $assert(
         '' === $anyWith($sideEffectRules, $property),
@@ -422,6 +430,96 @@ $assert(
     '' !== $nonImportantWith($malformedRules, 'box-shadow:0 0 0 3px #123456'),
     'malformed value: the well-formed sibling rule survives instead of being swallowed',
     $malformedCss
+);
+
+// ---------------------------------------------------------------------------
+// The skip must compare against the element's OWN author-declared text-align,
+// not only the value inherited from ancestors. A class that centres the element
+// and an inline style that left-aligns it have no ancestor alignment to compare
+// against, so an ancestor-only walk resolves to the document default, matches
+// `left`, skips the carrier, and lets the class rule render it centred where the
+// source rendered it left.
+// ---------------------------------------------------------------------------
+$ownAuthorAlign = $transform(
+    '<style>.card{text-align:center;max-width:40rem;padding:1rem}</style>'
+    . '<section><div class="card" style="text-align:left;max-width:30rem;">'
+    . '<p>Body copy the source deliberately left-aligns.</p></div></section>'
+);
+$ownAuthorAlignCss = $cssFor($ownAuthorAlign, 'engine-support');
+
+$assert(
+    '' !== $nonImportantWith($tierRules($ownAuthorAlignCss), 'text-align:left'),
+    'own author alignment: an inline text-align overriding the element\'s OWN class text-align is carried',
+    $ownAuthorAlignCss
+);
+$assert(
+    str_contains($cssFor($ownAuthorAlign, 'author-css'), 'text-align:center'),
+    'own author alignment: the class rule is still materialized, so the carrier is what decides the outcome',
+    $cssFor($ownAuthorAlign, 'author-css')
+);
+
+// ---------------------------------------------------------------------------
+// core/button re-emits the source control as its own chrome, so the source
+// element's formatting context no longer describes the rendered markup. Every
+// button therefore discards its inline flex declarations, and discards
+// box-shadow when the native shadow support has claimed it. This is a behaviour
+// change for all buttons, so it is pinned rather than left implicit.
+// ---------------------------------------------------------------------------
+$buttonChrome = $transform(
+    '<style>.btn{background:#5b18a6;color:#fff;padding:0.8rem 1.2rem;border-radius:999px}</style>'
+    . '<section><div><a class="btn" href="#go" style="display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;">Go now</a></div></section>'
+);
+$buttonChromeCss = $cssFor($buttonChrome, 'engine-support');
+$buttonChromeRules = $tierRules($buttonChromeCss);
+
+foreach ( array( 'display:inline-flex', 'align-items', 'justify-content', 'gap' ) as $declaration ) {
+    $assert(
+        '' === $anyWith($buttonChromeRules, $declaration),
+        'button chrome: ' . $declaration . ' is not carried onto a core/button wrapper',
+        $buttonChromeCss
+    );
+}
+$assert(
+    str_contains((string) ($buttonChrome['serialized_blocks'] ?? ''), 'wp:button'),
+    'button chrome: the control still converts to a native core/button',
+    (string) ($buttonChrome['serialized_blocks'] ?? '')
+);
+
+// ---------------------------------------------------------------------------
+// LIMITATION PIN. The conflict rescue can only see author declarations that
+// survive safeVisualDeclarations(). `overflow` is not on that allowlist, so the
+// author rule is invisible, the inline override is dropped, and the materialized
+// stylesheet reasserts the opposite value. `position` IS on it and rescues
+// correctly. This asserts the CURRENT limited behaviour on purpose: the day the
+// rule set is collected unfiltered, this test fails and produces a signal
+// instead of silence.
+// ---------------------------------------------------------------------------
+$unseen = $transform(
+    '<style>.pane{overflow:hidden;padding:1rem}</style>'
+    . '<section><div class="pane" style="overflow:visible;max-width:30rem;"><p>Panel copy.</p></div></section>'
+);
+$unseenCss = $cssFor($unseen, 'engine-support');
+
+$assert(
+    '' !== $anyWith($tierRules($unseenCss), 'max-width:30rem'),
+    'limitation pin: the element does get a carrier, so the overflow assertion below is non-vacuous',
+    $unseenCss
+);
+$assert(
+    '' === $anyWith($tierRules($unseenCss), 'overflow'),
+    'limitation pin: overflow is absent from safeVisualDeclarations, so the conflict rescue cannot see it (KNOWN LIMITATION - if this fails, the rule set became unfiltered and the limitation is closed)',
+    $unseenCss
+);
+
+$seen = $transform(
+    '<style>.pane{position:absolute;padding:1rem}</style>'
+    . '<section><div class="pane" style="position:static;max-width:30rem;"><p>Panel copy.</p></div></section>'
+);
+
+$assert(
+    '' !== $nonImportantWith($tierRules($cssFor($seen, 'engine-support')), 'position:static'),
+    'limitation pin: position IS allowlisted, so the same shape rescues correctly - the gap is property-dependent, not total',
+    $cssFor($seen, 'engine-support')
 );
 
 if ( $failures > 0 ) {

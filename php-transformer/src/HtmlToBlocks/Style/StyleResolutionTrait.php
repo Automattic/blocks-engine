@@ -815,11 +815,42 @@ trait StyleResolutionTrait
         }
 
         $rightToLeft = $this->isRightToLeftElement($element);
-        if ( $this->comparableTextAlignment($value, $rightToLeft) === $this->inheritedTextAlignment($element, $rightToLeft) ) {
+        if ( $this->comparableTextAlignment($value, $rightToLeft) === $this->effectiveTextAlignmentWithoutInline($element, $rightToLeft) ) {
             return array();
         }
 
         return array( 'text-align' => $value );
+    }
+
+    /**
+     * What this element's alignment would resolve to if the inline declaration
+     * were removed: its OWN author-declared `text-align` when it has one, and
+     * only otherwise the value inherited from its ancestors.
+     *
+     * Consulting the element's own author rule is the whole point. An element
+     * whose class sets `text-align:center` and whose inline style sets `left` has
+     * no ancestor alignment to compare against, so an ancestor-only walk resolves
+     * to the document default, matches `left`, and skips the carrier — leaving the
+     * class rule to win and render centred where the source rendered left. That is
+     * the same inverted premise the conflict rescue exists to close.
+     *
+     * `structuralPresentationDeclarations()` is deliberately NOT used here: it
+     * merges the inline style in, so comparing against it would always be equal
+     * and would skip every carrier.
+     */
+    private function effectiveTextAlignmentWithoutInline(DOMElement $element, bool $rightToLeft): string
+    {
+        $authorDeclared = $this->authorDeclaredPropertyValues($element, array( 'text-align' ))['text-align'] ?? array();
+        // Later declarations win at equal specificity, so the last match is the
+        // closest available stand-in for the author cascade's own winner.
+        for ( $index = count($authorDeclared) - 1; $index >= 0; $index-- ) {
+            $own = $this->comparableTextAlignment((string) $authorDeclared[ $index ], $rightToLeft);
+            if ( '' !== $own ) {
+                return $own;
+            }
+        }
+
+        return $this->inheritedTextAlignment($element, $rightToLeft);
     }
 
     /**
