@@ -81,6 +81,8 @@
       "php tests/unit/engine-support-css-specificity.php",
       "php tests/unit/inline-display-carrier.php",
       "php tests/unit/css-owned-flex-carrier.php",
+      "php tests/unit/inline-flex-item-carrier.php",
+      "php tests/unit/inline-author-override-carrier.php",
       "php tests/unit/auto-fit-grid-carrier.php",
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",

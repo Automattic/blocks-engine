@@ -128,7 +128,7 @@ trait ButtonLinkDispatchTrait
 
         return $this->buttonsPattern->matchButton(
             $element,
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
             fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),

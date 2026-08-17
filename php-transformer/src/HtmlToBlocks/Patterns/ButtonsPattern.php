@@ -309,9 +309,36 @@ final class ButtonsPattern
     {
         $resolvedStyle = (string) $resolvedStyle($element);
         $width = $this->buttonWidth($resolvedStyle);
+        // Resolve native paint before classifying an outline: a generic reset such
+        // as `button { background: none }` can precede a filled button variant.
+        // It is also resolved before the presentation attributes so the carrier
+        // can be told which properties the native supports have already claimed.
+        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
         // Native core/button width owns only its canonical percentage values.
         // Other anchors and width values retain their generated geometry carrier.
-        $attrs = $presentationAttributes($element, null !== $width ? array( 'width' ) : array());
+        $excludedGeometry = null !== $width ? array( 'width' ) : array();
+        // The source control is re-emitted as core/button's own chrome — a
+        // `wp-block-button` wrapper around a `wp-block-button__link` — so the
+        // source element's own formatting context no longer describes the
+        // rendered markup. This is the same reasoning that drops the `layout`
+        // attribute below; carrying the declarations onto the wrapper instead
+        // would fight the button chrome rather than preserve the source.
+        $excludedGeometry = array_merge($excludedGeometry, array(
+            'display',
+            'flex-direction',
+            'flex-wrap',
+            'align-items',
+            'justify-content',
+            'gap',
+        ));
+        // The `shadow` support is the editor-visible owner of this box-shadow.
+        // A carrier rule for the same property on the same element would be a
+        // second, competing source, and would desynchronise what the block editor
+        // shows from what the front end renders.
+        if ( '' !== trim((string) ($native['style']['shadow'] ?? '')) ) {
+            $excludedGeometry[] = 'box-shadow';
+        }
+        $attrs = $presentationAttributes($element, $excludedGeometry);
         // Buttons resolve styling from the raw merged CSS string, not the canonical
         // block style object, so the (now object-shaped) presentation `style` is
         // dropped and re-derived via ButtonStyleResolver below.
@@ -320,9 +347,6 @@ final class ButtonsPattern
         // belongs on the parent core/buttons, not each button). Emitting it here
         // produces an unsupported attribute and invalid block markup, so drop it.
         unset($attrs['layout']);
-        // Resolve native paint before classifying an outline: a generic reset such
-        // as `button { background: none }` can precede a filled button variant.
-        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
         $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
         if ( $isOutline ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
