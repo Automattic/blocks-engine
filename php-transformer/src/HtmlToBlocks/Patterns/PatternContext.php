@@ -16,6 +16,7 @@ final class PatternContext
      * @param callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null $convertChildrenWithoutTags
      * @param callable(DOMElement, DOMElement): string|null $navigationUnderlineColor
      * @param callable(DOMElement): string|null $resolvedStyle
+     * @param callable(DOMElement): array<string, mixed>|null $convertElement
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -25,7 +26,8 @@ final class PatternContext
         private readonly mixed $convertChildren = null,
         private readonly mixed $convertChildrenWithoutTags = null,
         private readonly mixed $navigationUnderlineColor = null,
-        private readonly mixed $resolvedStyle = null
+        private readonly mixed $resolvedStyle = null,
+        private readonly mixed $convertElement = null
     ) {
     }
 
@@ -67,6 +69,19 @@ final class PatternContext
     public function convertChildrenCallback(): ?callable
     {
         return is_callable($this->convertChildren) ? $this->convertChildren : null;
+    }
+
+    /**
+     * Convert one element to the block the generic pipeline would emit for it.
+     * A pattern that keeps a sibling element out of its own block needs the
+     * element's own conversion rather than its children's, so the sibling is
+     * emitted exactly as it would be anywhere else in the document.
+     *
+     * @return callable(DOMElement): array<string, mixed>|null
+     */
+    public function convertElementCallback(): ?callable
+    {
+        return is_callable($this->convertElement) ? $this->convertElement : null;
     }
 
     /**

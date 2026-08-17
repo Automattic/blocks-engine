@@ -46,6 +46,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor);
+        if ( null !== $hoisted ) {
+            return $hoisted;
+        }
+
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
 
         if ( array() === $links ) {
@@ -93,6 +98,162 @@ final class NavigationPattern implements PatternRecognizerInterface
             )), array(), $label);
 
         return $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element);
+    }
+
+    /**
+     * A nav container that holds a branding anchor beside its link cluster
+     * authors THREE elements — the landmark, the brand, and the menu — each with
+     * its own CSS rule. Folding all three into one core/navigation makes the
+     * brand a menu item: the landmark's own box rules then compete with the
+     * menu list's rules on a single element, and the brand emits
+     * `anchorClassName`, which core/navigation-link does not register.
+     *
+     * Emit the landmark as a carrier group instead, holding the brand block and
+     * a core/navigation built from the link cluster alone. Structural position
+     * does the work a class allowlist used to do — a direct-child anchor outside
+     * the cluster — but position alone cannot tell a brand from an ordinary menu
+     * item that happens to sit outside the list, so the anchor must also read as
+     * a brand: a lockup (element children) or a brand/logo cue. A bare
+     * `<a>Home</a>` beside the list stays a menu item.
+     *
+     * Not covered: an anchor holding only an image with no accessible name is
+     * classified as navigation chrome before it reaches the brand test, so an
+     * image-only logo is still dropped — as it is without this carrier.
+     *
+     * The carrier is restricted to a real `<nav>` landmark. That is load-bearing,
+     * not cosmetic: a consumer's raw-anchor link resolution scopes by lexical
+     * `<nav>` ancestry, so a brand hoisted out of the link set keeps its resolved
+     * URL only while it renders inside a `<nav>`. A `div` carrier would put the
+     * brand outside both that pass and the block pass that rewrites
+     * `wp:navigation-link`, losing coverage the folded shape had.
+     *
+     * `hasDirectBrandingAnchorBesideListNavigation()` runs first and keeps
+     * deferring the shapes it already recognises, so this covers exactly the
+     * containers that would otherwise absorb the brand.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor): ?array
+    {
+        if ( null === $convertElement ) {
+            return null;
+        }
+
+        if ( 'nav' !== strtolower($element->tagName) ) {
+            return null;
+        }
+
+        $anchor = null;
+        $cluster = null;
+        $brandLeads = true;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            if ( $this->isNavigationChromeElement($child) ) {
+                // Chrome that scripts drive at runtime is not decoration: a
+                // carrier group would drop it, so keep the source shape.
+                if ( null !== $isRuntimeDomTarget && $isRuntimeDomTarget($child) ) {
+                    return null;
+                }
+                continue;
+            }
+
+            // Block-level content inside the anchor is no obstacle here: the
+            // carrier converts the anchor rather than flattening it into a menu
+            // item label, so a lockup built from a heading survives whole.
+            if ( 'a' === strtolower($child->tagName) ) {
+                if ( $anchor instanceof DOMElement
+                    || '' === $this->anchorLabel($child, $innerHtml)
+                    || ! $this->readsAsBrandAnchor($child)
+                ) {
+                    return null;
+                }
+
+                $anchor = $child;
+                $brandLeads = ! $cluster instanceof DOMElement;
+                continue;
+            }
+
+            if ( $cluster instanceof DOMElement ) {
+                return null;
+            }
+
+            $cluster = $child;
+        }
+
+        if ( ! $anchor instanceof DOMElement || ! $cluster instanceof DOMElement ) {
+            return null;
+        }
+
+        // Settle every cheap structural question before converting anything.
+        // Both conversions below run against the real block factory and record
+        // provenance and runtime islands, so a bail after them leaves recorded
+        // side effects behind for output that was never emitted.
+        if ( 2 > $cluster->getElementsByTagName('a')->length ) {
+            return null;
+        }
+
+        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
+        if ( 2 > count($links) ) {
+            return null;
+        }
+
+        // An anchor that only converts to an HTML fallback would trade a menu
+        // item for raw markup; keep today's shape rather than lose the block.
+        $brand = $convertElement($anchor);
+        $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
+        if ( '' === $brandName || 'core/html' === $brandName ) {
+            return null;
+        }
+
+        // The link cluster owns the navigation block's presentation: it is the
+        // element core/navigation stands in for, so the menu list's className
+        // stays with the menu instead of being copied onto the landmark.
+        $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
+        $navigationAttrs['overlayMenu'] = 'mobile';
+        $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
+        if ( $this->isListNavigationSource($cluster) ) {
+            unset($commonTextAttrs['style']['typography']);
+        }
+        $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
+
+        $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
+
+        // The carrier is the authored `<nav>`, so it keeps that tag (see above).
+        // The authored `aria-label` does not come with it: core/group registers no
+        // attribute that carries an accessible name, and inventing one would emit
+        // exactly the unregistered comment attribute this carrier exists to stop.
+        $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
+
+        return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+    }
+
+    /**
+     * Whether a direct-child anchor reads as branding rather than as a menu item
+     * that happens to sit outside the list. A lockup — an anchor built from
+     * element children such as a name plus a location, or a heading — is the
+     * structural signal; an explicit brand/logo cue is accepted as well so a
+     * single-line wordmark still qualifies. Bare anchor text does not.
+     */
+    private function readsAsBrandAnchor(DOMElement $anchor): bool
+    {
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return true;
+            }
+        }
+
+        return $this->hasBrandAnchorSignal($anchor);
     }
 
     private function directSectionLabel(DOMElement $element): ?DOMElement

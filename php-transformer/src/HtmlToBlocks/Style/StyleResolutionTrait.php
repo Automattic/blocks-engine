@@ -63,6 +63,15 @@ trait StyleResolutionTrait
     private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
 
     /**
+     * Author-declared values for the properties an element's inline style could
+     * be overriding, keyed by element plus the queried property set. Resolving
+     * this walks every matched rule, so it is memoized per element.
+     *
+     * @var array<string, array<string, array<int, string>>>
+     */
+    private array $authorDeclaredPropertyValuesCache = array();
+
+    /**
      * @return list<string>
      */
     private function inlineLayoutCarrierProperties(): array
@@ -75,6 +84,39 @@ trait StyleResolutionTrait
             'justify-content',
             'gap',
         );
+    }
+
+    /**
+     * The alignment half of the layout carrier list. `display` is excluded on
+     * purpose: in the author-resolved branch the author stylesheet owns the
+     * formatting context, and carrying `display` is exactly what that branch
+     * exists to guard against.
+     *
+     * @return list<string>
+     */
+    private function inlineFlexAlignmentCarrierProperties(): array
+    {
+        return array_values(array_diff($this->inlineLayoutCarrierProperties(), array( 'display' )));
+    }
+
+    /**
+     * Properties carried when NO author rule declares them at all.
+     *
+     * Deliberately NOT general. `box-shadow` is decorative paint with no layout
+     * or animation side effects, and it is the only unmapped property in this
+     * defect family: the four service cards are classless elements whose inline
+     * box-shadow is their only ring, so nothing else can restore it. A general
+     * "carry every leftover inline declaration" rule would also carry
+     * `animation`, `filter` and `counter-reset`, which have side effects and sit
+     * outside this defect family. Conflicting declarations do not need to be on
+     * this list — a conflict is self-evidence that the author rule would
+     * otherwise reassert the opposite value.
+     *
+     * @return list<string>
+     */
+    private function inlineUnmatchedCarrierProperties(): array
+    {
+        return array( 'box-shadow' );
     }
 
     /**
@@ -139,6 +181,7 @@ trait StyleResolutionTrait
         $this->mediaTextPresentationStyleCache = array();
         $this->generatedGeometryRules = array();
         $this->geometryCarrierClassAllocator = null;
+        $this->authorDeclaredPropertyValuesCache = array();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -378,6 +421,20 @@ trait StyleResolutionTrait
             }
         } else {
             $properties = array_values(array_diff($properties, $this->inlineLayoutCarrierProperties()));
+            // The author stylesheet, not the inline style, establishes this
+            // element's flex/grid formatting context, so its inline alignment
+            // declarations are still the source's own and still need carrying.
+            // A <div> reaches the same rescue through cssOwnedFlexAttributes();
+            // a <p> or <ul> never can, because that path is gated on
+            // ShellLandmarkPolicy::isFlowContainerTag(). Gate on the inline
+            // intersection so no `gap` or `align-items` the author's media
+            // queries own can be synthesized here.
+            if ( $this->authorResolvedDisplayEstablishesFlexOrGrid($element) ) {
+                $properties = array_merge($properties, array_values(array_intersect(
+                    $this->inlineFlexAlignmentCarrierProperties(),
+                    array_keys($declarations)
+                )));
+            }
         }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
@@ -396,6 +453,32 @@ trait StyleResolutionTrait
             }
             if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
                 $geometry[$property] = $value;
+            }
+        }
+
+        // Inline declarations that exist in order to OVERRIDE author CSS. The
+        // "drop it and rely on the preserved className plus the carried author
+        // CSS" premise inverts for these: dropping them does not fall back to
+        // the same styling, it falls back to the OPPOSITE styling.
+        $overrideDeclarations = $this->inlineAuthorOverrideDeclarations(
+            $element,
+            $declarations,
+            $geometry,
+            array_merge($excludedProperties, $forcedProperties)
+        );
+        foreach ($overrideDeclarations as $property => $value) {
+            $geometry[$property] = $value;
+        }
+
+        // `text-align` rides an EXISTING container carrier and never mints one on
+        // its own. A carrier class is what promotes an otherwise attribute-less
+        // wrapper into a core/group, so minting one here would add block-tree
+        // structure to every wrapper whose only inline declaration is an
+        // alignment — a topology change, not a styling fix.
+        if ( array() !== $geometry ) {
+            foreach ($this->inlineInheritedTextAlignDeclaration($element, $declarations, $excludedProperties) as $property => $value) {
+                $geometry[$property] = $value;
+                $overrideDeclarations[$property] = $value;
             }
         }
 
@@ -421,8 +504,16 @@ trait StyleResolutionTrait
         $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
         $inlineLayoutPropertyLookup = array_fill_keys($this->inlineLayoutCarrierProperties(), true);
         $inlineListMarkerPropertyLookup = array_fill_keys($this->inlineListMarkerCarrierProperties(), true);
+        // Author-override carriers stay in the non-important tier. At (0,2,0)
+        // the `:root .x` selector already outranks the plain single-class rule
+        // being overridden, at every viewport, because a media query adds no
+        // specificity. The !important tier would additionally beat authored
+        // non-important `:hover`/`:focus` rules and delete the interactive
+        // states the source still wants.
+        $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
         foreach ($geometry as $property => $value) {
             if ( isset($inlineListMarkerPropertyLookup[$property])
+                || isset($overridePropertyLookup[$property])
                 || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
             ) {
                 // Preserve source inline layout and list markers over a later
@@ -451,53 +542,396 @@ trait StyleResolutionTrait
     }
 
     /**
-     * An inline display needs a carrier only when materialized author CSS would
-     * otherwise reassert a different layout mode on the transformed element.
-     * Conditional variants count because the inline declaration owns every
-     * viewport in the source document.
+     * An inline display needs a carrier when materialized author CSS would
+     * otherwise reassert a different layout mode on the transformed element, OR
+     * when no author rule supplies `display` at all and the inline value differs
+     * from the transformed tag's own default. Conditional variants count because
+     * the inline declaration owns every viewport in the source document.
+     *
+     * The second case is not optional. A `.badge` reused for its paint declares
+     * no `display`, so restoring its inline `position:static` without its inline
+     * `display:inline-block` turns the pill into a flow-level block box at the
+     * container's full content width, with a solid background and a 999px
+     * radius — a worse regression than the overlap being fixed.
+     *
+     * This predicate governs the CARRIER only. It must not be used to choose a
+     * priority tier: `cssOwnedFlexAttributes()` keys its forced-property branch
+     * off the narrower `inlineDisplayConflictsWithAuthorLayout()`, because the
+     * non-important tier is only sound for the CONFLICT case. Widening the tier
+     * to the differs-from-tag-default population demotes a carrier from
+     * `!important` to `:root .x` at (0,2,0), where any author selector with three
+     * or more weighted tokens on the same element wins and the source's own
+     * inline value stops rendering.
      *
      * @param array<string, string> $inlineDeclarations
      */
     private function inlineDisplayOverridesAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
     {
-        $inlineDisplay = strtolower(trim((string) preg_replace(
-            '/\s*!\s*important\s*$/i',
-            '',
-            (string) ($inlineDeclarations['display'] ?? '')
-        )));
+        $inlineDisplay = $this->inlineDisplayValue($inlineDeclarations);
         if ( '' === $inlineDisplay ) {
             return false;
         }
 
-        foreach ( $this->staticStyleRules as $rule ) {
+        if ( $this->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
+            return true;
+        }
+
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
-            $authorDisplay = strtolower(trim((string) preg_replace(
-                '/\s*!\s*important\s*$/i',
-                '',
-                (string) ($rule['declarations']['display'] ?? '')
-            )));
+            if ( '' !== $this->authorDisplayValue($rule) ) {
+                // An author rule supplies `display` and agrees with the inline
+                // value, so the materialized stylesheet already carries it.
+                return false;
+            }
+        }
+
+        return $inlineDisplay !== $this->defaultTagDisplay($element);
+    }
+
+    /**
+     * Whether materialized author CSS would reassert a DIFFERENT layout mode on
+     * the transformed element. This is the original, narrower question, and the
+     * only one that may drive a priority-tier choice.
+     *
+     * @param array<string, string> $inlineDeclarations
+     */
+    private function inlineDisplayConflictsWithAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
+    {
+        $inlineDisplay = $this->inlineDisplayValue($inlineDeclarations);
+        if ( '' === $inlineDisplay ) {
+            return false;
+        }
+
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            $authorDisplay = $this->authorDisplayValue($rule);
             if ( '' !== $authorDisplay && $inlineDisplay !== $authorDisplay ) {
                 return true;
             }
         }
 
-        foreach ( $this->conditionalStyleRules as $rule ) {
+        return false;
+    }
+
+    /** @param array<string, string> $inlineDeclarations */
+    private function inlineDisplayValue(array $inlineDeclarations): string
+    {
+        return strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($inlineDeclarations['display'] ?? '')
+        )));
+    }
+
+    /** @param array<string, mixed> $rule */
+    private function authorDisplayValue(array $rule): string
+    {
+        return strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($rule['declarations']['display'] ?? '')
+        )));
+    }
+
+    /**
+     * The transformed tag's own default display. An inline `display` differing
+     * from it is overriding the ELEMENT'S default, with no author rule involved.
+     *
+     * Unlisted tags fall back to `block` rather than to CSS's true `inline`
+     * default: the population here is HTML5 sectioning and content elements, and
+     * a `block` fallback keeps an unrecognized tag a no-op instead of minting a
+     * carrier from a guess.
+     */
+    private function defaultTagDisplay(DOMElement $element): string
+    {
+        $defaults = array(
+            'a' => 'inline', 'abbr' => 'inline', 'b' => 'inline', 'bdi' => 'inline', 'bdo' => 'inline',
+            'br' => 'inline', 'cite' => 'inline', 'code' => 'inline', 'data' => 'inline', 'dfn' => 'inline',
+            'em' => 'inline', 'i' => 'inline', 'img' => 'inline', 'kbd' => 'inline', 'label' => 'inline',
+            'mark' => 'inline', 'picture' => 'inline', 'q' => 'inline', 's' => 'inline', 'samp' => 'inline',
+            'small' => 'inline', 'span' => 'inline', 'strong' => 'inline', 'sub' => 'inline',
+            'sup' => 'inline', 'svg' => 'inline', 'time' => 'inline', 'u' => 'inline', 'var' => 'inline',
+            'wbr' => 'inline',
+            'button' => 'inline-block', 'input' => 'inline-block', 'select' => 'inline-block',
+            'textarea' => 'inline-block',
+            'li' => 'list-item',
+            'table' => 'table', 'caption' => 'table-caption', 'colgroup' => 'table-column-group',
+            'col' => 'table-column', 'thead' => 'table-header-group', 'tbody' => 'table-row-group',
+            'tfoot' => 'table-footer-group', 'tr' => 'table-row', 'td' => 'table-cell', 'th' => 'table-cell',
+        );
+
+        return $defaults[ strtolower($element->tagName) ] ?? 'block';
+    }
+
+    private function authorResolvedDisplayEstablishesFlexOrGrid(DOMElement $element): bool
+    {
+        $display = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+        )));
+
+        return in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
+    }
+
+    /**
+     * Inline declarations which map to no block support and would otherwise be
+     * dropped, in the two cases where dropping them changes the rendering:
+     * a matching author rule declares the same property with a DIFFERENT value,
+     * or no author rule declares it at all and it is on the narrow unmatched
+     * allowlist.
+     *
+     * @param array<string, string> $inlineDeclarations
+     * @param array<string, string> $carried already-selected geometry declarations
+     * @param array<int, string> $excludedProperties
+     * @return array<string, string>
+     */
+    private function inlineAuthorOverrideDeclarations(
+        DOMElement $element,
+        array $inlineDeclarations,
+        array $carried,
+        array $excludedProperties
+    ): array {
+        $candidates = $this->styleAttributeMapper()->map($inlineDeclarations)['leftover'] ?? array();
+        foreach ( array_keys($candidates) as $property ) {
+            if ( isset($carried[ $property ])
+                || in_array($property, $excludedProperties, true)
+                || str_starts_with($property, '--')
+                // `text-align` has its own inherited-value gate below; carrying
+                // it here would bypass that gate.
+                || 'text-align' === $property
+            ) {
+                unset($candidates[ $property ]);
+            }
+        }
+        if ( array() === $candidates ) {
+            return array();
+        }
+
+        $authorDeclared = $this->authorDeclaredPropertyValues($element, array_keys($candidates));
+        $unmatchedCarrier = $this->inlineUnmatchedCarrierProperties();
+        $overrides = array();
+        foreach ( $candidates as $property => $rawValue ) {
+            $value = $this->carriedDeclarationValue($rawValue);
+            if ( '' === $value ) {
+                continue;
+            }
+            if ( ! isset($authorDeclared[ $property ]) ) {
+                if ( in_array($property, $unmatchedCarrier, true) ) {
+                    $overrides[ $property ] = $value;
+                }
+                continue;
+            }
+            if ( ! in_array($this->cssComparableValue($value), $authorDeclared[ $property ], true) ) {
+                $overrides[ $property ] = $value;
+            }
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * Author-declared values for the given properties, from the matching rules
+     * THE COLLECTED RULE SET RETAINS.
+     *
+     * KNOWN LIMITATION, load-bearing: `staticStyleRules` and
+     * `conditionalStyleRules` are filtered through `safeVisualDeclarations()`
+     * before they are stored, so only properties on that 85-entry allowlist are
+     * visible here. `position`, `z-index` and `direction` are on it; `overflow`,
+     * `overflow-x/y`, `top`, `right`, `bottom`, `left`, `transform`,
+     * `transition`, `animation`, `opacity`, `visibility`, `float`, `clear`,
+     * `align-self`, `justify-self`, `white-space`, `pointer-events` and `cursor`
+     * are NOT. For those, an author declaration cannot register, the inline
+     * override falls into the "no author rule declares it" branch, and it is
+     * dropped unless it is on the narrow unmatched allowlist — while the
+     * materialized author stylesheet still asserts the opposite value verbatim.
+     * The conflict rescue is therefore property-dependent by construction, and
+     * closing it means collecting an unfiltered rule set, which is a change to
+     * every rule-collection path rather than to this one.
+     *
+     * Pseudo-state selectors are unsupported by the matcher and so never register
+     * here: a `:hover` box-shadow does not make a resting-state inline
+     * box-shadow redundant.
+     *
+     * @param array<int, string> $properties
+     * @return array<string, array<int, string>>
+     */
+    private function authorDeclaredPropertyValues(DOMElement $element, array $properties): array
+    {
+        sort($properties, SORT_STRING);
+        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $properties);
+        if ( isset($this->authorDeclaredPropertyValuesCache[ $cacheKey ]) ) {
+            return $this->authorDeclaredPropertyValuesCache[ $cacheKey ];
+        }
+
+        $wanted = array_fill_keys($properties, true);
+        $declared = array();
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
-            $conditionalDisplay = strtolower(trim((string) preg_replace(
-                '/\s*!\s*important\s*$/i',
-                '',
-                (string) ($rule['declarations']['display'] ?? '')
-            )));
-            if ( '' !== $conditionalDisplay && $inlineDisplay !== $conditionalDisplay ) {
-                return true;
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( isset($wanted[ strtolower((string) $property) ]) ) {
+                    $declared[ strtolower((string) $property) ][] = $this->cssComparableValue((string) $value);
+                }
+            }
+        }
+
+        $this->authorDeclaredPropertyValuesCache[ $cacheKey ] = $declared;
+
+        return $declared;
+    }
+
+    /**
+     * One `text-align` declaration on a container carrier restores its whole
+     * subtree, which is the source's own inheritance semantics: it covers block
+     * types with no `align` support at all (core/list, core/group) and emits one
+     * declaration instead of N attributes. Leaves keep using createBlock()'s
+     * element-scoped `align` attribute so the editor's alignment control still
+     * reflects reality — this is the INHERITED case only.
+     *
+     * The caller only consults this once the element already has a carrier, so a
+     * container whose ONLY inline declaration is an alignment is deliberately not
+     * covered: minting a carrier for it would promote a bare wrapper into a
+     * core/group and change the block tree.
+     *
+     * @param array<string, string> $declarations
+     * @param array<int, string> $excludedProperties
+     * @return array<string, string>
+     */
+    private function inlineInheritedTextAlignDeclaration(DOMElement $element, array $declarations, array $excludedProperties): array
+    {
+        if ( in_array('text-align', $excludedProperties, true) || 0 === $this->directElementChildCount($element) ) {
+            return array();
+        }
+
+        $value = $this->carriedDeclarationValue((string) ($declarations['text-align'] ?? ''));
+        if ( '' === $value ) {
+            return array();
+        }
+
+        $rightToLeft = $this->isRightToLeftElement($element);
+        if ( $this->comparableTextAlignment($value, $rightToLeft) === $this->effectiveTextAlignmentWithoutInline($element, $rightToLeft) ) {
+            return array();
+        }
+
+        return array( 'text-align' => $value );
+    }
+
+    /**
+     * What this element's alignment would resolve to if the inline declaration
+     * were removed: its OWN author-declared `text-align` when it has one, and
+     * only otherwise the value inherited from its ancestors.
+     *
+     * Consulting the element's own author rule is the whole point. An element
+     * whose class sets `text-align:center` and whose inline style sets `left` has
+     * no ancestor alignment to compare against, so an ancestor-only walk resolves
+     * to the document default, matches `left`, and skips the carrier — leaving the
+     * class rule to win and render centred where the source rendered left. That is
+     * the same inverted premise the conflict rescue exists to close.
+     *
+     * `structuralPresentationDeclarations()` is deliberately NOT used here: it
+     * merges the inline style in, so comparing against it would always be equal
+     * and would skip every carrier.
+     */
+    private function effectiveTextAlignmentWithoutInline(DOMElement $element, bool $rightToLeft): string
+    {
+        $authorDeclared = $this->authorDeclaredPropertyValues($element, array( 'text-align' ))['text-align'] ?? array();
+        // Later declarations win at equal specificity, so the last match is the
+        // closest available stand-in for the author cascade's own winner.
+        for ( $index = count($authorDeclared) - 1; $index >= 0; $index-- ) {
+            $own = $this->comparableTextAlignment((string) $authorDeclared[ $index ], $rightToLeft);
+            if ( '' !== $own ) {
+                return $own;
+            }
+        }
+
+        return $this->inheritedTextAlignment($element, $rightToLeft);
+    }
+
+    /**
+     * The alignment this element inherits, resolved from its ancestors and
+     * falling back to the tag's own UA default. `text-align` is inherited, so a
+     * carrier is warranted only when the inline value differs from what the
+     * element would have resolved to anyway.
+     */
+    private function inheritedTextAlignment(DOMElement $element, bool $rightToLeft): string
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $inherited = $this->comparableTextAlignment(
+                (string) ($this->structuralPresentationDeclarations($ancestor)['text-align'] ?? ''),
+                $rightToLeft
+            );
+            if ( '' !== $inherited ) {
+                return $inherited;
+            }
+        }
+
+        // The UA stylesheet centers table captions and header cells; every other
+        // element starts at the writing-mode start edge.
+        return in_array(strtolower($element->tagName), array( 'caption', 'th' ), true)
+            ? 'center'
+            : 'start';
+    }
+
+    /** `left` and `start` are one alignment in LTR, as are `right` and `start` in RTL. */
+    private function comparableTextAlignment(string $value, bool $rightToLeft): string
+    {
+        $value = strtolower(trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($value)) ?? $value));
+
+        return $value === ( $rightToLeft ? 'right' : 'left' ) ? 'start' : $value;
+    }
+
+    private function isRightToLeftElement(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $direction = strtolower(trim($this->attr($node, 'dir')));
+            if ( '' !== $direction ) {
+                return 'rtl' === $direction;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Strip `!important` and reject any value that could break out of the
+     * generated rule, matching the geometry loop's own guard.
+     *
+     * Anything that can leave the emitted rule's own closing brace unreachable is
+     * rejected, because this path carries values such as `box-shadow` whose
+     * grammar is full of parentheses, quotes and escapes. Three ways to do it,
+     * all verified to swallow the NEXT carrier rule in a browser:
+     *   - an unclosed `rgba(`, which makes the parser consume the brace hunting
+     *     for the `)`;
+     *   - an odd number of `'` or `"`, which puts the brace inside a string;
+     *   - a trailing backslash, which escapes the brace itself.
+     * In each case the corruption lands on an unrelated element's styling, so the
+     * malformed value is dropped rather than carried.
+     */
+    private function carriedDeclarationValue(string $rawValue): string
+    {
+        $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($rawValue)) ?? $rawValue);
+        if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
+            return '';
+        }
+        if ( substr_count($value, '(') !== substr_count($value, ')') ) {
+            return '';
+        }
+        if ( 0 !== substr_count($value, '"') % 2 || 0 !== substr_count($value, "'") % 2 ) {
+            return '';
+        }
+        // An odd trailing run of backslashes escapes whatever follows the value,
+        // which in the emitted rule is the closing brace.
+        if ( 1 === preg_match('/(\\\\+)$/', $value, $trailing) && 0 !== strlen($trailing[1]) % 2 ) {
+            return '';
+        }
+
+        return $value;
     }
 
     /**

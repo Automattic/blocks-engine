@@ -28,6 +28,8 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "is-layout-grid" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"layout\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
-    { "path": "assets.0.content", "assert": "contains", "value": "grid-template-columns:repeat(auto-fit,minmax(190px,1fr))" }
+    { "path": "assets.0.content", "assert": "contains", "value": "grid-template-columns:repeat(auto-fit,minmax(190px,1fr))" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-quote be-inline-geometry-" },
+    { "path": "assets.0.content", "assert": "contains", "value": "{display:grid}" }
   ]
 }

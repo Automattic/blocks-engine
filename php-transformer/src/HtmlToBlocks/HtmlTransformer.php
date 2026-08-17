@@ -2494,7 +2494,8 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
         );
     }
 
@@ -2505,6 +2506,15 @@ final class HtmlTransformer
     {
         $fallbacks = array();
         return $this->convertChildren($element, $fallbacks, true);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function convertPatternElement(DOMElement $element): ?array
+    {
+        $fallbacks = array();
+        return $this->convertElement($element, $fallbacks, true);
     }
 
     /**
@@ -3334,7 +3344,7 @@ final class HtmlTransformer
 
             $buttons = $this->buttonsPattern->matchContainer(
                 $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
@@ -4473,7 +4483,13 @@ final class HtmlTransformer
     private function cssOwnedFlexAttributes(DOMElement $element): array
     {
         $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
-        if ( $this->inlineDisplayOverridesAuthorLayout($element, $inlineDeclarations) ) {
+        // Deliberately the CONFLICT-only predicate, not the wider carrier one.
+        // This branch chooses a priority TIER: taking it drops the layout carrier
+        // to the non-important tier, which is only sound when the inline display
+        // is overriding a different author display. An inline display that merely
+        // differs from the tag default has no such guarantee, and demoting it
+        // lets any author selector above (0,2,0) win.
+        if ( $this->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
             return $this->presentationAttributes($element);
         }
 
