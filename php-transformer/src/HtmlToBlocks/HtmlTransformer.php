@@ -2494,7 +2494,8 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
         );
     }
 
@@ -2505,6 +2506,15 @@ final class HtmlTransformer
     {
         $fallbacks = array();
         return $this->convertChildren($element, $fallbacks, true);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function convertPatternElement(DOMElement $element): ?array
+    {
+        $fallbacks = array();
+        return $this->convertElement($element, $fallbacks, true);
     }
 
     /**

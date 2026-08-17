@@ -1,0 +1,109 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-brand-anchor-hoist",
+  "description": "A nav landmark that authors a branding anchor beside a menu list keeps three distinct elements: the landmark becomes a core/group{tagName:nav} carrier holding the brand block and the promoted core/navigation, so the brand is never folded in as a menu item. Detection is structural — a direct-child anchor outside the link cluster — so a brand class outside any vocabulary allowlist is still recognised. Folding the brand in emitted the unregistered anchorClassName attribute on core/navigation-link, copied the menu list's className onto the nav container, and blocked the shared link colour from being promoted to the navigation block.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-brand-anchor-hoist.json",
+    "notes": "Product-neutral header shape: nav landmark with a direct branding anchor whose class carries no brand/logo token, beside a ul menu whose class carries no navigation token."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers native block decomposition fidelity beyond the legacy converter."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav aria-label=\"Primary\"><a class=\"wordmark\" href=\"/\"><span class=\"name\">Harbor Studio</span><span class=\"place\">Camden, Maine</span></a><ul class=\"navlinks\"><li><a href=\"/\">Home</a></li><li><a href=\"/work/\">Work</a></li><li><a href=\"/contact/\">Contact</a></li></ul></nav>",
+    "options": {
+      "static_css": ".wordmark{display:flex;flex-direction:column;line-height:1}.wordmark .place{font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:#A9B4C2}.navlinks{list-style:none;margin:0;padding:0;display:flex;gap:14px 22px}.navlinks a{letter-spacing:.16em;text-transform:uppercase;color:#DDE3EB}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": {
+        "tagName": "nav"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/paragraph"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/navigation",
+      "attrs": {
+        "className": "navlinks blocks-engine-list-navigation",
+        "overlayMenu": "mobile",
+        "customTextColor": "#DDE3EB"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+      "name": "core/navigation-link",
+      "attrs": {
+        "label": "Home",
+        "url": "/",
+        "kind": "custom"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks.2",
+      "name": "core/navigation-link",
+      "attrs": {
+        "label": "Contact",
+        "url": "/contact/",
+        "kind": "custom"
+      }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "blocks.0.innerBlocks",
+      "assert": "count",
+      "count": 2
+    },
+    {
+      "path": "blocks.0.innerBlocks.1.innerBlocks",
+      "assert": "count",
+      "count": 3
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "anchorClassName"
+    },
+    {
+      "path": "source_reports.semantic_parity.status",
+      "assert": "equals",
+      "value": "pass"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a class=\"wordmark\" href=\"/\">"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "<!-- wp:html"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    }
+  ]
+}

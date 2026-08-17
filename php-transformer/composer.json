@@ -85,6 +85,7 @@
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
       "php tests/unit/navigation-underline-color-resolver.php",
+      "php tests/unit/navigation-brand-anchor-hoist.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/button-style-resolver.php",
       "php tests/unit/button-font-family-carry.php",

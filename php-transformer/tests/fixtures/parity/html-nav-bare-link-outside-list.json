@@ -1,0 +1,82 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-bare-link-outside-list",
+  "description": "An ordinary menu link that sits outside the list is still a menu item. Structural position alone does not make a direct-child anchor a brand, so the branding carrier must not hoist it: all three anchors stay core/navigation-link children of one navigation block, and the colour they share is still promoted to the navigation. Hoisting this shape would quietly remove a link from the editable menu.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-bare-link-outside-list.json",
+    "notes": "Product-neutral counterpart to html-nav-brand-anchor-hoist: same topology, but the outside anchor is bare text with no brand cue and no lockup children."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers native block decomposition fidelity beyond the legacy converter."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav aria-label=\"Primary\"><a href=\"/\">Home</a><ul class=\"menu\"><li><a href=\"/about/\">About</a></li><li><a href=\"/contact/\">Contact</a></li></ul></nav>",
+    "options": {
+      "static_css": ".menu{list-style:none;margin:0;padding:0;display:flex;gap:20px}.menu a,nav>a{letter-spacing:.16em;text-transform:uppercase;color:#DDE3EB}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/navigation",
+      "attrs": {
+        "customTextColor": "#DDE3EB",
+        "overlayMenu": "mobile"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/navigation-link",
+      "attrs": {
+        "label": "Home",
+        "url": "/",
+        "kind": "custom"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.2",
+      "name": "core/navigation-link",
+      "attrs": {
+        "label": "Contact",
+        "url": "/contact/",
+        "kind": "custom"
+      }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "blocks.0.innerBlocks",
+      "assert": "count",
+      "count": 3
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "wp:group"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "wp:paragraph"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    }
+  ]
+}
