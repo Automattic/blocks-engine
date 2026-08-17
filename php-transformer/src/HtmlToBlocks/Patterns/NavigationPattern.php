@@ -46,6 +46,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor);
+        if ( null !== $hoisted ) {
+            return $hoisted;
+        }
+
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
 
         if ( array() === $links ) {
@@ -93,6 +98,111 @@ final class NavigationPattern implements PatternRecognizerInterface
             )), array(), $label);
 
         return $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element);
+    }
+
+    /**
+     * A nav container that holds a branding anchor beside its link cluster
+     * authors THREE elements — the landmark, the brand, and the menu — each with
+     * its own CSS rule. Folding all three into one core/navigation makes the
+     * brand a menu item: the landmark's own box rules then compete with the
+     * menu list's rules on a single element, and the brand emits
+     * `anchorClassName`, which core/navigation-link does not register.
+     *
+     * Emit the landmark as a carrier group instead, holding the brand block and
+     * a core/navigation built from the link cluster alone. The brand is found
+     * STRUCTURALLY — a direct-child anchor outside the cluster — so no class
+     * vocabulary decides whether it survives.
+     *
+     * `hasDirectBrandingAnchorBesideListNavigation()` runs first and keeps
+     * deferring the shapes it already recognises, so this covers exactly the
+     * containers that would otherwise absorb the brand.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor): ?array
+    {
+        if ( null === $convertElement ) {
+            return null;
+        }
+
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) ) {
+            return null;
+        }
+
+        $anchor = null;
+        $cluster = null;
+        $brandLeads = true;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            if ( $this->isNavigationChromeElement($child) ) {
+                continue;
+            }
+
+            if ( 'a' === strtolower($child->tagName) ) {
+                if ( $anchor instanceof DOMElement
+                    || '' === $this->anchorLabel($child, $innerHtml)
+                    || preg_match('/<(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b/i', $innerHtml($child))
+                ) {
+                    return null;
+                }
+
+                $anchor = $child;
+                $brandLeads = ! $cluster instanceof DOMElement;
+                continue;
+            }
+
+            if ( $cluster instanceof DOMElement ) {
+                return null;
+            }
+
+            $cluster = $child;
+        }
+
+        if ( ! $anchor instanceof DOMElement || ! $cluster instanceof DOMElement ) {
+            return null;
+        }
+
+        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
+        if ( 2 > count($links) ) {
+            return null;
+        }
+
+        // An anchor that only converts to an HTML fallback would trade a menu
+        // item for raw markup; keep today's shape rather than lose the block.
+        $brand = $convertElement($anchor);
+        $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
+        if ( '' === $brandName || 'core/html' === $brandName ) {
+            return null;
+        }
+
+        // The link cluster owns the navigation block's presentation: it is the
+        // element core/navigation stands in for, so the menu list's className
+        // stays with the menu instead of being copied onto the landmark.
+        $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
+        $navigationAttrs['overlayMenu'] = 'mobile';
+        $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
+        if ( $this->isListNavigationSource($cluster) ) {
+            unset($commonTextAttrs['style']['typography']);
+        }
+        $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
+
+        $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
+        $carrierAttrs = array_merge($presentationAttributes($element), array(
+            'tagName' => 'nav' === strtolower($element->tagName) ? 'nav' : 'div',
+        ));
+
+        return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
     }
 
     private function directSectionLabel(DOMElement $element): ?DOMElement
