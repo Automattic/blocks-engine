@@ -294,6 +294,66 @@ $assert(
     (string) count($findBlocks($plainBlocks, 'core/navigation-link'))
 );
 
+// -- A brand cue is a token an author named the element with, not a word that
+// happens to appear in prose written for a screen reader or a tooltip. Reading
+// `aria-label` and `title` as cues hoisted real menu items out of their menu:
+// "Brand new products" and "Download our logo" are sentences, not brand claims.
+$prose = static function (string $attribute, string $value) use ($transform, $findBlocks): array {
+    $result = $transform(
+        '<style>nav{display:flex;gap:20px}'
+        . '.navlinks{list-style:none;display:flex;gap:16px;margin:0;padding:0}</style>'
+        . '<nav aria-label="Primary"><a href="/new/" ' . $attribute . '="' . $value . '">New</a>'
+        . '<ul class="navlinks"><li><a href="/a/">A</a></li><li><a href="/b/">B</a></li></ul></nav>'
+    );
+    $blocks = is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+    $carriers = array_values(array_filter(
+        $findBlocks($blocks, 'core/group'),
+        static fn (array $block): bool => 'nav' === (string) ($block['attrs']['tagName'] ?? '')
+    ));
+
+    // A carrier group holds a core/navigation beside the hoisted block. A nav
+    // group with NO core/navigation inside it is the deferral guard's generic
+    // conversion instead, which is a different path and must not be read as a
+    // hoist.
+    $navigations = $findBlocks($blocks, 'core/navigation');
+
+    return array(
+        'carriers' => array() === $navigations ? 0 : count($carriers),
+        'deferred' => array() !== $carriers && array() === $navigations,
+        'links' => count($findBlocks($blocks, 'core/navigation-link')),
+    );
+};
+
+foreach ( array( 'aria-label' => 'Brand new products', 'title' => 'Download our logo' ) as $attribute => $value ) {
+    $prosed = $prose($attribute, $value);
+    $assert(
+        0 === $prosed['carriers'] && 3 === $prosed['links'],
+        'brand vocabulary inside ' . $attribute . ' prose does not hoist a menu item out of the menu',
+        json_encode($prosed)
+    );
+}
+
+// The token attributes still carry a cue, and `rel` is one of them. A recognised
+// cue reaches `hasDirectBrandingAnchorBesideListNavigation()` first, which defers
+// the whole container — the pre-existing path for an allowlisted brand, not the
+// carrier. What matters here is that the cue is SEEN, so the anchor is never
+// absorbed as a menu item.
+$relCue = $prose('rel', 'home-link');
+$assert(
+    true === $relCue['deferred'] && 0 === $relCue['links'],
+    'a brand cue authored in rel is recognised, so the container defers instead of absorbing the anchor',
+    json_encode($relCue)
+);
+
+// `rel="home"` is NOT in the vocabulary — it carries `home-link` and `home-logo`,
+// not a bare `home` — so this anchor stays an ordinary menu item.
+$bareRel = $prose('rel', 'home');
+$assert(
+    0 === $bareRel['carriers'] && false === $bareRel['deferred'] && 3 === $bareRel['links'],
+    'rel="home" is not in the brand vocabulary, so it leaves the anchor a menu item',
+    json_encode($bareRel)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand anchor hoist contract: {$failures} failed, {$passes} passed\n");
     exit(1);

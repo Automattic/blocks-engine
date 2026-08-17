@@ -364,9 +364,24 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $hasDirectAnchor && $hasListNavigation;
     }
 
+    /**
+     * A brand cue is a TOKEN an author chose to name the element with — a class,
+     * an id, a link relation. It is deliberately not read from `aria-label` or
+     * `title`, whose values are human prose written for a screen reader or a
+     * tooltip: "Brand new products" and "Download our logo" are sentences that
+     * happen to contain the vocabulary, not claims that the anchor is branding.
+     * Substring-searching prose for `brand` and `logo` classified both as
+     * branding and hoisted a real menu item out of its menu.
+     *
+     * `rel` is read as a token attribute for consistency, but note that no
+     * standard link relation matches this vocabulary: `rel="home"` does NOT
+     * qualify, because the vocabulary carries `home-link` and `home-logo` rather
+     * than a bare `home`. Only an authored `rel` such as `logo` or `home-link`
+     * reaches it, so today the `rel` read is very nearly inert.
+     */
     private function hasBrandAnchorSignal(DOMElement $anchor): bool
     {
-        $haystack = strtolower(trim($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id') . ' ' . $this->attr($anchor, 'aria-label') . ' ' . $this->attr($anchor, 'title')));
+        $haystack = strtolower(trim($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id') . ' ' . $this->attr($anchor, 'rel')));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:brand|branding|logo|site-title|site-name|home-link|home-logo)(?:[^a-z0-9]|$)/', $haystack);
     }
 
