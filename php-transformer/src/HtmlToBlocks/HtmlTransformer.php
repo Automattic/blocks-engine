@@ -4473,7 +4473,13 @@ final class HtmlTransformer
     private function cssOwnedFlexAttributes(DOMElement $element): array
     {
         $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
-        if ( $this->inlineDisplayOverridesAuthorLayout($element, $inlineDeclarations) ) {
+        // Deliberately the CONFLICT-only predicate, not the wider carrier one.
+        // This branch chooses a priority TIER: taking it drops the layout carrier
+        // to the non-important tier, which is only sound when the inline display
+        // is overriding a different author display. An inline display that merely
+        // differs from the tag default has no such guarantee, and demoting it
+        // lets any author selector above (0,2,0) win.
+        if ( $this->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
             return $this->presentationAttributes($element);
         }
 

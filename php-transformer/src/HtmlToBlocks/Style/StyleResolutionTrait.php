@@ -554,43 +554,87 @@ trait StyleResolutionTrait
      * container's full content width, with a solid background and a 999px
      * radius — a worse regression than the overlap being fixed.
      *
+     * This predicate governs the CARRIER only. It must not be used to choose a
+     * priority tier: `cssOwnedFlexAttributes()` keys its forced-property branch
+     * off the narrower `inlineDisplayConflictsWithAuthorLayout()`, because the
+     * non-important tier is only sound for the CONFLICT case. Widening the tier
+     * to the differs-from-tag-default population demotes a carrier from
+     * `!important` to `:root .x` at (0,2,0), where any author selector with three
+     * or more weighted tokens on the same element wins and the source's own
+     * inline value stops rendering.
+     *
      * @param array<string, string> $inlineDeclarations
      */
     private function inlineDisplayOverridesAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
     {
-        $inlineDisplay = strtolower(trim((string) preg_replace(
-            '/\s*!\s*important\s*$/i',
-            '',
-            (string) ($inlineDeclarations['display'] ?? '')
-        )));
+        $inlineDisplay = $this->inlineDisplayValue($inlineDeclarations);
         if ( '' === $inlineDisplay ) {
             return false;
         }
 
-        $authorDeclaresDisplay = false;
+        if ( $this->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
+            return true;
+        }
+
         foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
-            $authorDisplay = strtolower(trim((string) preg_replace(
-                '/\s*!\s*important\s*$/i',
-                '',
-                (string) ($rule['declarations']['display'] ?? '')
-            )));
-            if ( '' === $authorDisplay ) {
-                continue;
+            if ( '' !== $this->authorDisplayValue($rule) ) {
+                // An author rule supplies `display` and agrees with the inline
+                // value, so the materialized stylesheet already carries it.
+                return false;
             }
-            if ( $inlineDisplay !== $authorDisplay ) {
-                return true;
-            }
-            $authorDeclaresDisplay = true;
-        }
-
-        if ( $authorDeclaresDisplay ) {
-            return false;
         }
 
         return $inlineDisplay !== $this->defaultTagDisplay($element);
+    }
+
+    /**
+     * Whether materialized author CSS would reassert a DIFFERENT layout mode on
+     * the transformed element. This is the original, narrower question, and the
+     * only one that may drive a priority-tier choice.
+     *
+     * @param array<string, string> $inlineDeclarations
+     */
+    private function inlineDisplayConflictsWithAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
+    {
+        $inlineDisplay = $this->inlineDisplayValue($inlineDeclarations);
+        if ( '' === $inlineDisplay ) {
+            return false;
+        }
+
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            $authorDisplay = $this->authorDisplayValue($rule);
+            if ( '' !== $authorDisplay && $inlineDisplay !== $authorDisplay ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $inlineDeclarations */
+    private function inlineDisplayValue(array $inlineDeclarations): string
+    {
+        return strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($inlineDeclarations['display'] ?? '')
+        )));
+    }
+
+    /** @param array<string, mixed> $rule */
+    private function authorDisplayValue(array $rule): string
+    {
+        return strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($rule['declarations']['display'] ?? '')
+        )));
     }
 
     /**
@@ -691,10 +735,27 @@ trait StyleResolutionTrait
     }
 
     /**
-     * Author-declared values for the given properties, from every rule matching
-     * this element. Pseudo-state selectors are unsupported by the matcher and so
-     * never register here: a `:hover` box-shadow does not make a resting-state
-     * inline box-shadow redundant.
+     * Author-declared values for the given properties, from the matching rules
+     * THE COLLECTED RULE SET RETAINS.
+     *
+     * KNOWN LIMITATION, load-bearing: `staticStyleRules` and
+     * `conditionalStyleRules` are filtered through `safeVisualDeclarations()`
+     * before they are stored, so only properties on that 85-entry allowlist are
+     * visible here. `position`, `z-index` and `direction` are on it; `overflow`,
+     * `overflow-x/y`, `top`, `right`, `bottom`, `left`, `transform`,
+     * `transition`, `animation`, `opacity`, `visibility`, `float`, `clear`,
+     * `align-self`, `justify-self`, `white-space`, `pointer-events` and `cursor`
+     * are NOT. For those, an author declaration cannot register, the inline
+     * override falls into the "no author rule declares it" branch, and it is
+     * dropped unless it is on the narrow unmatched allowlist — while the
+     * materialized author stylesheet still asserts the opposite value verbatim.
+     * The conflict rescue is therefore property-dependent by construction, and
+     * closing it means collecting an unfiltered rule set, which is a change to
+     * every rule-collection path rather than to this one.
+     *
+     * Pseudo-state selectors are unsupported by the matcher and so never register
+     * here: a `:hover` box-shadow does not make a resting-state inline
+     * box-shadow redundant.
      *
      * @param array<int, string> $properties
      * @return array<string, array<int, string>>
@@ -809,11 +870,21 @@ trait StyleResolutionTrait
     /**
      * Strip `!important` and reject any value that could break out of the
      * generated rule, matching the geometry loop's own guard.
+     *
+     * Unbalanced parentheses are rejected too. This path carries
+     * parenthesis-heavy values such as `box-shadow`, and a value with an
+     * unclosed `rgba(` makes the CSS parser consume the rule's own closing brace
+     * while hunting for the `)`, silently swallowing whatever rule was emitted
+     * next. That is corruption of an unrelated declaration, so the malformed
+     * value is dropped rather than carried.
      */
     private function carriedDeclarationValue(string $rawValue): string
     {
         $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', trim($rawValue)) ?? $rawValue);
         if ( '' === $value || preg_match('~[{}<>;]|/\*~', $value) ) {
+            return '';
+        }
+        if ( substr_count($value, '(') !== substr_count($value, ')') ) {
             return '';
         }
 

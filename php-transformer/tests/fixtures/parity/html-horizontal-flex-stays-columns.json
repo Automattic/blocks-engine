@@ -31,6 +31,6 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cols be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
-    { "path": "assets.0.content", "assert": "contains", "value": "{display:flex}" }
+    { "path": "assets.0.content", "assert": "contains", "value": "{display:flex !important}" }
   ]
 }

@@ -371,6 +371,59 @@ $assert(
     $alignOnlyWrapperCss
 );
 
+// ---------------------------------------------------------------------------
+// TIER PRESERVATION. The carrier predicate must NOT be used to pick a priority
+// tier. An inline display that merely differs from the tag default, with no
+// author display rule, must keep the forced !important tier it already had:
+// demoting it to `:root .x` at (0,2,0) lets any author selector with three or
+// more weighted tokens on the same element win, and the source's own inline
+// value stops rendering.
+// ---------------------------------------------------------------------------
+$specificAuthor = $transform(
+    '<style>.hero.big.x{gap:2rem;padding:1rem}</style>'
+    . '<section><div class="hero big x" style="display:flex;flex-direction:column;gap:1rem">'
+    . '<p>First column copy.</p><p>Second column copy.</p></div></section>'
+);
+$specificAuthorCss = $cssFor($specificAuthor, 'engine-support');
+$specificAuthorRules = $tierRules($specificAuthorCss);
+
+$assert(
+    '' !== $importantWith($specificAuthorRules, 'gap:1rem'),
+    'tier preservation: an inline gap beside an inline display keeps the !important tier, so a (0,3,0) author rule cannot beat it',
+    $specificAuthorCss
+);
+$assert(
+    '' === $nonImportantWith($specificAuthorRules, 'gap:1rem'),
+    'tier preservation: that carrier is NOT demoted to the non-important tier',
+    $specificAuthorCss
+);
+
+// ---------------------------------------------------------------------------
+// A malformed inline value must never be carried. An unclosed `rgba(` would make
+// the CSS parser consume this rule's closing brace hunting for the `)`, silently
+// swallowing the NEXT carrier rule. box-shadow is parenthesis-heavy and reaches
+// the carrier for the first time here, so the guard is asserted directly.
+// ---------------------------------------------------------------------------
+$malformed = $transform(
+    '<section>'
+    . '<article style="background:#fff;box-shadow:0 0 0 3px rgba(1,2,3,.4"><h3>Unbalanced</h3><p>First card copy.</p></article>'
+    . '<article style="background:#fff;box-shadow:0 0 0 3px #123456"><h3>Well formed</h3><p>Second card copy.</p></article>'
+    . '</section>'
+);
+$malformedCss = $cssFor($malformed, 'engine-support');
+$malformedRules = $tierRules($malformedCss);
+
+$assert(
+    '' === $anyWith($malformedRules, 'rgba(1,2,3,.4'),
+    'malformed value: an inline box-shadow with an unbalanced paren is dropped, not carried',
+    $malformedCss
+);
+$assert(
+    '' !== $nonImportantWith($malformedRules, 'box-shadow:0 0 0 3px #123456'),
+    'malformed value: the well-formed sibling rule survives instead of being swallowed',
+    $malformedCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline author-override carrier contract: {$failures} failed, {$passes} passed\n");
     exit(1);
