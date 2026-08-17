@@ -49,8 +49,21 @@ final class SemanticParityReporter
         $sourceLandmarks = $this->sourceLandmarkReport($body);
         $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
         $sourceMenus = $this->sourceNavigationMenus($body);
-        $blockMenus = $this->withCarriedItemsResolved($this->blockNavigationMenus($blocks), $sourceMenus);
-        $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
+        $blockMenus = $this->blockNavigationMenus($blocks);
+        // Pair the two sides ONCE, before the carrier fold, and hand the same
+        // pairing to both the fold and the comparison. Pairing after the fold
+        // would be circular: the fold needs its paired source menu to decide
+        // whether to run, so a pairing derived from folded items could hand the
+        // fold a different menu than the comparison later reads.
+        $menuPairing = $this->sourceToBlockMenuPairing($sourceMenus, $blockMenus);
+        $blockMenus = $this->withCarriedItemsResolved($blockMenus, $sourceMenus, $menuPairing);
+        $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus, $menuPairing);
+        // `excludes_outside_anchors` decides the carrier fold above; it is an
+        // internal aid, not part of the published `semantic-parity/v1` payload,
+        // so drop it the way the block side's `carried_sibling_items` is dropped.
+        foreach ( $sourceMenus as $index => $_sourceMenu ) {
+            unset($sourceMenus[$index]['excludes_outside_anchors']);
+        }
         $findings = array_merge(
             $findings,
             ( new TypographyParityAnalyzer() )->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
@@ -90,15 +103,26 @@ final class SemanticParityReporter
      *
      * @param array<int, array<string, mixed>> $blockMenus
      * @param array<int, array<string, mixed>> $sourceMenus
+     * @param array<int, int|null> $menuPairing source menu index => block menu index
      * @return array<int, array<string, mixed>>
      */
-    private function withCarriedItemsResolved(array $blockMenus, array $sourceMenus): array
+    private function withCarriedItemsResolved(array $blockMenus, array $sourceMenus, array $menuPairing): array
     {
+        $sourceIndexes = array();
+        foreach ( $menuPairing as $sourceIndex => $blockIndex ) {
+            if ( null !== $blockIndex ) {
+                $sourceIndexes[$blockIndex] = $sourceIndex;
+            }
+        }
+
         foreach ( $blockMenus as $index => $blockMenu ) {
             $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
             unset($blockMenus[$index]['carried_sibling_items']);
 
-            if ( array() === $carried || true === ($sourceMenus[$index]['excludes_outside_anchors'] ?? false) ) {
+            // Read the flag from the source menu this block menu is actually
+            // compared against, not from the one sharing its position.
+            $pairedSource = isset($sourceIndexes[$index]) ? ( $sourceMenus[$sourceIndexes[$index]] ?? array() ) : array();
+            if ( array() === $carried || true === ($pairedSource['excludes_outside_anchors'] ?? false) ) {
                 continue;
             }
 
@@ -723,9 +747,10 @@ final class SemanticParityReporter
      * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $blockLandmarks
      * @param array<int, array<string, mixed>> $sourceMenus
      * @param array<int, array<string, mixed>> $blockMenus
+     * @param array<int, int|null> $menuPairing source menu index => block menu index
      * @return array<int, array<string, mixed>>
      */
-    private function semanticParityFindings(array $sourceLandmarks, array $blockLandmarks, array $sourceMenus, array $blockMenus): array
+    private function semanticParityFindings(array $sourceLandmarks, array $blockLandmarks, array $sourceMenus, array $blockMenus, array $menuPairing): array
     {
         $findings = array();
         foreach ( array( 'header', 'nav', 'main', 'footer' ) as $kind ) {
@@ -744,13 +769,9 @@ final class SemanticParityReporter
             }
         }
 
-        $matchedBlockMenuIndexes = array();
         foreach ( $sourceMenus as $index => $sourceMenu ) {
-            $blockMenuIndex = $this->matchingBlockNavigationMenuIndex($sourceMenu, $blockMenus, $matchedBlockMenuIndexes, $index);
+            $blockMenuIndex = $menuPairing[$index] ?? null;
             $blockMenu = null === $blockMenuIndex ? null : ( $blockMenus[$blockMenuIndex] ?? null );
-            if ( null !== $blockMenuIndex ) {
-                $matchedBlockMenuIndexes[$blockMenuIndex] = true;
-            }
             if ( ! is_array($blockMenu) ) {
                 $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
                 $findings[] = array(
@@ -990,9 +1011,34 @@ final class SemanticParityReporter
     }
 
     /**
+     * Claim one block menu per source menu, in source order. Computed once and
+     * shared by every consumer so a menu is never folded against one source
+     * record and then compared against another.
+     *
+     * @param array<int, array<string, mixed>> $sourceMenus
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @return array<int, int|null> source menu index => block menu index
+     */
+    private function sourceToBlockMenuPairing(array $sourceMenus, array $blockMenus): array
+    {
+        $pairing = array();
+        $matchedBlockMenuIndexes = array();
+        foreach ( $sourceMenus as $index => $sourceMenu ) {
+            $blockMenuIndex = $this->matchingBlockNavigationMenuIndex($sourceMenu, $blockMenus, $matchedBlockMenuIndexes, $index);
+            if ( null !== $blockMenuIndex ) {
+                $matchedBlockMenuIndexes[$blockMenuIndex] = true;
+            }
+
+            $pairing[$index] = $blockMenuIndex;
+        }
+
+        return $pairing;
+    }
+
+    /**
      * @param array<string, mixed> $sourceMenu
      * @param array<int, array<string, mixed>> $blockMenus
-     * @param array<int, bool> $matchedBlockMenuIndexes
+     * @param array<int, true> $matchedBlockMenuIndexes
      */
     private function matchingBlockNavigationMenuIndex(array $sourceMenu, array $blockMenus, array $matchedBlockMenuIndexes, int $fallbackIndex): ?int
     {
