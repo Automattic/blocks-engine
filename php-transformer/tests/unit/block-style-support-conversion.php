@@ -570,6 +570,35 @@ $assert(
     $nativeBorderGroupMarkup
 );
 
+// A shorthand that omits a component resets it to its initial value, but that
+// value is not authored. Serializing it would put an inline declaration the
+// author never wrote above their own state rules: `.card{border:2px solid
+// transparent}` plus `.card:hover{border-color:var(--x)}` would freeze the card
+// at `currentColor`. The substituted initial value settles precedence only.
+$transparentShorthandBorder = $borderMapper->map(array( 'border' => '2px solid transparent' ));
+$assert(
+    array( 'width' => '2px', 'style' => 'solid' ) === ($transparentShorthandBorder['style']['border'] ?? array()),
+    'N6: a shorthand whose color is unusable emits no substituted currentColor',
+    json_encode($transparentShorthandBorder)
+);
+$colorlessShorthandBorder = $borderMapper->map(array( 'border' => '1px solid' ));
+$assert(
+    array( 'width' => '1px', 'style' => 'solid' ) === ($colorlessShorthandBorder['style']['border'] ?? array()),
+    'N6: a shorthand that omits the color emits no substituted currentColor',
+    json_encode($colorlessShorthandBorder)
+);
+$colorlessSideShorthandBorder = $borderMapper->map(array( 'border-bottom' => '1px solid' ));
+$assert(
+    array( 'bottom' => array( 'width' => '1px', 'style' => 'solid' ) ) === ($colorlessSideShorthandBorder['style']['border'] ?? array()),
+    'N6: a per-side shorthand that omits the color emits no substituted currentColor',
+    json_encode($colorlessSideShorthandBorder)
+);
+$assert(
+    array( 'width' => 'medium', 'style' => 'none', 'color' => 'red' ) === ($globalThenColorOnlyLeftBorder['style']['border']['left'] ?? array()),
+    'N6: substituted initial values still cancel a global border this mapper emits',
+    json_encode($globalThenColorOnlyLeftBorder)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);

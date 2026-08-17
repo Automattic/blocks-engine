@@ -168,10 +168,15 @@ final class StyleAttributeMapper
         if ( '' !== trim((string) ($border['radius'] ?? '')) ) {
             $declarations[] = 'border-radius:' . trim((string) $border['radius']);
         }
+        // No class for a per-side color. The core style engine gives `classnames`
+        // to the uniform `border.color` definition only, and `has-border-color`
+        // is an all-sides signal: core's block-library `common.css` ships
+        // `html :where(.has-border-color){border-style:solid}`, which would paint
+        // the three unauthored sides at the initial `medium` width in
+        // `currentColor` and grow the box by 6px.
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
             $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array();
             if ( '' !== trim((string) ($sideBorder['color'] ?? '')) ) {
-                $classes[]      = 'has-border-color';
                 $declarations[] = 'border-' . $side . '-color:' . trim((string) $sideBorder['color']);
             }
             if ( '' !== trim((string) ($sideBorder['style'] ?? '')) ) {
@@ -479,13 +484,13 @@ final class StyleAttributeMapper
 
         $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $colorValue && '' === $style );
         if ( ! $noBorder ) {
-            if ( '' !== $width && (float) $width !== 0.0 ) {
+            if ( $global['width']['declared'] && '' !== $width && (float) $width !== 0.0 ) {
                 $border['width'] = $width;
             }
-            if ( '' !== $style && 'none' !== $style ) {
+            if ( $global['style']['declared'] && '' !== $style && 'none' !== $style ) {
                 $border['style'] = $style;
             }
-            if ( '' !== $colorValue ) {
+            if ( $global['color']['declared'] && '' !== $colorValue ) {
                 $border['color'] = $colorValue;
             }
         }
@@ -498,10 +503,12 @@ final class StyleAttributeMapper
 
         foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
             $sideComponents = array();
+            $sideDeclared   = array();
             foreach ( array( 'width', 'style', 'color' ) as $component ) {
                 $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side);
                 if ( $candidate['index'] > $global[ $component ]['index'] ) {
                     $sideComponents[ $component ] = $candidate['value'];
+                    $sideDeclared[ $component ]   = $candidate['declared'];
                 }
             }
 
@@ -512,13 +519,13 @@ final class StyleAttributeMapper
             $sideValues = array();
             $noSideBorder = 'none' === $sideStyle || ( '' !== $sideWidth && (float) $sideWidth === 0.0 && '' === $sideColor && '' === $sideStyle );
             if ( ! $noSideBorder || $hasGlobalBorder ) {
-                if ( '' !== $sideWidth && ( (float) $sideWidth !== 0.0 || $hasGlobalBorder ) ) {
+                if ( ( ($sideDeclared['width'] ?? false) || $hasGlobalBorder ) && '' !== $sideWidth && ( (float) $sideWidth !== 0.0 || $hasGlobalBorder ) ) {
                     $sideValues['width'] = $sideWidth;
                 }
-                if ( '' !== $sideStyle && ( 'none' !== $sideStyle || $hasGlobalBorder ) ) {
+                if ( ( ($sideDeclared['style'] ?? false) || $hasGlobalBorder ) && '' !== $sideStyle && ( 'none' !== $sideStyle || $hasGlobalBorder ) ) {
                     $sideValues['style'] = $sideStyle;
                 }
-                if ( '' !== $sideColor ) {
+                if ( ( ($sideDeclared['color'] ?? false) || $hasGlobalBorder ) && '' !== $sideColor ) {
                     $sideValues['color'] = $sideColor;
                 }
             }
@@ -535,17 +542,23 @@ final class StyleAttributeMapper
     /**
      * Return the last authored global or per-side value for one border component.
      * A shorthand participates even when it omits the component because CSS
-     * shorthands reset omitted values to their initial state.
+     * shorthands reset omitted values to their initial state. Such a substituted
+     * initial value is reported as `declared: false`: it settles precedence and
+     * cancels a border this mapper itself emits, but it is never authored, so
+     * callers must not serialize it. Materializing one would place an inline
+     * declaration the author never wrote above their own state rules — a
+     * `border: 2px solid transparent` base plus a `:hover { border-color }` rule
+     * would freeze at `currentColor`.
      *
      * @param array<string, string> $declarations
      * @param array<string, int> $positions
-     * @return array{value: string, index: int}
+     * @return array{value: string, index: int, declared: bool}
      */
     private function borderComponentCandidate(array $declarations, array $positions, string $component, string $side = ''): array
     {
         $shorthandName = '' === $side ? 'border' : 'border-' . $side;
         $longhandName  = $shorthandName . '-' . $component;
-        $candidate     = array( 'value' => '', 'index' => -1 );
+        $candidate     = array( 'value' => '', 'index' => -1, 'declared' => false );
 
         if ( isset($declarations[ $shorthandName ]) ) {
             $shorthand = $this->parseBorderShorthand($declarations[ $shorthandName ]);
@@ -554,16 +567,19 @@ final class StyleAttributeMapper
                 'style' => 'none',
                 'color' => 'currentColor',
             );
+            $authored = array() !== $shorthand && isset($shorthand[ $component ]);
             $candidate = array(
-                'value' => array() === $shorthand ? '' : (string) ($shorthand[ $component ] ?? $initialValues[ $component ]),
-                'index' => $positions[ $shorthandName ],
+                'value'    => array() === $shorthand ? '' : (string) ($shorthand[ $component ] ?? $initialValues[ $component ]),
+                'index'    => $positions[ $shorthandName ],
+                'declared' => $authored,
             );
         }
 
         if ( isset($declarations[ $longhandName ]) && $positions[ $longhandName ] > $candidate['index'] ) {
             $candidate = array(
-                'value' => $declarations[ $longhandName ],
-                'index' => $positions[ $longhandName ],
+                'value'    => $declarations[ $longhandName ],
+                'index'    => $positions[ $longhandName ],
+                'declared' => true,
             );
         }
 
