@@ -86,6 +86,11 @@
       "value": "anchorClassName"
     },
     {
+      "path": "source_reports.semantic_parity.status",
+      "assert": "equals",
+      "value": "pass"
+    },
+    {
       "path": "serialized_blocks",
       "assert": "contains",
       "value": "<a class=\"wordmark\" href=\"/\">"

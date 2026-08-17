@@ -231,6 +231,7 @@ final class SemanticParityReporter
                 'selector' => $this->elementSelector($element),
                 'item_count' => count($items),
                 'items' => $items,
+                'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
             );
         }
 
@@ -239,6 +240,35 @@ final class SemanticParityReporter
                 $this->collectSourceNavigationMenus($child, $menus, $seen);
             }
         }
+    }
+
+    /**
+     * Whether this menu's source item list already leaves out anchors that sit
+     * outside the link cluster. When it does, the block side must not add them
+     * back from a carrier group's siblings or the two sides double-disagree.
+     */
+    private function sourceMenuExcludesOutsideAnchors(DOMElement $element): bool
+    {
+        // A chrome-bearing landmark takes its items from the signaled containers
+        // alone, which leaves out every direct-child anchor by construction.
+        if ( $this->hasSourceNavigationChrome($element) ) {
+            return true;
+        }
+
+        if ( ! $this->hasDirectNavigationBrandOrAction($element) ) {
+            return false;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement
+                && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true)
+                && array() !== $this->sourceNavigationMenuItems($child)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -444,15 +474,16 @@ final class SemanticParityReporter
     private function blockNavigationMenus(array $blocks): array
     {
         $menus = array();
-        $this->collectBlockNavigationMenus($blocks, 'blocks', $menus);
+        $this->collectBlockNavigationMenus($blocks, 'blocks', $menus, array());
         return $menus;
     }
 
     /**
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $menus
+     * @param array<int, array<string, mixed>> $siblings
      */
-    private function collectBlockNavigationMenus(array $blocks, string $path, array &$menus): void
+    private function collectBlockNavigationMenus(array $blocks, string $path, array &$menus, array $siblings): void
     {
         foreach ( $blocks as $index => $block ) {
             if ( ! is_array($block) ) {
@@ -468,11 +499,131 @@ final class SemanticParityReporter
                     'represented_as_core_navigation' => true,
                     'item_count' => count($items),
                     'items' => $items,
+                    'carried_sibling_items' => $this->carriedNavigationSiblingItems($siblings, $index),
                 );
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus);
+                $childSiblings = 'core/group' === ($block['blockName'] ?? '') && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+                    ? $block['innerBlocks']
+                    : array();
+                $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus, $childSiblings);
+            }
+        }
+    }
+
+    /**
+     * A navigation whose landmark is a core/group{tagName:"nav"} carrier shares
+     * that landmark with blocks hoisted out of the menu — a branding anchor, for
+     * instance. The source side counts every anchor under the landmark, so those
+     * hoisted links belong to this menu's item list too; otherwise a faithful
+     * hoist reads as content loss. Counting them here rather than excluding them
+     * on the source side keeps a brand that goes missing entirely detectable.
+     *
+     * @param array<int, array<string, mixed>> $siblings
+     * @return array{before: array<int, array<string, string>>, after: array<int, array<string, string>>}
+     */
+    private function carriedNavigationSiblingItems(array $siblings, int $navigationIndex): array
+    {
+        if ( array() === $siblings ) {
+            return array( 'before' => array(), 'after' => array() );
+        }
+
+        $before = array();
+        $after = array();
+        foreach ( $siblings as $siblingIndex => $sibling ) {
+            if ( ! is_array($sibling) || $siblingIndex === $navigationIndex || 'core/navigation' === ($sibling['blockName'] ?? '') ) {
+                continue;
+            }
+
+            $siblingItems = array();
+            $this->collectBlockAnchorItems(array( $sibling ), $siblingItems);
+            if ( array() === $siblingItems ) {
+                continue;
+            }
+
+            if ( $siblingIndex < $navigationIndex ) {
+                $before = array_merge($before, $siblingItems);
+                continue;
+            }
+
+            $after = array_merge($after, $siblingItems);
+        }
+
+        return array( 'before' => $before, 'after' => $after );
+    }
+
+    /**
+     * Anchor label/url pairs carried inside a block's rich text or link
+     * attributes, in document order, shaped to match the source item records.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, string>> $items
+     */
+    private function collectBlockAnchorItems(array $blocks, array &$items): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+
+            // Saved markup carries the anchor for blocks whose rich text is not
+            // mirrored into an attribute — a synthetic paragraph wrapping a link,
+            // for instance — so read both and de-duplicate by label+url below.
+            $candidates = array();
+            foreach ( array( 'content', 'text', 'value', 'caption' ) as $attribute ) {
+                if ( isset($attrs[$attribute]) && is_string($attrs[$attribute]) ) {
+                    $candidates[] = $attrs[$attribute];
+                }
+            }
+            if ( isset($block['innerHTML']) && is_string($block['innerHTML']) ) {
+                $candidates[] = $block['innerHTML'];
+            }
+
+            $seen = array();
+            foreach ( $candidates as $markup ) {
+                if ( ! str_contains($markup, '<a') ) {
+                    continue;
+                }
+
+                if ( preg_match_all('/<a\b[^>]*\bhref\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)<\/a>/is', $markup, $matches, PREG_SET_ORDER) ) {
+                    foreach ( $matches as $match ) {
+                        $label = $this->normalizedNavigationLabel($match[3]);
+                        if ( '' === $label ) {
+                            continue;
+                        }
+
+                        $item = array(
+                            'label' => $label,
+                            'url' => $this->safeNavigationUrl(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')),
+                        );
+                        $key = $item['label'] . "\0" . $item['url'];
+                        if ( isset($seen[$key]) ) {
+                            continue;
+                        }
+
+                        $seen[$key] = true;
+                        $items[] = $item;
+                    }
+                }
+            }
+
+            // core/button keeps its destination in `url` and its label in `text`
+            // rather than in anchor markup.
+            if ( 'core/button' === ($block['blockName'] ?? '') && isset($attrs['url']) ) {
+                $label = $this->normalizedNavigationLabel((string) ($attrs['text'] ?? ''));
+                if ( '' !== $label ) {
+                    $items[] = array(
+                        'label' => $label,
+                        'url' => $this->safeNavigationUrl((string) $attrs['url']),
+                    );
+                }
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockAnchorItems($block['innerBlocks'], $items);
             }
         }
     }
@@ -583,6 +734,21 @@ final class SemanticParityReporter
 
             $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
             $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
+
+            // A carrier group holds blocks hoisted out of the menu beside it. The
+            // source side counts their anchors under the landmark unless it has
+            // already excluded outside anchors itself, so only add them here when
+            // it has not — otherwise the same anchors would be counted on one
+            // side and deliberately dropped on the other.
+            if ( true !== ($sourceMenu['excludes_outside_anchors'] ?? false) ) {
+                $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
+                $blockItems = array_merge(
+                    is_array($carried['before'] ?? null) ? $carried['before'] : array(),
+                    $blockItems,
+                    is_array($carried['after'] ?? null) ? $carried['after'] : array()
+                );
+            }
+
             if ( count($sourceItems) !== count($blockItems) ) {
                 $findings[] = array(
                     'code' => 'navigation_item_count_mismatch',
