@@ -34,8 +34,16 @@ final class ButtonStyleResolver
 {
     /**
      * Typography supports projected onto buttons, in canonical emission order.
+     *
+     * fontFamily belongs here: core/button registers a `fontFamily` attribute,
+     * which core injects only when the typography fontFamily support is enabled.
+     * A raw authored value is not a preset slug, so it rides in
+     * style.typography.fontFamily and serializes inline on the link. Dropping it
+     * left the typeface to theme.json's styles.elements.button, because the
+     * authored class is consumed into block attributes and its rewritten rule no
+     * longer wins the cascade.
      */
-    private const BUTTON_TYPOGRAPHY = array( 'fontSize', 'fontWeight', 'letterSpacing', 'lineHeight', 'textTransform' );
+    private const BUTTON_TYPOGRAPHY = array( 'fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'lineHeight', 'textTransform' );
 
     private readonly StyleAttributeMapper $mapper;
 

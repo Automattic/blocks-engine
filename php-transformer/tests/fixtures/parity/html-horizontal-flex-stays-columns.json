@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-horizontal-flex-stays-columns.json",
-    "notes": "Same display:flex container shape as the vertical fixture but without flex-direction:column. The ColumnsPattern flex-direction guard does not fire, so the horizontal columns layout is preserved unchanged."
+    "notes": "Same display:flex container shape as the vertical fixture but without flex-direction:column. The ColumnsPattern flex-direction guard does not fire, so the horizontal columns layout is preserved unchanged. The container is demoted to a css-owned core/group, which drops the native layout attribute, so the inline display:flex must ride to the generated stylesheet on a geometry carrier or the two columns stack."
   },
   "legacy_comparison": {
     "skip": true,
@@ -28,7 +28,9 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "cols blocks-engine-css-owned-layout" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group cols be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine/author-layout" },
+    { "path": "assets.0.content", "assert": "contains", "value": "{display:flex !important}" }
   ]
 }

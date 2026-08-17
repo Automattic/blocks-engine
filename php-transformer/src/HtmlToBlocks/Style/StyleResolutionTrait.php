@@ -1993,15 +1993,22 @@ trait StyleResolutionTrait
     }
 
     /**
-     * A track list of exactly repeat(auto-fit|auto-fill, minmax(<width>, 1fr))
-     * is natively expressible as WordPress grid layout: core renders
+     * A track list of exactly repeat(auto-fill, minmax(<width>, 1fr)) is
+     * natively expressible as WordPress grid layout: core renders
      * minimumColumnWidth as repeat(auto-fill, minmax(min(<width>, 100%), 1fr)).
-     * Every other track list (fixed counts, asymmetric tracks, nested
-     * functions) returns '' and stays under author CSS ownership.
+     *
+     * auto-fit is deliberately excluded. wp-includes/block-supports/layout.php
+     * hardcodes auto-fill in every branch that renders minimumColumnWidth, so
+     * the attribute cannot express auto-fit at all. The two keywords differ in
+     * rendered geometry — auto-fit collapses tracks left empty, auto-fill
+     * retains them — so converting auto-fit would keep the empty tracks and
+     * squeeze the real content into part of the measure. Like every other track
+     * list WordPress cannot express (fixed counts, asymmetric tracks, nested
+     * functions), auto-fit returns '' and stays under author CSS ownership.
      */
     private function autoRepeatMinimumColumnWidth(string $tracks): string
     {
-        if ( 1 === preg_match('/^repeat\(\s*auto-(?:fit|fill)\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches)
+        if ( 1 === preg_match('/^repeat\(\s*auto-fill\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches)
             && 0.0 < (float) $matches[1]
         ) {
             return strtolower($matches[1]);

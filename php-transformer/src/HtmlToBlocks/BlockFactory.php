@@ -979,6 +979,9 @@ final class BlockFactory
             $classes[] = 'has-custom-font-size';
         }
         $typographyMap = array(
+            // A raw authored family is a custom value, so core's style engine
+            // serializes it inline rather than as a has-*-font-family class.
+            'fontFamily'    => 'font-family',
             'fontSize'      => 'font-size',
             'fontWeight'    => 'font-weight',
             'letterSpacing' => 'letter-spacing',
