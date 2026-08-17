@@ -146,6 +146,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $this->isNavigationChromeElement($child) ) {
+                // Chrome that scripts drive at runtime is not decoration: a
+                // carrier group would drop it, so keep the source shape.
+                if ( null !== $isRuntimeDomTarget && $isRuntimeDomTarget($child) ) {
+                    return null;
+                }
                 continue;
             }
 
