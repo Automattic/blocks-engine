@@ -902,12 +902,16 @@ trait StyleResolutionTrait
      * Strip `!important` and reject any value that could break out of the
      * generated rule, matching the geometry loop's own guard.
      *
-     * Unbalanced parentheses are rejected too. This path carries
-     * parenthesis-heavy values such as `box-shadow`, and a value with an
-     * unclosed `rgba(` makes the CSS parser consume the rule's own closing brace
-     * while hunting for the `)`, silently swallowing whatever rule was emitted
-     * next. That is corruption of an unrelated declaration, so the malformed
-     * value is dropped rather than carried.
+     * Anything that can leave the emitted rule's own closing brace unreachable is
+     * rejected, because this path carries values such as `box-shadow` whose
+     * grammar is full of parentheses, quotes and escapes. Three ways to do it,
+     * all verified to swallow the NEXT carrier rule in a browser:
+     *   - an unclosed `rgba(`, which makes the parser consume the brace hunting
+     *     for the `)`;
+     *   - an odd number of `'` or `"`, which puts the brace inside a string;
+     *   - a trailing backslash, which escapes the brace itself.
+     * In each case the corruption lands on an unrelated element's styling, so the
+     * malformed value is dropped rather than carried.
      */
     private function carriedDeclarationValue(string $rawValue): string
     {
@@ -916,6 +920,14 @@ trait StyleResolutionTrait
             return '';
         }
         if ( substr_count($value, '(') !== substr_count($value, ')') ) {
+            return '';
+        }
+        if ( 0 !== substr_count($value, '"') % 2 || 0 !== substr_count($value, "'") % 2 ) {
+            return '';
+        }
+        // An odd trailing run of backslashes escapes whatever follows the value,
+        // which in the emitted rule is the closing brace.
+        if ( 1 === preg_match('/(\\\\+)$/', $value, $trailing) && 0 !== strlen($trailing[1]) % 2 ) {
             return '';
         }
 

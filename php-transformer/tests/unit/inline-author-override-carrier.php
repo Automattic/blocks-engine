@@ -432,6 +432,36 @@ $assert(
     $malformedCss
 );
 
+// An unbalanced paren is not the only way to leave the emitted rule's closing
+// brace unreachable. An odd quote puts the brace inside a string, and a trailing
+// backslash escapes it. Both were verified in a browser to kill the FOLLOWING
+// carrier rule as well as their own, so both must be rejected before emission.
+foreach ( array(
+    'odd single quote'   => "0 0 0 3px '",
+    'odd double quote'   => '0 0 0 3px "',
+    'trailing backslash' => '0 0 0 3px \\',
+) as $label => $payload ) {
+    $result = $transform(
+        '<section>'
+        . '<article style="background:#fff;box-shadow:' . $payload . '"><h3>Malformed</h3><p>First card copy.</p></article>'
+        . '<article style="background:#eee;box-shadow:0 0 0 9px #abcdef"><h3>Well formed</h3><p>Second card copy.</p></article>'
+        . '</section>'
+    );
+    $resultCss = $cssFor($result, 'engine-support');
+    $resultRules = $tierRules($resultCss);
+
+    $assert(
+        '' === $anyWith($resultRules, rtrim($payload)),
+        'malformed value (' . $label . '): the value is dropped rather than emitted into a rule',
+        $resultCss
+    );
+    $assert(
+        '' !== $nonImportantWith($resultRules, 'box-shadow:0 0 0 9px #abcdef'),
+        'malformed value (' . $label . '): the following card\'s rule is still emitted intact',
+        $resultCss
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The skip must compare against the element's OWN author-declared text-align,
 // not only the value inherited from ancestors. A class that centres the element
