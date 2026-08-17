@@ -434,16 +434,36 @@ $assert(
 
 // An unbalanced paren is not the only way to leave the emitted rule's closing
 // brace unreachable. An odd quote puts the brace inside a string, and a trailing
-// backslash escapes it. Both were verified in a browser to kill the FOLLOWING
-// carrier rule as well as their own, so both must be rejected before emission.
+// backslash escapes it. Each was verified ONCE BY HAND in a headless browser to
+// kill the FOLLOWING carrier rule as well as its own; that browser check is NOT
+// re-run by this suite.
+//
+// The victim rule cannot be asserted by searching the CSS string, because under
+// live corruption the victim IS still present in the string — the browser's
+// parser is what discards it. Presence is not effect.
+//
+// A text-level brace-balance scan does not detect these shapes either: it was
+// tried and stays balanced under live corruption, because the closing brace IS
+// in the text, merely unreachable once a string or escape has captured it. (Such
+// a scan would only catch a literal unescaped `}`, which the value guard's
+// `[{}<>;]` check already rejects.) What DOES have teeth at text level is the
+// count of emitted carrier rules: a swallowed terminator merges two rules into
+// one, so the count drops. Each shape below therefore asserts two things, both
+// confirmed to fail when the guard is removed: the value is not emitted, and
+// exactly one carrier rule exists.
+// A raw `"` cannot survive a double-quoted HTML style attribute — the parser
+// truncates the declaration before the guard is ever consulted — so that shape
+// is delivered through a single-quoted attribute instead. Without this it is
+// unreachable, and an assertion against it passes whether the guard exists or not.
 foreach ( array(
-    'odd single quote'   => "0 0 0 3px '",
-    'odd double quote'   => '0 0 0 3px "',
-    'trailing backslash' => '0 0 0 3px \\',
-) as $label => $payload ) {
+    'odd single quote'   => array( "0 0 0 3px '", '"' ),
+    'odd double quote'   => array( '0 0 0 3px "', "'" ),
+    'trailing backslash' => array( '0 0 0 3px \\', '"' ),
+) as $label => $case ) {
+    list( $payload, $quote ) = $case;
     $result = $transform(
         '<section>'
-        . '<article style="background:#fff;box-shadow:' . $payload . '"><h3>Malformed</h3><p>First card copy.</p></article>'
+        . '<article style=' . $quote . 'background:#fff;box-shadow:' . $payload . $quote . '><h3>Malformed</h3><p>First card copy.</p></article>'
         . '<article style="background:#eee;box-shadow:0 0 0 9px #abcdef"><h3>Well formed</h3><p>Second card copy.</p></article>'
         . '</section>'
     );
@@ -456,8 +476,8 @@ foreach ( array(
         $resultCss
     );
     $assert(
-        '' !== $nonImportantWith($resultRules, 'box-shadow:0 0 0 9px #abcdef'),
-        'malformed value (' . $label . '): the following card\'s rule is still emitted intact',
+        1 === count($resultRules),
+        'malformed value (' . $label . '): exactly one carrier rule is emitted - the well-formed card\'s - so the malformed one neither emitted nor consumed a rule',
         $resultCss
     );
 }
