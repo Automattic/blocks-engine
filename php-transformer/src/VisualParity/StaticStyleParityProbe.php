@@ -28,7 +28,7 @@ use DOMXPath;
 final class StaticStyleParityProbe
 {
     public const SCHEMA = 'blocks-engine/php-transformer/static-style-parity-probes/v1';
-    public const GEOMETRY_SCHEMA = 'blocks-engine/php-transformer/static-style-parity-probes/geometry-v2';
+    public const GEOMETRY_SCHEMA = 'blocks-engine/php-transformer/static-style-parity-probes/geometry-v3';
 
     /**
      * Visually load-bearing, statically resolvable author properties. Sorted and
@@ -57,6 +57,7 @@ final class StaticStyleParityProbe
 
     public const GEOMETRY_PROPERTIES = array(
         'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'flex-basis',
+        'flex', 'flex-grow', 'flex-shrink',
     );
 
     /**
