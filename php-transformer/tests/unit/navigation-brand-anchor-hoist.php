@@ -294,6 +294,38 @@ $assert(
     (string) count($findBlocks($plainBlocks, 'core/navigation-link'))
 );
 
+// -- A brand cue is a token an author named the element with, not a word that
+// happens to appear in prose written for a screen reader or a tooltip. Reading
+// `aria-label` and `title` as cues hoisted real menu items out of their menu:
+// "Brand new products" and "Download our logo" are sentences, not brand claims.
+$prose = static function (string $attribute, string $value) use ($transform, $findBlocks): array {
+    $result = $transform(
+        '<style>nav{display:flex;gap:20px}'
+        . '.navlinks{list-style:none;display:flex;gap:16px;margin:0;padding:0}</style>'
+        . '<nav aria-label="Primary"><a href="/new/" ' . $attribute . '="' . $value . '">New</a>'
+        . '<ul class="navlinks"><li><a href="/a/">A</a></li><li><a href="/b/">B</a></li></ul></nav>'
+    );
+    $blocks = is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+    $carriers = array_values(array_filter(
+        $findBlocks($blocks, 'core/group'),
+        static fn (array $block): bool => 'nav' === (string) ($block['attrs']['tagName'] ?? '')
+    ));
+
+    return array(
+        'carriers' => count($carriers),
+        'links' => count($findBlocks($blocks, 'core/navigation-link')),
+    );
+};
+
+foreach ( array( 'aria-label' => 'Brand new products', 'title' => 'Download our logo' ) as $attribute => $value ) {
+    $prosed = $prose($attribute, $value);
+    $assert(
+        0 === $prosed['carriers'] && 3 === $prosed['links'],
+        'brand vocabulary inside ' . $attribute . ' prose does not hoist a menu item out of the menu',
+        json_encode($prosed)
+    );
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand anchor hoist contract: {$failures} failed, {$passes} passed\n");
     exit(1);
