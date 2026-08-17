@@ -97,7 +97,7 @@ $assert(
     $unlistedMarkup
 );
 $assert(
-    1 !== preg_match('/wp:navigation-link(?:(?!-->).)*Camden/s', $unlistedMarkup),
+    0 === preg_match('/wp:navigation-link(?:(?!-->).)*Camden/s', $unlistedMarkup),
     'unlisted brand class: the branding anchor is not folded in as a menu item label',
     $unlistedMarkup
 );
@@ -197,6 +197,37 @@ $assert(
     1 === count($findBlocks($blockLevelBlocks, 'core/heading')) && 0 === count($findBlocks($blockLevelBlocks, 'core/html')),
     'block-level brand lockup: the authored heading survives as a heading block',
     $blockLevelMarkup
+);
+
+// -- Structural position alone is not a brand. An ordinary menu link that happens
+// to sit outside the list keeps its place in the menu: it stays a navigation link,
+// keeps the promoted shared colour, and never becomes a hoisted sibling block.
+$bareLinkOutsideList = $transform(
+    '<style>header nav{display:flex;justify-content:space-between;padding:22px}'
+    . '.menu{list-style:none;margin:0;padding:0;display:flex;gap:20px}.menu a,nav>a{color:#DDE3EB}</style>'
+    . '<header><nav aria-label="Primary"><a href="/">Home</a>'
+    . '<ul class="menu"><li><a href="/about/">About</a></li><li><a href="/contact/">Contact</a></li></ul></nav></header>'
+);
+$bareLinkBlocks = is_array($bareLinkOutsideList['blocks'] ?? null) ? $bareLinkOutsideList['blocks'] : array();
+$bareLinkNavigations = $findBlocks($bareLinkBlocks, 'core/navigation');
+
+$assert(
+    3 === count($findBlocks($bareLinkBlocks, 'core/navigation-link')),
+    'bare link outside the list: all three anchors stay navigation links',
+    (string) count($findBlocks($bareLinkBlocks, 'core/navigation-link'))
+);
+$assert(
+    array() === array_values(array_filter(
+        $findBlocks($bareLinkBlocks, 'core/group'),
+        static fn (array $block): bool => 'nav' === (string) ($block['attrs']['tagName'] ?? '')
+    )),
+    'bare link outside the list: no carrier group is emitted',
+    (string) ($bareLinkOutsideList['serialized_blocks'] ?? '')
+);
+$assert(
+    '#DDE3EB' === (string) ($bareLinkNavigations[0]['attrs']['customTextColor'] ?? ''),
+    'bare link outside the list: the shared link colour is still promoted to the navigation',
+    json_encode($bareLinkNavigations[0]['attrs'] ?? array())
 );
 
 // -- Control: a menu with no branding anchor keeps today's single navigation block.

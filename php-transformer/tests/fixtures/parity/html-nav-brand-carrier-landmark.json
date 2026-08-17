@@ -1,0 +1,91 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-brand-carrier-landmark",
+  "description": "The branding carrier keeps the authored nav tag rather than becoming a div, because a consumer's raw-anchor link resolution scopes by lexical nav ancestry — a hoisted brand keeps its resolved URL only while it renders inside a nav. The nested landmark that follows is harmless in saved content: core/navigation is a dynamic block, so the saved part carries exactly one nav element and landmark parity stays 1:1 with the source.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-brand-carrier-landmark.json",
+    "notes": "Pins the deliberate tagName choice and the landmark and item accounting that goes with it, so switching the carrier to div, losing landmark parity, or regressing semantic parity all fail loudly."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers native block decomposition fidelity beyond the legacy converter."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><nav aria-label=\"Primary\"><a class=\"wordmark\" href=\"/\"><span class=\"name\">Harbor Studio</span><span class=\"place\">Camden, Maine</span></a><ul class=\"navlinks\"><li><a href=\"/\">Home</a></li><li><a href=\"/work/\">Work</a></li></ul></nav></header>",
+    "options": {
+      "static_css": "header nav{max-width:1200px;margin:0 auto;padding:22px;display:flex;justify-content:space-between}.wordmark{display:flex;flex-direction:column;line-height:1}.navlinks{list-style:none;margin:0;padding:0;display:flex;gap:22px}.navlinks a{text-transform:uppercase;color:#DDE3EB}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group",
+      "attrs": {
+        "tagName": "nav"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/paragraph"
+    },
+    {
+      "path": "blocks.0.innerBlocks.1",
+      "name": "core/navigation",
+      "attrs": {
+        "className": "navlinks blocks-engine-list-navigation",
+        "overlayMenu": "mobile",
+        "customTextColor": "#DDE3EB"
+      }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "source_reports.semantic_parity.status",
+      "assert": "equals",
+      "value": "pass"
+    },
+    {
+      "path": "source_reports.semantic_parity.landmarks.source.nav",
+      "assert": "equals",
+      "value": 1
+    },
+    {
+      "path": "source_reports.semantic_parity.landmarks.blocks.nav",
+      "assert": "equals",
+      "value": 1
+    },
+    {
+      "path": "source_reports.semantic_parity.findings",
+      "assert": "count",
+      "count": 0
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<nav class=\"wp-block-group"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "<a class=\"wordmark\" href=\"/\">"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "anchorClassName"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    }
+  ]
+}

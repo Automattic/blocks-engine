@@ -109,9 +109,23 @@ final class NavigationPattern implements PatternRecognizerInterface
      * `anchorClassName`, which core/navigation-link does not register.
      *
      * Emit the landmark as a carrier group instead, holding the brand block and
-     * a core/navigation built from the link cluster alone. The brand is found
-     * STRUCTURALLY — a direct-child anchor outside the cluster — so no class
-     * vocabulary decides whether it survives.
+     * a core/navigation built from the link cluster alone. Structural position
+     * does the work a class allowlist used to do — a direct-child anchor outside
+     * the cluster — but position alone cannot tell a brand from an ordinary menu
+     * item that happens to sit outside the list, so the anchor must also read as
+     * a brand: a lockup (element children) or a brand/logo cue. A bare
+     * `<a>Home</a>` beside the list stays a menu item.
+     *
+     * Not covered: an anchor holding only an image with no accessible name is
+     * classified as navigation chrome before it reaches the brand test, so an
+     * image-only logo is still dropped — as it is without this carrier.
+     *
+     * The carrier is restricted to a real `<nav>` landmark. That is load-bearing,
+     * not cosmetic: a consumer's raw-anchor link resolution scopes by lexical
+     * `<nav>` ancestry, so a brand hoisted out of the link set keeps its resolved
+     * URL only while it renders inside a `<nav>`. A `div` carrier would put the
+     * brand outside both that pass and the block pass that rewrites
+     * `wp:navigation-link`, losing coverage the folded shape had.
      *
      * `hasDirectBrandingAnchorBesideListNavigation()` runs first and keeps
      * deferring the shapes it already recognises, so this covers exactly the
@@ -125,7 +139,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) ) {
+        if ( 'nav' !== strtolower($element->tagName) ) {
             return null;
         }
 
@@ -158,7 +172,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             // carrier converts the anchor rather than flattening it into a menu
             // item label, so a lockup built from a heading survives whole.
             if ( 'a' === strtolower($child->tagName) ) {
-                if ( $anchor instanceof DOMElement || '' === $this->anchorLabel($child, $innerHtml) ) {
+                if ( $anchor instanceof DOMElement
+                    || '' === $this->anchorLabel($child, $innerHtml)
+                    || ! $this->readsAsBrandAnchor($child)
+                ) {
                     return null;
                 }
 
@@ -175,6 +192,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( ! $anchor instanceof DOMElement || ! $cluster instanceof DOMElement ) {
+            return null;
+        }
+
+        // Settle every cheap structural question before converting anything.
+        // Both conversions below run against the real block factory and record
+        // provenance and runtime islands, so a bail after them leaves recorded
+        // side effects behind for output that was never emitted.
+        if ( 2 > $cluster->getElementsByTagName('a')->length ) {
             return null;
         }
 
@@ -203,11 +228,32 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
-        $carrierAttrs = array_merge($presentationAttributes($element), array(
-            'tagName' => 'nav' === strtolower($element->tagName) ? 'nav' : 'div',
-        ));
+
+        // The carrier is the authored `<nav>`, so it keeps that tag (see above).
+        // The authored `aria-label` does not come with it: core/group registers no
+        // attribute that carries an accessible name, and inventing one would emit
+        // exactly the unregistered comment attribute this carrier exists to stop.
+        $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
 
         return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+    }
+
+    /**
+     * Whether a direct-child anchor reads as branding rather than as a menu item
+     * that happens to sit outside the list. A lockup — an anchor built from
+     * element children such as a name plus a location, or a heading — is the
+     * structural signal; an explicit brand/logo cue is accepted as well so a
+     * single-line wordmark still qualifies. Bare anchor text does not.
+     */
+    private function readsAsBrandAnchor(DOMElement $anchor): bool
+    {
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return true;
+            }
+        }
+
+        return $this->hasBrandAnchorSignal($anchor);
     }
 
     private function directSectionLabel(DOMElement $element): ?DOMElement
