@@ -534,6 +534,42 @@ $assert(
     json_encode(array( 'attrs' => $amberQuoteAttrs, 'css' => $amberQuoteCss ))
 );
 
+// The core style engine attaches `has-border-color` to the uniform
+// `border.color` definition only; `border.{side}` carries no classnames. The
+// class is an all-sides signal because core ships
+// `html :where(.has-border-color){border-style:solid}` in
+// wp-includes/css/dist/block-library/common.css. Emitting it for a one-sided
+// authored border makes WordPress paint the three unauthored sides at the
+// initial `medium` width (3px) in `currentColor`, growing the box by 6px.
+$sideOnlyBorderSerialized = $borderMapper->serialize(array(
+    'border' => array( 'left' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) ),
+));
+$assert(
+    '' === $sideOnlyBorderSerialized['classes'],
+    'N5: a per-side border color emits no all-sides has-border-color class',
+    json_encode($sideOnlyBorderSerialized)
+);
+$assert(
+    'border-left-color:var(--secondary);border-left-style:solid;border-left-width:2px' === $sideOnlyBorderSerialized['style'],
+    'N5: a per-side border still serializes its own side declarations',
+    json_encode($sideOnlyBorderSerialized)
+);
+
+$uniformBorderSerialized = $borderMapper->serialize(array(
+    'border' => array( 'width' => '2px', 'style' => 'solid', 'color' => 'red' ),
+));
+$assert(
+    'has-border-color' === $uniformBorderSerialized['classes'],
+    'N5: a uniform border color keeps the core has-border-color class',
+    json_encode($uniformBorderSerialized)
+);
+
+$assert(
+    ! str_contains($nativeBorderGroupMarkup, 'has-border-color'),
+    'N5: a Group with only an authored left border serializes without has-border-color',
+    $nativeBorderGroupMarkup
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Block style support conversion tests: {$failures} failed, {$passes} passed\n");
     exit(1);
