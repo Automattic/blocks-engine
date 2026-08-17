@@ -90,6 +90,38 @@ $assert(! isset($nativeGridAttrs['style']['spacing']['blockGap']), '16b: native 
 $assert(! str_contains($nativeGridMarkup, 'gap:1.2rem'), '16c: native Group grid markup omits inline gap that Gutenberg save does not reproduce', $nativeGridMarkup);
 $assert(str_contains($nativeGridCss, 'gap:1.2rem !important'), '16d: inline native Group grid gap moves to the generated geometry carrier', $nativeGridCss);
 
+$unorderedListSource = '<ul style="list-style:none"><li>Alpha</li></ul>';
+$unorderedListResult = ( new HtmlTransformer() )->transform($unorderedListSource)->toArray();
+$unorderedListAttrs = $unorderedListResult['blocks'][0]['attrs'] ?? array();
+$unorderedListCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($unorderedListResult['assets'] ?? null) ? $unorderedListResult['assets'] : array()));
+$assert(str_contains($unorderedListSource, 'list-style:none'), 'L1 precondition: unordered list fixture authors list-style:none', $unorderedListSource);
+$assert(str_contains((string) ($unorderedListAttrs['className'] ?? ''), 'be-inline-geometry-') && str_contains($unorderedListCss, 'list-style:none') && ! str_contains($unorderedListCss, 'list-style:none !important'), 'L1: unordered list carries authored list-style:none without !important', $unorderedListCss);
+
+$orderedListResult = ( new HtmlTransformer() )->transform('<ol style="list-style:none"><li>First</li></ol>')->toArray();
+$orderedListAttrs = $orderedListResult['blocks'][0]['attrs'] ?? array();
+$orderedListCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($orderedListResult['assets'] ?? null) ? $orderedListResult['assets'] : array()));
+$assert(true === ($orderedListAttrs['ordered'] ?? false) && str_contains((string) ($orderedListAttrs['className'] ?? ''), 'be-inline-geometry-') && str_contains($orderedListCss, 'list-style:none') && ! str_contains($orderedListCss, 'list-style:none !important'), 'L2: ordered list carries authored list-style:none without !important', $orderedListCss);
+
+$plainListResult = ( new HtmlTransformer() )->transform('<ul><li>Marker remains</li></ul>')->toArray();
+$plainListMarkup = (string) ($plainListResult['serialized_blocks'] ?? '');
+$assert(
+    '<!-- wp:list --><ul class="wp-block-list"><!-- wp:list-item {"content":"Marker remains"} --><li>Marker remains</li><!-- /wp:list-item --></ul><!-- /wp:list -->' === $plainListMarkup
+    && array() === ($plainListResult['assets'] ?? array()),
+    'L3: a list without authored list-style keeps canonical marker-rendering output and gains no carrier',
+    $plainListMarkup
+);
+
+$listLonghandsResult = ( new HtmlTransformer() )->transform('<ul style="list-style-type:square;list-style-position:inside;list-style-image:url(https://example.com/marker.svg)"><li>Detailed marker</li></ul>')->toArray();
+$listLonghandsCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($listLonghandsResult['assets'] ?? null) ? $listLonghandsResult['assets'] : array()));
+$assert(
+    str_contains($listLonghandsCss, 'list-style-type:square')
+    && str_contains($listLonghandsCss, 'list-style-position:inside')
+    && str_contains($listLonghandsCss, 'list-style-image:url(https://example.com/marker.svg)')
+    && ! str_contains($listLonghandsCss, '!important'),
+    'list-style longhands ride the generated carrier without !important',
+    $listLonghandsCss
+);
+
 $cardHtml = '<section class="pricing-shell" style="max-width:1120px;margin:0 auto;padding:5rem 2rem"><article class="pricing-card" style="max-width:360px;padding:2rem;background:#fff"><h2>Team</h2><p>Scale every launch.</p></article></section>';
 $cardResult = ( new HtmlTransformer() )->transform($cardHtml, array())->toArray();
 $cardShell = $cardResult['blocks'][0] ?? array();
