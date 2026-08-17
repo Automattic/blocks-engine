@@ -49,7 +49,7 @@ final class SemanticParityReporter
         $sourceLandmarks = $this->sourceLandmarkReport($body);
         $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
         $sourceMenus = $this->sourceNavigationMenus($body);
-        $blockMenus = $this->blockNavigationMenus($blocks);
+        $blockMenus = $this->withCarriedItemsResolved($this->blockNavigationMenus($blocks), $sourceMenus);
         $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
         $findings = array_merge(
             $findings,
@@ -75,6 +75,44 @@ final class SemanticParityReporter
             ),
             'findings' => $findings,
         );
+    }
+
+    /**
+     * Fold each carrier's hoisted links into the menu they belong to, so the
+     * published record shows the same item list the parity comparison uses.
+     * Leaving the two out of step would publish a menu counted as 5 beside a
+     * source menu of 6 while reporting parity as a pass.
+     *
+     * The fold is skipped when the paired source menu already leaves outside
+     * anchors out of its own list — a landmark bearing mobile chrome, or one
+     * holding both a brand and a CTA beside its list — because then neither side
+     * counts them.
+     *
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @param array<int, array<string, mixed>> $sourceMenus
+     * @return array<int, array<string, mixed>>
+     */
+    private function withCarriedItemsResolved(array $blockMenus, array $sourceMenus): array
+    {
+        foreach ( $blockMenus as $index => $blockMenu ) {
+            $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
+            unset($blockMenus[$index]['carried_sibling_items']);
+
+            if ( array() === $carried || true === ($sourceMenus[$index]['excludes_outside_anchors'] ?? false) ) {
+                continue;
+            }
+
+            $items = array_merge(
+                is_array($carried['before'] ?? null) ? $carried['before'] : array(),
+                is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array(),
+                is_array($carried['after'] ?? null) ? $carried['after'] : array()
+            );
+
+            $blockMenus[$index]['item_count'] = count($items);
+            $blockMenus[$index]['items'] = $items;
+        }
+
+        return array_values($blockMenus);
     }
 
     /**
@@ -536,8 +574,14 @@ final class SemanticParityReporter
                 continue;
             }
 
+            // One anchor can appear in more than one level of a block's saved
+            // markup — a core/buttons wrapper and its core/button child both
+            // carry it — so de-duplicate across each sibling's whole subtree.
+            // Scope is per sibling: two siblings that genuinely link to the same
+            // place are two anchors on the source side as well.
             $siblingItems = array();
-            $this->collectBlockAnchorItems(array( $sibling ), $siblingItems);
+            $seen = array();
+            $this->collectBlockAnchorItems(array( $sibling ), $siblingItems, $seen);
             if ( array() === $siblingItems ) {
                 continue;
             }
@@ -559,8 +603,9 @@ final class SemanticParityReporter
      *
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, string>> $items
+     * @param array<string, true> $seen
      */
-    private function collectBlockAnchorItems(array $blocks, array &$items): void
+    private function collectBlockAnchorItems(array $blocks, array &$items, array &$seen): void
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) {
@@ -582,7 +627,6 @@ final class SemanticParityReporter
                 $candidates[] = $block['innerHTML'];
             }
 
-            $seen = array();
             foreach ( $candidates as $markup ) {
                 if ( ! str_contains($markup, '<a') ) {
                     continue;
@@ -614,16 +658,15 @@ final class SemanticParityReporter
             // rather than in anchor markup.
             if ( 'core/button' === ($block['blockName'] ?? '') && isset($attrs['url']) ) {
                 $label = $this->normalizedNavigationLabel((string) ($attrs['text'] ?? ''));
-                if ( '' !== $label ) {
-                    $items[] = array(
-                        'label' => $label,
-                        'url' => $this->safeNavigationUrl((string) $attrs['url']),
-                    );
+                $url = $this->safeNavigationUrl((string) $attrs['url']);
+                if ( '' !== $label && ! isset($seen[$label . "\0" . $url]) ) {
+                    $seen[$label . "\0" . $url] = true;
+                    $items[] = array( 'label' => $label, 'url' => $url );
                 }
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->collectBlockAnchorItems($block['innerBlocks'], $items);
+                $this->collectBlockAnchorItems($block['innerBlocks'], $items, $seen);
             }
         }
     }
@@ -733,21 +776,9 @@ final class SemanticParityReporter
             }
 
             $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
+            // Carrier siblings were already folded into `items` upstream, so both
+            // sides are directly comparable here.
             $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
-
-            // A carrier group holds blocks hoisted out of the menu beside it. The
-            // source side counts their anchors under the landmark unless it has
-            // already excluded outside anchors itself, so only add them here when
-            // it has not — otherwise the same anchors would be counted on one
-            // side and deliberately dropped on the other.
-            if ( true !== ($sourceMenu['excludes_outside_anchors'] ?? false) ) {
-                $carried = is_array($blockMenu['carried_sibling_items'] ?? null) ? $blockMenu['carried_sibling_items'] : array();
-                $blockItems = array_merge(
-                    is_array($carried['before'] ?? null) ? $carried['before'] : array(),
-                    $blockItems,
-                    is_array($carried['after'] ?? null) ? $carried['after'] : array()
-                );
-            }
 
             if ( count($sourceItems) !== count($blockItems) ) {
                 $findings[] = array(

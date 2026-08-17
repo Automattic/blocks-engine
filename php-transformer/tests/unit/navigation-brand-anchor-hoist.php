@@ -230,6 +230,52 @@ $assert(
     json_encode($bareLinkNavigations[0]['attrs'] ?? array())
 );
 
+// -- Semantic parity must read the hoist as faithful, not as content loss: the
+// brand's link belongs to the menu's item list even though it now sits beside the
+// navigation block. A brand that converts to a button nests the same anchor in two
+// levels of saved markup, so it must still be counted exactly once.
+$carrierParity = static function (array $result): array {
+    $report = $result['source_reports']['semantic_parity'] ?? array();
+    $menus = $report['navigation_menus'] ?? array();
+
+    return array(
+        'status' => (string) ($report['status'] ?? ''),
+        'source' => (int) ($menus['source'][0]['item_count'] ?? -1),
+        'blocks' => (int) ($menus['blocks'][0]['item_count'] ?? -1),
+        'findings' => count(is_array($report['findings'] ?? null) ? $report['findings'] : array()),
+    );
+};
+
+$lockupParity = $carrierParity($unlistedBrand);
+$assert(
+    'pass' === $lockupParity['status'] && 0 === $lockupParity['findings'],
+    'hoisted brand: semantic parity reads the carrier as faithful',
+    json_encode($lockupParity)
+);
+$assert(
+    $lockupParity['source'] === $lockupParity['blocks'],
+    'hoisted brand: the reported block item count matches the source item count',
+    json_encode($lockupParity)
+);
+
+$buttonBrandParity = $carrierParity($transform(
+    '<style>nav{display:flex;gap:20px}'
+    . '.mark{display:inline-block;padding:10px 18px;background:#12151a;color:#fff;border-radius:6px}'
+    . '.navlinks{list-style:none;display:flex;gap:16px;margin:0;padding:0}</style>'
+    . '<nav aria-label="Primary"><a class="mark" href="/"><span>Harbor</span></a>'
+    . '<ul class="navlinks"><li><a href="/a/">A</a></li><li><a href="/b/">B</a></li></ul></nav>'
+));
+$assert(
+    'pass' === $buttonBrandParity['status'] && 0 === $buttonBrandParity['findings'],
+    'brand that converts to a button: semantic parity still reads the carrier as faithful',
+    json_encode($buttonBrandParity)
+);
+$assert(
+    3 === $buttonBrandParity['blocks'] && $buttonBrandParity['source'] === $buttonBrandParity['blocks'],
+    'brand that converts to a button: its anchor is counted once, not once per markup level',
+    json_encode($buttonBrandParity)
+);
+
 // -- Control: a menu with no branding anchor keeps today's single navigation block.
 $plainMenu = $transform(
     '<style>.main-nav{display:flex;gap:1rem}</style>'
