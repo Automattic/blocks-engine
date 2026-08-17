@@ -104,7 +104,10 @@ trait StyleResolutionTrait
             'max-height',
             'aspect-ratio',
             'box-sizing',
+            'flex',
             'flex-basis',
+            'flex-grow',
+            'flex-shrink',
             'object-fit',
             'object-position',
         ));
