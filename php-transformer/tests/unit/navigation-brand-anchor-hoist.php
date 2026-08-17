@@ -172,6 +172,33 @@ $assert(
     $divMarkup
 );
 
+// -- A lockup built from block-level markup is still a brand, not a menu item:
+// the carrier converts the anchor instead of flattening it into a label.
+$blockLevelBrand = $transform(
+    '<style>header nav{display:flex;justify-content:space-between;padding:22px}.wordmark{display:block}'
+    . '.navlinks{list-style:none;margin:0;padding:0;display:flex;gap:20px}</style>'
+    . '<header><nav aria-label="Primary"><a class="wordmark" href="/"><h1>Harbor Studio</h1></a>'
+    . '<ul class="navlinks"><li><a href="/">Home</a></li><li><a href="/work/">Work</a></li></ul></nav></header>'
+);
+$blockLevelMarkup = (string) ($blockLevelBrand['serialized_blocks'] ?? '');
+$blockLevelBlocks = is_array($blockLevelBrand['blocks'] ?? null) ? $blockLevelBrand['blocks'] : array();
+
+$assert(
+    ! str_contains($blockLevelMarkup, 'anchorClassName'),
+    'block-level brand lockup: the heading anchor is not folded in as a menu item',
+    $blockLevelMarkup
+);
+$assert(
+    2 === count($findBlocks($blockLevelBlocks, 'core/navigation-link')),
+    'block-level brand lockup: only the two menu anchors become navigation links',
+    (string) count($findBlocks($blockLevelBlocks, 'core/navigation-link'))
+);
+$assert(
+    1 === count($findBlocks($blockLevelBlocks, 'core/heading')) && 0 === count($findBlocks($blockLevelBlocks, 'core/html')),
+    'block-level brand lockup: the authored heading survives as a heading block',
+    $blockLevelMarkup
+);
+
 // -- Control: a menu with no branding anchor keeps today's single navigation block.
 $plainMenu = $transform(
     '<style>.main-nav{display:flex;gap:1rem}</style>'

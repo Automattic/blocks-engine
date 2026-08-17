@@ -154,11 +154,11 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            // Block-level content inside the anchor is no obstacle here: the
+            // carrier converts the anchor rather than flattening it into a menu
+            // item label, so a lockup built from a heading survives whole.
             if ( 'a' === strtolower($child->tagName) ) {
-                if ( $anchor instanceof DOMElement
-                    || '' === $this->anchorLabel($child, $innerHtml)
-                    || preg_match('/<(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b/i', $innerHtml($child))
-                ) {
+                if ( $anchor instanceof DOMElement || '' === $this->anchorLabel($child, $innerHtml) ) {
                     return null;
                 }
 
