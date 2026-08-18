@@ -741,11 +741,21 @@ final class SemanticParityReporter
      */
     private function markupImageAltText(string $markup): string
     {
-        if ( ! preg_match('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1/is', $markup, $match) ) {
+        if ( ! preg_match_all('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1/is', $markup, $matches, PREG_SET_ORDER) ) {
             return '';
         }
 
-        return $this->normalizedNavigationLabel(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        // The FIRST image that actually carries a name, not the first image. A
+        // decorative `alt=""` ahead of the real one must not decide the answer,
+        // or this disagrees with the transformer's own accessible-name test.
+        foreach ( $matches as $match ) {
+            $alt = $this->normalizedNavigationLabel(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+            if ( '' !== $alt ) {
+                return $alt;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -754,12 +764,14 @@ final class SemanticParityReporter
      */
     private function anchorImageAltText(DOMElement $anchor): string
     {
-        $image = $anchor->getElementsByTagName('img')->item(0);
-        if ( ! $image instanceof DOMElement ) {
-            return '';
+        foreach ( $anchor->getElementsByTagName('img') as $image ) {
+            $alt = $this->normalizedNavigationLabel($this->attr($image, 'alt'));
+            if ( '' !== $alt ) {
+                return $alt;
+            }
         }
 
-        return $this->normalizedNavigationLabel($this->attr($image, 'alt'));
+        return '';
     }
 
     private function sourceNavigationAnchorLabel(DOMElement $anchor): string
@@ -776,12 +788,7 @@ final class SemanticParityReporter
             }
         }
 
-        $image = $anchor->getElementsByTagName('img')->item(0);
-        if ( $image instanceof DOMElement ) {
-            return $this->normalizedNavigationLabel($this->attr($image, 'alt'));
-        }
-
-        return '';
+        return $this->anchorImageAltText($anchor);
     }
 
     /**
