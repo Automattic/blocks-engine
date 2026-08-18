@@ -488,9 +488,6 @@ final class HtmlTransformer
     /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
     private array $sourceSemanticMarkers = array();
 
-    /** @var array<string, string> */
-    private array $sourcePreservedHtmlMarkers = array();
-
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
     private array $sourceRootChildMarkers = array();
 
@@ -643,7 +640,6 @@ final class HtmlTransformer
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
-        $this->sourcePreservedHtmlMarkers = array();
         $this->sourceRootChildMarkers = array();
         $this->sourceBodyProjectionClasses = array();
         $this->sourceTableMarkers = array();
@@ -1337,12 +1333,17 @@ final class HtmlTransformer
                     if ( '' === $path ) {
                         continue;
                     }
-                    // list-item content serializes through RichText, so direct layout
-                    // children need a marker carrier that survives its normalization.
-                    if ( $this->ancestorElement($element, 'li') instanceof DOMElement && $this->richTextSelectorNeedsHook($parsed) ) {
+                    $listItem = $this->ancestorElement($element, 'li');
+                    $structuralListItem = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem);
+                    // Normal list-item content serializes through RichText. A
+                    // structural item receives native child blocks instead.
+                    if ( $listItem instanceof DOMElement && ! $structuralListItem && $this->richTextSelectorNeedsHook($parsed) ) {
                         $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
-                    } elseif ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
+                    } elseif ( $directAuthorLayoutItem
+                        || ($structuralListItem && $this->richTextSelectorNeedsHook($parsed))
+                        || $this->requiresIndependentSemanticWrapper($element)
+                    ) {
                         if ( '' !== $path ) {
                             $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
                         }
@@ -1696,9 +1697,7 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( isset($this->sourcePreservedHtmlMarkers[$this->sourceElementIdentity($element)]) ) {
-                    $semanticLeaves[] = $this->sourcePreservedHtmlMarkers[$this->sourceElementIdentity($element)];
-                } elseif ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
+                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
@@ -2771,7 +2770,7 @@ final class HtmlTransformer
             }
 
             if ( $this->listContainsStructuralItemContent($element) ) {
-                return $this->structuralListFallbackBlock($element, $fallbacks);
+                return $this->decomposeStructuralList($element, $fallbacks);
             }
 
             $items = $this->listItems($element, $fallbacks);
@@ -3936,9 +3935,6 @@ final class HtmlTransformer
         $path = $this->sourceElementIdentity($element);
         if ( isset($this->sourceSemanticMarkers[$path]) ) {
             $markers[] = $this->sourceSemanticMarkers[$path];
-        }
-        if ( isset($this->sourcePreservedHtmlMarkers[$path]) ) {
-            $markers[] = $this->sourcePreservedHtmlMarkers[$path];
         }
         if ( isset($this->sourceRootChildMarkers[$path]) ) {
             $markers[] = $this->sourceRootChildMarkers[$path];
@@ -8568,73 +8564,40 @@ final class HtmlTransformer
         return false;
     }
 
+    private function isStructuralListItem(DOMElement $item): bool
+    {
+        $list = $item->parentNode;
+        return $list instanceof DOMElement
+            && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true)
+            && $this->listContainsStructuralItemContent($list);
+    }
+
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
-    private function structuralListFallbackBlock(DOMElement $list, array &$fallbacks): array
+    private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
     {
-        $this->registerPreservedHtmlProjectionMarkers($list);
-        $preservedList = $this->elementWithSourceProjectionClasses($list);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($preservedList));
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'html',
-            'reason'          => 'block_grammar',
-            'diagnostic_code' => 'html_list_item_block_grammar_fallback',
-            'message'         => 'The list was preserved as sanitized core/html because core/list-item RichText cannot contain block-level descendants.',
-            'source_format'   => 'html',
-            'tag'             => strtolower($list->tagName),
-            'selector'        => $this->elementSelector($list),
-            'attributes'      => $this->htmlAttributes($list),
-            'context'         => $this->sourceContext($list),
-            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($list),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->fallbackProvenance);
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
 
-        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($preservedList) ), array(), $list);
-    }
-
-    private function registerPreservedHtmlProjectionMarkers(DOMElement $element): void
-    {
-        $elements = array( $element );
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement ) {
-                $elements[] = $descendant;
+            $children = $this->convertChildren($child, $fallbacks, true);
+            if ( array() !== $children ) {
+                $items[] = $this->createBlock(
+                    'core/group',
+                    array_merge($this->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
+                    $children,
+                    $child
+                );
             }
         }
 
-        foreach ( $elements as $candidate ) {
-            $path = $this->sourceElementIdentity($candidate);
-            if ( '' !== $path ) {
-                $this->sourcePreservedHtmlMarkers[$path] ??= $this->allocateAuthorMarker('preserved-html');
-            }
-        }
-    }
-
-    private function elementWithSourceProjectionClasses(DOMElement $element): DOMElement
-    {
-        $preserved = $element->cloneNode(true);
-        if ( ! $preserved instanceof DOMElement ) {
-            return $element;
-        }
-
-        $this->applySourceProjectionClasses($element, $preserved);
-        return $preserved;
-    }
-
-    private function applySourceProjectionClasses(DOMElement $source, DOMElement $preserved): void
-    {
-        $className = $this->sourceProjectionClassName($source, $this->attr($preserved, 'class'));
-        if ( '' !== $className ) {
-            $preserved->setAttribute('class', $className);
-        }
-
-        $sourceChildren = array_values(array_filter(iterator_to_array($source->childNodes), static fn (DOMNode $child): bool => $child instanceof DOMElement));
-        $preservedChildren = array_values(array_filter(iterator_to_array($preserved->childNodes), static fn (DOMNode $child): bool => $child instanceof DOMElement));
-        foreach ( $sourceChildren as $index => $sourceChild ) {
-            if ( $sourceChild instanceof DOMElement && ($preservedChildren[$index] ?? null) instanceof DOMElement ) {
-                $this->applySourceProjectionClasses($sourceChild, $preservedChildren[$index]);
-            }
-        }
+        return $this->createBlock(
+            'core/group',
+            array_merge($this->cssOwnedGroupAttributes($list), array( 'tagName' => strtolower($list->tagName) )),
+            $items,
+            $list
+        );
     }
 
     private function listItemContentWithoutNestedLists(DOMElement $item): string

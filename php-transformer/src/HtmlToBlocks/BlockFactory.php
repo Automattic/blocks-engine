@@ -18,7 +18,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'ul', 'ol', 'li' );
 
     /**
      * Blocks whose supports.layout accepts an authored layout attribute, per
@@ -623,8 +623,8 @@ final class BlockFactory
     /**
      * Resolve the wrapper tag for a `core/group`. Core's group `save()` renders
      * `<TagName>` from the `tagName` attribute, defaulting to `div`. Only the
-     * semantic container tags core treats as group wrappers are honored; any
-     * other value falls back to `div` so output never diverges from `save()`.
+     * semantic container and list tags used by the transformer are honored;
+     * any other value falls back to `div` so output never diverges from save().
      */
     private function groupTagName(mixed $tagName): string
     {
