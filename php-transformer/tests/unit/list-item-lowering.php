@@ -27,4 +27,9 @@ $styledCss = implode("\n", array_map(static fn (array $asset): string => 'css' =
 if (!str_contains($styledMarkup, 'tagName":"ol"') || !str_contains($styledMarkup, 'tagName":"li"') || !str_contains($styledMarkup, 'blocks-engine-inline-layout-carrier') || !str_contains($styledCss, '.stage-output p.blocks-engine-inline-layout-carrier')) throw new RuntimeException('Structural native Groups must project author selectors through native carriers.');
 if (str_contains($styledMarkup, '<!-- wp:html')) throw new RuntimeException('Projected structural lists must stay fully native.');
 
+$inlineFlow = (new HtmlTransformer())->transform('<ol><li><span>1</span><div><strong>Observe</strong><p>Copy</p></div></li></ol>')->toArray();
+$inlineFlowMarkup = (string) ($inlineFlow['serialized_blocks'] ?? '');
+if (!str_contains($inlineFlowMarkup, '<p class="blocks-engine-synthetic-paragraph"><strong>Observe</strong></p>')) throw new RuntimeException('Standalone inline content in a structural item must use a margin-neutral synthetic paragraph.');
+if ('pass' !== ($inlineFlow['source_reports']['wp_block_validity']['status'] ?? null)) throw new RuntimeException('Structural item inline carriers must remain Gutenberg-valid.');
+
 fwrite(STDOUT, "list item lowering contract passed\n");

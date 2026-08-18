@@ -2753,7 +2753,9 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/paragraph', array( 'content' => $content ));
+            $listItem = $this->ancestorElement($element, 'li');
+            $sourceElement = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem) ? $element : null;
+            return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement);
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
