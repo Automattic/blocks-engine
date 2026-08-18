@@ -521,7 +521,14 @@ final class SemanticParityReporter
             return true;
         }
 
-        if ( '' === trim($anchor->textContent ?? '') && '' === trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title')) ) {
+        // An anchor named only by an image's alt text is content, not decoration.
+        // The label builder below already falls back to that alt, so excluding
+        // such an anchor here left the source side counting one item fewer than
+        // the block side represents.
+        if ( '' === trim($anchor->textContent ?? '')
+            && '' === trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title'))
+            && '' === $this->anchorImageAltText($anchor)
+        ) {
             return true;
         }
 
@@ -660,6 +667,14 @@ final class SemanticParityReporter
                     foreach ( $matches as $match ) {
                         $label = $this->normalizedNavigationLabel($match[3]);
                         if ( '' === $label ) {
+                            // An anchor built from an image carries its name in
+                            // the image's alt, which is what the source side
+                            // counts it by. Without this the hoisted brand is
+                            // invisible here and the two sides disagree.
+                            $label = $this->markupImageAltText($match[3]);
+                        }
+
+                        if ( '' === $label ) {
                             continue;
                         }
 
@@ -718,6 +733,33 @@ final class SemanticParityReporter
                 $this->collectBlockNavigationItems($block['innerBlocks'], $items);
             }
         }
+    }
+
+    /**
+     * The alt text of the first image in a fragment of saved markup, normalised
+     * the same way a label is. The block-side twin of anchorImageAltText().
+     */
+    private function markupImageAltText(string $markup): string
+    {
+        if ( ! preg_match('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1/is', $markup, $match) ) {
+            return '';
+        }
+
+        return $this->normalizedNavigationLabel(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+    }
+
+    /**
+     * The alt text of the first image inside an anchor, normalised the same way
+     * a label is. This is what names an anchor built from an image alone.
+     */
+    private function anchorImageAltText(DOMElement $anchor): string
+    {
+        $image = $anchor->getElementsByTagName('img')->item(0);
+        if ( ! $image instanceof DOMElement ) {
+            return '';
+        }
+
+        return $this->normalizedNavigationLabel($this->attr($image, 'alt'));
     }
 
     private function sourceNavigationAnchorLabel(DOMElement $anchor): string

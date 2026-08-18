@@ -573,7 +573,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         $html = preg_replace('/<span\b[^>]*>\s*<\/span>/i', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
-        return trim($html);
+        $html = trim($html);
+
+        // Markup carrying no text of its own is not a label. An anchor built from
+        // an image alone would otherwise hand back the `<img>` tag as its label
+        // and emit a navigation link labelled with raw markup, instead of letting
+        // `anchorLabel()` fall through to the image's own alt text.
+        if ( '' === trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')) ) {
+            return '';
+        }
+
+        return $html;
     }
 
     /**
@@ -881,12 +891,71 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        if ( 'a' === $tagName && '' === trim($element->textContent ?? '') && '' === trim($this->attr($element, 'aria-label') . $this->attr($element, 'title')) ) {
+        if ( 'a' === $tagName && ! $this->anchorCarriesAccessibleName($element) ) {
             return true;
+        }
+
+        // An anchor that names itself AND points somewhere is content, whatever
+        // its class happens to be called. The vocabulary below matches on the
+        // bare word `toggle`, which an authored `lang-toggle` or `theme-toggle`
+        // satisfies while being an ordinary link.
+        if ( 'a' === $tagName && $this->anchorNavigatesToDestination($element) ) {
+            return false;
         }
 
         $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider|toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
+    }
+
+    /**
+     * Whether an anchor carries an accessible name: visible text, an explicit
+     * `aria-label`/`title`, or an image whose `alt` names it.
+     *
+     * `anchorLabel()` already falls back to a descendant image's `alt`, so the
+     * chrome test has to agree with it. While it did not, an image brand the
+     * author had named — `<a class="mark"><img alt="Harbor"></a>` — was read as
+     * decoration and dropped from the output entirely, and because such an
+     * anchor contributes no text the source menu never counted it as an item,
+     * so semantic parity reported `pass` with no findings while the brand
+     * disappeared.
+     */
+    private function anchorCarriesAccessibleName(DOMElement $anchor): bool
+    {
+        if ( '' !== trim($anchor->textContent ?? '') ) {
+            return true;
+        }
+
+        if ( '' !== trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title')) ) {
+            return true;
+        }
+
+        foreach ( $anchor->getElementsByTagName('img') as $image ) {
+            if ( '' !== trim($this->attr($image, 'alt')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an anchor points at a destination rather than driving an in-page
+     * control. A menu toggle authored as an anchor targets a fragment, a
+     * `javascript:` URL or nothing at all, and usually declares `aria-controls`
+     * or `aria-expanded`; a language or theme switcher targets a real URL.
+     */
+    private function anchorNavigatesToDestination(DOMElement $anchor): bool
+    {
+        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
+            return false;
+        }
+
+        $href = trim($this->attr($anchor, 'href'));
+        if ( '' === $href || str_starts_with($href, '#') ) {
+            return false;
+        }
+
+        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
     private function isNavigationWrapperElement(DOMElement $element): bool
