@@ -59,6 +59,7 @@ final class FallbackFindingNormalizer
             'html_template_metadata' => 'inert_template_metadata',
             'html_template_runtime_fallback' => 'runtime_template',
             'html_inline_svg_fallback', 'html_unsafe_inline_svg' => 'inline_svg',
+            'html_list_item_block_grammar_fallback' => 'structural_list',
             'html_unsupported_element' => '' !== $tag ? 'unsupported_' . $tag : 'unsupported_element',
             default => match ( $kind ) {
                 'form', 'control' => 'interactive_form',

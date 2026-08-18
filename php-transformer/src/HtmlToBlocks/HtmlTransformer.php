@@ -2764,6 +2764,10 @@ final class HtmlTransformer
                 }
             }
 
+            if ( $this->listContainsStructuralItemContent($element) ) {
+                return $this->structuralListFallbackBlock($element, $fallbacks);
+            }
+
             $items = $this->listItems($element, $fallbacks);
 
             if ( array() === $items ) {
@@ -8522,6 +8526,85 @@ final class HtmlTransformer
         }
 
         return $lists;
+    }
+
+    private function listContainsStructuralItemContent(DOMElement $list): bool
+    {
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $content = $child->cloneNode(true);
+            if ( ! $content instanceof DOMElement ) {
+                continue;
+            }
+
+            foreach ( $this->nestedListRoots($content) as $nestedList ) {
+                $content->removeChild($nestedList);
+            }
+
+            foreach ( $content->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+
+                $tagName = strtolower($descendant->tagName);
+                if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
+    private function structuralListFallbackBlock(DOMElement $list, array &$fallbacks): array
+    {
+        $preservedList = $this->elementWithSourceTagMarkers($list);
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($preservedList));
+        $fallbacks[] = FallbackDiagnostic::build(array(
+            'type'            => 'html',
+            'reason'          => 'block_grammar',
+            'diagnostic_code' => 'html_list_item_block_grammar_fallback',
+            'message'         => 'The list was preserved as sanitized core/html because core/list-item RichText cannot contain block-level descendants.',
+            'source_format'   => 'html',
+            'tag'             => strtolower($list->tagName),
+            'selector'        => $this->elementSelector($list),
+            'attributes'      => $this->htmlAttributes($list),
+            'context'         => $this->sourceContext($list),
+            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($list),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+
+        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($preservedList) ), array(), $list);
+    }
+
+    private function elementWithSourceTagMarkers(DOMElement $element): DOMElement
+    {
+        $preserved = $element->cloneNode(true);
+        if ( ! $preserved instanceof DOMElement ) {
+            return $element;
+        }
+
+        $elements = array( $preserved );
+        foreach ( $preserved->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $elements[] = $descendant;
+            }
+        }
+
+        foreach ( $elements as $candidate ) {
+            $marker = $this->sourceTagMarkers[strtolower($candidate->tagName)] ?? '';
+            if ( '' !== $marker ) {
+                $candidate->setAttribute('class', $this->mergeClassNames($this->attr($candidate, 'class'), $marker));
+            }
+        }
+
+        return $preserved;
     }
 
     private function listItemContentWithoutNestedLists(DOMElement $item): string
