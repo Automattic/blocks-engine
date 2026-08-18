@@ -556,8 +556,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        $image = $anchor->getElementsByTagName('img')->item(0);
-        if ( $image instanceof DOMElement ) {
+        // The first image that carries a name, not the first image: a decorative
+        // `alt=""` ahead of the real one must not decide the label, or this
+        // disagrees with anchorCarriesAccessibleName() and the anchor is kept as
+        // named content while being labelled empty.
+        foreach ( $anchor->getElementsByTagName('img') as $image ) {
             $alt = trim($this->attr($image, 'alt'));
             if ( '' !== $alt ) {
                 return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -895,6 +898,17 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
+        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+
+        // A separator or a divider is decoration by authored intent, whatever it
+        // happens to link to, so the destination escape below must not rescue
+        // it. `isSourceNavigationChromeAnchor()` in the parity reporter reads
+        // exactly these two tokens as chrome on the source side; rescuing them
+        // here would leave the two sides counting different menus.
+        if ( preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens) ) {
+            return true;
+        }
+
         // An anchor that names itself AND points somewhere is content, whatever
         // its class happens to be called. The vocabulary below matches on the
         // bare word `toggle`, which an authored `lang-toggle` or `theme-toggle`
@@ -903,8 +917,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return false;
         }
 
-        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider|toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     /**

@@ -99,6 +99,12 @@ $controls = array(
     'a button menu toggle' => array( '<button class="toggle" aria-expanded="false">Menu</button>', 'aria-expanded' ),
     'a hamburger element' => array( '<div class="hamburger"><span></span></div>', 'hamburger' ),
     'a separator' => array( '<span class="divider">|</span>', 'divider' ),
+    // A separator is decoration by authored intent even when it links somewhere,
+    // so the destination escape must not rescue it. The parity reporter reads
+    // these two tokens as chrome on the source side; rescuing them here made a
+    // clean `pass` become a false count mismatch.
+    'a separator anchor with a real href' => array( '<a class="separator" href="/sep/">|</a>', '/sep/' ),
+    'a divider anchor with a real href' => array( '<a class="nav-divider" href="/x/">/</a>', '/x/' ),
 );
 
 foreach ( $controls as $label => [$markup, $needle] ) {
@@ -138,6 +144,25 @@ $assert(
     str_contains($combined['markup'], '/fr/'),
     'the switcher keeps its destination when it shares the landmark with a brand',
     substr($combined['markup'], 0, 240)
+);
+
+// -- A decorative image ahead of the named one must not decide the answer. The
+// accessible-name test scans every image for a non-empty alt, so the label
+// builders and the parity reporter have to scan the same way: taking the FIRST
+// image instead of the first NAMED image made the two sides disagree again, and
+// the block side lost its menu record entirely.
+$leadingDecorative = $outcome(
+    '<a class="mark" href="/"><img src="/deco.svg" alt=""><img src="/logo.svg" alt="Harbor"></a>'
+);
+$assert(
+    str_contains($leadingDecorative['markup'], 'Harbor'),
+    'a decorative image before the named one still leaves the anchor named by the real alt',
+    substr($leadingDecorative['markup'], 0, 240)
+);
+$assert(
+    'pass' === $leadingDecorative['status'] && 0 === $leadingDecorative['findings'],
+    'a decorative image before the named one leaves both parity sides in agreement',
+    $leadingDecorative['status'] . '/' . (string) $leadingDecorative['findings']
 );
 
 // -- The menu itself is untouched in every case above: both list anchors remain.
