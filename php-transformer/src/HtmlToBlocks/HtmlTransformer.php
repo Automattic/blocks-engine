@@ -488,6 +488,9 @@ final class HtmlTransformer
     /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
     private array $sourceSemanticMarkers = array();
 
+    /** @var array<string, string> */
+    private array $sourcePreservedHtmlMarkers = array();
+
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
     private array $sourceRootChildMarkers = array();
 
@@ -640,6 +643,7 @@ final class HtmlTransformer
         $this->sourceButtonPresentationMarkers = array();
         $this->sourceControlPaths = array();
         $this->sourceSemanticMarkers = array();
+        $this->sourcePreservedHtmlMarkers = array();
         $this->sourceRootChildMarkers = array();
         $this->sourceBodyProjectionClasses = array();
         $this->sourceTableMarkers = array();
@@ -1692,7 +1696,9 @@ final class HtmlTransformer
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
+                if ( isset($this->sourcePreservedHtmlMarkers[$this->sourceElementIdentity($element)]) ) {
+                    $semanticLeaves[] = $this->sourcePreservedHtmlMarkers[$this->sourceElementIdentity($element)];
+                } elseif ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( isset($this->sourceControlMarkers[$path]) ) {
                     $controls[] = $this->sourceControlMarkers[$path];
@@ -3930,6 +3936,9 @@ final class HtmlTransformer
         $path = $this->sourceElementIdentity($element);
         if ( isset($this->sourceSemanticMarkers[$path]) ) {
             $markers[] = $this->sourceSemanticMarkers[$path];
+        }
+        if ( isset($this->sourcePreservedHtmlMarkers[$path]) ) {
+            $markers[] = $this->sourcePreservedHtmlMarkers[$path];
         }
         if ( isset($this->sourceRootChildMarkers[$path]) ) {
             $markers[] = $this->sourceRootChildMarkers[$path];
@@ -8562,7 +8571,8 @@ final class HtmlTransformer
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function structuralListFallbackBlock(DOMElement $list, array &$fallbacks): array
     {
-        $preservedList = $this->elementWithSourceTagMarkers($list);
+        $this->registerPreservedHtmlProjectionMarkers($list);
+        $preservedList = $this->elementWithSourceProjectionClasses($list);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($preservedList));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
@@ -8583,28 +8593,48 @@ final class HtmlTransformer
         return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($preservedList) ), array(), $list);
     }
 
-    private function elementWithSourceTagMarkers(DOMElement $element): DOMElement
+    private function registerPreservedHtmlProjectionMarkers(DOMElement $element): void
     {
-        $preserved = $element->cloneNode(true);
-        if ( ! $preserved instanceof DOMElement ) {
-            return $element;
-        }
-
-        $elements = array( $preserved );
-        foreach ( $preserved->getElementsByTagName('*') as $descendant ) {
+        $elements = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement ) {
                 $elements[] = $descendant;
             }
         }
 
         foreach ( $elements as $candidate ) {
-            $marker = $this->sourceTagMarkers[strtolower($candidate->tagName)] ?? '';
-            if ( '' !== $marker ) {
-                $candidate->setAttribute('class', $this->mergeClassNames($this->attr($candidate, 'class'), $marker));
+            $path = $this->sourceElementIdentity($candidate);
+            if ( '' !== $path ) {
+                $this->sourcePreservedHtmlMarkers[$path] ??= $this->allocateAuthorMarker('preserved-html');
             }
         }
+    }
 
+    private function elementWithSourceProjectionClasses(DOMElement $element): DOMElement
+    {
+        $preserved = $element->cloneNode(true);
+        if ( ! $preserved instanceof DOMElement ) {
+            return $element;
+        }
+
+        $this->applySourceProjectionClasses($element, $preserved);
         return $preserved;
+    }
+
+    private function applySourceProjectionClasses(DOMElement $source, DOMElement $preserved): void
+    {
+        $className = $this->sourceProjectionClassName($source, $this->attr($preserved, 'class'));
+        if ( '' !== $className ) {
+            $preserved->setAttribute('class', $className);
+        }
+
+        $sourceChildren = array_values(array_filter(iterator_to_array($source->childNodes), static fn (DOMNode $child): bool => $child instanceof DOMElement));
+        $preservedChildren = array_values(array_filter(iterator_to_array($preserved->childNodes), static fn (DOMNode $child): bool => $child instanceof DOMElement));
+        foreach ( $sourceChildren as $index => $sourceChild ) {
+            if ( $sourceChild instanceof DOMElement && ($preservedChildren[$index] ?? null) instanceof DOMElement ) {
+                $this->applySourceProjectionClasses($sourceChild, $preservedChildren[$index]);
+            }
+        }
     }
 
     private function listItemContentWithoutNestedLists(DOMElement $item): string
