@@ -1123,6 +1123,9 @@ final class HtmlTransformer
             // navigation owns that responsive swap now, so keep the block host
             // visible and let core hide only its responsive inner container.
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            foreach ( $this->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
+                $afterAuthorCssParts[] = $inlineMarginRule;
+            }
             $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
             if ( '' !== $mobileOverlayBackground ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
@@ -1172,6 +1175,156 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    /**
+     * Re-assert an authored inline-axis `auto` margin on the navigation block
+     * host, after author CSS.
+     *
+     * A menu authored as `.navlinks{margin:0 0 0 auto}` inside `nav{display:flex}`
+     * sits at the far end of its landmark. The class survives onto the promoted
+     * navigation, but core's own navigation stylesheet owns the inner list —
+     * `.wp-block-navigation ul{margin-left:0}`, specificity 0,1,1 — and outranks
+     * the authored 0,1,0 class, so the menu snaps back to the start of the
+     * landmark and the authored end-alignment is lost.
+     *
+     * The block host is the flex item that actually moves, so the margin is
+     * restated there. The selector is self-limiting: it matches only an element
+     * that is both a promoted list navigation and carries the authored class.
+     *
+     * Only `auto` is carried. An authored length is left to the author rule,
+     * which core does not contest on the host.
+     *
+     * @return array<int, string>
+     */
+    private function listNavigationInlineMarginRules(string $serializedBlocks): array
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            return array();
+        }
+
+        $navigationClasses = $this->listNavigationHostClasses($serializedBlocks);
+        if ( array() === $navigationClasses ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if ( 1 !== preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+                continue;
+            }
+
+            $class = $match[1];
+            // The class has to sit on a promoted navigation host, not merely
+            // appear somewhere in the document. A page wrapper's `.wrap{margin:0
+            // auto}` is not a statement about a menu, and emitting a rule for it
+            // would be dead CSS on every page that has one.
+            if ( ! isset($navigationClasses[$class]) ) {
+                continue;
+            }
+
+            $margins = $this->inlineAxisAutoMargins(is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array());
+            if ( array() === $margins ) {
+                continue;
+            }
+
+            $declarations = array();
+            foreach ( $margins as $side => $value ) {
+                $declarations[] = 'margin-' . $side . ':' . $value . '!important';
+            }
+
+            $selectorText = '.wp-block-navigation.blocks-engine-list-navigation.' . $class;
+            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+        }
+
+        return array_values($rules);
+    }
+
+    /**
+     * Classes carried by promoted list-navigation hosts in the serialized
+     * output, as a lookup.
+     *
+     * @return array<string, true>
+     */
+    private function listNavigationHostClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            $className = (string) ($attrs['className'] ?? '');
+            if ( ! str_contains($className, 'blocks-engine-list-navigation') ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $candidate ) {
+                if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
+                    $classes[$candidate] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * The authored inline-axis margins of a rule, but only when at least one
+     * side is `auto` — that is the declaration that positions a flex item, and
+     * the one core's list reset destroys. The opposite side rides along so a
+     * one-sided `auto` cannot be read as centring once both sides are restated.
+     *
+     * @param array<string, mixed> $declarations
+     * @return array<string, string>
+     */
+    private function inlineAxisAutoMargins(array $declarations): array
+    {
+        $sides = array( 'left' => '', 'right' => '' );
+
+        $shorthand = trim((string) ($declarations['margin'] ?? ''));
+        if ( '' !== $shorthand ) {
+            $parts = preg_split('/\s+/', $shorthand) ?: array();
+            $count = count($parts);
+            if ( 4 === $count ) {
+                $sides['right'] = $parts[1];
+                $sides['left'] = $parts[3];
+            } elseif ( 2 === $count || 3 === $count ) {
+                $sides['right'] = $parts[1];
+                $sides['left'] = $parts[1];
+            } elseif ( 1 === $count ) {
+                $sides['right'] = $parts[0];
+                $sides['left'] = $parts[0];
+            }
+        }
+
+        foreach ( array( 'left' => array( 'margin-left', 'margin-inline-start' ), 'right' => array( 'margin-right', 'margin-inline-end' ) ) as $side => $properties ) {
+            foreach ( $properties as $property ) {
+                $value = trim((string) ($declarations[$property] ?? ''));
+                if ( '' !== $value ) {
+                    $sides[$side] = $value;
+                }
+            }
+        }
+
+        if ( 'auto' !== strtolower($sides['left']) && 'auto' !== strtolower($sides['right']) ) {
+            return array();
+        }
+
+        $carried = array();
+        foreach ( $sides as $side => $value ) {
+            if ( '' !== $value ) {
+                $carried[$side] = 'auto' === strtolower($value) ? 'auto' : $value;
+            }
+        }
+
+        return $carried;
     }
 
     private function sourceMobileNavigationOverlayBackground(): string
