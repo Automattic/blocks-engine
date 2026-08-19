@@ -343,8 +343,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * Core navigation links render text styles from their parent block context.
-     * Promote only values shared by every link so mixed menus retain their own
-     * companion CSS rather than receiving an incorrect uniform native style.
+     * Promote a strict-majority colour so current/CTA exceptions do not erase
+     * the menu default. Typography still requires unanimity; genuinely mixed
+     * menus retain their companion CSS rather than receiving a false uniform
+     * native style.
      *
      * @param array<int, array<string, mixed>> $links
      * @return array<string, mixed>
@@ -358,15 +360,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $attrs = array();
         foreach ( array( 'textColor' ) as $name ) {
-            $value = $first[ $name ] ?? null;
-            if ( null !== $value && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs[ $name ] ?? null, $value) ) {
+            $value = $this->strictMajorityNavigationLinkString($links, static fn (array $linkAttrs): mixed => $linkAttrs[ $name ] ?? null);
+            if ( null !== $value ) {
                 $attrs[ $name ] = $value;
             }
         }
 
-        $customTextColor = $first['style']['color']['text'] ?? null;
-        if ( is_string($customTextColor) && '' !== trim($customTextColor) && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['color']['text'] ?? null, $customTextColor) ) {
-            $attrs['customTextColor'] = trim($customTextColor);
+        $customTextColor = $this->strictMajorityNavigationLinkString($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['color']['text'] ?? null);
+        if ( null !== $customTextColor ) {
+            $attrs['customTextColor'] = $customTextColor;
         }
 
         $typography = is_array($first['style']['typography'] ?? null) ? $first['style']['typography'] : array();
@@ -377,6 +379,44 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /**
+     * A menu can author one default colour plus exceptional current/CTA items.
+     * Core renders link colour from the parent navigation context, so requiring
+     * unanimity drops that default whenever an exception exists. Carry a value
+     * only when it is an unambiguous strict majority across every link; ties and
+     * genuinely mixed menus retain their per-link companion CSS without an
+     * invented parent colour.
+     *
+     * @param array<int, array<string, mixed>> $links
+     */
+    private function strictMajorityNavigationLinkString(array $links, callable $value): ?string
+    {
+        $counts = array();
+        $values = array();
+        foreach ( $links as $link ) {
+            $linkAttrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $candidate = $value($linkAttrs);
+            if ( ! is_string($candidate) || '' === trim($candidate) ) {
+                continue;
+            }
+
+            // Prefix with length so a numeric-looking string remains a string
+            // key instead of PHP coercing it to an integer array key.
+            $key = strlen($candidate) . ':' . $candidate;
+            $counts[ $key ] = ($counts[ $key ] ?? 0) + 1;
+            $values[ $key ] = $candidate;
+        }
+
+        $threshold = count($links) / 2;
+        foreach ( $counts as $key => $count ) {
+            if ( $count > $threshold ) {
+                return $values[ $key ];
+            }
+        }
+
+        return null;
     }
 
     /** @param array<int, array<string, mixed>> $links */
