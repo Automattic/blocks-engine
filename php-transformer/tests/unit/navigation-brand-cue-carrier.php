@@ -271,6 +271,50 @@ $assert(
     substr($ctaCss, -400)
 );
 
+// A menu's authored default colour belongs on core/navigation, because dynamic
+// core/navigation-link output does not render its own style.color.text. One
+// current item or CTA may deliberately override that default, so unanimity is
+// too strict: carry only a unique strict majority and abstain on a tie.
+$majorityColour = $transform(
+    '<style>.primary-menu a{color:#5c7c99}.primary-menu a.current{color:#dde6ef}.primary-menu a.nav-cta{color:#071018}</style>'
+        . '<nav class="primary-menu"><a class="current" href="/">Home</a><a href="/services">Services</a>'
+        . '<a href="/about">About</a><a class="nav-cta" href="/book">Book</a><a href="/contact">Contact</a></nav>'
+);
+$majorityNavigation = $findBlocks($majorityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    '#5c7c99' === ($majorityNavigation['attrs']['customTextColor'] ?? null),
+    'a unique strict-majority link colour is carried by core/navigation',
+    json_encode($majorityNavigation['attrs'] ?? array())
+);
+$assert(
+    '#dde6ef' === ($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'] ?? null)
+        && '#071018' === ($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'] ?? null),
+    'current and CTA link colour exceptions remain on their own navigation links',
+    json_encode($majorityNavigation['innerBlocks'] ?? array())
+);
+
+$alphaColour = $transform(
+    '<style>.alpha-menu a{color:rgba(255,255,255,0.82)}.alpha-menu a.active{color:rgb(255,255,255)}</style>'
+        . '<nav class="alpha-menu"><a class="active" href="/">Home</a><a href="/work">Work</a><a href="/about">About</a></nav>'
+);
+$alphaNavigation = $findBlocks($alphaColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    'rgba(255,255,255,0.82)' === ($alphaNavigation['attrs']['customTextColor'] ?? null),
+    'strict-majority promotion preserves authored alpha bytes',
+    json_encode($alphaNavigation['attrs'] ?? array())
+);
+
+$tiedColour = $transform(
+    '<style>.mixed-menu a.warm{color:#a34d35}.mixed-menu a.cool{color:#356ea3}</style>'
+        . '<nav class="mixed-menu"><a class="warm" href="/one">One</a><a class="cool" href="/two">Two</a></nav>'
+);
+$tiedNavigation = $findBlocks($tiedColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    ! isset($tiedNavigation['attrs']['customTextColor']) && ! isset($tiedNavigation['attrs']['textColor']),
+    'a tied mixed-colour menu keeps no invented parent colour',
+    json_encode($tiedNavigation['attrs'] ?? array())
+);
+
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand cue carrier contract: {$failures} failed, {$passes} passed\n");

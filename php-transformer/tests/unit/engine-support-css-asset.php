@@ -71,6 +71,13 @@ $synthetic = ( new HtmlTransformer() )->transform(
     '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700}</style>'
         . '<header class="site-header"><a class="brand" href="/">Verified Artifact</a></header><footer><span>Portable input.</span></footer><p>Source paragraph.</p>'
 )->toArray();
+$colouredSyntheticLink = ( new HtmlTransformer() )->transform(
+    '<style>a{color:#ffd400}.site-header{display:flex}.brand{color:#f7f2ff}</style>'
+        . '<header class="site-header"><a class="brand" href="/">Super <span>Coaching</span></a></header>'
+)->toArray();
+$uncolouredSyntheticLink = ( new HtmlTransformer() )->transform(
+    '<header><a href="/">Theme-owned link</a></header>'
+)->toArray();
 $inlineLayout = ( new HtmlTransformer() )->transform(
     '<style>.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > strong{display:block;margin:12px 0 4.8px}.artifact-card .card-label{display:block;grid-column:1 / -1;color:#6040cc;margin:2px 0}</style>'
         . '<div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span></div>'
@@ -119,6 +126,8 @@ $results = array(
     $nativeButton,
     $directFlexButton,
     $fullWidthButton,
+    $colouredSyntheticLink,
+    $uncolouredSyntheticLink,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -155,6 +164,14 @@ foreach ( $beforeFamilies as $family => $needle ) {
     $assert(str_contains($beforeCss, $needle), 'G3: ' . $family . ' lives in before-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
 }
+$assert(
+    str_contains($beforeCss, ':root :where(p.blocks-engine-synthetic-paragraph.has-text-color)>a{color:inherit}'),
+    'G3: a synthetic paragraph with native text colour carries that colour through its direct anchor'
+);
+$assert(
+    ! str_contains((string) ($uncolouredSyntheticLink['serialized_blocks'] ?? ''), 'has-text-color'),
+    'G3: an uncoloured synthetic paragraph leaves its anchor under theme link colour ownership'
+);
 foreach ( $afterFamilies as $family => $needle ) {
     $assert(str_contains($afterCss, $needle), 'G3: ' . $family . ' lives in after-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
