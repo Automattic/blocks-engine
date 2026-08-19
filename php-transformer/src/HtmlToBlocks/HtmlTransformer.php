@@ -1109,6 +1109,9 @@ final class HtmlTransformer
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
+        foreach ( $this->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
+            $afterAuthorCssParts[] = $navigationLinkTextColorRule;
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
@@ -1329,6 +1332,52 @@ final class HtmlTransformer
             $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
                 . $class . '>.wp-block-navigation-item__content' . $pseudo;
             $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+        }
+
+        return array_values($rules);
+    }
+
+    /**
+     * Carry each navigation-link's resolved resting colour to the anchor core
+     * renders. core/navigation-link does not consume style.color.text, while
+     * adaptive header chrome can target the rendered anchor directly and beat
+     * an inherited parent navigation colour.
+     *
+     * @return array<int, string>
+     */
+    private function navigationLinkTextColorRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-color-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+            if ( '' === $color
+                || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
+                || array() === $this->cssDeclarations('color:' . $color)
+            ) {
+                continue;
+            }
+
+            $expectedClass = $prefix . hash('sha256', $color);
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            if ( ! in_array($expectedClass, $classes, true) ) {
+                continue;
+            }
+
+            $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
+                . '>.wp-block-navigation-item__content';
+            $rules[$expectedClass] = $selector . '{color:' . $color . '}';
         }
 
         return array_values($rules);
@@ -2789,7 +2838,7 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
         );
     }
@@ -2840,7 +2889,7 @@ final class HtmlTransformer
             null,
             null,
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
         );
     }
 

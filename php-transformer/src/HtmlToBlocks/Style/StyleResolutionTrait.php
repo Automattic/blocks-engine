@@ -1630,6 +1630,55 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Resolve the authored resting cascade for navigation recognition.
+     *
+     * General presentation merging intentionally follows source order only,
+     * but navigation link colour becomes a rendered carrier and therefore must
+     * use the browser winner. A later low-specificity item class cannot replace
+     * an earlier, stronger menu-anchor rule.
+     */
+    private function specificityResolvedPresentationStyle(DOMElement $element): string
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $this->applyMediaTextCascadeDeclaration(
+                    $cascade,
+                    (string) $property,
+                    (string) $value,
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+            $this->applyMediaTextCascadeDeclaration(
+                $cascade,
+                (string) $property,
+                (string) $value,
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $declarations = array();
+        foreach ( $cascade as $property => $entry ) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $this->cssDeclarationString($declarations);
+    }
+
+    /**
      * Preserve declaration order while applying shorthand reset semantics.
      *
      * @param array<string, string> $base
