@@ -1864,6 +1864,18 @@ $assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), '
 $assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder') && ! str_contains($visibleVariantSerialized, 'collapsed-nav'), 'navigation deduplication prefers the visible source variant over hidden placeholder and collapsed variants');
 $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
 
+$splitResponsiveSubmenu = ( new HtmlTransformer() )->transform(
+    '<header><div class="desktop"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio"><a>Portfolio</a></li><li id="about"><a href="/about">About</a></li></ul></div>'
+    . '<div class="mobile" style="display:none"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio" class="has-submenu"><a>Portfolio</a><div class="submenu-wrap"><ul><li><a href="/portraits">Portraits</a></li><li><a href="/families">Families</a></li></ul></div></li><li id="about"><a href="/about">About</a></li></ul></div></header>'
+)->toArray();
+$splitResponsiveSubmenuSerialized = (string) ($splitResponsiveSubmenu['serialized_blocks'] ?? '');
+$splitResponsiveSubmenuMenus = $splitResponsiveSubmenu['source_reports']['semantic_parity']['navigation_menus']['blocks'] ?? array();
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation {'), 'split responsive menu variants reconcile into one canonical navigation block');
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation-submenu '), 'visible shallow navigation item adopts the duplicate responsive submenu');
+$assert(str_contains($splitResponsiveSubmenuSerialized, '"label":"Portfolio"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Portraits","url":"/portraits"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Families","url":"/families"'), 'reconciled submenu preserves the parent label and ordered child destinations');
+$assert(5 === ($splitResponsiveSubmenuMenus[0]['item_count'] ?? null), 'reconciled responsive navigation reports every parent and submenu item');
+$assert('pass' === ($splitResponsiveSubmenu['source_reports']['wp_block_validity']['status'] ?? ''), 'reconciled responsive submenu remains WordPress block-valid');
+
 $bodyStateProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="fixed-shell no-header-page"><div class="wrapper"><div class="main-wrap"><p>Content</p></div></div></body></html>',
     array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}body.fixed-shell .main-wrap{background:#fff}' )
