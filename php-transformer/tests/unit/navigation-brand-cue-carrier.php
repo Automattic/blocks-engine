@@ -293,6 +293,22 @@ $assert(
     json_encode($majorityNavigation['innerBlocks'] ?? array())
 );
 
+// Source order breaks ties; it does not let a later single class beat an
+// earlier descendant selector. zesty-canyon relies on this exact cascade: its
+// menu-wide anchor colour remains the CTA text colour because `.nav-cta` is
+// less specific than `.navlinks a`.
+$specificityColour = $transform(
+    '<style>.specific-menu a{color:#5c7c99}.nav-cta{color:#071018}</style>'
+        . '<nav class="specific-menu"><a href="/">Home</a><a href="/services">Services</a>'
+        . '<a class="nav-cta" href="/book">Book</a></nav>'
+);
+$specificityNavigation = $findBlocks($specificityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    '#5c7c99' === ($specificityNavigation['innerBlocks'][2]['attrs']['style']['color']['text'] ?? null),
+    'navigation link colour resolution honors selector specificity before source order',
+    json_encode($specificityNavigation['innerBlocks'][2]['attrs'] ?? array())
+);
+
 $alphaColour = $transform(
     '<style>.alpha-menu a{color:rgba(255,255,255,0.82)}.alpha-menu a.active{color:rgb(255,255,255)}</style>'
         . '<nav class="alpha-menu"><a class="active" href="/">Home</a><a href="/work">Work</a><a href="/about">About</a></nav>'
@@ -302,6 +318,41 @@ $assert(
     'rgba(255,255,255,0.82)' === ($alphaNavigation['attrs']['customTextColor'] ?? null),
     'strict-majority promotion preserves authored alpha bytes',
     json_encode($alphaNavigation['attrs'] ?? array())
+);
+
+// Core renders navigation-link dynamically and does not consume its
+// style.color.text attribute. Each authored resting colour therefore needs a
+// class-scoped companion rule on the anchor core actually renders. This also
+// outranks adaptive header defaults that target that anchor directly.
+$alphaCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($alphaColour['assets'] ?? null) ? $alphaColour['assets'] : array()
+));
+$alphaLinks = $alphaNavigation['innerBlocks'] ?? array();
+$alphaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgba(255,255,255,0.82)');
+$activeCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgb(255,255,255)');
+$assert(
+    str_contains((string) ($alphaLinks[1]['attrs']['className'] ?? ''), $alphaCarrier)
+        && str_contains((string) ($alphaLinks[2]['attrs']['className'] ?? ''), $alphaCarrier)
+        && str_contains((string) ($alphaLinks[0]['attrs']['className'] ?? ''), $activeCarrier),
+    'every coloured navigation link carries a deterministic rendered-colour class',
+    json_encode($alphaLinks)
+);
+$assert(
+    str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{color:rgba(255,255,255,0.82)}')
+        && str_contains($alphaCss, '.' . $activeCarrier . '>.wp-block-navigation-item__content{color:rgb(255,255,255)}')
+        && ! str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{color:rgba(255,255,255,0.82)!important}'),
+    'rendered navigation-link colour rules preserve alpha bytes without important',
+    substr($alphaCss, -900)
+);
+
+$uncolouredNavigationResult = $transform(
+    '<nav class="plain-menu"><a href="/">Home</a><a href="/about">About</a></nav>'
+);
+$assert(
+    ! str_contains((string) ($uncolouredNavigationResult['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-color-'),
+    'uncoloured navigation links remain under theme colour ownership',
+    (string) ($uncolouredNavigationResult['serialized_blocks'] ?? '')
 );
 
 $tiedColour = $transform(
