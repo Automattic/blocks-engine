@@ -338,10 +338,15 @@ foreach ( array( 'aria-label' => 'Brand new products', 'title' => 'Download our 
 // the whole container — the pre-existing path for an allowlisted brand, not the
 // carrier. What matters here is that the cue is SEEN, so the anchor is never
 // absorbed as a menu item.
+// The carrier is now offered the container before the deferral guard, so a cued
+// brand takes the SAME path as an uncued one: hoisted into a carrier beside a
+// real core/navigation. The property this pins is unchanged and is the one that
+// matters — the cue is seen and the anchor is never absorbed as a menu item. It
+// shows up as two links from a two-anchor list, not three.
 $relCue = $prose('rel', 'home-link');
 $assert(
-    true === $relCue['deferred'] && 0 === $relCue['links'],
-    'a brand cue authored in rel is recognised, so the container defers instead of absorbing the anchor',
+    1 === $relCue['carriers'] && false === $relCue['deferred'] && 2 === $relCue['links'],
+    'a brand cue authored in rel is hoisted into the carrier rather than absorbed as a menu item',
     json_encode($relCue)
 );
 

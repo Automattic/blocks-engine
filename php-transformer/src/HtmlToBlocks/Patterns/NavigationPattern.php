@@ -42,13 +42,24 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
-            return null;
-        }
-
-        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor);
+        // The carrier is offered the container BEFORE the deferral guard. Both
+        // exist to stop a branding anchor being absorbed as a menu item, but the
+        // carrier does it by emitting the brand as its own block beside a real
+        // core/navigation, where the guard does it by giving up on the container
+        // entirely. Consulting the guard first inverted the two: an anchor whose
+        // class sits outside the brand vocabulary reached the carrier, while the
+        // same markup naming itself `brand` deferred to a generic group and a
+        // wp:list of raw anchors — no core/navigation for WordPress to mark the
+        // current page in, and destinations left as inner-HTML hrefs rather than
+        // a navigation-link `url`. The guard still catches every container the
+        // carrier declines, so nothing it protected loses that protection.
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
         if ( null !== $hoisted ) {
             return $hoisted;
+        }
+
+        if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
+            return null;
         }
 
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
@@ -133,7 +144,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      *
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor): ?array
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null): ?array
     {
         if ( null === $convertElement ) {
             return null;
@@ -146,6 +157,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $anchor = null;
         $cluster = null;
         $brandLeads = true;
+        $extras = array();
+        $order = array();
+        $buttonSignals = new ButtonSignalClassifier();
         foreach ( $element->childNodes as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
@@ -172,15 +186,35 @@ final class NavigationPattern implements PatternRecognizerInterface
             // carrier converts the anchor rather than flattening it into a menu
             // item label, so a lockup built from a heading survives whole.
             if ( 'a' === strtolower($child->tagName) ) {
-                if ( $anchor instanceof DOMElement
-                    || '' === $this->anchorLabel($child, $innerHtml)
-                    || ! $this->readsAsBrandAnchor($child)
-                ) {
+                if ( '' === $this->anchorLabel($child, $innerHtml) ) {
                     return null;
                 }
 
-                $anchor = $child;
-                $brandLeads = ! $cluster instanceof DOMElement;
+                if ( ! $anchor instanceof DOMElement ) {
+                    if ( ! $this->readsAsBrandAnchor($child) ) {
+                        return null;
+                    }
+
+                    $anchor = $child;
+                    $brandLeads = ! $cluster instanceof DOMElement;
+                    $order[] = array( 'kind' => 'brand' );
+                    continue;
+                }
+
+                // A second anchor beside the brand and the menu is only carried
+                // when it reads as a CALL TO ACTION — calm-lantern authors
+                // `<a class="nav-cta">Book a Call</a>` after its list, and
+                // declining the whole container over it cost that project its
+                // entire navigation. Anything else stays ambiguous: position
+                // alone cannot tell a CTA from an ordinary menu item sitting
+                // outside the list, so the container still defers and the anchor
+                // is absorbed into the menu exactly as it is today.
+                if ( ! $buttonSignals->hasTransformSignal($child, null !== $resolvedStyle ? $resolvedStyle($child) : '') ) {
+                    return null;
+                }
+
+                $extras[] = $child;
+                $order[] = array( 'kind' => 'extra', 'index' => count($extras) - 1 );
                 continue;
             }
 
@@ -189,6 +223,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $cluster = $child;
+            $order[] = array( 'kind' => 'cluster' );
         }
 
         if ( ! $anchor instanceof DOMElement || ! $cluster instanceof DOMElement ) {
@@ -203,7 +238,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
+        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, true);
         if ( 2 > count($links) ) {
             return null;
         }
@@ -235,7 +270,36 @@ final class NavigationPattern implements PatternRecognizerInterface
         // exactly the unregistered comment attribute this carrier exists to stop.
         $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
 
-        return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+        $extraBlocks = array();
+        foreach ( $extras as $extra ) {
+            $extraBlock = $convertElement($extra);
+            $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
+            if ( '' === $extraName || 'core/html' === $extraName ) {
+                return null;
+            }
+            $extraBlocks[] = $extraBlock;
+        }
+
+        if ( array() === $extraBlocks ) {
+            return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+        }
+
+        // Authored order is the only order that reproduces the design: the CTA
+        // sits where the source put it, not wherever the carrier finds room.
+        $children = array();
+        foreach ( $order as $slot ) {
+            if ( 'brand' === $slot['kind'] ) {
+                $children[] = $brand;
+                continue;
+            }
+            if ( 'cluster' === $slot['kind'] ) {
+                $children[] = $navigation;
+                continue;
+            }
+            $children[] = $extraBlocks[$slot['index']];
+        }
+
+        return $createBlock('core/group', $carrierAttrs, $children, $element);
     }
 
     /**
@@ -388,11 +452,16 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null, bool $itemsAreVouched = false): array
     {
         $blocks = array();
         $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
-        $allowsDirectItems = $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
+        // A caller that has already established structurally that this element IS
+        // the nav's link cluster vouches for its direct anchors. The class
+        // vocabulary cannot do it: it splits on non-alphanumerics, so `navlinks`
+        // is a single token matching neither `nav` nor `links`, and amber-ember's
+        // whole menu became paragraphs on that spelling alone.
+        $allowsDirectItems = $itemsAreVouched || $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
             return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor);
         }
@@ -628,6 +697,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             'submenuClassName' => $submenuAttrs['className'] ?? '',
         )), static fn ($value): bool => '' !== $value);
     }
+
 
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.

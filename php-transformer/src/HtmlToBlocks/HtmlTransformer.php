@@ -1123,8 +1123,23 @@ final class HtmlTransformer
             // navigation owns that responsive swap now, so keep the block host
             // visible and let core hide only its responsive inner container.
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            // Size a carried menu to its content when it sits inside a brand
+            // carrier. The carrier renders <nav> and core/navigation renders
+            // another <nav> inside it, so an authored `header nav` rule matches
+            // both, and the block's auto flex-basis resolves to the whole
+            // available width where the authored <ul> was content-sized. The
+            // landmark's `justify-content:space-between` then has nothing left
+            // to distribute and the brand is squeezed until it wraps: measured
+            // on silver-summit at 1366px, brand 181x44 and menu 308 at x=962
+            // became 155x82 and menu 1005 at x=265. `max-width:100%` keeps the
+            // block shrinkable, so a narrow viewport still hands over to core's
+            // responsive overlay rather than overflowing the page.
+            $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
+            }
+            foreach ( $this->listNavigationItemAnchorRules($serializedBlocks) as $itemAnchorRule ) {
+                $afterAuthorCssParts[] = $itemAnchorRule;
             }
             $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
             if ( '' !== $mobileOverlayBackground ) {
@@ -1239,6 +1254,132 @@ final class HtmlTransformer
         }
 
         return array_values($rules);
+    }
+
+    /**
+     * Re-point an authored ANCHOR-scoped menu-item rule at the element core
+     * actually renders.
+     *
+     * A design styles a menu CTA through its anchor — sunny-ember writes
+     * `.navlinks a.nav-cta{background;color;padding}`. core/navigation-link puts
+     * the authored class on the `<li>` and hard-codes the anchor's own class in
+     * `render_block_core_navigation_link()`, which is why `anchorClassName` is
+     * discarded downstream: no renderer can consume it. The authored selector
+     * therefore matches nothing and the pill renders as plain text.
+     *
+     * The rule is rewritten onto `.wp-block-navigation-item.<class> >
+     * .wp-block-navigation-item__content`, which is the anchor the class-bearing
+     * item owns. Emitted after the author stylesheet and carrying five class
+     * tokens, so it outranks both core's item styles and the authored rule it
+     * stands in for.
+     *
+     * Scope is deliberately narrow. The class must ride a real navigation-link
+     * in this document, and any ancestor part of the authored selector must name
+     * a promoted navigation host — otherwise `.footer a.nav-cta` would be hoisted
+     * into a menu it was never about.
+     *
+     * @return array<int, string>
+     */
+    private function listNavigationItemAnchorRules(string $serializedBlocks): array
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            return array();
+        }
+
+        $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
+        if ( array() === $itemClasses ) {
+            return array();
+        }
+
+        $hostClasses = $this->listNavigationHostClasses($serializedBlocks);
+        $rules = array();
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if ( 1 !== preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                continue;
+            }
+
+            $ancestor = trim($match[1]);
+            $class = $match[2];
+            $pseudo = $match[3];
+            if ( ! isset($itemClasses[$class]) ) {
+                continue;
+            }
+
+            if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
+                continue;
+            }
+
+            $source = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+
+            $declarations = array();
+            foreach ( $source as $property => $value ) {
+                $property = trim((string) $property);
+                $value = trim((string) $value);
+                if ( '' === $property || '' === $value ) {
+                    continue;
+                }
+                $declarations[] = $property . ':' . $value;
+            }
+            if ( array() === $declarations ) {
+                continue;
+            }
+
+            $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
+                . $class . '>.wp-block-navigation-item__content' . $pseudo;
+            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+        }
+
+        return array_values($rules);
+    }
+
+    /**
+     * Whether an authored selector's ancestor part names a promoted navigation
+     * host, so a rule about a menu is not confused with one about a footer.
+     *
+     * @param array<string, true> $hostClasses
+     */
+    private function namesNavigationHost(string $ancestor, array $hostClasses): bool
+    {
+        if ( ! preg_match_all('/\.([A-Za-z_][A-Za-z0-9_-]*)/', $ancestor, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[1] as $candidate ) {
+            if ( isset($hostClasses[$candidate]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Classes carried by navigation-link items in the serialized output.
+     *
+     * @return array<string, true>
+     */
+    private function listNavigationItemClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $candidate ) {
+                if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
+                    $classes[$candidate] = true;
+                }
+            }
+        }
+
+        return $classes;
     }
 
     /**
