@@ -2,6 +2,7 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use DOMElement;
 use DOMNode;
@@ -257,35 +258,9 @@ trait DomHelpersTrait
     private function safeFallbackSrcset(string $srcset): string
     {
         $candidates = array();
-        $length = strlen($srcset);
-        $offset = 0;
-
-        while ( $offset < $length ) {
-            while ( $offset < $length && ( ctype_space($srcset[$offset]) || ',' === $srcset[$offset] ) ) {
-                ++$offset;
-            }
-            if ( $offset >= $length ) {
-                break;
-            }
-
-            $start = $offset;
-            $isDataUrl = str_starts_with(strtolower(substr($srcset, $offset)), 'data:');
-            while ( $offset < $length && ! ctype_space($srcset[$offset]) && ( $isDataUrl || ',' !== $srcset[$offset] ) ) {
-                ++$offset;
-            }
-            $url = substr($srcset, $start, $offset - $start);
-
-            while ( $offset < $length && ctype_space($srcset[$offset]) ) {
-                ++$offset;
-            }
-            $descriptorStart = $offset;
-            while ( $offset < $length && ',' !== $srcset[$offset] ) {
-                ++$offset;
-            }
-            $descriptor = trim(substr($srcset, $descriptorStart, $offset - $descriptorStart));
-
-            if ( $this->safeFallbackUrl($url, 'src') ) {
-                $candidates[] = $url . ( '' !== $descriptor ? ' ' . $descriptor : '' );
+        foreach ( SrcsetParser::parse($srcset) as $candidate ) {
+            if ( $this->safeFallbackUrl($candidate['url'], 'src') ) {
+                $candidates[] = $candidate['url'] . ( '' !== $candidate['descriptor'] ? ' ' . $candidate['descriptor'] : '' );
             }
         }
 

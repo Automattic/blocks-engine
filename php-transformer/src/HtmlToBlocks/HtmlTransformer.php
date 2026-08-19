@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
@@ -12299,24 +12300,13 @@ final class HtmlTransformer
         }
 
         $candidates = array();
-        foreach ( explode(',', $srcset) as $candidate ) {
-            $candidate = trim($candidate);
-            if ( '' === $candidate ) {
-                continue;
-            }
-
-            $parts = preg_split('/\s+/', $candidate, 2);
-            if ( ! is_array($parts) || '' === ($parts[0] ?? '') ) {
-                continue;
-            }
-
-            $url = $this->safeImageUrl((string) $parts[0]);
+        foreach ( SrcsetParser::parse($srcset) as $candidate ) {
+            $url = $this->safeImageUrl($candidate['url']);
             if ( '' === $url ) {
                 continue;
             }
 
-            $descriptor = trim((string) ($parts[1] ?? ''));
-            $candidates[] = trim($this->resolvedAssetImageUrl($url) . ('' !== $descriptor ? ' ' . $descriptor : ''));
+            $candidates[] = trim($this->resolvedAssetImageUrl($url) . ('' !== $candidate['descriptor'] ? ' ' . $candidate['descriptor'] : ''));
         }
 
         return implode(', ', $candidates);

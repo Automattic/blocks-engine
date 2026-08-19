@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use InvalidArgumentException;
 
@@ -1177,17 +1178,7 @@ final class WordPressSitePlan
     /** @return array<int,string> */
     private static function srcsetCandidates(string $srcset): array
     {
-        $candidates = array(); $length = strlen($srcset); $offset = 0;
-        while ($offset < $length) {
-            while ($offset < $length && (ctype_space($srcset[$offset]) || ',' === $srcset[$offset])) ++$offset;
-            if ($offset >= $length) break;
-            $start = $offset; $data = str_starts_with(strtolower(substr($srcset, $offset)), 'data:');
-            while ($offset < $length && !ctype_space($srcset[$offset]) && ($data || ',' !== $srcset[$offset])) ++$offset;
-            $url = substr($srcset, $start, $offset - $start); if ('' !== $url) $candidates[] = $url;
-            while ($offset < $length && ',' !== $srcset[$offset]) ++$offset;
-            if ($offset < $length) ++$offset;
-        }
-        return $candidates;
+        return SrcsetParser::urls($srcset);
     }
     /** @return array<int,array<string,mixed>> */
     private static function htmlMarkupNodes(string $content): array
