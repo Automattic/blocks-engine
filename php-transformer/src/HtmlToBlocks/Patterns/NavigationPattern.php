@@ -16,6 +16,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const CURRENT_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-current-color-';
 
+    private const LINK_COLOR_STATE_CLASS_PREFIX = 'blocks-engine-navigation-link-color-states-';
+
     /**
      * @return array<string, mixed>|null
      */
@@ -27,6 +29,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $isRuntimeDomTarget = $context->isRuntimeDomTargetCallback();
         $navigationUnderlineColor = $context->navigationUnderlineColorCallback();
         $resolvedStyle = $context->resolvedStyleCallback();
+        $navigationColorInteractionStates = $context->navigationColorInteractionStatesCallback();
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
@@ -57,7 +60,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // current page in, and destinations left as inner-HTML hrefs rather than
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
-        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
         if ( null !== $hoisted ) {
             return $hoisted;
         }
@@ -66,7 +69,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, false, $resolvedStyle);
+        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, false, $resolvedStyle, $navigationColorInteractionStates);
 
         if ( array() === $links ) {
             return null;
@@ -152,7 +155,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      *
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null): ?array
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): ?array
     {
         if ( null === $convertElement ) {
             return null;
@@ -246,7 +249,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, true, $resolvedStyle);
+        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, true, $resolvedStyle, $navigationColorInteractionStates);
         if ( 2 > count($links) ) {
             return null;
         }
@@ -504,7 +507,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null, bool $itemsAreVouched = false, ?callable $resolvedStyle = null): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null, bool $itemsAreVouched = false, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $blocks = array();
         $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
@@ -515,7 +518,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // whole menu became paragraphs on that spelling alone.
         $allowsDirectItems = $itemsAreVouched || $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
+            return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
         }
 
         foreach ( $element->childNodes as $child ) {
@@ -542,12 +545,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
-                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationUnderlineColor, $resolvedStyle);
+                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 continue;
             }
 
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                $listBlocks = $this->navigationBlocksFromList($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
+                $listBlocks = $this->navigationBlocksFromList($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 if ( array() === $listBlocks ) {
                     return array();
                 }
@@ -560,14 +563,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return array();
                 }
 
-                $block = $this->navigationBlockFromItem($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
+                $block = $this->navigationBlockFromItem($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 if ( null !== $block ) {
                     $blocks[] = $block;
                     continue;
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $allowsDescriptiveChrome, $navigationUnderlineColor, false, $resolvedStyle);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $allowsDescriptiveChrome, $navigationUnderlineColor, false, $resolvedStyle, $navigationColorInteractionStates);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
@@ -588,7 +591,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null): array
+    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $blocks = array();
         foreach ( $list->childNodes as $item ) {
@@ -608,7 +611,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return array();
             }
 
-            $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle);
+            $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
             if ( null === $block ) {
                 return array();
             }
@@ -619,7 +622,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $blocks;
     }
 
-    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null): ?array
+    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): ?array
     {
         $anchor = $this->primaryNavigationAnchor($element);
         if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml) ) {
@@ -628,7 +631,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $submenuBlocks = array();
         foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
-            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, true, null, false, $resolvedStyle) as $submenuBlock ) {
+            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, true, null, false, $resolvedStyle, $navigationColorInteractionStates) as $submenuBlock ) {
                 $submenuBlocks[] = $submenuBlock;
             }
         }
@@ -644,23 +647,23 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'kind'  => 'custom',
             );
             $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
-            return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationUnderlineColor, $resolvedStyle), $submenuBlocks, $element);
+            return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates), $submenuBlocks, $element);
         }
 
         if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
             return null;
         }
 
-        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationUnderlineColor, $resolvedStyle);
+        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
     }
 
-    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null): array
+    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $this->anchorLabel($anchor, $innerHtml),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
-        ), $presentationAttributes, $navigationUnderlineColor, $resolvedStyle), array(), $anchor);
+        ), $presentationAttributes, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates), array(), $anchor);
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml): string
@@ -714,7 +717,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $baseAttrs
      * @return array<string, mixed>
      */
-    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null): array
+    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
@@ -733,9 +736,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $isCurrentNavigationItem = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
-        if ( '' !== $textColor && ! $isCurrentNavigationItem ) {
+        if ( '' !== $textColor ) {
+            $stateMask = $this->navigationColorStateMask($anchor, $navigationColorInteractionStates);
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' '
-                . self::LINK_COLOR_CLASS_PREFIX . hash('sha256', $textColor));
+                . self::LINK_COLOR_STATE_CLASS_PREFIX . $stateMask);
+            if ( ! $isCurrentNavigationItem ) {
+                $itemAttrs['className'] .= ' ' . self::LINK_COLOR_CLASS_PREFIX
+                    . hash('sha256', $textColor . "\0" . $stateMask);
+            }
         }
 
         if ( $isCurrentNavigationItem ) {
@@ -772,6 +780,21 @@ final class NavigationPattern implements PatternRecognizerInterface
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
     }
 
+    private function navigationColorStateMask(DOMElement $anchor, ?callable $navigationColorInteractionStates): int
+    {
+        if ( null === $navigationColorInteractionStates ) {
+            return 0;
+        }
+
+        $mask = 0;
+        $bits = array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 );
+        foreach ( $navigationColorInteractionStates($anchor) as $state ) {
+            $mask |= $bits[$state] ?? 0;
+        }
+
+        return $mask;
+    }
+
     /** @param array<int, array<string, mixed>> $links */
     private function currentNavigationTextColorClass(array $links): string
     {
@@ -782,7 +805,11 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $className = (string) ($attrs['className'] ?? '');
                 $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
                 if ( '' !== $color && str_contains($className, 'blocks-engine-current-navigation-item') ) {
-                    $colors[$color] = true;
+                    $stateMask = 0;
+                    if ( preg_match('/(?:^|\s)' . preg_quote(self::LINK_COLOR_STATE_CLASS_PREFIX, '/') . '(\d+)(?:\s|$)/', $className, $match) ) {
+                        $stateMask = (int) $match[1];
+                    }
+                    $colors[$color . "\0" . $stateMask] = array( 'color' => $color, 'state_mask' => $stateMask );
                 }
 
                 $collect(is_array($link['innerBlocks'] ?? null) ? $link['innerBlocks'] : array());
@@ -794,8 +821,8 @@ final class NavigationPattern implements PatternRecognizerInterface
             return '';
         }
 
-        $color = (string) array_key_first($colors);
-        return self::CURRENT_COLOR_CLASS_PREFIX . hash('sha256', $color);
+        $current = reset($colors);
+        return self::CURRENT_COLOR_CLASS_PREFIX . hash('sha256', $current['color'] . "\0" . $current['state_mask']);
     }
 
 

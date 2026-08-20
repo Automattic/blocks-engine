@@ -1802,6 +1802,66 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Keep top-level interaction rules separate from resting-style resolution.
+     * Navigation conversion uses these to yield a resting colour only for
+     * states where an authored colour replacement exists, and to re-point
+     * anchor-class selectors after core moves that class onto the item.
+     *
+     * Multi-state selectors fail closed. Treating `:hover:focus` as either
+     * independent state would remove the resting colour too broadly.
+     *
+     * @return list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
+     */
+    private function navigationStateStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
+        }
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $css = $this->topLevelCssRules($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' === $selector
+                    || 1 !== preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
+                ) {
+                    continue;
+                }
+
+                $state = strtolower((string) $stateMatches[1][0][0]);
+                $offset = (int) $stateMatches[0][0][1];
+                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                if ( '' === $baseSelector || $this->selectorCarriesPseudoState($baseSelector) || ! $this->isSupportedCssSelector($baseSelector) ) {
+                    continue;
+                }
+
+                $rules[] = array(
+                    'selector' => $selector,
+                    'base_selector' => $baseSelector,
+                    'state' => $state,
+                    'declarations' => $declarations,
+                );
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
      * Preserve source order and duplicate declarations for image crop cascade
      * resolution. General presentation maps intentionally collapse duplicates.
      *

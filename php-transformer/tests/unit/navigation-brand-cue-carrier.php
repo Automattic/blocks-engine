@@ -327,9 +327,9 @@ $alphaCss = implode("\n", array_map(
     is_array($alphaColour['assets'] ?? null) ? $alphaColour['assets'] : array()
 ));
 $alphaLinks = $alphaNavigation['innerBlocks'] ?? array();
-$alphaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgba(255,255,255,0.82)');
-$activeCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgb(255,255,255)');
-$currentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', 'rgb(255,255,255)');
+$alphaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgba(255,255,255,0.82)' . "\0" . '0');
+$activeCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgb(255,255,255)' . "\0" . '0');
+$currentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', 'rgb(255,255,255)' . "\0" . '0');
 $assert(
     str_contains((string) ($alphaLinks[1]['attrs']['className'] ?? ''), $alphaCarrier)
         && str_contains((string) ($alphaLinks[2]['attrs']['className'] ?? ''), $alphaCarrier)
@@ -347,8 +347,9 @@ $assert(
 );
 $assert(
     str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
-        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item__content[aria-current]:not(:hover)')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item__content[aria-current]')
+        && ! str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(')
         && str_contains($alphaCss, '{color:rgb(255,255,255)}'),
     'authored current colour follows the WordPress runtime current item within its navigation',
     'attrs=' . json_encode($alphaNavigation['attrs'] ?? array()) . ' css=' . substr($alphaCss, -1200)
@@ -373,7 +374,7 @@ $submenuCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($submenuColour['assets'] ?? null) ? $submenuColour['assets'] : array()
 ));
-$submenuCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#345678');
+$submenuCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#345678' . "\0" . '0');
 $assert(
     1 === count($submenuBlocks)
         && str_contains((string) ($submenuBlocks[0]['attrs']['className'] ?? ''), $submenuCarrier)
@@ -389,7 +390,7 @@ $inlineCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($inlineColour['assets'] ?? null) ? $inlineColour['assets'] : array()
 ));
-$inlineCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#aa1100');
+$inlineCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#aa1100' . "\0" . '0');
 $assert(
     str_contains($inlineCss, '.' . $inlineCarrier . '>.wp-block-navigation-item__content{color:#aa1100}')
         && ! str_contains($inlineCss, '.' . $inlineCarrier . '>.wp-block-navigation-item__content:not('),
@@ -405,7 +406,7 @@ $hoverCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($hoverColour['assets'] ?? null) ? $hoverColour['assets'] : array()
 ));
-$hoverCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#112233');
+$hoverCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#112233' . "\0" . '1');
 $assert(
     str_contains($hoverCss, '.' . $hoverCarrier . '>.wp-block-navigation-item__content:not(:hover){color:#112233}')
         && ! str_contains($hoverCss, '.' . $hoverCarrier . '>.wp-block-navigation-item__content:not(:hover):not(:focus)'),

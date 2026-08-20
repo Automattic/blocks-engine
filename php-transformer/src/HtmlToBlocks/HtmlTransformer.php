@@ -377,6 +377,11 @@ final class HtmlTransformer
      */
     private array $conditionalStyleRules = array();
 
+    /**
+     * @var list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
+     */
+    private array $navigationStateStyleRules = array();
+
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
 
@@ -673,6 +678,7 @@ final class HtmlTransformer
         if ( $styleAnalysisKey === ($this->analysisCache->style['key'] ?? null) ) {
             $this->staticStyleRules = $this->analysisCache->style['static'];
             $this->conditionalStyleRules = $this->analysisCache->style['conditional'];
+            $this->navigationStateStyleRules = $this->analysisCache->style['navigation_state'];
             $this->imageShapeStyleRules = $this->analysisCache->style['image_shape'];
             $this->staticPseudoElementStyleRules = $this->analysisCache->style['pseudo'];
             $this->cssCustomProperties = $this->analysisCache->style['custom_properties'];
@@ -680,6 +686,7 @@ final class HtmlTransformer
             ++$this->analysisCache->styleBuilds;
             $this->staticStyleRules = $this->staticStyleRules($html, $staticCss);
             $this->conditionalStyleRules = $this->conditionalStyleRules($html, $staticCss);
+            $this->navigationStateStyleRules = $this->navigationStateStyleRules($html, $staticCss);
             $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, $staticCss);
             $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, $staticCss);
             $this->cssCustomProperties = $this->cssCustomProperties($html, $staticCss);
@@ -687,6 +694,7 @@ final class HtmlTransformer
                 'key' => $styleAnalysisKey,
                 'static' => $this->staticStyleRules,
                 'conditional' => $this->conditionalStyleRules,
+                'navigation_state' => $this->navigationStateStyleRules,
                 'image_shape' => $this->imageShapeStyleRules,
                 'pseudo' => $this->staticPseudoElementStyleRules,
                 'custom_properties' => $this->cssCustomProperties,
@@ -1297,7 +1305,7 @@ final class HtmlTransformer
 
         $hostClasses = $this->listNavigationHostClasses($serializedBlocks);
         $rules = array();
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->navigationStateStyleRules) as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
             if ( 1 !== preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
                 continue;
@@ -1315,6 +1323,13 @@ final class HtmlTransformer
             }
 
             $source = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            if ( $this->isAuthoredCurrentNavigationClass($class) ) {
+                // The class identifies the design snapshot's current item. It
+                // remains available for non-colour indicator compatibility,
+                // but its colour follows WordPress's runtime current item via
+                // navigationLinkTextColorRules().
+                unset($source['color']);
+            }
 
             $declarations = array();
             foreach ( $source as $property => $value ) {
@@ -1337,6 +1352,60 @@ final class HtmlTransformer
         return array_values($rules);
     }
 
+    /** @return list<string> */
+    private function navigationColorInteractionStates(DOMElement $element): array
+    {
+        $matched = array();
+        foreach ( $this->navigationStateStyleRules as $rule ) {
+            if ( ! isset($rule['declarations']['color'])
+                || $this->navigationStateSelectorTargetsStaticCurrentItem($rule['base_selector'])
+                || ! $this->matchesCssSelector($element, $rule['base_selector'])
+            ) {
+                continue;
+            }
+            $matched[$rule['state']] = true;
+        }
+
+        return array_values(array_filter(
+            array( 'hover', 'focus', 'focus-visible', 'active' ),
+            static fn (string $state): bool => isset($matched[$state])
+        ));
+    }
+
+    private function navigationStateSelectorTargetsStaticCurrentItem(string $selector): bool
+    {
+        if ( 1 !== preg_match('/(?:^|[\s>+~])([^\s>+~]+)$/', trim($selector), $match) ) {
+            return false;
+        }
+
+        $subject = $match[1];
+        if ( str_contains(strtolower($subject), '[aria-current') ) {
+            return true;
+        }
+        if ( ! preg_match_all('/[.#]([A-Za-z_][A-Za-z0-9_-]*)/', $subject, $classMatches) ) {
+            return false;
+        }
+
+        foreach ( $classMatches[1] as $className ) {
+            if ( $this->isAuthoredCurrentNavigationClass($className) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isAuthoredCurrentNavigationClass(string $className): bool
+    {
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($className)) ?: array() as $token ) {
+            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Carry each navigation-link's resolved resting colour to the anchor core
      * renders. core/navigation-link does not consume style.color.text, while
@@ -1349,6 +1418,7 @@ final class HtmlTransformer
     {
         $prefix = 'blocks-engine-navigation-link-color-';
         $currentPrefix = 'blocks-engine-navigation-current-color-';
+        $statePrefix = 'blocks-engine-navigation-link-color-states-';
         if ( (! str_contains($serializedBlocks, $prefix) && ! str_contains($serializedBlocks, $currentPrefix))
             || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
         ) {
@@ -1371,16 +1441,24 @@ final class HtmlTransformer
                 continue;
             }
 
-            $expectedClass = $prefix . hash('sha256', $color);
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $stateMask = $this->navigationColorStateMaskFromClasses($classes, $statePrefix);
+            if ( null === $stateMask ) {
+                continue;
+            }
+            $expectedClass = $prefix . hash('sha256', $color . "\0" . $stateMask);
+            $restingSuffix = $this->navigationColorRestingSuffix($stateMask);
             if ( in_array($expectedClass, $classes, true) ) {
                 $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
-                    . '>.wp-block-navigation-item__content:not(:hover):not(:focus):not(:focus-visible):not(:active)';
+                    . '>.wp-block-navigation-item__content' . $restingSuffix;
                 $rules[$expectedClass] = $selector . '{color:' . $color . '}';
             }
 
             if ( in_array('blocks-engine-current-navigation-item', $classes, true) ) {
-                $currentColors[$currentPrefix . hash('sha256', $color)] = $color;
+                $currentColors[$currentPrefix . hash('sha256', $color . "\0" . $stateMask)] = array(
+                    'color' => $color,
+                    'state_mask' => $stateMask,
+                );
             }
         }
 
@@ -1399,17 +1477,51 @@ final class HtmlTransformer
                         continue;
                     }
 
-                    $restingSuffix = ':not(:hover):not(:focus):not(:focus-visible):not(:active)';
+                    $restingSuffix = $this->navigationColorRestingSuffix($currentColors[$className]['state_mask']);
                     $selector = '.wp-block-navigation.' . $className
                         . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
                         . ',.wp-block-navigation.' . $className
                         . ' .wp-block-navigation-item__content[aria-current]' . $restingSuffix;
-                    $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className] . '}';
+                    $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className]['color'] . '}';
                 }
             }
         }
 
         return array_values($rules);
+    }
+
+    /** @param list<string> $classes */
+    private function navigationColorStateMaskFromClasses(array $classes, string $prefix): ?int
+    {
+        $masks = array();
+        foreach ( $classes as $className ) {
+            if ( ! str_starts_with($className, $prefix) ) {
+                continue;
+            }
+            $value = substr($className, strlen($prefix));
+            if ( ! ctype_digit($value) || 15 < (int) $value ) {
+                return null;
+            }
+            $masks[(int) $value] = true;
+        }
+
+        if ( 1 < count($masks) ) {
+            return null;
+        }
+
+        return array() === $masks ? 0 : (int) array_key_first($masks);
+    }
+
+    private function navigationColorRestingSuffix(int $stateMask): string
+    {
+        $suffix = '';
+        foreach ( array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 ) as $state => $bit ) {
+            if ( 0 !== ($stateMask & $bit) ) {
+                $suffix .= ':not(:' . $state . ')';
+            }
+        }
+
+        return $suffix;
     }
 
     /**
@@ -2868,7 +2980,8 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
+            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement)
         );
     }
 
