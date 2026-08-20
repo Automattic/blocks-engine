@@ -3412,6 +3412,10 @@ final class HtmlTransformer
                 return $this->htmlPreservationBlock($element);
             }
 
+            if ( $this->isEmptyInteractiveFeatureShell($element) ) {
+                return null;
+            }
+
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
             // A gallery can only contain native image blocks. Preserve the
@@ -5725,6 +5729,36 @@ final class HtmlTransformer
 
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
             return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Empty search and cart shells are dead platform chrome, not authored layout.
+     * Content, controls, media, links, and runtime bindings keep their existing
+     * native or capability-owned conversion path.
+     */
+    private function isEmptyInteractiveFeatureShell(DOMElement $element): bool
+    {
+        $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
+        if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
+            || '' !== $this->renderedTextContent($element)
+            || $this->isRuntimeDomTarget($element)
+        ) {
+            return false;
+        }
+
+        foreach ( array( 'a', 'audio', 'button', 'canvas', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
+            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
+                return false;
+            }
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+                return false;
+            }
         }
 
         return true;

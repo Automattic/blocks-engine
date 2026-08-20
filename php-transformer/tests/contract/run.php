@@ -4218,6 +4218,19 @@ $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'in
 $assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
 $assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
 
+$emptyFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header><div class="empty-search-shell"><div class="container"><span></span></div></div>'
+    . '<div class="mini-cart"></div><div class="real-search-shell"><input type="search" aria-label="Search"></div>'
+    . '<div class="cart-status">2 items</div><div id="runtime-cart" class="cart"></div></header>',
+    array('runtime_dom_selectors' => array('#runtime-cart'))
+)->toArray();
+$emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
+$assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
+$assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
+$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label=\"Search\"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
+$assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
+
 $runtimeGeometryResult = (new HtmlTransformer())->transform(
     '<main><div id="runtime-geometry" style="width:290px !important;height:62px !important"></div></main>',
     array('runtime_dom_selectors' => array('#runtime-geometry'))
