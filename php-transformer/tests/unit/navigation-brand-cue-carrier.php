@@ -436,11 +436,32 @@ $assert(
         && str_contains((string) ($dynamicCurrentNavigation['attrs']['className'] ?? ''), $dynamicCurrentCarrier)
         && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
-        && str_contains($dynamicCurrentCss, '.wp-block-navigation.blocks-engine-list-navigation.current-menu'
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.current-menu'
             . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')
         && str_contains($dynamicCurrentCss, '{color:#00cc44}'),
     'list-shaped current and interaction colours follow runtime current state without retaining the static source marker',
     'attrs=' . json_encode($dynamicCurrentNavigation) . ' css=' . substr($dynamicCurrentCss, -1800)
+);
+
+$interactionOnlyCurrent = $transform(
+    '<style>.state-menu a.current:hover{color:#00aaff;background:#eeeeee}</style>'
+        . '<nav class="state-menu"><a class="current" aria-current="page" href="/">Home</a>'
+        . '<a href="/about">About</a></nav>'
+);
+$interactionOnlyNavigation = $findBlocks($interactionOnlyCurrent['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$interactionOnlyCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($interactionOnlyCurrent['assets'] ?? null) ? $interactionOnlyCurrent['assets'] : array()
+));
+$interactionOnlySelector = '.wp-block-navigation.state-menu'
+    . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover';
+$assert(
+    ! str_contains((string) ($interactionOnlyNavigation['innerBlocks'][0]['attrs']['className'] ?? ''), ' current')
+        && str_contains($interactionOnlyCss, $interactionOnlySelector . ',')
+        && str_contains($interactionOnlyCss, '{color:#00aaff}')
+        && ! str_contains($interactionOnlyCss, $interactionOnlySelector . '{background:'),
+    'current-only interaction colour follows runtime state without requiring a resting current colour',
+    'attrs=' . json_encode($interactionOnlyNavigation) . ' css=' . substr($interactionOnlyCss, -1200)
 );
 
 $tiedColour = $transform(

@@ -719,9 +719,18 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
+        $isCurrentNavigationItem = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
+        if ( $isCurrentNavigationItem ) {
+            // Current-page identity belongs to WordPress/runtime URL state. A
+            // source snapshot's active/current/selected hooks must not remain
+            // on one permanently selected item in the shared header.
+            $itemAttrs = $this->withoutAuthoredCurrentNavigationSignals($itemAttrs);
+            $anchorAttrs = $this->withoutAuthoredCurrentNavigationSignals($anchorAttrs);
+            $submenuAttrs = $this->withoutAuthoredCurrentNavigationSignals($submenuAttrs);
+        }
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
@@ -734,7 +743,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        $isCurrentNavigationItem = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
         if ( '' !== $textColor ) {
             $stateMask = $this->navigationColorStateMask($anchor, $navigationColorInteractionStates);
@@ -978,14 +986,41 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withoutAuthoredCurrentNavigationSignals(array $attrs): array
+    {
+        if ( is_string($attrs['className'] ?? null) ) {
+            $classNames = array_values(array_filter(
+                preg_split('/\s+/', trim($attrs['className'])) ?: array(),
+                fn (string $className): bool => ! $this->isCurrentNavigationSignalName($className)
+            ));
+            if ( array() === $classNames ) {
+                unset($attrs['className']);
+            } else {
+                $attrs['className'] = implode(' ', $classNames);
+            }
+        }
+
+        if ( is_string($attrs['anchor'] ?? null) && $this->isCurrentNavigationSignalName($attrs['anchor']) ) {
+            unset($attrs['anchor']);
+        }
+
+        return $attrs;
+    }
+
     private function hasCurrentNavigationSignal(DOMElement $element): bool
     {
         if ( '' !== trim($this->attr($element, 'aria-current')) ) {
             return true;
         }
 
-        foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'))) ?: array() as $token ) {
-            if ( in_array($token, array( 'active', 'current', 'current-menu-item', 'current-page-item', 'current_page_item', 'is-active', 'selected' ), true) ) {
+        return $this->isCurrentNavigationSignalName($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+    }
+
+    private function isCurrentNavigationSignalName(string $value): bool
+    {
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
+            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
                 return true;
             }
         }
