@@ -22,6 +22,20 @@ trait ButtonLinkDispatchTrait
             return $linkedLogo;
         }
 
+        $button = $this->buttonsPattern->matchAnchor(
+            $element,
+            fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
+            fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
+            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
+        );
+        if ( null !== $button ) {
+            return $button;
+        }
+
         $logo = $this->logoPattern->match(
             $element,
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
@@ -37,20 +51,6 @@ trait ButtonLinkDispatchTrait
         $linkedImage = $this->imageBlockFromAnchor($element);
         if ( null !== $linkedImage ) {
             return $linkedImage;
-        }
-
-        $button = $this->buttonsPattern->matchAnchor(
-            $element,
-            fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-            fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
-        );
-        if ( null !== $button ) {
-            return $button;
         }
 
         if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
