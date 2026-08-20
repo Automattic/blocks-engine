@@ -1679,6 +1679,135 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Return the authored cascade winner for an inherited property. Theme and
+     * user-agent defaults are deliberately absent: callers use this only when
+     * preserving a value the source CSS actually states.
+     */
+    private function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
+    {
+        $property = strtolower(trim($property));
+        if ( ! in_array($property, array(
+            'color',
+            'font-family',
+            'font-size',
+            'font-style',
+            'letter-spacing',
+            'line-height',
+            'text-transform',
+            'white-space',
+        ), true) ) {
+            return '';
+        }
+
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            if ( ! array_key_exists($property, $declarations) ) {
+                continue;
+            }
+
+            $rawValue = (string) $declarations[$property];
+            if ( 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue) ) {
+                return '';
+            }
+            $value = trim($rawValue);
+            $keyword = strtolower($value);
+            if ( in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) ) {
+                return '';
+            }
+
+            return $this->resolveCssVariablesInValue($value);
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve gap shorthand and longhands as one cascade family.
+     *
+     * @return array{row-gap?: string, column-gap?: string}
+     */
+    private function specificityResolvedGapDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            $entries = $rule['mediaTextDeclarations'] ?? array();
+            foreach ( $rule['declarations'] ?? array() as $property => $value ) {
+                if ( ! in_array(strtolower((string) $property), array( 'gap', 'row-gap', 'column-gap' ), true) ) {
+                    continue;
+                }
+                $entries[] = array(
+                    'property' => (string) $property,
+                    'value' => (string) $value,
+                    'important' => str_contains(strtolower((string) $value), '!important'),
+                );
+            }
+            foreach ( $entries as $entry ) {
+                $this->applyGapCascadeDeclaration(
+                    $cascade,
+                    (string) ($entry['property'] ?? ''),
+                    (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry ) {
+            $this->applyGapCascadeDeclaration(
+                $cascade,
+                (string) ($entry['property'] ?? ''),
+                (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $resolved = array();
+        foreach ( array( 'row-gap', 'column-gap' ) as $property ) {
+            if ( isset($cascade[$property]) ) {
+                $resolved[$property] = $cascade[$property]['value'] . ($cascade[$property]['important'] ? ' !important' : '');
+            }
+        }
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array{int, int, int} $specificity
+     */
+    private function applyGapCascadeDeclaration(array &$cascade, string $property, string $value, bool $inline, array $specificity, int $sequence): void
+    {
+        $property = strtolower(trim($property));
+        if ( 'gap' === $property ) {
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+            $plain = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+            $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+            if ( 1 > count($parts) || 2 < count($parts) ) {
+                return;
+            }
+            $suffix = $important ? ' !important' : '';
+            $this->applyMediaTextCascadeDeclaration($cascade, 'row-gap', $parts[0] . $suffix, $inline, $specificity, $sequence);
+            $this->applyMediaTextCascadeDeclaration($cascade, 'column-gap', ($parts[1] ?? $parts[0]) . $suffix, $inline, $specificity, $sequence);
+            return;
+        }
+
+        if ( in_array($property, array( 'row-gap', 'column-gap' ), true) ) {
+            $this->applyMediaTextCascadeDeclaration($cascade, $property, $value, $inline, $specificity, $sequence);
+        }
+    }
+
+    /**
      * Preserve declaration order while applying shorthand reset semantics.
      *
      * @param array<string, string> $base

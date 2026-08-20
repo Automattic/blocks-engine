@@ -194,6 +194,93 @@ $assert(
     substr((string) json_encode($cued), 0, 220)
 );
 
+// The list remains the layout source even though core/navigation replaces it.
+// Keep both authored gap axes: collapsing the two-value winner to `0px` removes
+// swift-grove's horizontal menu spacing.
+$geometryHeader =
+    '<style>header nav{display:flex;padding:.75rem clamp(1rem,4vw,2.5rem)}'
+    . '.navlinks{list-style:none;display:flex;gap:.6rem clamp(.9rem,2vw,1.75rem);padding:0}</style>'
+    . '<header><nav aria-label="Main">'
+    . '<a class="brand" href="#hero">Super <span>Coaching</span></a>'
+    . '<ul class="navlinks">'
+    . '<li><a href="#hero">Home</a></li>'
+    . '<li><a href="#services">Services</a></li>'
+    . '</ul></nav></header>';
+
+$geometryResult = $transform($geometryHeader);
+$geometryNavigations = $findBlocks(
+    is_array($geometryResult['blocks'] ?? null) ? $geometryResult['blocks'] : array(),
+    'core/navigation'
+);
+$geometryAttrs = is_array($geometryNavigations[0]['attrs'] ?? null) ? $geometryNavigations[0]['attrs'] : array();
+$geometryCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($geometryResult['assets'] ?? null) ? $geometryResult['assets'] : array()
+));
+
+$assert(
+    '.6rem clamp(.9rem,2vw,1.75rem)' === ($geometryAttrs['style']['spacing']['blockGap'] ?? null),
+    'a list-navigation carries the exact resolved two-axis gap winner',
+    json_encode($geometryAttrs)
+);
+
+// The carrier renders the authored outer nav plus a generated inner nav. When
+// the authored outer nav owns padding, its selector also hits that new inner
+// nav. The source list's resolved padding is the exact replacement geometry.
+$assert(
+    array(
+        'top' => '0',
+        'right' => '0',
+        'bottom' => '0',
+        'left' => '0',
+    ) === ($geometryAttrs['style']['spacing']['padding'] ?? null),
+    'a generated nested navigation carries the source list padding over duplicated outer-nav padding',
+    json_encode($geometryAttrs)
+);
+
+$assert(
+    str_contains(
+        $geometryCss,
+        'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation'
+            . '{padding-top:0;padding-right:0;padding-bottom:0;padding-left:0}'
+    )
+        && ! str_contains($geometryCss, 'blocks-engine-list-navigation{padding-top:0!important'),
+    'the exact source-list padding reaches the rendered nested nav without important',
+    'css=' . substr($geometryCss, -500)
+);
+
+// A shared fallback selector is safe only when every promoted list navigation
+// has the same padding contract. A padding-free second menu must participate in
+// agreement; otherwise the first menu's reset leaks into it.
+$mixedPaddingHeader =
+    '<style>.first-shell{display:flex;padding:20px}.first{display:flex;padding:0}'
+    . '.second-shell{display:flex}.second{display:flex;padding:12px}</style>'
+    . '<header>'
+    . '<nav class="first-shell"><a class="brand" href="#one">One <span>Brand</span></a>'
+    . '<ul class="first"><li><a href="#a">A</a></li><li><a href="#b">B</a></li></ul></nav>'
+    . '<nav class="second-shell"><a class="brand" href="#two">Two <span>Brand</span></a>'
+    . '<ul class="second"><li><a href="#c">C</a></li><li><a href="#d">D</a></li></ul></nav>'
+    . '</header>';
+$mixedPaddingResult = $transform($mixedPaddingHeader);
+$mixedPaddingCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($mixedPaddingResult['assets'] ?? null) ? $mixedPaddingResult['assets'] : array()
+));
+$assert(
+    ! str_contains(
+        $mixedPaddingCss,
+        'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{padding-'
+    ),
+    'different list-navigation padding contracts suppress the shared fallback rule',
+    'css=' . substr($mixedPaddingCss, -700)
+);
+
 // --- sunny-ember: a CTA styled through the ANCHOR, inside the menu list.
 //
 // `render_block_core_navigation_link()` hard-codes the anchor's class, which is
@@ -511,6 +598,13 @@ $mappedBody = static function (string $css, string $class): string {
     }
     return '';
 };
+$mappedItemBody = static function (string $css, string $class): string {
+    $selector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.' . $class;
+    if ( preg_match('/' . preg_quote($selector, '/') . '\\{([^}]*)\\}/', $css, $match) ) {
+        return $match[1];
+    }
+    return '';
+};
 
 $bareBody = $mappedBody($surfaceSupportCss, 'bare-cta');
 $scopedBody = $mappedBody($surfaceSupportCss, 'scoped-cta');
@@ -520,6 +614,15 @@ $assert(
     '' !== $bareBody && $bareBody === $scopedBody,
     'a bare rule on an anchor-carried class maps exactly like an explicit anchor rule',
     'bare=' . $bareBody . ' scoped=' . $scopedBody
+);
+
+$bareItemBody = $mappedItemBody($surfaceSupportCss, 'bare-cta');
+$assert(
+    str_contains($bareItemBody, 'background:revert')
+        && str_contains($bareItemBody, 'padding:revert')
+        && str_contains($bareItemBody, 'border:revert'),
+    'a bare anchor class does not paint a second generated item box',
+    'body=' . $bareItemBody
 );
 
 $surfaceLinks = $findBlocks(
@@ -567,7 +670,13 @@ $losingBody = $mappedBody($losingSupportCss, 'nav-cta');
 
 $assert(
     str_contains($losingBody, 'background:#22E1FF')
-        && str_contains($losingBody, 'border:2px solid #22E1FF'),
+        && str_contains($losingBody, 'border-top-width:2px')
+        && str_contains($losingBody, 'border-top-style:solid')
+        && str_contains($losingBody, 'border-top-color:#22E1FF')
+        && str_contains($losingBody, 'border-right-color:#22E1FF')
+        && str_contains($losingBody, 'border-left-color:#22E1FF')
+        && ! str_contains($losingBody, 'border-bottom-')
+        && ! str_contains($losingBody, 'border:2px'),
     'an anchor-carried bare rule keeps uncontested surface declarations',
     'body=' . $losingBody
 );
@@ -578,10 +687,32 @@ $assert(
         && ! str_contains($losingBody, 'font-size:')
         && ! str_contains($losingBody, 'letter-spacing:')
         && ! str_contains($losingBody, 'text-transform:')
-        && ! str_contains($losingBody, 'color:')
+        && 1 !== preg_match('/(?:^|;)color:/', $losingBody)
         && ! str_contains($losingBody, 'padding:'),
     'a mapped bare rule drops declarations that lose on the authored source anchor',
     'body=' . $losingBody
+);
+
+$losingItemSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.nav-cta';
+$losingItemBody = '';
+if ( preg_match('/' . preg_quote($losingItemSelector, '/') . '\\{([^}]*)\\}/', $losingSupportCss, $losingItemMatch) ) {
+    $losingItemBody = $losingItemMatch[1];
+}
+$assert(
+    str_contains($losingItemBody, 'padding:revert')
+        && str_contains($losingItemBody, 'background:revert')
+        && str_contains($losingItemBody, 'border:revert'),
+    'a bare anchor class restores the generated item to the source li box',
+    'body=' . $losingItemBody
+);
+
+$assert(
+    str_contains($losingBody, 'background:#22E1FF')
+        && str_contains($losingBody, 'border-top-color:#22E1FF')
+        && str_contains($losingBody, 'border-right-color:#22E1FF')
+        && str_contains($losingBody, 'border-left-color:#22E1FF'),
+    'item reset leaves winning CTA surface declarations projected onto the anchor',
+    'body=' . $losingItemBody
 );
 
 

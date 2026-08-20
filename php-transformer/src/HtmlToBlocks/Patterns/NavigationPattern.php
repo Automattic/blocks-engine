@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -272,6 +274,26 @@ final class NavigationPattern implements PatternRecognizerInterface
         // element core/navigation stands in for, so the menu list's className
         // stays with the menu instead of being copied onto the landmark.
         $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
+        if ( null !== $resolvedStyle && $this->isListNavigationSource($cluster) ) {
+            $clusterSpacing = $this->resolvedNavigationSpacing((string) $resolvedStyle($cluster));
+            $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
+            if ( '' !== $blockGap ) {
+                // A two-axis authored gap is valid CSS but cannot be inferred
+                // from core/navigation's one-axis default. Keep the exact
+                // cascade winner from the source list.
+                $navigationAttrs['style']['spacing']['blockGap'] = $blockGap;
+            }
+
+            if ( $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($element), 'padding') ) {
+                $padding = is_array($clusterSpacing['padding'] ?? null) ? $clusterSpacing['padding'] : array();
+                if ( array() !== $padding ) {
+                    // The carrier adds an inner nav that the authored outer-nav
+                    // selector also reaches. Inline source-list padding restores
+                    // the generated host to the element it replaces.
+                    $navigationAttrs['style']['spacing']['padding'] = $padding;
+                }
+            }
+        }
         $navigationAttrs['overlayMenu'] = 'mobile';
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
         $isDirectDivCascadeCollision = $isDirectDivCluster
@@ -390,6 +412,29 @@ final class NavigationPattern implements PatternRecognizerInterface
         };
 
         return 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:/i', $style);
+    }
+
+    /** @return array<string, mixed> */
+    private function resolvedNavigationSpacing(string $style): array
+    {
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            $separator = strpos($declaration, ':');
+            if ( false === $separator ) {
+                continue;
+            }
+
+            $property = strtolower(trim(substr($declaration, 0, $separator)));
+            $value = trim(substr($declaration, $separator + 1));
+            if ( '' === $property || '' === $value ) {
+                continue;
+            }
+            $declarations[$property] = $value;
+        }
+
+        $mapped = ( new StyleAttributeMapper() )->map($declarations);
+        $styleObject = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        return is_array($styleObject['spacing'] ?? null) ? $styleObject['spacing'] : array();
     }
 
     private function hasDirectNavigationBoxCollision(string $landmarkStyle, string $clusterStyle): bool
