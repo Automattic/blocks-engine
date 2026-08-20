@@ -208,6 +208,44 @@ final class CompanionPluginPayload
         if ( is_array($block['assets'] ?? null) && array() !== $block['assets'] ) {
             $normalized['assets'] = $block['assets'];
         }
+        $scriptDependencies = $this->normalizeScriptDependencies($block['script_dependencies'] ?? null, $normalized['assets'] ?? array());
+        if ( array() !== $scriptDependencies ) {
+            $normalized['script_dependencies'] = $scriptDependencies;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Retain script dependency declarations only for emitted JavaScript assets.
+     *
+     * @param mixed                $dependencies
+     * @param array<string, mixed> $assets
+     * @return array<string, array<int, string>>
+     */
+    private function normalizeScriptDependencies(mixed $dependencies, array $assets): array
+    {
+        if ( ! is_array($dependencies) ) {
+            return array();
+        }
+
+        $normalized = array();
+        foreach ( $dependencies as $path => $handles ) {
+            if ( ! is_string($path) || 1 !== preg_match('#^(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\.js$#', $path) || ! is_scalar($assets[$path] ?? null) || ! is_array($handles) ) {
+                continue;
+            }
+
+            $validHandles = array();
+            foreach ( $handles as $handle ) {
+                if ( ! is_string($handle) || 1 !== preg_match('/^[A-Za-z0-9_-]+$/', $handle) || isset($validHandles[$handle]) ) {
+                    continue;
+                }
+                $validHandles[$handle] = true;
+            }
+            if ( array() !== $validHandles ) {
+                $normalized[$path] = array_keys($validHandles);
+            }
+        }
 
         return $normalized;
     }

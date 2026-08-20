@@ -19,7 +19,7 @@ final class AuthoredInputBlockGenerator
             'title' => 'Input Field',
             'category' => 'widgets',
             'description' => 'An editable native input field.',
-            'editorScript' => array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ),
+            'editorScript' => 'file:./index.js',
             'attributes' => array(
                 'type' => array( 'type' => 'string', 'default' => 'text' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
@@ -84,6 +84,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(): array
     {
-        return array( 'name' => 'authored-input', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
+        return array( 'name' => 'authored-input', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ), 'assets' => $this->assets() );
     }
 }
