@@ -834,7 +834,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
+            if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
+                || $this->hasSubmenuSignal($child)
+                || ( $this->isNavigationWrapperElement($child)
+                    && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
+            ) {
                 $containers[] = $child;
             }
         }

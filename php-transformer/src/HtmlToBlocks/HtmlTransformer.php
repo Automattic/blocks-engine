@@ -766,6 +766,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
@@ -2352,6 +2353,97 @@ final class HtmlTransformer
         }
 
         return $count;
+    }
+
+    /**
+     * Responsive menus sometimes keep the visible desktop items shallow while a
+     * duplicate item with the same stable id owns the complete submenu tree.
+     * Reconcile that source-authored relationship before navigation conversion so
+     * the visible variant becomes one canonical core/navigation-submenu tree.
+     */
+    private function hydrateDuplicateNavigationSubmenus(DOMElement $body): void
+    {
+        $variants = array();
+        foreach ( $body->getElementsByTagName('li') as $item ) {
+            if ( ! $item instanceof DOMElement ) {
+                continue;
+            }
+
+            $id = trim($this->attr($item, 'id'));
+            $anchor = $this->directNavigationItemAnchor($item);
+            if ( '' === $id || ! $anchor instanceof DOMElement ) {
+                continue;
+            }
+
+            $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+            if ( '' === $label ) {
+                continue;
+            }
+
+            $variants[$id . '|' . $label][] = $item;
+        }
+
+        foreach ( $variants as $items ) {
+            if ( 2 > count($items) ) {
+                continue;
+            }
+
+            $sourceCarriers = array();
+            $sourceLinkCount = 0;
+            foreach ( $items as $item ) {
+                $carriers = $this->directNavigationSubmenuCarriers($item);
+                $linkCount = 0;
+                foreach ( $carriers as $carrier ) {
+                    $linkCount += $carrier->getElementsByTagName('a')->length;
+                }
+                if ( $linkCount > $sourceLinkCount ) {
+                    $sourceCarriers = $carriers;
+                    $sourceLinkCount = $linkCount;
+                }
+            }
+
+            if ( 0 === $sourceLinkCount ) {
+                continue;
+            }
+
+            foreach ( $items as $item ) {
+                if ( array() !== $this->directNavigationSubmenuCarriers($item) ) {
+                    continue;
+                }
+                foreach ( $sourceCarriers as $carrier ) {
+                    $item->appendChild($carrier->cloneNode(true));
+                }
+            }
+        }
+    }
+
+    private function directNavigationItemAnchor(DOMElement $item): ?DOMElement
+    {
+        foreach ( $item->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function directNavigationSubmenuCarriers(DOMElement $item): array
+    {
+        $carriers = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'a' === strtolower($child->tagName) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('a')->length
+                && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length )
+            ) {
+                $carriers[] = $child;
+            }
+        }
+
+        return $carriers;
     }
 
     /**
