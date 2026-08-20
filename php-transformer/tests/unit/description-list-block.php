@@ -4,8 +4,11 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\AuthorLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload;
 
 $failures = 0;
 $passes = 0;
@@ -23,7 +26,7 @@ $definition = $generator->definition();
 $assert(DescriptionListBlockGenerator::NAME === ($definition['block_json']['name'] ?? null), 'block metadata uses the stable companion name');
 $assert(3 === ($definition['block_json']['apiVersion'] ?? null), 'block metadata uses apiVersion 3');
 $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'block metadata disables raw HTML editing');
-$assert(array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ) === ($definition['block_json']['editorScript'] ?? null), 'block metadata declares WordPress editor dependencies and the editor asset');
+$assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'block metadata uses a single editor asset reference');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'RawHTML'), 'editor asset serializes semantic static markup');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'escapeAttribute'), 'editor asset escapes presentation attributes');
 $assert(str_contains((string) ($definition['assets']['index.js'] ?? ''), 'attributes: attributes'), 'client registration declares the block attribute schema');
@@ -45,17 +48,67 @@ $isSafeCompanionAsset = static function (mixed $path, mixed $content): bool {
     return in_array($extension, array( 'js', 'mjs', 'css', 'json', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'ico', 'woff', 'woff2', 'ttf', 'otf', 'eot' ), true)
         && ! preg_match('/<\\?(?:php|=|[[:space:]])/i', (string) $content);
 };
-$assert(array( 'index.js' ) === array_keys($assets), 'description-list emits only its package-relative editor asset');
+$assert(array( 'index.js' ) === array_keys($assets), 'description-list emits only its static editor asset');
 $assert(array_reduce(array_keys($assets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $assets[$path]), true), 'description-list emitted assets satisfy SSI companion safe-path and static-content validation');
-$editorScript = $definition['block_json']['editorScript'] ?? array();
-$editorAsset = is_array($editorScript) ? end($editorScript) : '';
+$editorAsset = $definition['block_json']['editorScript'] ?? '';
 $editorPath = is_string($editorAsset) && str_starts_with($editorAsset, 'file:./') ? substr($editorAsset, 7) : '';
 $assert('index.js' === $editorPath && array_key_exists($editorPath, $assets), 'description-list editor metadata resolves to a materializable package-relative asset');
 $authorLayout = ( new AuthorLayoutBlockGenerator() )->definition();
 $authorAssets = $authorLayout['assets'] ?? array();
-$assert(array( 'index.js' ) === array_keys($authorAssets), 'author-layout emits only its package-relative editor asset');
+$assert(array( 'index.js' ) === array_keys($authorAssets), 'author-layout emits only its static editor asset');
 $assert(array_reduce(array_keys($authorAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $authorAssets[$path]), true), 'author-layout emitted assets satisfy SSI companion safe-path and static-content validation');
-$assert(array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ) === ($authorLayout['block_json']['editorScript'] ?? null), 'author-layout metadata declares WordPress editor dependencies and the editor asset');
+$assert('file:./index.js' === ($authorLayout['block_json']['editorScript'] ?? null), 'author-layout metadata uses a single editor asset reference');
+
+$companionGenerators = array(
+    new AuthoredInputBlockGenerator(),
+    new AuthoredSelectBlockGenerator(),
+    new DescriptionListBlockGenerator(),
+    new AuthorLayoutBlockGenerator(),
+);
+$nodeRegistrationRunner = <<<'JS'
+const vm = require( 'node:vm' );
+const registered = [];
+const context = {
+    window: { wp: {
+        blocks: { registerBlockType: ( name ) => registered.push( name ) },
+        blockEditor: {},
+        element: {}
+    } }
+};
+vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), context );
+process.stdout.write( JSON.stringify( registered ) );
+JS;
+foreach ( $companionGenerators as $companionGenerator ) {
+    $companionDefinition = $companionGenerator->definition();
+    $companionAssets = $companionDefinition['assets'];
+    $expectedBlockName = $companionDefinition['block_json']['name'];
+    $registered = shell_exec('node -e ' . escapeshellarg($nodeRegistrationRunner) . ' ' . escapeshellarg(base64_encode($companionAssets['index.js'])));
+    $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array( $companionDefinition ));
+
+    $assert('file:./index.js' === ($companionDefinition['block_json']['editorScript'] ?? null), $expectedBlockName . ' editorScript is a single WordPress file reference');
+    $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
+    $assert(array_reduce(array_keys($companionAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $companionAssets[$path]), true), $expectedBlockName . ' emits only static companion assets');
+    $assert(array( $expectedBlockName ) === json_decode((string) $registered, true), $expectedBlockName . ' editor script registers after WordPress dependencies are loaded');
+    $assert($companionDefinition['script_dependencies'] === ($payload['blocks'][0]['script_dependencies'] ?? null), $expectedBlockName . ' dependency metadata survives companion payload normalization');
+}
+$dependencyPayload = ( new CompanionPluginPayload() )->fromBlockTypes(
+    array(),
+    array(),
+    array(),
+    array(
+        array(
+            'name' => 'dependency-test',
+            'block_json' => array( 'name' => 'blocks-engine/dependency-test' ),
+            'assets' => array( 'index.js' => 'window.test = true;' ),
+            'script_dependencies' => array(
+                'index.js' => array( 'wp-blocks', 'wp-blocks', 'invalid handle' ),
+                '../outside.js' => array( 'wp-element' ),
+                'missing.js' => array( 'wp-element' ),
+            ),
+        ),
+    )
+);
+$assert(array( 'index.js' => array( 'wp-blocks' ) ) === ($dependencyPayload['blocks'][0]['script_dependencies'] ?? null), 'companion payload retains only deduplicated dependencies for emitted safe script assets');
 
 $html = '<dl class="facts &amp; figures" style="display:grid"><dt class="term"><strong>Office</strong> <em>location</em></dt><dt>Alias</dt><dd class="definition">North <a href="/hall">Hall</a></dd><dd>Weekdays</dd><dt>Hours</dt><dd>09:00 &amp; 17:00</dd></dl>';
 $result = ( new HtmlTransformer() )->transform($html)->toArray();

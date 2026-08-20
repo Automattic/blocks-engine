@@ -19,7 +19,7 @@ final class AuthoredSelectBlockGenerator
             'title' => 'Select Field',
             'category' => 'widgets',
             'description' => 'An editable native select field.',
-            'editorScript' => array( 'wp-blocks', 'wp-block-editor', 'wp-element', 'file:./index.js' ),
+            'editorScript' => 'file:./index.js',
             'style' => 'file:./style.css',
             'attributes' => array(
                 'id' => array( 'type' => 'string', 'default' => '' ),
@@ -91,6 +91,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(): array
     {
-        return array( 'name' => 'authored-select', 'block_json' => $this->blockJson(), 'assets' => $this->assets() );
+        return array( 'name' => 'authored-select', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ), 'assets' => $this->assets() );
     }
 }

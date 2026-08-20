@@ -3731,6 +3731,8 @@ $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('blocks-engine/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
 $assert('blocks-engine/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'blocks-engine/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
@@ -4448,6 +4450,7 @@ $descriptionListBlocks = $descriptionListPayload['blocks'] ?? array();
 $assert(1 === count($descriptionListBlocks), 'multi-page description lists project one deduplicated companion definition');
 $assert('blocks-engine/description-list' === ($descriptionListBlocks[0]['block_json']['name'] ?? null), 'companion payload projects the generated description-list block metadata');
 $assert(str_contains((string) ($descriptionListBlocks[0]['assets']['index.js'] ?? ''), 'registerBlockType'), 'companion payload projects the installable editor asset');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($descriptionListBlocks[0]['script_dependencies'] ?? null), 'description-list companion dependency metadata survives payload compilation');
 $assert('semantic-description-list' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'multi-page artifacts aggregate the Gutenberg gap once');
 $assert('https://github.com/WordPress/gutenberg/pull/20760' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['references'][1] ?? null), 'gap diagnostic records the stalled Gutenberg implementation context');
 
