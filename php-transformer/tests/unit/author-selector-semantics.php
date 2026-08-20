@@ -115,10 +115,120 @@ $controlMarginCss = $css($controlMargin);
 $controlMarginOuterClass = (string) ($controlMargin['blocks'][0]['attrs']['className'] ?? '');
 $assert('24px' === ($controlMargin['blocks'][0]['attrs']['style']['spacing']['margin']['left'] ?? '') && str_contains($controlMarginOuterClass, 'blocks-engine-control-') && str_contains($controlMarginCss, '> :where(.wp-block-button__link){font-family:monospace}') && preg_match('/where\(\.blocks-engine-control-[^)]+\):where\(\.wp-block-buttons\)\{margin-left:24px\}/', $controlMarginCss) && ! str_contains($controlMarginCss, '> :where(.wp-block-button__link){margin-left:24px'), 'control margins map to native buttons flex-item spacing while typography remains on its link');
 
-$structuredLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}.logo-mark{width:38px;height:38px;background:#111}.logo:hover{color:red}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark" aria-hidden="true"></span><span class="logo-text">The Block <span>Party</span></span></a></header>');
-$structuredLogoMarkup = (string) ($structuredLogo['serialized_blocks'] ?? '');
-$structuredLogoCss = $css($structuredLogo);
-$assert(str_contains($structuredLogoMarkup, '<!-- wp:button') && str_contains($structuredLogoMarkup, 'blocks-engine-control-') && str_contains($structuredLogoMarkup, '<div class="wp-block-button') && ! str_contains($structuredLogoMarkup, 'style="display:flex"') && str_contains($structuredLogoMarkup, '<span class="logo-mark" aria-hidden="true"') && str_contains($structuredLogoMarkup, 'background-color:transparent') && str_contains($structuredLogoMarkup, 'border-radius:0') && str_contains($structuredLogoMarkup, 'padding-top:0') && ! str_contains($structuredLogoMarkup, '<!-- wp:html') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link){display:inline-flex;align-items:center;gap:.6rem;text-decoration:none}') && str_contains($structuredLogoCss, '> :where(.wp-block-button__link):hover{color:red}') && 'pass' === ($structuredLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured logo anchors neutralize invented button chrome and retain valid native inline content');
+$textLockupLogo = $transform('<style>.brand{font-size:19.2px;font-weight:400;letter-spacing:.02em;text-transform:uppercase;text-decoration:none;line-height:1;display:inline-flex;align-items:center;gap:.5rem;white-space:nowrap}.brand .mark{display:inline-grid;place-items:center;width:1.9em;height:1.9em;border-radius:50%;background:#f15a36;color:#fff;font-size:.72em;letter-spacing:.02em}.brand .word span{color:#f8d849}</style><a class="brand" href="#hero"><span class="mark">SC</span><span class="word">SUPER<span>COACHING</span></span></a>');
+$textLockupLogoMarkup = (string) ($textLockupLogo['serialized_blocks'] ?? '');
+$textLockupLogoBlock = $textLockupLogo['blocks'][0] ?? array();
+$assert(
+    'core/paragraph' === ($textLockupLogoBlock['blockName'] ?? '')
+    && ! str_contains($textLockupLogoMarkup, '<!-- wp:buttons')
+    && ! str_contains($textLockupLogoMarkup, '<!-- wp:button')
+    && str_contains($textLockupLogoMarkup, '<a href="#hero">')
+    && str_contains($textLockupLogoMarkup, 'SC')
+    && str_contains($textLockupLogoMarkup, 'SUPER')
+    && str_contains($textLockupLogoMarkup, 'COACHING')
+    && str_contains($textLockupLogoMarkup, 'display:inline-grid')
+    && str_contains($textLockupLogoMarkup, 'width:1.9em')
+    && str_contains($textLockupLogoMarkup, 'height:1.9em')
+    && str_contains($textLockupLogoMarkup, 'border-radius:50%')
+    && str_contains($textLockupLogoMarkup, 'background:#f15a36')
+    && str_contains($textLockupLogoMarkup, 'color:#fff')
+    && str_contains($textLockupLogoMarkup, 'color:#f8d849')
+    && '19.2px' === ($textLockupLogoBlock['attrs']['style']['typography']['fontSize'] ?? '')
+    && '400' === ($textLockupLogoBlock['attrs']['style']['typography']['fontWeight'] ?? '')
+    && 'pass' === ($textLockupLogo['source_reports']['wp_block_validity']['status'] ?? ''),
+    'classed-span text lockups use paragraphs and preserve the partial RichText-safe styling bound',
+    $textLockupLogoMarkup
+);
+
+$decorativeMarkLogo = $transform('<style>.brand{display:inline-flex;align-items:center;gap:.7rem;font-size:.94rem;font-weight:750}.brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:#c9f27b}</style><a class="brand" href="#top" aria-label="Architecture home"><span class="brand-mark" aria-hidden="true">S</span><span>Architecture</span></a>');
+$decorativeMarkLogoMarkup = (string) ($decorativeMarkLogo['serialized_blocks'] ?? '');
+$assert(
+    'core/buttons' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
+        && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
+        && str_contains($decorativeMarkLogoMarkup, '<span class="brand-mark" aria-hidden="true"')
+        && str_contains($decorativeMarkLogoMarkup, 'background-color:transparent')
+        && str_contains($decorativeMarkLogoMarkup, 'border-radius:0')
+        && str_contains($decorativeMarkLogoMarkup, 'padding-top:0')
+        && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
+    'logo anchors with direct decorative marks retain the neutral structured button path',
+    $decorativeMarkLogoMarkup
+);
+
+$nestedDecorativeMarkLogo = $transform('<a class="brand" href="#top"><span class="word">Architecture<span class="spark" aria-hidden="true">*</span></span></a>');
+$assert(
+    'core/paragraph' === ($nestedDecorativeMarkLogo['blocks'][0]['blockName'] ?? ''),
+    'nested decorative text does not make a visible text lockup structured button chrome',
+    (string) ($nestedDecorativeMarkLogo['serialized_blocks'] ?? '')
+);
+
+// Header lockups become synthetic paragraphs. Their inner anchor must retain
+// only source-proven winners; otherwise flex semantics sit on the generated
+// paragraph while the inner anchor loses them.
+$headerLockup = $transform(
+    '<style>header{color:#fff}a{color:inherit}'
+        . '.brand.lockup{display:inline-flex;align-items:center;gap:.5rem}.brand{column-gap:9rem}'
+        . '.brand .mark{display:inline-grid;place-items:center;box-shadow:0 0 0 2px #fff}'
+        . '.mark{place-items:end;box-shadow:none}</style>'
+        . '<header><a class="brand lockup" href="/"><span class="mark">SC</span><span>SUPER</span></a></header>'
+);
+$headerLockupMarkup = (string) ($headerLockup['serialized_blocks'] ?? '');
+$headerLockupCss = $css($headerLockup);
+preg_match('/blocks-engine-synthetic-header-anchor-[a-f0-9]+/', $headerLockupMarkup, $headerAnchorMarker);
+$headerAnchorClass = $headerAnchorMarker[0] ?? '';
+$headerAnchorRule = '';
+if ( '' !== $headerAnchorClass && preg_match('/p\.' . preg_quote($headerAnchorClass, '/') . '>a\{([^}]*)\}/', $headerLockupCss, $headerAnchorRuleMatch) ) {
+    $headerAnchorRule = $headerAnchorRuleMatch[1];
+}
+$assert(
+    '' !== $headerAnchorClass
+        && str_contains($headerAnchorRule, 'color:#fff')
+        && str_contains($headerAnchorRule, 'display:inline-flex')
+        && str_contains($headerAnchorRule, 'align-items:center')
+        && str_contains($headerAnchorRule, 'row-gap:.5rem')
+        && str_contains($headerAnchorRule, 'column-gap:.5rem'),
+    'header synthetic anchor carries explicit inherit colour plus authored layout winners'
+);
+preg_match('/--blocks-engine-richtext-marker:([^;" ]+)/', $headerLockupMarkup, $headerRichTextMarker);
+$headerRichTextRule = '';
+if ( isset($headerRichTextMarker[1])
+    && preg_match(
+        '/mark\[style\*="--blocks-engine-richtext-marker:' . preg_quote($headerRichTextMarker[1], '/') . '"\],span\[data-blocks-engine-richtext-marker="' . preg_quote($headerRichTextMarker[1], '/') . '"\]\{([^}]*)\}/',
+        $headerLockupCss,
+        $headerRichTextRuleMatch
+    )
+) {
+    $headerRichTextRule = $headerRichTextRuleMatch[1];
+}
+$assert(
+    str_contains($headerRichTextRule, 'place-items:center')
+        && str_contains($headerRichTextRule, 'box-shadow:0 0 0 2px #fff')
+        && ! str_contains($headerRichTextRule, 'place-items:end')
+        && ! str_contains($headerRichTextRule, 'box-shadow:none'),
+    'header RichText marker carries specificity winners for place-items and box-shadow'
+);
+
+$uncoloredHeaderLockup = $transform(
+    '<style>.brand{display:inline-flex;align-items:center;gap:8px}</style>'
+        . '<header><a class="brand" href="/"><span>Brand</span></a></header>'
+);
+$uncoloredHeaderCss = $css($uncoloredHeaderLockup);
+preg_match('/p\.(blocks-engine-synthetic-header-anchor-[a-f0-9]+)>a\{([^}]*)\}/', $uncoloredHeaderCss, $uncoloredHeaderRule);
+$assert(
+    isset($uncoloredHeaderRule[2])
+        && ! str_contains((string) $uncoloredHeaderRule[2], 'color:inherit'),
+    'synthetic header anchor stays uncoloured when source does not state inherit'
+);
+
+$mediaLogo = $transform('<a id="brand" href="/"><picture><img src="logo.png" alt=""></picture><span>Brand</span></a>');
+$mediaLogoMarkup = (string) ($mediaLogo['serialized_blocks'] ?? '');
+$assert(
+    'core/buttons' === ($mediaLogo['blocks'][0]['blockName'] ?? '')
+    && 'core/button' === ($mediaLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
+    && str_contains($mediaLogoMarkup, '<picture>')
+    && str_contains($mediaLogoMarkup, '<img src="logo.png" alt="">'),
+    'ID-signaled logo anchors with embedded media retain the structured core button path',
+    $mediaLogoMarkup
+);
 
 $buttonRichTextMarker = $transform('<style>.brand-control{display:inline-flex;padding:8px 12px;background:#173e30;color:#f8fff9}.brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:#c9f27b;color:#17231d}</style><a class="brand-control" href="/"><span class="brand-mark">S</span><span>Static Site Importer</span></a>');
 $buttonRichTextMarkerMarkup = (string) ($buttonRichTextMarker['serialized_blocks'] ?? '');
@@ -129,7 +239,7 @@ $assert(str_contains($buttonRichTextMarkerMarkup, '<!-- wp:button') && '' !== $b
 
 $svgLogo = $transform('<style>.logo{display:inline-flex;align-items:center;gap:.6rem}.logo-mark{width:38px;height:38px;display:grid;place-items:center;flex:none}.logo-mark svg{width:22px;height:22px}</style><header><a class="logo" href="/" aria-label="Home"><span class="logo-mark"><svg viewBox="0 0 38 38" aria-hidden="true"><circle cx="19" cy="19" r="18"/></svg></span><span class="logo-text">Block Party</span></a></header>');
 $svgLogoMarkup = (string) ($svgLogo['serialized_blocks'] ?? '');
-$assert(str_contains($svgLogoMarkup, '<span class="logo-mark" style="width:38px;height:38px;display:grid"') && str_contains($svgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($svgLogoMarkup, '<span class="logo-text">Block Party</span>') && 1 === count(array_filter($svgLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($svgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured text logos preserve passive inline SVG artwork and native RichText-safe container geometry');
+$assert(str_contains($svgLogoMarkup, '<span class="logo-mark" style="width:38px;height:38px;display:grid;place-items:center"') && str_contains($svgLogoMarkup, '<img src="assets/materialized-svg/') && str_contains($svgLogoMarkup, '<span class="logo-text">Block Party</span>') && 1 === count(array_filter($svgLogo['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($svgLogo['source_reports']['wp_block_validity']['status'] ?? ''), 'structured text logos preserve passive inline SVG artwork and native RichText-safe container geometry');
 
 $gridTextControl = $transform('<style>.grid-cta{padding:8px 12px;background:#123456;color:#fff}.grid-cta .grid-label{width:30px;height:30px;display:grid;place-items:center}</style><a class="grid-cta" href="/go"><span class="grid-label">Go</span></a>');
 $gridTextControlCss = $css($gridTextControl);

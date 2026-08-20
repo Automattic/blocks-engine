@@ -4289,7 +4289,9 @@ assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Forma
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
-assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+$htmlAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $htmlAssetResult['assets'] ?? array()));
+assertSame('core/paragraph', $htmlAssetResult['blocks'][0]['blockName'] ?? '', 'HTML format conversion should keep a classed-span text logo on the paragraph path.');
+assertStringContains('.logo{display:inline-flex}', $htmlAssetCss, 'HTML format conversion should preserve generated author stylesheet assets.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',

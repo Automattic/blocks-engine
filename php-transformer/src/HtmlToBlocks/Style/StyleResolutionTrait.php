@@ -1630,6 +1630,184 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Resolve the authored resting cascade for navigation recognition.
+     *
+     * General presentation merging intentionally follows source order only,
+     * but navigation link colour becomes a rendered carrier and therefore must
+     * use the browser winner. A later low-specificity item class cannot replace
+     * an earlier, stronger menu-anchor rule.
+     */
+    private function specificityResolvedPresentationStyle(DOMElement $element): string
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $this->applyMediaTextCascadeDeclaration(
+                    $cascade,
+                    (string) $property,
+                    (string) $value,
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+            $this->applyMediaTextCascadeDeclaration(
+                $cascade,
+                (string) $property,
+                (string) $value,
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $declarations = array();
+        foreach ( $cascade as $property => $entry ) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $this->cssDeclarationString($declarations);
+    }
+
+    /**
+     * Return the authored cascade winner for an inherited property. Theme and
+     * user-agent defaults are deliberately absent: callers use this only when
+     * preserving a value the source CSS actually states.
+     */
+    private function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
+    {
+        $property = strtolower(trim($property));
+        if ( ! in_array($property, array(
+            'color',
+            'font-family',
+            'font-size',
+            'font-style',
+            'letter-spacing',
+            'line-height',
+            'text-transform',
+            'white-space',
+        ), true) ) {
+            return '';
+        }
+
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            if ( ! array_key_exists($property, $declarations) ) {
+                continue;
+            }
+
+            $rawValue = (string) $declarations[$property];
+            if ( 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue) ) {
+                return '';
+            }
+            $value = trim($rawValue);
+            $keyword = strtolower($value);
+            if ( in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) ) {
+                return '';
+            }
+
+            return $this->resolveCssVariablesInValue($value);
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve gap shorthand and longhands as one cascade family.
+     *
+     * @return array{row-gap?: string, column-gap?: string}
+     */
+    private function specificityResolvedGapDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            $entries = $rule['mediaTextDeclarations'] ?? array();
+            foreach ( $rule['declarations'] ?? array() as $property => $value ) {
+                if ( ! in_array(strtolower((string) $property), array( 'gap', 'row-gap', 'column-gap' ), true) ) {
+                    continue;
+                }
+                $entries[] = array(
+                    'property' => (string) $property,
+                    'value' => (string) $value,
+                    'important' => str_contains(strtolower((string) $value), '!important'),
+                );
+            }
+            foreach ( $entries as $entry ) {
+                $this->applyGapCascadeDeclaration(
+                    $cascade,
+                    (string) ($entry['property'] ?? ''),
+                    (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry ) {
+            $this->applyGapCascadeDeclaration(
+                $cascade,
+                (string) ($entry['property'] ?? ''),
+                (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $resolved = array();
+        foreach ( array( 'row-gap', 'column-gap' ) as $property ) {
+            if ( isset($cascade[$property]) ) {
+                $resolved[$property] = $cascade[$property]['value'] . ($cascade[$property]['important'] ? ' !important' : '');
+            }
+        }
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array{int, int, int} $specificity
+     */
+    private function applyGapCascadeDeclaration(array &$cascade, string $property, string $value, bool $inline, array $specificity, int $sequence): void
+    {
+        $property = strtolower(trim($property));
+        if ( 'gap' === $property ) {
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+            $plain = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+            $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+            if ( 1 > count($parts) || 2 < count($parts) ) {
+                return;
+            }
+            $suffix = $important ? ' !important' : '';
+            $this->applyMediaTextCascadeDeclaration($cascade, 'row-gap', $parts[0] . $suffix, $inline, $specificity, $sequence);
+            $this->applyMediaTextCascadeDeclaration($cascade, 'column-gap', ($parts[1] ?? $parts[0]) . $suffix, $inline, $specificity, $sequence);
+            return;
+        }
+
+        if ( in_array($property, array( 'row-gap', 'column-gap' ), true) ) {
+            $this->applyMediaTextCascadeDeclaration($cascade, $property, $value, $inline, $specificity, $sequence);
+        }
+    }
+
+    /**
      * Preserve declaration order while applying shorthand reset semantics.
      *
      * @param array<string, string> $base
@@ -1746,6 +1924,66 @@ trait StyleResolutionTrait
                         'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                     );
                 }
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Keep top-level interaction rules separate from resting-style resolution.
+     * Navigation conversion uses these to yield a resting colour only for
+     * states where an authored colour replacement exists, and to re-point
+     * anchor-class selectors after core moves that class onto the item.
+     *
+     * Multi-state selectors fail closed. Treating `:hover:focus` as either
+     * independent state would remove the resting colour too broadly.
+     *
+     * @return list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
+     */
+    private function navigationStateStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
+        }
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $css = $this->topLevelCssRules($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' === $selector
+                    || 1 !== preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
+                ) {
+                    continue;
+                }
+
+                $state = strtolower((string) $stateMatches[1][0][0]);
+                $offset = (int) $stateMatches[0][0][1];
+                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                if ( '' === $baseSelector || $this->selectorCarriesPseudoState($baseSelector) || ! $this->isSupportedCssSelector($baseSelector) ) {
+                    continue;
+                }
+
+                $rules[] = array(
+                    'selector' => $selector,
+                    'base_selector' => $baseSelector,
+                    'state' => $state,
+                    'declarations' => $declarations,
+                );
             }
         }
 

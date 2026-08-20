@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-brand-anchor-beside-active-nav-list",
-  "description": "Keeps a direct brand/home anchor beside a list menu out of dynamic core/navigation so RichText logo color and active-list selector hooks survive.",
+  "description": "Lifts a direct brand/home anchor beside a list converted to core/navigation while removing the design snapshot's static active hook.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-brand-anchor-beside-active-nav-list.json",
-    "notes": "Generic header shape: nav landmark with direct brand anchor plus ul/li menu; preserves .nav-links a.active CSS scope."
+    "notes": "Generic header shape: nav landmark with direct brand anchor plus ul/li menu; brand paint survives while current-page state becomes runtime-owned."
   },
   "legacy_comparison": {
     "skip": true,
@@ -20,14 +20,14 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-nav", "tagName": "nav" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo blocks-engine-synthetic-paragraph" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation", "style": { "spacing": { "blockGap": "0px" } } } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "className": "active blocks-engine-current-navigation-item", "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "active" } }
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "className": "blocks-engine-current-navigation-item", "label": "Home", "url": "index.html", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"nav-logo blocks-engine-synthetic-paragraph\"><a href=\"index.html\">Mara <em><mark style=\"font-style:normal;color:#b8552a;background-color:transparent\">Vale</mark></em></a></p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"nav-links blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0px\"}},\"overlayMenu\":\"mobile\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"active blocks-engine-current-navigation-item\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\",\"anchorClassName\":\"active\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"blocks-engine-current-navigation-item\",\"label\":\"Home\",\"url\":\"index.html\",\"kind\":\"custom\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"label\":\"Mara \\u003cem" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

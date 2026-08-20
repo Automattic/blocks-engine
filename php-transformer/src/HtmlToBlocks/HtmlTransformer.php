@@ -36,6 +36,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -352,6 +353,12 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $nativeButtonStyleRules = array();
 
+    /** @var array<string, string> Header anchor carriers keyed by generated class. */
+    private array $syntheticHeaderAnchorStyleRules = array();
+
+    /** @var array<string, string> Header RichText carriers keyed by marker. */
+    private array $headerRichTextStyleRules = array();
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -376,6 +383,11 @@ final class HtmlTransformer
      * @var array<int, array{selector: string, declarations: array<string, string>}>
      */
     private array $conditionalStyleRules = array();
+
+    /**
+     * @var list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
+     */
+    private array $navigationStateStyleRules = array();
 
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
@@ -416,6 +428,8 @@ final class HtmlTransformer
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
     private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+
+    private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
 
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
@@ -635,6 +649,8 @@ final class HtmlTransformer
         $this->generatedAssets = array();
         $this->nativeSearchTriggerCssRules = array();
         $this->nativeButtonStyleRules = array();
+        $this->syntheticHeaderAnchorStyleRules = array();
+        $this->headerRichTextStyleRules = array();
         $this->gutenbergIncompatibilities = array();
         $this->sourceTagMarkers = array();
         $this->sourceControlMarkers = array();
@@ -677,6 +693,7 @@ final class HtmlTransformer
         if ( $styleAnalysisKey === ($this->analysisCache->style['key'] ?? null) ) {
             $this->staticStyleRules = $this->analysisCache->style['static'];
             $this->conditionalStyleRules = $this->analysisCache->style['conditional'];
+            $this->navigationStateStyleRules = $this->analysisCache->style['navigation_state'];
             $this->imageShapeStyleRules = $this->analysisCache->style['image_shape'];
             $this->staticPseudoElementStyleRules = $this->analysisCache->style['pseudo'];
             $this->cssCustomProperties = $this->analysisCache->style['custom_properties'];
@@ -684,6 +701,7 @@ final class HtmlTransformer
             ++$this->analysisCache->styleBuilds;
             $this->staticStyleRules = $this->staticStyleRules($html, $staticCss);
             $this->conditionalStyleRules = $this->conditionalStyleRules($html, $staticCss);
+            $this->navigationStateStyleRules = $this->navigationStateStyleRules($html, $staticCss);
             $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, $staticCss);
             $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, $staticCss);
             $this->cssCustomProperties = $this->cssCustomProperties($html, $staticCss);
@@ -691,6 +709,7 @@ final class HtmlTransformer
                 'key' => $styleAnalysisKey,
                 'static' => $this->staticStyleRules,
                 'conditional' => $this->conditionalStyleRules,
+                'navigation_state' => $this->navigationStateStyleRules,
                 'image_shape' => $this->imageShapeStyleRules,
                 'pseudo' => $this->staticPseudoElementStyleRules,
                 'custom_properties' => $this->cssCustomProperties,
@@ -792,7 +811,8 @@ final class HtmlTransformer
             $html,
             (string) ($options['static_css'] ?? ''),
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
-            $serializedBlocks
+            $serializedBlocks,
+            $sourceProvenance
         );
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
@@ -1051,7 +1071,8 @@ final class HtmlTransformer
         return array_slice($entries, 0, 20);
     }
 
-    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = ''): void
+    /** @param array<int, array<string, mixed>> $sourceProvenance */
+    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array()): void
     {
         $beforeAuthorCssParts = array();
         $authorCssParts = array();
@@ -1080,6 +1101,7 @@ final class HtmlTransformer
             // A paragraph is required for valid block markup, but phrasing content
             // did not have paragraph margins in the source document.
             $beforeAuthorCssParts[] = ':root :where(.' . self::SYNTHETIC_PARAGRAPH_CLASS . '){margin-top:0;margin-bottom:0}'
+                . "\n" . ':root :where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
@@ -1113,6 +1135,19 @@ final class HtmlTransformer
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
+        foreach ( $this->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
+            $afterAuthorCssParts[] = $navigationLinkTextColorRule;
+        }
+        foreach ( $this->syntheticHeaderAnchorStyleRules as $className => $rule ) {
+            if ( str_contains($serializedBlocks, $className) ) {
+                $afterAuthorCssParts[] = $rule;
+            }
+        }
+        foreach ( $this->headerRichTextStyleRules as $marker => $rule ) {
+            if ( str_contains($serializedBlocks, $marker) ) {
+                $afterAuthorCssParts[] = $rule;
+            }
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
@@ -1128,13 +1163,38 @@ final class HtmlTransformer
             // navigation owns that responsive swap now, so keep the block host
             // visible and let core hide only its responsive inner container.
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            // Size a carried menu to its content when it sits inside a brand
+            // carrier. The carrier renders <nav> and core/navigation renders
+            // another <nav> inside it, so an authored `header nav` rule matches
+            // both, and the block's auto flex-basis resolves to the whole
+            // available width where the authored <ul> was content-sized. The
+            // landmark's `justify-content:space-between` then has nothing left
+            // to distribute and the brand is squeezed until it wraps: measured
+            // on silver-summit at 1366px, brand 181x44 and menu 308 at x=962
+            // became 155x82 and menu 1005 at x=265. `max-width:100%` keeps the
+            // block shrinkable, so a narrow viewport still hands over to core's
+            // responsive overlay rather than overflowing the page.
+            $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
+            }
+            foreach ( $this->listNavigationPaddingRules($serializedBlocks) as $paddingRule ) {
+                $afterAuthorCssParts[] = $paddingRule;
+            }
+            foreach ( $this->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
+                $afterAuthorCssParts[] = $itemAnchorRule;
             }
             $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
             if ( '' !== $mobileOverlayBackground ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
+        }
+        foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
+            $afterAuthorCssParts[] = $itemAnchorRule;
+        }
+        $directNavigationCss = $this->directNavigationSupportCss($serializedBlocks);
+        if ( '' !== $directNavigationCss ) {
+            $afterAuthorCssParts[] = $directNavigationCss;
         }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $afterAuthorCssParts[] = implode("\n", $this->nativeButtonStyleRules);
@@ -1149,6 +1209,57 @@ final class HtmlTransformer
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
+    }
+
+    private function directNavigationSupportCss(string $serializedBlocks): string
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-direct-navigation') ) {
+            return '';
+        }
+
+        $host = '.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-direct-navigation';
+        $rules = array();
+        foreach ( array(
+            'margin' => 'margin:0',
+            'padding' => 'padding:0',
+            'max-width' => 'max-width:none',
+        ) as $family => $declaration ) {
+            $marker = 'blocks-engine-direct-navigation-reset-' . $family;
+            if ( str_contains($serializedBlocks, $marker) ) {
+                $rules[] = $host . '.' . $marker . '{' . $declaration . '}';
+            }
+        }
+
+        if ( preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches) ) {
+            foreach ( $matches[1] as $json ) {
+                $attrs = json_decode($json, true);
+                if ( ! is_array($attrs) ) {
+                    continue;
+                }
+
+                $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+                if ( '' === $color ) {
+                    continue;
+                }
+                $safeColor = (string) ($this->styleAttributeMapper()->map(array( 'color' => $color ))['style']['color']['text'] ?? '');
+                if ( '' === $safeColor ) {
+                    continue;
+                }
+
+                $expectedMarker = 'blocks-engine-direct-navigation-link-color-' . substr(hash('sha256', $safeColor), 0, 12);
+                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                if ( ! in_array($expectedMarker, $classes, true) ) {
+                    continue;
+                }
+
+                $selector = '.wp-block-navigation.blocks-engine-direct-navigation '
+                    . '.wp-block-navigation-item.' . $expectedMarker
+                    . '>.wp-block-navigation-item__content';
+                $rules[$selector] = $selector . '{color:' . $safeColor . '}';
+            }
+        }
+
+        return implode("\n", array_values($rules));
     }
 
     /** @param array<int, string> $cssParts */
@@ -1246,13 +1357,1006 @@ final class HtmlTransformer
         return array_values($rules);
     }
 
+    /** @return array<int, string> */
+    private function listNavigationPaddingRules(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $paddingSets = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            if ( ! in_array('blocks-engine-list-navigation', $classes, true) ) {
+                continue;
+            }
+
+            $padding = is_array($attrs['style']['spacing']['padding'] ?? null)
+                ? $attrs['style']['spacing']['padding']
+                : array();
+            $declarations = array();
+            foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+                $property = 'padding-' . $side;
+                $value = trim((string) ($padding[$side] ?? ''));
+                $safe = $this->safeVisualDeclarations($this->cssDeclarations($property . ':' . $value));
+                if ( '' !== $value
+                    && ($safe[$property] ?? null) === $value
+                    && ! $this->navigationDeclarationIsImportant($value)
+                ) {
+                    $declarations[] = $property . ':' . $value;
+                }
+            }
+            if ( array() === $declarations ) {
+                $paddingSets['__no_list_navigation_padding__'] = true;
+                continue;
+            }
+            $paddingSets[implode(';', $declarations)] = true;
+        }
+
+        // One transform can contain multiple promoted menus. A shared selector
+        // is exact only when their source-list padding agrees; otherwise fail
+        // closed instead of letting source order assign one menu's box to all.
+        if ( 1 !== count($paddingSets) || isset($paddingSets['__no_list_navigation_padding__']) ) {
+            return array();
+        }
+
+        $selector = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation';
+        return array( $selector . '{' . array_key_first($paddingSets) . '}' );
+    }
+
+    /**
+     * Re-point an authored ANCHOR-scoped menu-item rule at the element core
+     * actually renders.
+     *
+     * A design styles a menu CTA through its anchor — sunny-ember writes
+     * `.navlinks a.nav-cta{background;color;padding}`. core/navigation-link puts
+     * the authored class on the `<li>` and hard-codes the anchor's own class in
+     * `render_block_core_navigation_link()`, which is why `anchorClassName` is
+     * discarded downstream: no renderer can consume it. The authored selector
+     * therefore matches nothing and the pill renders as plain text.
+     *
+     * The rule is rewritten onto `.wp-block-navigation-item.<class> >
+     * .wp-block-navigation-item__content`, which is the anchor the class-bearing
+     * item owns. Emitted after the author stylesheet and carrying five class
+     * tokens, so it outranks both core's item styles and the authored rule it
+     * stands in for.
+     *
+     * Source ownership, rather than selector spelling, triggers the mapping. A
+     * bare `.nav-cta` is mapped when that class sat on the authored anchor just
+     * like `.navlinks a.nav-cta`; a class authored on the source `<li>` remains
+     * item-owned. Scope stays narrow: the class must ride a real navigation-link
+     * in this document, and any ancestor part of the authored selector must name
+     * a promoted navigation host — otherwise `.footer a.nav-cta` would be hoisted
+     * into a menu it was never about.
+     *
+     * A mapped declaration is emitted only when its source rule actually wins
+     * that exact property on every source anchor the mapped selector will reach.
+     * This prevents the stronger compatibility selector from promoting a losing
+     * authored declaration over the rule that beat it in the design.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<int, string>
+     */
+    private function listNavigationItemAnchorRules(string $serializedBlocks, array $sourceProvenance): array
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            return array();
+        }
+
+        $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
+        if ( array() === $itemClasses ) {
+            return array();
+        }
+
+        $anchorClasses = $this->listNavigationAnchorClasses($serializedBlocks);
+        if ( array() === $anchorClasses ) {
+            return array();
+        }
+
+        $hostClasses = $this->listNavigationHostClasses($serializedBlocks);
+        $authoredRules = $this->navigationAuthorStyleRules();
+        if ( array() === $authoredRules ) {
+            return array();
+        }
+
+        $rules = array();
+        $emitted = array();
+        foreach ( $authoredRules as $rule ) {
+            // Existing navigation compatibility CSS covers resting paint only;
+            // pseudo-state mapping remains a deliberate, tested omission. Keep
+            // pseudo context in the collector so it cannot compete with base.
+            if ( '' !== ($rule['pseudo'] ?? '') ) {
+                continue;
+            }
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            $ancestor = '';
+            $class = '';
+            $pseudo = '';
+            $bareAnchorClassRule = false;
+            if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                $ancestor = trim($match[1]);
+                $class = $match[2];
+                $pseudo = $match[3];
+            } elseif ( 1 === preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                $class = $match[1];
+                $pseudo = $match[2];
+                $bareAnchorClassRule = true;
+            } else {
+                continue;
+            }
+
+            if ( ! isset($itemClasses[$class], $anchorClasses[$class]) ) {
+                continue;
+            }
+
+            if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
+                continue;
+            }
+
+            $sourceAnchors = $this->navigationSourceAnchorsForClass($class, $sourceProvenance);
+            if ( array() === $sourceAnchors ) {
+                continue;
+            }
+
+            $declarations = array();
+            $itemNeutralizers = array();
+            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+                $property = trim((string) $property);
+                $value = trim((string) $value);
+                if ( '' === $property || '' === $value ) {
+                    continue;
+                }
+
+                if ( 'border' === $property ) {
+                    foreach ( $this->navigationBorderWinnerDeclarations($rule, $value, $authoredRules, $sourceAnchors) as $borderDeclaration ) {
+                        $declarations[] = $borderDeclaration;
+                    }
+                } elseif ( $this->navigationRuleWinsPropertyOnAnchors($rule, $property, $authoredRules, $sourceAnchors) ) {
+                    $declarations[] = $property . ':' . $value;
+                }
+
+                if ( $bareAnchorClassRule ) {
+                    // core/navigation-link moves the authored anchor class onto
+                    // its li. The bare rule then paints a second box that did not
+                    // exist in the source, even for declarations also projected
+                    // onto the rendered anchor. Restore the source li's exact
+                    // winner, or its lower-origin value when no author rule owned
+                    // that property. Ambiguous shorthand/longhand overlap fails
+                    // closed instead of inventing a reset.
+                    $resetValue = $this->navigationSourceListItemResetValue($class, $property, $sourceAnchors);
+                    if ( null !== $resetValue ) {
+                        $itemNeutralizers[] = $property . ':' . $resetValue;
+                    }
+                }
+            }
+            if ( array() === $declarations && array() === $itemNeutralizers ) {
+                continue;
+            }
+
+            $emissionKey = implode("\0", array(
+                (string) ($rule['id'] ?? ''),
+                $class,
+                (string) ($rule['pseudo'] ?? ''),
+                (string) json_encode($rule['conditions'] ?? array()),
+            ));
+            if ( isset($emitted[$emissionKey]) ) {
+                continue;
+            }
+            $emitted[$emissionKey] = true;
+
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            if ( array() !== $declarations ) {
+                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
+                    . $class . '>.wp-block-navigation-item__content' . $pseudo;
+                $mappedRule = $selectorText . '{' . implode(';', $declarations) . '}';
+                foreach ( array_reverse($conditions) as $condition ) {
+                    $mappedRule = $condition . '{' . $mappedRule . '}';
+                }
+                $rules[] = $mappedRule;
+            }
+
+            if ( array() !== $itemNeutralizers ) {
+                $itemRule = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
+                    . $class . '{' . implode(';', array_values(array_unique($itemNeutralizers))) . '}';
+                foreach ( array_reverse($conditions) as $condition ) {
+                    $itemRule = $condition . '{' . $itemRule . '}';
+                }
+                $rules[] = $itemRule;
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Re-point authored interaction colours at rendered navigation anchors.
+     *
+     * Resting declarations are handled by listNavigationItemAnchorRules(),
+     * which proves each source-cascade winner before increasing specificity.
+     * State rules apply the same winner proof before mapping design-time current
+     * classes onto WordPress runtime current state, including direct-anchor
+     * navigation. Compatibility output stays colour-only. Conditional state
+     * rules fail closed: their active cascade also includes unconditional rules,
+     * so comparing an isolated condition stack cannot prove a global winner.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<int, string>
+     */
+    private function navigationItemStateAnchorRules(string $serializedBlocks, array $sourceProvenance): array
+    {
+        $hasListNavigation = str_contains($serializedBlocks, 'blocks-engine-list-navigation');
+        if ( ! str_contains($serializedBlocks, '<!-- wp:navigation ') ) {
+            return array();
+        }
+
+        $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
+        $listHostClasses = $this->listNavigationHostClasses($serializedBlocks);
+        $allHostClasses = $this->listNavigationHostClasses($serializedBlocks, false);
+        $authoredRules = $this->navigationAuthorStyleRules();
+        $rules = array();
+        foreach ( $authoredRules as $rule ) {
+            if ( array() !== ($rule['conditions'] ?? array()) ) {
+                continue;
+            }
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            $match = array();
+            if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $anchorMatch) ) {
+                $match = array( $anchorMatch[1], $anchorMatch[2], $anchorMatch[3], 'anchor' );
+            } elseif ( 1 === preg_match('/^(.*?)(?:^|\s)\.([A-Za-z_][A-Za-z0-9_-]*)\s*>\s*a((?::[a-z-]+)*)$/', $selector, $itemMatch) ) {
+                $match = array( $itemMatch[1], $itemMatch[2], $itemMatch[3], 'item' );
+            }
+            if ( array() === $match ) {
+                continue;
+            }
+
+            $ancestor = trim($match[0]);
+            $class = $match[1];
+            $pseudo = strtolower($match[2]);
+            $classOwner = $match[3];
+            if ( ! in_array($pseudo, array( ':hover', ':focus', ':focus-visible', ':active' ), true) ) {
+                continue;
+            }
+            $isCurrentClass = $this->isAuthoredCurrentNavigationClass($class);
+            if ( ! $isCurrentClass && (! $hasListNavigation || ! isset($itemClasses[$class])) ) {
+                continue;
+            }
+
+            $hostClasses = $isCurrentClass ? $allHostClasses : $listHostClasses;
+            if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
+                continue;
+            }
+
+            $sourceAnchors = 'anchor' === $classOwner
+                ? $this->navigationSourceAnchorsForClass($class, $sourceProvenance)
+                : $this->navigationSourceAnchorsForItemClass($class, $sourceProvenance);
+            if ( array() === $sourceAnchors
+                || ! $this->navigationRuleWinsPropertyOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
+                || $this->navigationRuleHasConditionalPropertyCompetitorOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
+            ) {
+                continue;
+            }
+
+            $source = is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array();
+            $source = isset($source['color']) ? array( 'color' => $source['color'] ) : array();
+            if ( array() === $source ) {
+                continue;
+            }
+
+            $declarations = array();
+            foreach ( $source as $property => $value ) {
+                $property = trim((string) $property);
+                $value = trim((string) $value);
+                if ( '' === $property || '' === $value ) {
+                    continue;
+                }
+                $declarations[] = $property . ':' . $value;
+            }
+            if ( array() === $declarations ) {
+                continue;
+            }
+
+            if ( $isCurrentClass ) {
+                $hostSelector = '.wp-block-navigation';
+                if ( preg_match_all('/\.([A-Za-z_][A-Za-z0-9_-]*)/', $ancestor, $hostMatches) ) {
+                    foreach ( $hostMatches[1] as $hostClass ) {
+                        if ( isset($hostClasses[$hostClass]) ) {
+                            $hostSelector .= '.' . $hostClass;
+                        }
+                    }
+                }
+                $selectorText = $hostSelector
+                    . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $pseudo
+                    . ',' . $hostSelector
+                    . ' .wp-block-navigation-item__content[aria-current]' . $pseudo;
+            } else {
+                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
+                    . $class . '>.wp-block-navigation-item__content' . $pseudo;
+            }
+            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+        }
+
+        return array_values($rules);
+    }
+
+    /**
+     * Ordered authored rules used only by navigation anchor compatibility CSS.
+     *
+     * Shared presentation rule sets intentionally flatten contexts and omit
+     * pseudo states. This collector keeps the authored rule identity, condition
+     * stack, pseudo suffix, specificity, and source order needed to decide
+     * whether a declaration was a source-cascade winner before re-pointing it.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function navigationAuthorStyleRules(): array
+    {
+        if ( '' === trim($this->combinedAuthorCss) ) {
+            return array();
+        }
+
+        $rules = array();
+        $order = 0;
+        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
+        $this->collectNavigationAuthorStyleRules($css, array(), $rules, $order);
+        return $rules;
+    }
+
+    /**
+     * @param list<string> $conditions
+     * @param array<int, array<string, mixed>> $rules
+     */
+    private function collectNavigationAuthorStyleRules(string $css, array $conditions, array &$rules, int &$order): void
+    {
+        $directCss = $css;
+        $events = array();
+        for ( $offset = 0, $length = strlen($css); $offset < $length; ++$offset ) {
+            if ( '@' !== $css[$offset] ) {
+                continue;
+            }
+            $blockStart = $this->findCssToken($css, '{', $offset);
+            $statementEnd = $this->findCssToken($css, ';', $offset);
+            if ( null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart) ) {
+                continue;
+            }
+            $end = $this->findMatchingCssBrace($css, $blockStart);
+            if ( null === $end ) {
+                continue;
+            }
+            $prelude = trim(substr($css, $offset, $blockStart - $offset));
+            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
+            if ( preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude) ) {
+                $events[] = array(
+                    'offset' => $offset,
+                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
+                    'conditions' => array_merge($conditions, array( $prelude )),
+                );
+            }
+            $offset = $end;
+        }
+
+        if ( preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            foreach ( $matches as $match ) {
+                $events[] = array(
+                    'offset' => $match[0][1],
+                    'prelude' => $match[1][0],
+                    'body' => $match[2][0],
+                    'conditions' => $conditions,
+                );
+            }
+        }
+
+        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ( $events as $event ) {
+            if ( isset($event['css']) ) {
+                $this->collectNavigationAuthorStyleRules($event['css'], $event['conditions'], $rules, $order);
+                continue;
+            }
+
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $event['body']));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            $ruleId = $order++;
+            foreach ( CssStylesheetTransformer::splitSelectorList((string) $event['prelude']) ?? array() as $selector ) {
+                $selector = trim($selector);
+                if ( '' === $selector || str_starts_with($selector, '@') ) {
+                    continue;
+                }
+                $parsed = $this->parsedCssSelector($selector);
+                if ( ! ($parsed['supported'] ?? false) ) {
+                    continue;
+                }
+                $pseudo = '';
+                $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
+                if ( is_array($pseudoSpan) ) {
+                    $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
+                }
+                $rules[] = array(
+                    'id' => $ruleId,
+                    'selector' => $selector,
+                    'parsed' => $parsed,
+                    'declarations' => $declarations,
+                    'conditions' => $event['conditions'],
+                    'pseudo' => $pseudo,
+                    'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
+                    'order' => $ruleId,
+                );
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $parsed
+     * @return array{int, int, int}
+     */
+    private function navigationSelectorSpecificity(array $parsed, string $pseudo): array
+    {
+        $specificity = array( 0, 0, 0 );
+        $addCompound = function (array $compound) use (&$addCompound, &$specificity): void {
+            $specificity[0] += count($compound['ids'] ?? array());
+            $specificity[1] += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array());
+            if ( null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false) ) {
+                ++$specificity[1];
+            }
+            if ( null !== ($compound['type'] ?? null) ) {
+                ++$specificity[2];
+            }
+            foreach ( $compound['not'] ?? array() as $negated ) {
+                $addCompound($negated);
+            }
+        };
+        foreach ( $parsed['compounds'] ?? array() as $compound ) {
+            $addCompound($compound);
+        }
+        $specificity[1] += preg_match_all('/:[a-z-]+/i', $pseudo);
+        return $specificity;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return list<DOMElement>
+     */
+    private function navigationSourceAnchorsForClass(string $class, array $sourceProvenance): array
+    {
+        $selectors = array();
+        foreach ( $sourceProvenance as $entry ) {
+            if ( 'core/navigation-link' !== ($entry['block_name'] ?? '') || 'a' !== ($entry['tag'] ?? '') ) {
+                continue;
+            }
+            $attributes = is_array($entry['source_attributes'] ?? null) ? $entry['source_attributes'] : array();
+            $classes = preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array();
+            if ( in_array($class, $classes, true) ) {
+                $selectors[(string) ($entry['selector'] ?? '')] = true;
+            }
+        }
+        if ( array() === $selectors ) {
+            return array();
+        }
+
+        $anchors = array();
+        foreach ( $this->authorStyleSourceElementsByClass[$class] ?? array() as $element ) {
+            if ( $element instanceof DOMElement
+                && 'a' === strtolower($element->tagName)
+                && isset($selectors[$this->elementSelector($element)])
+            ) {
+                $anchors[] = $element;
+            }
+        }
+        return $anchors;
+    }
+
+    /**
+     * Source navigation anchors directly owned by a class-bearing source item.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return list<DOMElement>
+     */
+    private function navigationSourceAnchorsForItemClass(string $class, array $sourceProvenance): array
+    {
+        $selectors = array();
+        foreach ( $sourceProvenance as $entry ) {
+            if ( 'core/navigation-link' === ($entry['block_name'] ?? '') && 'a' === ($entry['tag'] ?? '') ) {
+                $selectors[(string) ($entry['selector'] ?? '')] = true;
+            }
+        }
+        if ( array() === $selectors ) {
+            return array();
+        }
+
+        $anchors = array();
+        foreach ( $this->authorStyleSourceElementsByClass[$class] ?? array() as $item ) {
+            if ( ! $item instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $item->childNodes as $child ) {
+                if ( $child instanceof DOMElement
+                    && 'a' === strtolower($child->tagName)
+                    && isset($selectors[$this->elementSelector($child)])
+                ) {
+                    $anchors[] = $child;
+                }
+            }
+        }
+        return $anchors;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<int, array<string, mixed>> $authoredRules
+     * @param list<DOMElement> $anchors
+     */
+    private function navigationRuleWinsPropertyOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
+    {
+        foreach ( $anchors as $anchor ) {
+            $winner = null;
+            foreach ( $authoredRules as $rule ) {
+                if ( ($candidate['conditions'] ?? array()) !== ($rule['conditions'] ?? array())
+                    || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
+                    || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+                ) {
+                    continue;
+                }
+                $match = CssSelectorMatcher::matches($anchor, $rule['parsed'], true);
+                if ( ! $match['supported'] || ! $match['matches'] ) {
+                    continue;
+                }
+                $entry = array(
+                    'id' => $rule['id'],
+                    'important' => $this->navigationDeclarationIsImportant((string) $rule['declarations'][$property]),
+                    'specificity' => $rule['specificity'],
+                    'order' => $rule['order'],
+                );
+                if ( null === $winner || $this->navigationCascadeEntryWins($entry, $winner) ) {
+                    $winner = $entry;
+                }
+            }
+
+            if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
+                $inline = $this->safeVisualDeclarations($this->cssDeclarations($this->attr($anchor, 'style')));
+                if ( array_key_exists($property, $inline) ) {
+                    $entry = array(
+                        'id' => -1,
+                        'important' => $this->navigationDeclarationIsImportant((string) $inline[$property]),
+                        'specificity' => array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                        'order' => PHP_INT_MAX,
+                    );
+                    if ( null === $winner || $this->navigationCascadeEntryWins($entry, $winner) ) {
+                        $winner = $entry;
+                    }
+                }
+            }
+
+            if ( ! is_array($winner) || ($candidate['id'] ?? null) !== $winner['id'] ) {
+                return false;
+            }
+        }
+        return array() !== $anchors;
+    }
+
+    /**
+     * Fail closed when a conditioned rule can join the same source cascade.
+     *
+     * Condition stacks include layers and scopes whose ordering cannot be
+     * proven by the selector-only comparison above. Restrict the abstention to
+     * rules that set the same property in the same state on a mapped anchor.
+     *
+     * @param array<string, mixed> $candidate
+     * @param array<int, array<string, mixed>> $authoredRules
+     * @param list<DOMElement> $anchors
+     */
+    private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
+    {
+        foreach ( $authoredRules as $rule ) {
+            if ( array() === ($rule['conditions'] ?? array())
+                || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
+                || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+            ) {
+                continue;
+            }
+            foreach ( $anchors as $anchor ) {
+                $match = CssSelectorMatcher::matches($anchor, $rule['parsed'], true);
+                if ( $match['supported'] && $match['matches'] ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Expand a border shorthand before projection so stronger authored side
+     * rules keep winning the same longhands they won in the source cascade.
+     *
+     * @param array<string, mixed> $candidate
+     * @param array<int, array<string, mixed>> $authoredRules
+     * @param list<DOMElement> $anchors
+     * @return list<string>
+     */
+    private function navigationBorderWinnerDeclarations(array $candidate, string $value, array $authoredRules, array $anchors): array
+    {
+        $mapped = ( new StyleAttributeMapper() )->map(array( 'border' => $value ));
+        $border = is_array($mapped['style']['border'] ?? null) ? $mapped['style']['border'] : array();
+        $components = array_filter(array(
+            'width' => trim((string) ($border['width'] ?? '')),
+            'style' => trim((string) ($border['style'] ?? '')),
+            'color' => trim((string) ($border['color'] ?? '')),
+        ), static fn (string $componentValue): bool => '' !== $componentValue);
+        if ( 3 !== count($components) ) {
+            return array();
+        }
+
+        $declarations = array();
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            foreach ( $components as $component => $componentValue ) {
+                $virtualProperty = 'border-' . $side . '-' . $component;
+                if ( $this->navigationRuleWinsBorderVirtualPropertyOnAnchors(
+                    $candidate,
+                    $virtualProperty,
+                    $authoredRules,
+                    $anchors
+                ) ) {
+                    $declarations[] = $virtualProperty . ':' . $componentValue;
+                }
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<int, array<string, mixed>> $authoredRules
+     * @param list<DOMElement> $anchors
+     */
+    private function navigationRuleWinsBorderVirtualPropertyOnAnchors(array $candidate, string $virtualProperty, array $authoredRules, array $anchors): bool
+    {
+        $virtualRules = array();
+        foreach ( $authoredRules as $rule ) {
+            $virtualValue = null;
+            foreach ( is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array() as $property => $value ) {
+                if ( $this->navigationBorderDeclarationAffectsVirtualProperty((string) $property, $virtualProperty) ) {
+                    $virtualValue = (string) $value;
+                }
+            }
+            if ( null === $virtualValue ) {
+                continue;
+            }
+            $rule['declarations'] = array( $virtualProperty => $virtualValue );
+            $virtualRules[] = $rule;
+        }
+
+        return $this->navigationRuleWinsPropertyOnAnchors($candidate, $virtualProperty, $virtualRules, $anchors);
+    }
+
+    private function navigationBorderDeclarationAffectsVirtualProperty(string $property, string $virtualProperty): bool
+    {
+        if ( 1 !== preg_match('/^border-(top|right|bottom|left)-(width|style|color)$/', $virtualProperty, $match) ) {
+            return false;
+        }
+
+        return in_array($property, array(
+            'border',
+            'border-' . $match[1],
+            'border-' . $match[2],
+            $virtualProperty,
+        ), true);
+    }
+
+    /**
+     * @param list<DOMElement> $anchors
+     */
+    private function navigationSourceListItemResetValue(string $class, string $property, array $anchors): ?string
+    {
+        $values = array();
+        foreach ( $anchors as $anchor ) {
+            $item = $anchor->parentNode;
+            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+                return null;
+            }
+
+            $itemClasses = preg_split('/\s+/', trim($this->attr($item, 'class'))) ?: array();
+            if ( in_array($class, $itemClasses, true) ) {
+                // The class also belonged to the source item. Its item paint is
+                // authored, not an artifact of core moving the anchor class.
+                return null;
+            }
+
+            $itemDeclarations = $this->safeVisualDeclarations(
+                $this->cssDeclarations($this->specificityResolvedPresentationStyle($item))
+            );
+            foreach ( $itemDeclarations as $itemProperty => $_itemValue ) {
+                if ( $itemProperty !== $property && $this->navigationPropertiesOverlap($property, $itemProperty) ) {
+                    return null;
+                }
+            }
+
+            $value = trim((string) ($itemDeclarations[$property] ?? 'revert'));
+            if ( '' === $value || $this->navigationDeclarationIsImportant($value) ) {
+                return null;
+            }
+            $values[$value] = true;
+        }
+
+        return 1 === count($values) ? (string) array_key_first($values) : null;
+    }
+
+    private function navigationPropertiesOverlap(string $first, string $second): bool
+    {
+        if ( $first === $second ) {
+            return true;
+        }
+
+        foreach ( array( 'background', 'border', 'font', 'margin', 'padding' ) as $family ) {
+            $firstInFamily = $family === $first || str_starts_with($first, $family . '-');
+            $secondInFamily = $family === $second || str_starts_with($second, $family . '-');
+            if ( $firstInFamily && $secondInFamily && ($family === $first || $family === $second) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function navigationDeclarationIsImportant(string $value): bool
+    {
+        return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+    }
+
+    /**
+     * @param array{id: int, important: bool, specificity: array{int, int, int}, order: int} $candidate
+     * @param array{id: int, important: bool, specificity: array{int, int, int}, order: int} $current
+     */
+    private function navigationCascadeEntryWins(array $candidate, array $current): bool
+    {
+        if ( $candidate['important'] !== $current['important'] ) {
+            return $candidate['important'];
+        }
+        $specificity = $this->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
+    }
+
+    /**
+     * Classes authored on anchors that became navigation-link blocks.
+     *
+     * `anchorClassName` is retained in serialized block attributes as source
+     * provenance even though core's renderer cannot apply it to the anchor.
+     * Reading that field distinguishes an anchor-owned class from one authored
+     * on the source `<li>`, whose `className` legitimately belongs on the item.
+     *
+     * @return array<string, true>
+     */
+    private function listNavigationAnchorClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['anchorClassName'] ?? ''))) ?: array() as $candidate ) {
+                if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
+                    $classes[$candidate] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /** @return list<string> */
+    private function navigationColorInteractionStates(DOMElement $element): array
+    {
+        $matched = array();
+        foreach ( $this->navigationStateStyleRules as $rule ) {
+            if ( ! isset($rule['declarations']['color'])
+                || ! $this->matchesCssSelector($element, $rule['base_selector'])
+            ) {
+                continue;
+            }
+            $matched[$rule['state']] = true;
+        }
+
+        return array_values(array_filter(
+            array( 'hover', 'focus', 'focus-visible', 'active' ),
+            static fn (string $state): bool => isset($matched[$state])
+        ));
+    }
+
+    private function isAuthoredCurrentNavigationClass(string $className): bool
+    {
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($className)) ?: array() as $token ) {
+            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Carry each navigation-link's resolved resting colour to the anchor core
+     * renders. core/navigation-link does not consume style.color.text, while
+     * adaptive header chrome can target the rendered anchor directly and beat
+     * an inherited parent navigation colour.
+     *
+     * @return array<int, string>
+     */
+    private function navigationLinkTextColorRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-color-';
+        $currentPrefix = 'blocks-engine-navigation-current-color-';
+        $statePrefix = 'blocks-engine-navigation-link-color-states-';
+        if ( (! str_contains($serializedBlocks, $prefix) && ! str_contains($serializedBlocks, $currentPrefix))
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        $currentColors = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+            if ( '' === $color
+                || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
+                || array() === $this->cssDeclarations('color:' . $color)
+            ) {
+                continue;
+            }
+
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $stateMask = $this->navigationColorStateMaskFromClasses($classes, $statePrefix);
+            if ( null === $stateMask ) {
+                continue;
+            }
+            $expectedClass = $prefix . hash('sha256', $color . "\0" . $stateMask);
+            $restingSuffix = $this->navigationColorRestingSuffix($stateMask);
+            if ( in_array($expectedClass, $classes, true) ) {
+                $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
+                    . '>.wp-block-navigation-item__content' . $restingSuffix;
+                $rules[$expectedClass] = $selector . '{color:' . $color . '}';
+            }
+
+            if ( in_array('blocks-engine-current-navigation-item', $classes, true) ) {
+                $currentColors[$currentPrefix . hash('sha256', $color . "\0" . $stateMask)] = array(
+                    'color' => $color,
+                    'state_mask' => $stateMask,
+                );
+            }
+        }
+
+        if ( array() !== $currentColors
+            && preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $navigationMatches, PREG_SET_ORDER)
+        ) {
+            foreach ( $navigationMatches as $navigationMatch ) {
+                $attrs = json_decode($navigationMatch[1], true);
+                if ( ! is_array($attrs) ) {
+                    continue;
+                }
+
+                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                foreach ( $classes as $className ) {
+                    if ( ! isset($currentColors[$className]) ) {
+                        continue;
+                    }
+
+                    $restingSuffix = $this->navigationColorRestingSuffix($currentColors[$className]['state_mask']);
+                    $selector = '.wp-block-navigation.' . $className
+                        . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
+                        . ',.wp-block-navigation.' . $className
+                        . ' .wp-block-navigation-item__content[aria-current]' . $restingSuffix;
+                    $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className]['color'] . '}';
+                }
+            }
+        }
+
+        return array_values($rules);
+    }
+
+    /** @param list<string> $classes */
+    private function navigationColorStateMaskFromClasses(array $classes, string $prefix): ?int
+    {
+        $masks = array();
+        foreach ( $classes as $className ) {
+            if ( ! str_starts_with($className, $prefix) ) {
+                continue;
+            }
+            $value = substr($className, strlen($prefix));
+            if ( ! ctype_digit($value) || 15 < (int) $value ) {
+                return null;
+            }
+            $masks[(int) $value] = true;
+        }
+
+        if ( 1 < count($masks) ) {
+            return null;
+        }
+
+        return array() === $masks ? 0 : (int) array_key_first($masks);
+    }
+
+    private function navigationColorRestingSuffix(int $stateMask): string
+    {
+        $suffix = '';
+        foreach ( array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 ) as $state => $bit ) {
+            if ( 0 !== ($stateMask & $bit) ) {
+                $suffix .= ':not(:' . $state . ')';
+            }
+        }
+
+        return $suffix;
+    }
+
+    /**
+     * Whether an authored selector's ancestor part names a promoted navigation
+     * host, so a rule about a menu is not confused with one about a footer.
+     *
+     * @param array<string, true> $hostClasses
+     */
+    private function namesNavigationHost(string $ancestor, array $hostClasses): bool
+    {
+        if ( ! preg_match_all('/\.([A-Za-z_][A-Za-z0-9_-]*)/', $ancestor, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[1] as $candidate ) {
+            if ( isset($hostClasses[$candidate]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Classes carried by navigation-link items in the serialized output.
+     *
+     * @return array<string, true>
+     */
+    private function listNavigationItemClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $candidate ) {
+                if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
+                    $classes[$candidate] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
     /**
      * Classes carried by promoted list-navigation hosts in the serialized
      * output, as a lookup.
      *
      * @return array<string, true>
      */
-    private function listNavigationHostClasses(string $serializedBlocks): array
+    private function listNavigationHostClasses(string $serializedBlocks, bool $listOnly = true): array
     {
         if ( ! preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -1266,7 +2370,7 @@ final class HtmlTransformer
             }
 
             $className = (string) ($attrs['className'] ?? '');
-            if ( ! str_contains($className, 'blocks-engine-list-navigation') ) {
+            if ( $listOnly && ! str_contains($className, 'blocks-engine-list-navigation') ) {
                 continue;
             }
 
@@ -2570,7 +3674,6 @@ final class HtmlTransformer
 
     /**
      * @param array<string, mixed> $block
-     * @return array<string, mixed>
      */
     private function reconcileInnerContentChildPlaceholders(array $block): array
     {
@@ -2749,8 +3852,9 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement)
         );
     }
 
@@ -2800,7 +3904,7 @@ final class HtmlTransformer
             null,
             null,
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
         );
     }
 
@@ -3876,6 +4980,9 @@ final class HtmlTransformer
                 if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
                 }
+                if ( 'a' === $sourceTagName ) {
+                    $this->applySyntheticHeaderAnchorCarrier($attrs, $sourceElement);
+                }
             }
             $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
             if ( '' !== $projectionClassName ) {
@@ -3968,6 +5075,58 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /**
+     * A linked text logo becomes a paragraph for valid block markup. Carry the
+     * source anchor's exact header winners onto the saved inner anchor instead
+     * of re-pointing its source selector at a higher-specificity target.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function applySyntheticHeaderAnchorCarrier(array &$attrs, DOMElement $anchor): void
+    {
+        if ( 'a' !== strtolower($anchor->tagName)
+            || ! $this->hasAncestorTag($anchor, array( 'header' ))
+        ) {
+            return;
+        }
+
+        $direct = $this->cssDeclarations($this->specificityResolvedPresentationStyle($anchor));
+        $declarations = array();
+        if ( 'inherit' === strtolower(trim((string) ($direct['color'] ?? ''))) ) {
+            $inheritedColor = $this->authoredInheritedPropertyWinner($anchor, 'color');
+            if ( '' !== $inheritedColor ) {
+                $declarations['color'] = $inheritedColor;
+            }
+        }
+
+        foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
+            $value = trim((string) ($direct[$property] ?? ''));
+            if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
+                $declarations[$property] = $this->resolveCssVariablesInValue($value);
+            }
+        }
+        foreach ( $this->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
+            if ( ! str_contains(strtolower($value), '!important') ) {
+                $declarations[$property] = $this->resolveCssVariablesInValue($value);
+            }
+        }
+        foreach ( array( 'font-family', 'font-size', 'font-style', 'letter-spacing', 'line-height', 'text-transform', 'white-space' ) as $property ) {
+            $value = $this->authoredInheritedPropertyWinner($anchor, $property);
+            if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
+                $declarations[$property] = $value;
+            }
+        }
+
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $css = $this->cssDeclarationString($declarations);
+        $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
+        $this->syntheticHeaderAnchorStyleRules[$className] = 'p.' . $className . '>a{' . $css . '}';
     }
 
     /**
@@ -5341,6 +6500,12 @@ final class HtmlTransformer
             $inline = $this->richTextInlineVisualDeclarations($sourceInline);
             $marker = $this->richTextMarkerForElement($sourceInline);
             if ( '' !== $marker ) {
+                $headerCarrier = array_intersect_key($inline, array( 'place-items' => true, 'box-shadow' => true ));
+                if ( array() !== $headerCarrier && $this->hasAncestorTag($sourceInline, array( 'header' )) ) {
+                    $selector = 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]'
+                        . ',span[data-blocks-engine-richtext-marker="' . $marker . '"]';
+                    $this->headerRichTextStyleRules[$marker] = $selector . '{' . $this->cssDeclarationString($headerCarrier) . '}';
+                }
                 $inline['--blocks-engine-richtext-marker'] = $marker;
             }
             if ( array() === $inline ) {
@@ -5372,6 +6537,7 @@ final class HtmlTransformer
             'border-radius',
             'border-right',
             'border-top',
+            'box-shadow',
             'color',
             'display',
             'font-family',
@@ -5393,24 +6559,22 @@ final class HtmlTransformer
             'padding-left',
             'padding-right',
             'padding-top',
+            'place-items',
             'text-decoration',
             'text-transform',
             'width',
         ));
 
-        $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
-            }
-        }
-        $declarations = array_merge($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+        $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
 
         if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
             $declarations['color'] = 'transparent';
         }
 
         $declarations = array_intersect_key($declarations, $allowed);
+        if ( ! $this->hasAncestorTag($element, array( 'header' )) ) {
+            unset($declarations['box-shadow'], $declarations['place-items']);
+        }
         if ( in_array(strtolower($element->tagName), array( 'em', 'i' ), true) ) {
             if ( 'italic' === strtolower((string) ($declarations['font-style'] ?? '')) ) {
                 unset($declarations['font-style']);
