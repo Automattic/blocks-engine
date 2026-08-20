@@ -9,6 +9,11 @@ final class EditabilityReport
     public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v1';
     private const MAX_REPORTED_SIGNALS = 100;
     private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u');
+    private const RICH_TEXT_ATTRIBUTES = array(
+        'core/heading' => array('content'),
+        'core/list-item' => array('content'),
+        'core/paragraph' => array('content'),
+    );
 
     /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
     public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = ''): array
@@ -23,6 +28,8 @@ final class EditabilityReport
             'raw_html_block_count' => 0,
             'html_bearing_attribute_count' => 0,
             'html_bearing_table_cell_count' => 0,
+            'structural_rich_text_attribute_count' => 0,
+            'structural_rich_text_attribute_bytes' => 0,
             'source_marker_class_count' => 0,
             'generated_geometry_class_count' => 0,
             'serialized_bytes' => '' === $serializedBlocks ? 0 : strlen($serializedBlocks),
@@ -167,6 +174,10 @@ final class EditabilityReport
             if ('core/table' === $blockName && 'content' === (string) $key) {
                 $metrics['html_bearing_table_cell_count']++;
                 $kind = 'html_bearing_table_cell';
+            } elseif (in_array((string) $key, self::RICH_TEXT_ATTRIBUTES[$blockName] ?? array(), true)) {
+                $metrics['structural_rich_text_attribute_count']++;
+                $metrics['structural_rich_text_attribute_bytes'] += strlen($value);
+                $kind = 'structural_rich_text_attribute';
             }
             $signals[] = $this->signal($kind, $sourcePath, $path, $blockName, (string) $key);
         }

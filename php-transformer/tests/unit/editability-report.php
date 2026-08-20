@@ -31,4 +31,14 @@ $emptyGroups = array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => 
 $bounded = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => $emptyGroups)));
 if (101 !== $bounded['signal_totals']['observed'] || 100 !== $bounded['signal_totals']['reported'] || 1 !== $bounded['signal_totals']['omitted'] || !$bounded['signal_totals']['truncated'] || 100 !== count($bounded['signals'])) throw new RuntimeException('Editability reports must bound evidence without losing aggregate signal totals.');
 
+$structuralRichText = '<div><h3>Card title</h3><p>Card copy</p></div>';
+$richTextReport = (new EditabilityReport())->fromBlocks(array(array(
+    'blockName' => 'core/list-item',
+    'attrs' => array('content' => $structuralRichText),
+    'innerBlocks' => array(),
+    'innerHTML' => '<li>' . $structuralRichText . '</li>',
+)));
+if (1 !== $richTextReport['metrics']['structural_rich_text_attribute_count'] || strlen($structuralRichText) !== $richTextReport['metrics']['structural_rich_text_attribute_bytes']) throw new RuntimeException('Editability reports must quantify structural HTML stored in RichText attributes.');
+if ('structural_rich_text_attribute' !== ($richTextReport['signals'][0]['kind'] ?? null) || 'core/list-item' !== ($richTextReport['signals'][0]['block_name'] ?? null)) throw new RuntimeException('Structural RichText evidence must retain block attribution.');
+
 fwrite(STDOUT, "editability report contract passed\n");

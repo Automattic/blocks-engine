@@ -1627,12 +1627,17 @@ final class HtmlTransformer
                     if ( '' === $path ) {
                         continue;
                     }
-                    // list-item content serializes through RichText, so direct layout
-                    // children need a marker carrier that survives its normalization.
-                    if ( $this->ancestorElement($element, 'li') instanceof DOMElement && $this->richTextSelectorNeedsHook($parsed) ) {
+                    $listItem = $this->ancestorElement($element, 'li');
+                    $structuralListItem = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem);
+                    // Normal list-item content serializes through RichText. A
+                    // structural item receives native child blocks instead.
+                    if ( $listItem instanceof DOMElement && ! $structuralListItem && $this->richTextSelectorNeedsHook($parsed) ) {
                         $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
-                    } elseif ( $directAuthorLayoutItem || $this->requiresIndependentSemanticWrapper($element) ) {
+                    } elseif ( $directAuthorLayoutItem
+                        || ($structuralListItem && $this->richTextSelectorNeedsHook($parsed))
+                        || $this->requiresIndependentSemanticWrapper($element)
+                    ) {
                         if ( '' !== $path ) {
                             $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
                         }
@@ -3042,7 +3047,9 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/paragraph', array( 'content' => $content ));
+            $listItem = $this->ancestorElement($element, 'li');
+            $sourceElement = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem) ? $element : null;
+            return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement);
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
@@ -3056,6 +3063,10 @@ final class HtmlTransformer
                 if ( null !== $decomposed ) {
                     return $decomposed;
                 }
+            }
+
+            if ( $this->listContainsStructuralItemContent($element) ) {
+                return $this->decomposeStructuralList($element, $fallbacks);
             }
 
             $items = $this->listItems($element, $fallbacks);
@@ -8816,6 +8827,73 @@ final class HtmlTransformer
         }
 
         return $lists;
+    }
+
+    private function listContainsStructuralItemContent(DOMElement $list): bool
+    {
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $content = $child->cloneNode(true);
+            if ( ! $content instanceof DOMElement ) {
+                continue;
+            }
+
+            foreach ( $this->nestedListRoots($content) as $nestedList ) {
+                $content->removeChild($nestedList);
+            }
+
+            foreach ( $content->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+
+                $tagName = strtolower($descendant->tagName);
+                if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isStructuralListItem(DOMElement $item): bool
+    {
+        $list = $item->parentNode;
+        return $list instanceof DOMElement
+            && in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true)
+            && $this->listContainsStructuralItemContent($list);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
+    private function decomposeStructuralList(DOMElement $list, array &$fallbacks): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $children = $this->convertChildren($child, $fallbacks, true);
+            if ( array() !== $children ) {
+                $items[] = $this->createBlock(
+                    'core/group',
+                    array_merge($this->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
+                    $children,
+                    $child
+                );
+            }
+        }
+
+        return $this->createBlock(
+            'core/group',
+            array_merge($this->cssOwnedGroupAttributes($list), array( 'tagName' => strtolower($list->tagName) )),
+            $items,
+            $list
+        );
     }
 
     private function listItemContentWithoutNestedLists(DOMElement $item): string
