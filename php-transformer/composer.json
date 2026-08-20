@@ -73,6 +73,7 @@
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",
       "php tests/unit/media-text-block-factory.php",
+      "php tests/unit/rich-text-source-serialization.php",
       "php tests/unit/media-text-pattern.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",

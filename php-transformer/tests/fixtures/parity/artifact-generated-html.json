@@ -25,7 +25,7 @@
     { "path": "components.0.name", "assert": "equals", "value": "hero" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"article\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Hello artifact\",\"level\":1} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":1} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<h1 class=\"wp-block-heading\">Hello artifact</h1>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html -->" },
     { "path": "source_reports.artifact.html.element_count", "assert": "equals", "value": 3 },

@@ -33,6 +33,6 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid grid-3 be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"reveal reveal-delay-1\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"You Call, We Plan\",\"level\":4} -->" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":4} -->" }
   ]
 }

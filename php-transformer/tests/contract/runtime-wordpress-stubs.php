@@ -25,6 +25,7 @@ if ( ! function_exists('serialize_blocks') ) {
      */
     function serialize_blocks(array $blocks): string
     {
+        $GLOBALS['blocks_engine_serialized_blocks_stub'] = $blocks;
         return 'stub serialized ' . count($blocks);
     }
 }
@@ -35,6 +36,7 @@ if ( ! function_exists('render_block') ) {
      */
     function render_block(array $block): string
     {
+        $GLOBALS['blocks_engine_rendered_block_stub'] = $block;
         return '<stub-rendered>' . ($block['blockName'] ?? '') . '</stub-rendered>';
     }
 }
@@ -126,6 +128,30 @@ assertSame('stub/parsed', $runtime->parseBlocks('content')[0]['blockName'] ?? nu
 assertSame(array(), $runtime->diagnostics(), 'WordPress parser delegation should not emit fallback diagnostics.');
 assertSame('stub serialized 1', $runtime->serializeBlocks(array(array('blockName' => 'core/paragraph'))), 'Runtime should delegate serialization to serialize_blocks().');
 assertSame('<stub-rendered>core/paragraph</stub-rendered>', $runtime->renderBlock(array('blockName' => 'core/paragraph')), 'Runtime should delegate rendering to render_block().');
+$runtime->serializeBlocks(array(array(
+    'blockName'   => 'core/group',
+    'attrs'       => array(),
+    'innerBlocks' => array(array(
+        'blockName'   => 'core/heading',
+        'attrs'       => array('content' => 'Nested', 'level' => 3),
+        'innerBlocks' => array(),
+    )),
+)));
+assertSame(
+    array('level' => 3),
+    $GLOBALS['blocks_engine_serialized_blocks_stub'][0]['innerBlocks'][0]['attrs'] ?? null,
+    'Runtime should recursively remove heading content before native serialization.'
+);
+$runtime->renderBlock(array(
+    'blockName'   => 'core/heading',
+    'attrs'       => array('content' => 'Rendered', 'level' => 2),
+    'innerBlocks' => array(),
+));
+assertSame(
+    array('level' => 2),
+    $GLOBALS['blocks_engine_rendered_block_stub']['attrs'] ?? null,
+    'Runtime should remove heading content before native rendering.'
+);
 assertSame('stub stripped Bold', $runtime->stripAllTags('<strong>Bold</strong>'), 'Runtime should delegate tag stripping to wp_strip_all_tags().');
 assertSame(array('stub' => 'ids="1,2"'), $runtime->parseShortcodeAttributes('ids="1,2"'), 'Runtime should delegate shortcode attributes to shortcode_parse_atts().');
 assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/demo')), 'Runtime should delegate JSON encoding to wp_json_encode().');
