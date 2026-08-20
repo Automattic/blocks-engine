@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-brand-anchor-beside-active-nav-list",
-  "description": "Keeps a direct brand/home anchor beside a list menu out of dynamic core/navigation so RichText logo color and active-list selector hooks survive.",
+  "description": "Lifts a direct brand/home anchor beside a list converted to core/navigation while removing the design snapshot's static active hook.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-brand-anchor-beside-active-nav-list.json",
-    "notes": "Generic header shape: nav landmark with direct brand anchor plus ul/li menu; preserves .nav-links a.active CSS scope."
+    "notes": "Generic header shape: nav landmark with direct brand anchor plus ul/li menu; brand paint survives while current-page state becomes runtime-owned."
   },
   "legacy_comparison": {
     "skip": true,

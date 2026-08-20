@@ -27,12 +27,10 @@ declare(strict_types=1);
  * The brand is still never absorbed as a menu item — that is what the carrier
  * guarantees structurally, and it is the property the deferral was protecting.
  *
- * NOT covered here: the authored current-state CLASS (`is-current`) is still
- * carried onto the item on purpose. It is the hook a design's own rule selects
- * on — see the `html-brand-anchor-beside-active-nav-list` parity fixture, whose
- * `.nav-links a.active::after` rule depends on it — so dropping it without
- * re-pointing that rule at WordPress's runtime `current-menu-item` would delete
- * the indicator rather than move it.
+ * Authored current-state classes are design-snapshot state and do not survive
+ * on one permanently selected shared-header item. The transformer retains its
+ * own current-source marker long enough to carry authored colour onto
+ * WordPress/runtime `current-menu-item` and `aria-current` state.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
