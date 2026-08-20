@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover", "alt": "EP cover" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "ep-cover blocks-engine-synthetic-image-figure", "alt": "EP cover" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

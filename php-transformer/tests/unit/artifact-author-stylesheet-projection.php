@@ -172,12 +172,13 @@ $image = ( new ArtifactCompiler() )->compile(array(
         array( 'path' => 'photo.jpg', 'kind' => 'image', 'content' => 'image-bytes' ),
     ),
 ) )->toArray();
-$imageCss = (string) (($image['assets'][0]['content'] ?? ''));
+$imageStylesheet = array_values(array_filter($image['assets'] ?? array(), static fn (array $asset): bool => 'image.css' === ($asset['path'] ?? '')))[0] ?? array();
+$imageCss = (string) ($imageStylesheet['content'] ?? '');
 $assert(str_contains($imageCss, '.photo{position:absolute;width:123px;height:106px;object-fit:cover}') && str_contains($imageCss, '.relative-photo{width:86.356%;height:auto;aspect-ratio:727.431 / 593.583}'), 'source image geometry remains on the canonical core/image wrapper');
 $assert(str_contains($imageCss, '{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! str_contains($imageCss, '> img{width:123px') && ! str_contains($imageCss, '> img{width:86.356%'), 'canonical nested images fill explicitly owned wrapper geometry instead of applying source dimensions twice');
 $assert(str_contains($imageCss, '{display:block;max-width:100%;object-fit:inherit;object-position:inherit;border-radius:inherit}') && ! preg_match('/source-tag-img[^,{]*\.wp-block-image > img\{[^}]*width:100%/', $imageCss), 'generic image presentation selectors do not impose nested image geometry');
 $assert(preg_match('/where\(figure\).*\.photo\.wp-block-image > img\{display:block;max-width:100%/', $imageCss) && preg_match('/blocks-engine-root-child-.*\.wp-block-image > img\{display:block;max-width:100%/', $imageCss), 'type and root-child image selectors project the canonical nested-image bridge without inventing dimensions');
-$assert('text' === ($image['assets'][0]['content_encoding'] ?? '') && ! isset($image['assets'][0]['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
+$assert('text' === ($imageStylesheet['content_encoding'] ?? '') && ! isset($imageStylesheet['content_base64']) && '' !== $imageCss, 'stylesheet projection drops the stale base64 twin and keeps the rewritten text as the sole payload representation');
 $assert(1 === preg_match('/<!-- wp:image [\s\S]*<figure[^>]*photo[^>]*><img/', (string) ($image['serialized_blocks'] ?? '')), 'image projection preserves canonical core/image figure markup');
 
 $positionedImage = ( new ArtifactCompiler() )->compile(array(

@@ -431,6 +431,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
 
+    private const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
@@ -1104,6 +1106,9 @@ final class HtmlTransformer
                 . "\n" . ':root :where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
+        if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
+            $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
@@ -4970,6 +4975,9 @@ final class HtmlTransformer
 
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
+            if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            }
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
                 if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {

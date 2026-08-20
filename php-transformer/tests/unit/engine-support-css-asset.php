@@ -112,6 +112,9 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
     '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style>'
         . '<main><section><a class="btn btn--full selector-submit" href="/submit">Submit</a></section></main>'
 )->toArray();
+$syntheticImageFigure = ( new HtmlTransformer() )->transform(
+    '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
+)->toArray();
 
 $results = array(
     $authorOrder,
@@ -128,6 +131,7 @@ $results = array(
     $fullWidthButton,
     $colouredSyntheticLink,
     $uncolouredSyntheticLink,
+    $syntheticImageFigure,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -143,6 +147,7 @@ $beforeFamilies = array(
     'richtext-marker reset' => ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}',
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
     'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
+    'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
     'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
@@ -152,6 +157,8 @@ $beforeFamilies = array(
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
+$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
+$assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
