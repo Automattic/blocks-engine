@@ -348,6 +348,45 @@ $assert(
     substr($ctaCss, -300)
 );
 
+// Re-pointing a state rule increases its specificity. Prove the authored rule
+// won before giving it that extra cascade power: `.menu li a:hover` beats
+// `a.item:hover` on the source anchor even though both match the same state.
+$losingStateResult = $transform(
+    '<style>.menu li a:hover{color:#112233}a.item:hover{color:#ddeeff}'
+        . '.menu li a:focus{color:#223344}.item-parent>a:focus{color:#eeccdd}'
+        . '@media (min-width:1px){a.item:active{color:#aabbcc}}</style>'
+        . '<nav class="menu"><ul><li><a class="item" href="/book">Book</a></li>'
+        . '<li class="item-parent"><a href="/focus">Focus</a></li>'
+        . '<li><a href="/about">About</a></li></ul></nav>'
+);
+$losingStateSupportCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($losingStateResult['assets'] ?? null) ? $losingStateResult['assets'] : array()
+));
+$losingStateSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.item>.wp-block-navigation-item__content:hover';
+$assert(
+    ! str_contains($losingStateSupportCss, $losingStateSelector . '{color:#ddeeff}'),
+    'a mapped navigation state rule drops a colour that loses on the authored source anchor',
+    'css=' . substr($losingStateSupportCss, -700)
+);
+$losingItemStateSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.item-parent>.wp-block-navigation-item__content:focus';
+$assert(
+    ! str_contains($losingStateSupportCss, $losingItemStateSelector . '{color:#eeccdd}'),
+    'an item-owned navigation state rule drops a colour that loses on its source anchor',
+    'css=' . substr($losingStateSupportCss, -700)
+);
+$assert(
+    str_contains(
+        $losingStateSupportCss,
+        '@media (min-width:1px){' . str_replace(':hover', ':active', $losingStateSelector) . '{color:#aabbcc}}'
+    ),
+    'a winning conditional navigation state rule keeps its authored condition',
+    'css=' . substr($losingStateSupportCss, -700)
+);
+
 // The brand anchor is NOT a menu item, so its own rules must not be dragged in.
 $assert(
     ! str_contains($ctaCss, '.wp-block-navigation-item.brand'),
