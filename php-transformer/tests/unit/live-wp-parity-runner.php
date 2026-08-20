@@ -150,6 +150,25 @@ foreach ( (array) ($leakCheck['matches'] ?? array()) as $match ) {
 }
 $assert(isset($leakDiverged['background-color']), '5: source author CSS does not leak onto the candidate side');
 
+// ---------------------------------------------------------------------------
+// 6. Generated inline-layout carriers project direct-child author selectors
+//    through a display:contents paragraph without hiding their declarations
+//    from the deterministic cascade.
+// ---------------------------------------------------------------------------
+$childSource = '<div class="row"><span class="item">Vessel Beauty</span></div>';
+$childCandidate = '<div class="row"><p class="carrier"><span class="item">Vessel Beauty</span></p></div>';
+$childParity = $runner->compareSourceToCandidate(
+    $childSource,
+    $childCandidate,
+    '.row > .item{display:inline-flex;color:#c4a35a;font-size:24px}',
+    '.row > p.carrier > .item{display:inline-flex;color:#c4a35a;font-size:24px}'
+);
+$assert(
+    1.0 === (float) ($childParity['parity']['score'] ?? 0.0)
+        && 0 === (int) ($childParity['summary']['finding_total'] ?? -1),
+    '6: child-combinator carrier projection retains full static style parity'
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "live-wp-parity runner unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

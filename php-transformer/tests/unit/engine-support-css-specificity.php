@@ -79,7 +79,6 @@ $layoutRules = array(
     'css-owned flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
     'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
-    'css-owned layout-item direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}',
 );
 
 foreach ( $layoutRules as $name => $rule ) {

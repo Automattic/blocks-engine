@@ -4564,11 +4564,6 @@ final class HtmlTransformer
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
             ) {
-                if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
-                    $attrs = $this->presentationAttributes($element);
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_CLASS, self::CSS_OWNED_FLOW_CLASS);
-                    return $this->createBlock('core/group', $attrs, $this->convertChildren($element, $fallbacks, true), $element);
-                }
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
@@ -5749,18 +5744,14 @@ final class HtmlTransformer
             }
         }
 
-        return false;
-    }
-
-    private function hasStandaloneInlineLayoutLeaf(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
-                return true;
-            }
+        if ( $this->ancestorElement($element, 'li') instanceof DOMElement ) {
+            return false;
         }
 
-        return false;
+        // Selector-addressed phrasing children still need an independent box,
+        // but a valid RichText paragraph carrier can host that box directly.
+        // Avoid wrapping the paragraph in an otherwise redundant core/group.
+        return $this->hasAuthorSemanticMarker($element);
     }
 
     /** @return array<string, mixed>|null */
