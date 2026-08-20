@@ -1631,6 +1631,7 @@ final class HtmlTransformer
                 : $this->navigationSourceAnchorsForItemClass($class, $sourceProvenance);
             if ( array() === $sourceAnchors
                 || ! $this->navigationRuleWinsPropertyOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
+                || $this->navigationRuleHasConditionalPropertyCompetitorOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
             ) {
                 continue;
             }
@@ -1930,6 +1931,36 @@ final class HtmlTransformer
             }
         }
         return array() !== $anchors;
+    }
+
+    /**
+     * Fail closed when a conditioned rule can join the same source cascade.
+     *
+     * Condition stacks include layers and scopes whose ordering cannot be
+     * proven by the selector-only comparison above. Restrict the abstention to
+     * rules that set the same property in the same state on a mapped anchor.
+     *
+     * @param array<string, mixed> $candidate
+     * @param array<int, array<string, mixed>> $authoredRules
+     * @param list<DOMElement> $anchors
+     */
+    private function navigationRuleHasConditionalPropertyCompetitorOnAnchors(array $candidate, string $property, array $authoredRules, array $anchors): bool
+    {
+        foreach ( $authoredRules as $rule ) {
+            if ( array() === ($rule['conditions'] ?? array())
+                || ($candidate['pseudo'] ?? '') !== ($rule['pseudo'] ?? '')
+                || ! array_key_exists($property, is_array($rule['declarations'] ?? null) ? $rule['declarations'] : array())
+            ) {
+                continue;
+            }
+            foreach ( $anchors as $anchor ) {
+                $match = CssSelectorMatcher::matches($anchor, $rule['parsed'], true);
+                if ( $match['supported'] && $match['matches'] ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
