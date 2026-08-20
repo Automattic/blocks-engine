@@ -385,6 +385,16 @@ $assert(
     $customPropertyRoundTripMarkup
 );
 
+$neutralSingleGroup = $transform('<style>.outer .copy{color:red}</style><div class="outer"><div class="content"><p class="copy">Copy</p></div></div>');
+$neutralSingleGroupMarkup = (string) ($neutralSingleGroup['serialized_blocks'] ?? '');
+$assert(1 === substr_count($neutralSingleGroupMarkup, '<!-- wp:group') && str_contains($neutralSingleGroupMarkup, 'outer content') && str_contains($css($neutralSingleGroup), '.outer .copy{color:red}'), 'neutral single-Group wrappers coalesce while retaining their descendant selector hook on the child Group');
+
+$selectorEdgeGroup = $transform('<style>.outer > .content{color:red}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
+$assert(2 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when an author selector depends on their parent-child edge');
+
+$geometryEdgeGroup = $transform('<style>.content{margin:10px}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
+$assert(2 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when the child geometry depends on its containing block');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

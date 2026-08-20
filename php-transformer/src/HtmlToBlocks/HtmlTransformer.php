@@ -542,6 +542,9 @@ final class HtmlTransformer
     /** @var array<string, array<string, mixed>> */
     private array $parsedCssSelectors = array();
 
+    /** @var list<array{selector:string,parsed:array<string,mixed>}> */
+    private array $authorSelectors = array();
+
     private string $authorMarkerSeed = '';
 
     private int $authorMarkerCounter = 0;
@@ -659,6 +662,7 @@ final class HtmlTransformer
 		$this->authorStyleSourceClasses = array();
         $this->authorSourceSelectorMatches = array();
         $this->parsedCssSelectors = array();
+        $this->authorSelectors = array();
         $this->authorMarkerSeed = '';
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
@@ -1429,6 +1433,7 @@ final class HtmlTransformer
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
 		$this->discoverAuthorControlPaths($authorSelectors);
+		$this->authorSelectors = $authorSelectors;
 		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
 		$this->discoverAuthorRootChildPaths($authorSelectors);
 		$this->discoverAuthorTablePaths($authorSelectors);
@@ -3637,6 +3642,10 @@ final class HtmlTransformer
                 }
             }
             if ( 1 === count($children) ) {
+                $coalesced = $this->coalescedSingleGroupWrapper($element, $children[0]);
+                if ( null !== $coalesced ) {
+                    return $coalesced;
+                }
                 if ( $this->shouldPreserveWrapper($element) || $this->isDirectChildOfAuthorOwnedLayout($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
@@ -5687,6 +5696,150 @@ final class HtmlTransformer
         return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
+    /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
+    private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
+    {
+        if ( 'div' !== strtolower($element->tagName)
+            || 'core/group' !== ($childBlock['blockName'] ?? null)
+            || $this->isRuntimeDomTarget($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || '' !== trim($this->attr($element, 'id'))
+            || '' !== trim($this->attr($element, 'role'))
+            || '' !== trim($this->attr($element, 'style'))
+            || array() !== $this->interactiveAttributes($element)
+            || array() !== $this->safeDataAttributes($element)
+            || array() !== $this->structureSignals($element, array())
+            || $this->hasMotionStructureToken($element)
+        ) {
+            return null;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        if ( array_diff(array_keys($attrs), array( 'className' )) ) {
+            return null;
+        }
+
+        $sourceChild = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $node instanceof DOMElement || null !== $sourceChild ) {
+                return null;
+            }
+            $sourceChild = $node;
+        }
+        if ( ! $sourceChild instanceof DOMElement ) {
+            return null;
+        }
+        if ( $this->hasMotionStructureToken($sourceChild) ) {
+            return null;
+        }
+
+        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
+        if ( ! is_int($provenanceId)
+            || hash('sha256', $this->safeFallbackHtml($sourceChild)) !== ($this->sourceProvenance[$provenanceId]['source_digest'] ?? null)
+            || $this->hasBoxAffectingAuthorDeclarations($element)
+            || $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)
+            || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild)
+        ) {
+            return null;
+        }
+
+        $childAttrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
+        $childAttrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element));
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+
+        return $this->createBlock('core/group', $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    private function hasMotionStructureToken(DOMElement $element): bool
+    {
+        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:band|carousel|loop|marquee|mask|rail|scroller|slider|ticker|track|viewport)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    private function hasBoxAffectingAuthorDeclarations(DOMElement $element): bool
+    {
+        foreach ( array_keys($this->matchingAuthorDeclarations($element)) as $property ) {
+            if ( preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
+    {
+        $declarations = $this->matchingAuthorDeclarations($element);
+        foreach ( array_keys($declarations) as $property ) {
+            if ( preg_match('/^(?:align-self|bottom|flex|float|grid-column|grid-row|height|inset|left|margin|max-height|max-width|min-height|min-width|order|position|right|top|transform|width)$/', $property) ) {
+                return true;
+            }
+        }
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        return '' !== $display && ! in_array($display, array( 'block', 'flow-root' ), true);
+    }
+
+    /** @return array<string, string> */
+    private function matchingAuthorDeclarations(DOMElement $element): array
+    {
+        $declarations = $this->presentationDeclarations($element);
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use ($element, &$declarations): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $this->parsedCssSelector($selector);
+                if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+                    $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($body));
+                    break;
+                }
+            }
+            return $prelude;
+        });
+        return $declarations;
+    }
+
+    private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        $matchesBefore = array();
+        foreach ( $this->authorSelectors as $index => $authorSelector ) {
+            $matchesBefore[$index] = $authorSelector['parsed']['supported']
+                && CssSelectorMatcher::matches($child, $authorSelector['parsed'], true)['matches'];
+        }
+
+        $childClass = $this->attr($child, 'class');
+        $childNextSibling = $child->nextSibling;
+        $element->removeChild($child);
+        $parent->insertBefore($child, $element);
+        $parent->removeChild($element);
+        $child->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $childClass));
+
+        $survives = true;
+        foreach ( $this->authorSelectors as $index => $authorSelector ) {
+            $matchesAfter = $authorSelector['parsed']['supported']
+                && CssSelectorMatcher::matches($child, $authorSelector['parsed'], true)['matches'];
+            if ( $matchesBefore[$index] !== $matchesAfter ) {
+                $survives = false;
+                break;
+            }
+        }
+
+        $parent->insertBefore($element, $child);
+        $parent->removeChild($child);
+        $element->insertBefore($child, $childNextSibling);
+        if ( '' === $childClass ) {
+            $child->removeAttribute('class');
+        } else {
+            $child->setAttribute('class', $childClass);
+        }
+
+        return $survives;
+    }
+
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
     {
         if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
@@ -5768,18 +5921,7 @@ final class HtmlTransformer
 
     private function hasAuthorInlineAlignment(DOMElement $element): bool
     {
-        $declarations = $this->presentationDeclarations($element);
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use ($element, &$declarations): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
-                if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
-                    $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($body));
-                    break;
-                }
-            }
-            return $prelude;
-        });
-
+        $declarations = $this->matchingAuthorDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? '')));
         $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
         return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
