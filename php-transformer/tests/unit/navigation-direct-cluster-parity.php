@@ -10,9 +10,11 @@ declare(strict_types=1);
  * landmark's margin, padding, and max-width. Core also ignores mixed per-link
  * colour support on core/navigation-link at render time.
  *
- * Mark only this direct-div shape. Restore the source div's default box on the
- * generated host, and replay each already-resolved link colour against core's
- * runtime li > anchor markup. List navigation keeps its existing contracts.
+ * Mark only a plain direct-div shape that inherits the landmark's complete
+ * centered box after becoming a nested nav. Restore the source div's default
+ * box on the generated host, and replay each already-resolved link colour
+ * against core's runtime li > anchor markup. Partial box and list navigation
+ * keep their existing contracts.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -33,22 +35,20 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 /** @return array{markup: string, after: string} */
-$transform = static function (string $clusterTag = 'div', string $clusterBox = ''): array {
-    $html = '<style>'
-        . 'header.site-header nav{max-width:1200px;margin:0 auto;padding:18px 32px;display:flex;align-items:baseline}'
+$transform = static function (string $clusterTag = 'div', string $clusterBox = '', string $landmarkPadding = 'padding:18px 32px;'): array {
+    $css = 'header.site-header nav{max-width:1200px;margin:0 auto;' . $landmarkPadding . 'display:flex;align-items:baseline}'
         . '.brand{margin-right:auto}'
         . '.links{display:flex;gap:24px;' . $clusterBox . '}'
         . '.links a{color:#231f1d}'
-        . '.links a[aria-current="page"],.links a.reserve{color:#6e3b32}'
-        . '</style>'
-        . '<header class="site-header"><nav aria-label="Primary">'
+        . '.links a[aria-current="page"],.links a.reserve{color:#6e3b32}';
+    $html = '<header class="site-header"><nav aria-label="Primary">'
         . '<a class="brand" href="/"><span>Harbor</span><span>Old Town</span></a>'
         . '<' . $clusterTag . ' class="links">'
         . '<a href="/" aria-current="page">Home</a><a href="/menu/">Menu</a>'
         . '<a class="reserve" href="/reserve/">Reservations</a>'
         . '</' . $clusterTag . '></nav></header>';
 
-    $result = ( new HtmlTransformer() )->transform($html, array())->toArray();
+    $result = ( new HtmlTransformer() )->transform($html, array( 'static_css' => $css ))->toArray();
     $after = '';
     foreach ( (is_array($result['assets'] ?? null) ? $result['assets'] : array()) as $asset ) {
         if ( is_array($asset) && 'after-author' === (string) ($asset['stylesheet_placement'] ?? '') ) {
@@ -77,7 +77,7 @@ $assert(
     $direct['after']
 );
 $assert(
-    2 <= substr_count($direct['after'], 'color:#6e3b32')
+    1 <= substr_count($direct['after'], 'color:#6e3b32')
         && str_contains($direct['after'], 'color:#231f1d'),
     'mixed authored link colours are replayed individually',
     $direct['after']
@@ -95,11 +95,18 @@ $assert(
 
 $ownedMargin = $transform('div', 'margin-left:auto;');
 $assert(
-    ! str_contains($ownedMargin['markup'], 'blocks-engine-direct-navigation-reset-margin')
-        && str_contains($ownedMargin['markup'], 'blocks-engine-direct-navigation-reset-padding')
-        && str_contains($ownedMargin['markup'], 'blocks-engine-direct-navigation-reset-max-width'),
-    'cluster-owned margin suppresses only the margin reset',
+    ! str_contains($ownedMargin['markup'], 'blocks-engine-direct-navigation')
+        && ! str_contains($ownedMargin['after'], 'blocks-engine-direct-navigation'),
+    'cluster-owned landmark box family stays out of the compatibility path',
     $ownedMargin['markup']
+);
+
+$partialCollision = $transform('div', '', '');
+$assert(
+    ! str_contains($partialCollision['markup'], 'blocks-engine-direct-navigation')
+        && ! str_contains($partialCollision['after'], 'blocks-engine-direct-navigation'),
+    'landmark without the full inherited box collision stays out of the compatibility path',
+    $partialCollision['markup'] . $partialCollision['after']
 );
 
 $list = $transform('ul');

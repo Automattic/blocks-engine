@@ -12,6 +12,12 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
+    private const DIRECT_NAVIGATION_CLASS = 'blocks-engine-direct-navigation';
+
+    private const DIRECT_NAVIGATION_CARRIER_CLASS = 'blocks-engine-brand-navigation-carrier';
+
+    private const DIRECT_NAVIGATION_LINK_COLOR_PREFIX = 'blocks-engine-direct-navigation-link-color-';
+
     /**
      * @return array<string, mixed>|null
      */
@@ -256,6 +262,25 @@ final class NavigationPattern implements PatternRecognizerInterface
         // stays with the menu instead of being copied onto the landmark.
         $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
         $navigationAttrs['overlayMenu'] = 'mobile';
+        $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
+        $isDirectDivCascadeCollision = $isDirectDivCluster
+            && null !== $resolvedStyle
+            && $this->hasDirectNavigationBoxCollision(
+                (string) $resolvedStyle($element),
+                (string) $resolvedStyle($cluster)
+            );
+        if ( $isDirectDivCascadeCollision ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS);
+            $links = $this->markDirectNavigationLinkColors($links);
+            foreach ( array( 'margin', 'padding', 'max-width' ) as $family ) {
+                if ( null !== $resolvedStyle
+                    && $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($element), $family)
+                    && ! $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($cluster), $family)
+                ) {
+                    $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS . '-reset-' . $family);
+                }
+            }
+        }
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
         if ( $this->isListNavigationSource($cluster) ) {
             unset($commonTextAttrs['style']['typography']);
@@ -269,6 +294,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // attribute that carries an accessible name, and inventing one would emit
         // exactly the unregistered comment attribute this carrier exists to stop.
         $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
+        if ( $isDirectDivCascadeCollision ) {
+            $carrierAttrs = $this->withClassName($carrierAttrs, self::DIRECT_NAVIGATION_CARRIER_CLASS);
+        }
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
@@ -300,6 +328,70 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/group', $carrierAttrs, $children, $element);
+    }
+
+    /**
+     * Per-link colour support is retained in block attributes for diagnostics,
+     * but core/navigation-link does not render it. Add a deterministic class to
+     * the runtime item so engine-support CSS can address the generated anchor.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @return array<int, array<string, mixed>>
+     */
+    private function markDirectNavigationLinkColors(array $links): array
+    {
+        foreach ( $links as &$link ) {
+            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+            if ( '' !== $color ) {
+                $link['attrs'] = $this->withClassName(
+                    $attrs,
+                    self::DIRECT_NAVIGATION_LINK_COLOR_PREFIX . substr(hash('sha256', $color), 0, 12)
+                );
+            }
+            if ( is_array($link['innerBlocks'] ?? null) ) {
+                $link['innerBlocks'] = $this->markDirectNavigationLinkColors($link['innerBlocks']);
+            }
+        }
+        unset($link);
+
+        return $links;
+    }
+
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withClassName(array $attrs, string $className): array
+    {
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $className)) ?: array();
+        $attrs['className'] = implode(' ', array_values(array_unique(array_filter($classes))));
+        return $attrs;
+    }
+
+    private function resolvedStyleDeclaresFamily(string $style, string $family): bool
+    {
+        $property = match ( $family ) {
+            'margin' => 'margin(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
+            'padding' => 'padding(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
+            default => preg_quote($family, '/'),
+        };
+
+        return 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:/i', $style);
+    }
+
+    private function hasDirectNavigationBoxCollision(string $landmarkStyle, string $clusterStyle): bool
+    {
+        // Enter this compatibility path only when replacing a plain div with a
+        // nested nav duplicates the landmark's complete centered box. Partial
+        // box ownership is not enough evidence that resetting the generated
+        // host preserves the source element's authored layout.
+        foreach ( array( 'margin', 'padding', 'max-width' ) as $family ) {
+            if ( ! $this->resolvedStyleDeclaresFamily($landmarkStyle, $family)
+                || $this->resolvedStyleDeclaresFamily($clusterStyle, $family)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

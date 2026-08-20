@@ -1146,6 +1146,10 @@ final class HtmlTransformer
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
         }
+        $directNavigationCss = $this->directNavigationSupportCss($serializedBlocks);
+        if ( '' !== $directNavigationCss ) {
+            $afterAuthorCssParts[] = $directNavigationCss;
+        }
         if ( array() !== $this->nativeButtonStyleRules ) {
             $afterAuthorCssParts[] = implode("\n", $this->nativeButtonStyleRules);
         }
@@ -1159,6 +1163,57 @@ final class HtmlTransformer
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
+    }
+
+    private function directNavigationSupportCss(string $serializedBlocks): string
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-direct-navigation') ) {
+            return '';
+        }
+
+        $host = '.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-direct-navigation';
+        $rules = array();
+        foreach ( array(
+            'margin' => 'margin:0',
+            'padding' => 'padding:0',
+            'max-width' => 'max-width:none',
+        ) as $family => $declaration ) {
+            $marker = 'blocks-engine-direct-navigation-reset-' . $family;
+            if ( str_contains($serializedBlocks, $marker) ) {
+                $rules[] = $host . '.' . $marker . '{' . $declaration . '}';
+            }
+        }
+
+        if ( preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches) ) {
+            foreach ( $matches[1] as $json ) {
+                $attrs = json_decode($json, true);
+                if ( ! is_array($attrs) ) {
+                    continue;
+                }
+
+                $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+                if ( '' === $color ) {
+                    continue;
+                }
+                $safeColor = (string) ($this->styleAttributeMapper()->map(array( 'color' => $color ))['style']['color']['text'] ?? '');
+                if ( '' === $safeColor ) {
+                    continue;
+                }
+
+                $expectedMarker = 'blocks-engine-direct-navigation-link-color-' . substr(hash('sha256', $safeColor), 0, 12);
+                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                if ( ! in_array($expectedMarker, $classes, true) ) {
+                    continue;
+                }
+
+                $selector = '.wp-block-navigation.blocks-engine-direct-navigation '
+                    . '.wp-block-navigation-item.' . $expectedMarker
+                    . '>.wp-block-navigation-item__content';
+                $rules[$selector] = $selector . '{color:' . $safeColor . '}';
+            }
+        }
+
+        return implode("\n", array_values($rules));
     }
 
     /** @param array<int, string> $cssParts */
@@ -2788,7 +2843,7 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement))),
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement)
         );
     }
@@ -2839,7 +2894,7 @@ final class HtmlTransformer
             null,
             null,
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)))
         );
     }
 
