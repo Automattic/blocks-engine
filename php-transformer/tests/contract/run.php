@@ -1866,7 +1866,7 @@ $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($v
 
 $splitResponsiveSubmenu = ( new HtmlTransformer() )->transform(
     '<header><div class="desktop"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio"><a>Portfolio</a></li><li id="about"><a href="/about">About</a></li></ul></div>'
-    . '<div class="mobile" style="display:none"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio" class="has-submenu"><a>Portfolio</a><div class="submenu-wrap"><ul><li><a href="/portraits">Portraits</a></li><li><a href="/families">Families</a></li></ul></div></li><li id="about"><a href="/about">About</a></li></ul></div></header>'
+    . '<div class="mobile" style="display:none"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio" class="has-submenu"><a>Portfolio</a><div class="menu-wrap"><ul><li><a href="/portraits">Portraits</a></li><li><a href="/families">Families</a></li></ul></div></li><li id="about"><a href="/about">About</a></li></ul></div></header>'
 )->toArray();
 $splitResponsiveSubmenuSerialized = (string) ($splitResponsiveSubmenu['serialized_blocks'] ?? '');
 $splitResponsiveSubmenuMenus = $splitResponsiveSubmenu['source_reports']['semantic_parity']['navigation_menus']['blocks'] ?? array();

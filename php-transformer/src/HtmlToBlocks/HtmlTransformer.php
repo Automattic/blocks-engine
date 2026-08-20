@@ -766,12 +766,12 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
-        $this->hydrateDuplicateNavigationSubmenus($body);
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
