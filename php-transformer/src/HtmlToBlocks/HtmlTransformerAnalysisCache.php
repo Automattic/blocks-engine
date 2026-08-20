@@ -8,7 +8,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
  */
 final class HtmlTransformerAnalysisCache
 {
-    /** @var array{key: string, static: array, conditional: array, image_shape: array, pseudo: array, custom_properties: array}|null */
+    /** @var array{key: string, static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array}|null */
     public ?array $style = null;
 
     public int $styleBuilds = 0;

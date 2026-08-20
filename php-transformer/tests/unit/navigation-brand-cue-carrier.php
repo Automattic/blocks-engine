@@ -27,12 +27,10 @@ declare(strict_types=1);
  * The brand is still never absorbed as a menu item — that is what the carrier
  * guarantees structurally, and it is the property the deferral was protecting.
  *
- * NOT covered here: the authored current-state CLASS (`is-current`) is still
- * carried onto the item on purpose. It is the hook a design's own rule selects
- * on — see the `html-brand-anchor-beside-active-nav-list` parity fixture, whose
- * `.nav-links a.active::after` rule depends on it — so dropping it without
- * re-pointing that rule at WordPress's runtime `current-menu-item` would delete
- * the indicator rather than move it.
+ * Authored current-state classes are design-snapshot state and do not survive
+ * on one permanently selected shared-header item. The transformer retains its
+ * own current-source marker long enough to carry authored colour onto
+ * WordPress/runtime `current-menu-item` and `aria-current` state.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -208,7 +206,7 @@ $ctaHeader =
     '<style>header nav{display:flex;gap:20px;padding:22px}'
     . '.navlinks{list-style:none;display:flex;gap:16px;margin:0;padding:0}'
     . '.navlinks a.nav-cta{background:#FFD400;color:#1B1033;padding:.5rem 1.05rem}'
-    . '.navlinks a.nav-cta:hover{background:#fff}</style>'
+    . '.navlinks a.nav-cta:hover{background:#fff;color:#224466}</style>'
     . '<header><nav aria-label="Main">'
     . '<a class="brand" href="#hero">Super <span>Coaching</span></a>'
     . '<ul class="navlinks">'
@@ -253,14 +251,13 @@ $assert(
     'body=' . $ctaBody
 );
 
-// NOT re-pointed: the `:hover` variant. Pseudo-class selectors are absent from
-// the rule analysis this mapping reads — `.navlinks a.nav-cta:hover` never
-// reaches `staticStyleRules` — so carrying it would need a separate extraction
-// path. The resting pill is what a design review sees; the hover state is a
-// known, deliberate omission rather than an oversight.
+// Interaction rules that depend on the anchor-owned class need the same
+// re-pointing. The class moves to the navigation item, so the source selector
+// cannot match core's rendered anchor by itself.
 $assert(
-    ! str_contains($ctaCss, $contentSelector . ':hover{'),
-    'the hover variant is knowingly left unmapped, not silently half-emitted',
+    str_contains($ctaCss, $contentSelector . ':hover{color:#224466}')
+        && ! str_contains($ctaCss, $contentSelector . ':hover{background:'),
+    'navigation interaction remapping carries only link colour',
     substr($ctaCss, -300)
 );
 
@@ -269,6 +266,211 @@ $assert(
     ! str_contains($ctaCss, '.wp-block-navigation-item.brand'),
     'only classes that actually ride a navigation-link are re-pointed',
     substr($ctaCss, -400)
+);
+
+// A menu's authored default colour belongs on core/navigation, because dynamic
+// core/navigation-link output does not render its own style.color.text. One
+// current item or CTA may deliberately override that default, so unanimity is
+// too strict: carry only a unique strict majority and abstain on a tie.
+$majorityColour = $transform(
+    '<style>.primary-menu a{color:#5c7c99}.primary-menu a.current{color:#dde6ef}.primary-menu a.nav-cta{color:#071018}</style>'
+        . '<nav class="primary-menu"><a class="current" href="/">Home</a><a href="/services">Services</a>'
+        . '<a href="/about">About</a><a class="nav-cta" href="/book">Book</a><a href="/contact">Contact</a></nav>'
+);
+$majorityNavigation = $findBlocks($majorityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    '#5c7c99' === ($majorityNavigation['attrs']['customTextColor'] ?? null),
+    'a unique strict-majority link colour is carried by core/navigation',
+    json_encode($majorityNavigation['attrs'] ?? array())
+);
+$assert(
+    '#dde6ef' === ($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'] ?? null)
+        && '#071018' === ($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'] ?? null),
+    'current and CTA link colour exceptions remain on their own navigation links',
+    json_encode($majorityNavigation['innerBlocks'] ?? array())
+);
+
+// Source order breaks ties; it does not let a later single class beat an
+// earlier descendant selector. zesty-canyon relies on this exact cascade: its
+// menu-wide anchor colour remains the CTA text colour because `.nav-cta` is
+// less specific than `.navlinks a`.
+$specificityColour = $transform(
+    '<style>.specific-menu a{color:#5c7c99}.nav-cta{color:#071018}</style>'
+        . '<nav class="specific-menu"><a href="/">Home</a><a href="/services">Services</a>'
+        . '<a class="nav-cta" href="/book">Book</a></nav>'
+);
+$specificityNavigation = $findBlocks($specificityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    '#5c7c99' === ($specificityNavigation['innerBlocks'][2]['attrs']['style']['color']['text'] ?? null),
+    'navigation link colour resolution honors selector specificity before source order',
+    json_encode($specificityNavigation['innerBlocks'][2]['attrs'] ?? array())
+);
+
+$alphaColour = $transform(
+    '<style>.alpha-menu a{color:rgba(255,255,255,0.82)}.alpha-menu a.active{color:rgb(255,255,255)}</style>'
+        . '<nav class="alpha-menu"><a class="active" href="/">Home</a><a href="/work">Work</a><a href="/about">About</a></nav>'
+);
+$alphaNavigation = $findBlocks($alphaColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    'rgba(255,255,255,0.82)' === ($alphaNavigation['attrs']['customTextColor'] ?? null),
+    'strict-majority promotion preserves authored alpha bytes',
+    json_encode($alphaNavigation['attrs'] ?? array())
+);
+
+// Core renders navigation-link dynamically and does not consume its
+// style.color.text attribute. Each authored resting colour therefore needs a
+// class-scoped companion rule on the anchor core actually renders. This also
+// outranks adaptive header defaults that target that anchor directly.
+$alphaCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($alphaColour['assets'] ?? null) ? $alphaColour['assets'] : array()
+));
+$alphaLinks = $alphaNavigation['innerBlocks'] ?? array();
+$alphaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgba(255,255,255,0.82)' . "\0" . '0');
+$activeCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgb(255,255,255)' . "\0" . '0');
+$currentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', 'rgb(255,255,255)' . "\0" . '0');
+$assert(
+    str_contains((string) ($alphaLinks[1]['attrs']['className'] ?? ''), $alphaCarrier)
+        && str_contains((string) ($alphaLinks[2]['attrs']['className'] ?? ''), $alphaCarrier)
+        && ! str_contains((string) ($alphaLinks[0]['attrs']['className'] ?? ''), $activeCarrier),
+    'resting links carry deterministic colour classes without baking the design-time current item',
+    json_encode($alphaLinks)
+);
+$assert(
+    str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{color:rgba(255,255,255,0.82)}')
+        && str_contains($alphaCss, '{color:rgba(255,255,255,0.82)}')
+        && ! str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content:not(')
+        && ! str_contains($alphaCss, 'color:rgba(255,255,255,0.82)!important'),
+    'a resting colour with no authored interaction replacement survives every interaction state',
+    substr($alphaCss, -900)
+);
+$assert(
+    str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item__content[aria-current]')
+        && ! str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(')
+        && str_contains($alphaCss, '{color:rgb(255,255,255)}'),
+    'authored current colour follows the WordPress runtime current item within its navigation',
+    'attrs=' . json_encode($alphaNavigation['attrs'] ?? array()) . ' css=' . substr($alphaCss, -1200)
+);
+
+$uncolouredNavigationResult = $transform(
+    '<nav class="plain-menu"><a href="/">Home</a><a href="/about">About</a></nav>'
+);
+$assert(
+    ! str_contains((string) ($uncolouredNavigationResult['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-color-'),
+    'uncoloured navigation links remain under theme colour ownership',
+    (string) ($uncolouredNavigationResult['serialized_blocks'] ?? '')
+);
+
+$submenuColour = $transform(
+    '<style>.submenu-colour a{color:#345678}</style><nav class="submenu-colour"><ul>'
+        . '<li><a href="/services">Services</a><ul><li><a href="/design">Design</a></li></ul></li>'
+        . '<li><a href="/about">About</a></li></ul></nav>'
+);
+$submenuBlocks = $findBlocks($submenuColour['blocks'] ?? array(), 'core/navigation-submenu');
+$submenuCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($submenuColour['assets'] ?? null) ? $submenuColour['assets'] : array()
+));
+$submenuCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#345678' . "\0" . '0');
+$assert(
+    1 === count($submenuBlocks)
+        && str_contains((string) ($submenuBlocks[0]['attrs']['className'] ?? ''), $submenuCarrier)
+        && str_contains($submenuCss, '.' . $submenuCarrier . '>.wp-block-navigation-item__content{color:#345678}'),
+    'a coloured navigation-submenu owner receives the same rendered-anchor carrier',
+    'blocks=' . json_encode($submenuBlocks) . ' css=' . substr($submenuCss, -700)
+);
+
+$inlineColour = $transform(
+    '<nav><a href="/" style="color:#aa1100">Home</a><a href="/about" style="color:#aa1100">About</a></nav>'
+);
+$inlineCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($inlineColour['assets'] ?? null) ? $inlineColour['assets'] : array()
+));
+$inlineCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#aa1100' . "\0" . '0');
+$assert(
+    str_contains($inlineCss, '.' . $inlineCarrier . '>.wp-block-navigation-item__content{color:#aa1100}')
+        && ! str_contains($inlineCss, '.' . $inlineCarrier . '>.wp-block-navigation-item__content:not('),
+    'direct inline navigation colour remains authored during hover focus and active states',
+    substr($inlineCss, -700)
+);
+
+$hoverColour = $transform(
+    '<style>.hover-menu a{color:#112233}.hover-menu a:hover{color:#ddeeff}</style>'
+        . '<nav class="hover-menu"><a href="/">Home</a><a href="/about">About</a></nav>'
+);
+$hoverCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($hoverColour['assets'] ?? null) ? $hoverColour['assets'] : array()
+));
+$hoverCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#112233' . "\0" . '1');
+$assert(
+    str_contains($hoverCss, '.' . $hoverCarrier . '>.wp-block-navigation-item__content:not(:hover){color:#112233}')
+        && ! str_contains($hoverCss, '.' . $hoverCarrier . '>.wp-block-navigation-item__content:not(:hover):not(:focus)'),
+    'resting carrier yields only the interaction state with an authored colour replacement',
+    substr($hoverCss, -800)
+);
+
+$dynamicCurrentList = $transform(
+    '<style>.current-menu a{color:#223344}.current-menu .current>a{color:#aa1100}'
+        . '.current-menu .current>a:hover{color:#00cc44}</style>'
+        . '<nav class="current-menu"><ul><li class="current"><a aria-current="page" href="/">Home</a></li>'
+        . '<li><a href="/about">About</a></li><li><a href="/contact">Contact</a></li></ul></nav>'
+);
+$dynamicCurrentNavigation = $findBlocks($dynamicCurrentList['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$dynamicCurrentLinks = $dynamicCurrentNavigation['innerBlocks'] ?? array();
+$dynamicCurrentCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($dynamicCurrentList['assets'] ?? null) ? $dynamicCurrentList['assets'] : array()
+));
+$staticCurrentSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.current>.wp-block-navigation-item__content';
+$dynamicCurrentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', '#aa1100' . "\0" . '1');
+$assert(
+    ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['className'] ?? ''), ' current')
+        && ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['anchorClassName'] ?? ''), 'current')
+        && ! str_contains($dynamicCurrentCss, $staticCurrentSelector)
+        && str_contains((string) ($dynamicCurrentNavigation['attrs']['className'] ?? ''), $dynamicCurrentCarrier)
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier
+            . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.current-menu'
+            . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')
+        && str_contains($dynamicCurrentCss, '{color:#00cc44}'),
+    'list-shaped current and interaction colours follow runtime current state without retaining the static source marker',
+    'attrs=' . json_encode($dynamicCurrentNavigation) . ' css=' . substr($dynamicCurrentCss, -1800)
+);
+
+$interactionOnlyCurrent = $transform(
+    '<style>.state-menu a.current:hover{color:#00aaff;background:#eeeeee}</style>'
+        . '<nav class="state-menu"><a class="current" aria-current="page" href="/">Home</a>'
+        . '<a href="/about">About</a></nav>'
+);
+$interactionOnlyNavigation = $findBlocks($interactionOnlyCurrent['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$interactionOnlyCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($interactionOnlyCurrent['assets'] ?? null) ? $interactionOnlyCurrent['assets'] : array()
+));
+$interactionOnlySelector = '.wp-block-navigation.state-menu'
+    . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover';
+$assert(
+    ! str_contains((string) ($interactionOnlyNavigation['innerBlocks'][0]['attrs']['className'] ?? ''), ' current')
+        && str_contains($interactionOnlyCss, $interactionOnlySelector . ',')
+        && str_contains($interactionOnlyCss, '{color:#00aaff}')
+        && ! str_contains($interactionOnlyCss, $interactionOnlySelector . '{background:'),
+    'current-only interaction colour follows runtime state without requiring a resting current colour',
+    'attrs=' . json_encode($interactionOnlyNavigation) . ' css=' . substr($interactionOnlyCss, -1200)
+);
+
+$tiedColour = $transform(
+    '<style>.mixed-menu a.warm{color:#a34d35}.mixed-menu a.cool{color:#356ea3}</style>'
+        . '<nav class="mixed-menu"><a class="warm" href="/one">One</a><a class="cool" href="/two">Two</a></nav>'
+);
+$tiedNavigation = $findBlocks($tiedColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$assert(
+    ! isset($tiedNavigation['attrs']['customTextColor']) && ! isset($tiedNavigation['attrs']['textColor']),
+    'a tied mixed-colour menu keeps no invented parent colour',
+    json_encode($tiedNavigation['attrs'] ?? array())
 );
 
 

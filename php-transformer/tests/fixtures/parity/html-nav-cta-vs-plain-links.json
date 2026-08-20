@@ -24,7 +24,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"btn btn-primary cta\",\"style\":{\"color\":{\"text\":\"#fff\"}},\"label\":\"Book Now\",\"url\":\"/book\",\"kind\":\"custom\",\"anchorClassName\":\"btn btn-primary cta\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"className\":\"btn btn-primary cta blocks-engine-navigation-link-color-states-0 blocks-engine-navigation-link-color-b8dff7622b8931b80c4b9bccf5427b9efca8d8e74d7b3608b80bddff3a94b52d\",\"style\":{\"color\":{\"text\":\"#fff\"}},\"label\":\"Book Now\",\"url\":\"/book\",\"kind\":\"custom\",\"anchorClassName\":\"btn btn-primary cta\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "style=\"border-radius:999px;padding:12px 20px;background:#111;color:#fff\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Services\",\"url\":\"/services\",\"kind\":\"custom\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-navigation-item__content" },
