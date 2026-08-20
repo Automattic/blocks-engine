@@ -1575,8 +1575,9 @@ final class HtmlTransformer
      * which proves each source-cascade winner before increasing specificity.
      * State rules apply the same winner proof before mapping design-time current
      * classes onto WordPress runtime current state, including direct-anchor
-     * navigation. Compatibility output stays colour-only and retains the
-     * authored condition stack.
+     * navigation. Compatibility output stays colour-only. Conditional state
+     * rules fail closed: their active cascade also includes unconditional rules,
+     * so comparing an isolated condition stack cannot prove a global winner.
      *
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<int, string>
@@ -1594,6 +1595,9 @@ final class HtmlTransformer
         $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
         foreach ( $authoredRules as $rule ) {
+            if ( array() !== ($rule['conditions'] ?? array()) ) {
+                continue;
+            }
             $selector = trim((string) ($rule['selector'] ?? ''));
             $match = array();
             if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $anchorMatch) ) {
@@ -1667,12 +1671,7 @@ final class HtmlTransformer
                 $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
                     . $class . '>.wp-block-navigation-item__content' . $pseudo;
             }
-            $mappedRule = $selectorText . '{' . implode(';', $declarations) . '}';
-            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
-            foreach ( array_reverse($conditions) as $condition ) {
-                $mappedRule = $condition . '{' . $mappedRule . '}';
-            }
-            $rules[$selectorText . "\0" . json_encode($conditions)] = $mappedRule;
+            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
         }
 
         return array_values($rules);

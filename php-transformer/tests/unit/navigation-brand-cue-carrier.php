@@ -353,8 +353,7 @@ $assert(
 // `a.item:hover` on the source anchor even though both match the same state.
 $losingStateResult = $transform(
     '<style>.menu li a:hover{color:#112233}a.item:hover{color:#ddeeff}'
-        . '.menu li a:focus{color:#223344}.item-parent>a:focus{color:#eeccdd}'
-        . '@media (min-width:1px){a.item:active{color:#aabbcc}}</style>'
+        . '.menu li a:focus{color:#223344}.item-parent>a:focus{color:#eeccdd}</style>'
         . '<nav class="menu"><ul><li><a class="item" href="/book">Book</a></li>'
         . '<li class="item-parent"><a href="/focus">Focus</a></li>'
         . '<li><a href="/about">About</a></li></ul></nav>'
@@ -378,15 +377,6 @@ $assert(
     'an item-owned navigation state rule drops a colour that loses on its source anchor',
     'css=' . substr($losingStateSupportCss, -700)
 );
-$assert(
-    str_contains(
-        $losingStateSupportCss,
-        '@media (min-width:1px){' . str_replace(':hover', ':active', $losingStateSelector) . '{color:#aabbcc}}'
-    ),
-    'a winning conditional navigation state rule keeps its authored condition',
-    'css=' . substr($losingStateSupportCss, -700)
-);
-
 // A conditional candidate cannot be judged in isolation from unconditional
 // author rules that still participate when the condition matches.
 $conditionalLosingStateResult = $transform(
