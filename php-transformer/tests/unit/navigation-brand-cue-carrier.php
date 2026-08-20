@@ -387,6 +387,30 @@ $assert(
     'css=' . substr($losingStateSupportCss, -700)
 );
 
+// A conditional candidate cannot be judged in isolation from unconditional
+// author rules that still participate when the condition matches.
+$conditionalLosingStateResult = $transform(
+    '<style>.menu li a:hover{color:#112233}'
+        . '@media (min-width:1px){a.item:hover{color:#ddeeff}}</style>'
+        . '<nav class="menu"><ul><li><a class="item" href="/book">Book</a></li>'
+        . '<li><a href="/about">About</a></li></ul></nav>'
+);
+$conditionalLosingStateSupportCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($conditionalLosingStateResult['assets'] ?? null) ? $conditionalLosingStateResult['assets'] : array()
+));
+$assert(
+    ! str_contains(
+        $conditionalLosingStateSupportCss,
+        '@media (min-width:1px){' . $losingStateSelector . '{color:#ddeeff}}'
+    ),
+    'a conditional navigation state rule is not promoted over an unconditional source winner',
+    'css=' . substr($conditionalLosingStateSupportCss, -700)
+);
+
 // The brand anchor is NOT a menu item, so its own rules must not be dragged in.
 $assert(
     ! str_contains($ctaCss, '.wp-block-navigation-item.brand'),
