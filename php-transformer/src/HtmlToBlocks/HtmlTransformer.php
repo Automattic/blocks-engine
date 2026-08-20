@@ -1273,7 +1273,10 @@ final class HtmlTransformer
      * tokens, so it outranks both core's item styles and the authored rule it
      * stands in for.
      *
-     * Scope is deliberately narrow. The class must ride a real navigation-link
+     * Source ownership, rather than selector spelling, triggers the mapping. A
+     * bare `.nav-cta` is mapped when that class sat on the authored anchor just
+     * like `.navlinks a.nav-cta`; a class authored on the source `<li>` remains
+     * item-owned. Scope stays narrow: the class must ride a real navigation-link
      * in this document, and any ancestor part of the authored selector must name
      * a promoted navigation host — otherwise `.footer a.nav-cta` would be hoisted
      * into a menu it was never about.
@@ -1291,18 +1294,30 @@ final class HtmlTransformer
             return array();
         }
 
+        $anchorClasses = $this->listNavigationAnchorClasses($serializedBlocks);
+        if ( array() === $anchorClasses ) {
+            return array();
+        }
+
         $hostClasses = $this->listNavigationHostClasses($serializedBlocks);
         $rules = array();
         foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
-            if ( 1 !== preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+            $ancestor = '';
+            $class = '';
+            $pseudo = '';
+            if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                $ancestor = trim($match[1]);
+                $class = $match[2];
+                $pseudo = $match[3];
+            } elseif ( 1 === preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                $class = $match[1];
+                $pseudo = $match[2];
+            } else {
                 continue;
             }
 
-            $ancestor = trim($match[1]);
-            $class = $match[2];
-            $pseudo = $match[3];
-            if ( ! isset($itemClasses[$class]) ) {
+            if ( ! isset($itemClasses[$class], $anchorClasses[$class]) ) {
                 continue;
             }
 
@@ -1331,6 +1346,39 @@ final class HtmlTransformer
         }
 
         return array_values($rules);
+    }
+
+    /**
+     * Classes authored on anchors that became navigation-link blocks.
+     *
+     * `anchorClassName` is retained in serialized block attributes as source
+     * provenance even though core's renderer cannot apply it to the anchor.
+     * Reading that field distinguishes an anchor-owned class from one authored
+     * on the source `<li>`, whose `className` legitimately belongs on the item.
+     *
+     * @return array<string, true>
+     */
+    private function listNavigationAnchorClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['anchorClassName'] ?? ''))) ?: array() as $candidate ) {
+                if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
+                    $classes[$candidate] = true;
+                }
+            }
+        }
+
+        return $classes;
     }
 
     /**

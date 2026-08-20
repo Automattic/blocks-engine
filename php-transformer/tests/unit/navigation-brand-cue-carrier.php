@@ -271,6 +271,73 @@ $assert(
     substr($ctaCss, -400)
 );
 
+// --- zesty-canyon: anchor ownership, not selector spelling, triggers mapping.
+//
+// Both CTA classes sit on source anchors. One rule names the anchor explicitly;
+// the other is a bare class selector. core/navigation-link moves both classes to
+// its <li>, so both authored rules must be re-pointed to the rendered anchor.
+// A third bare class starts on the source <li>; it legitimately stays item-owned
+// and must not be re-pointed merely because it appears in `className` too.
+$surfaceHeader =
+    '<style>.navlinks{list-style:none;display:flex}'
+    . '.bare-cta{background:#22E1FF;color:#13202A;padding:.6rem 1.05rem;border:2px solid #22E1FF}'
+    . '.navlinks a.scoped-cta{background:#22E1FF;color:#13202A;padding:.6rem 1.05rem;border:2px solid #22E1FF}'
+    . '.li-only{background:#F00}</style>'
+    . '<header><nav aria-label="Main">'
+    . '<a class="brand" href="#hero">Super <span>Coaching</span></a>'
+    . '<ul class="navlinks">'
+    . '<li><a href="#hero">Home</a></li>'
+    . '<li><a class="bare-cta" href="#bare">Bare CTA</a></li>'
+    . '<li><a class="scoped-cta" href="#scoped">Scoped CTA</a></li>'
+    . '<li class="li-only"><a href="#item">Item surface</a></li>'
+    . '</ul></nav></header>';
+
+$surfaceResult = $transform($surfaceHeader);
+$surfaceSupportCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($surfaceResult['assets'] ?? null) ? $surfaceResult['assets'] : array()
+));
+
+$mappedBody = static function (string $css, string $class): string {
+    $selector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
+        . $class . '>.wp-block-navigation-item__content';
+    if ( preg_match('/' . preg_quote($selector, '/') . '\{([^}]*)\}/', $css, $match) ) {
+        return $match[1];
+    }
+    return '';
+};
+
+$bareBody = $mappedBody($surfaceSupportCss, 'bare-cta');
+$scopedBody = $mappedBody($surfaceSupportCss, 'scoped-cta');
+$liBody = $mappedBody($surfaceSupportCss, 'li-only');
+
+$assert(
+    '' !== $bareBody && $bareBody === $scopedBody,
+    'a bare rule on an anchor-carried class maps exactly like an explicit anchor rule',
+    'bare=' . $bareBody . ' scoped=' . $scopedBody
+);
+
+$surfaceLinks = $findBlocks(
+    is_array($surfaceResult['blocks'] ?? null) ? $surfaceResult['blocks'] : array(),
+    'core/navigation-link'
+);
+$itemSurfaceLinks = array_values(array_filter(
+    $surfaceLinks,
+    static fn (array $block): bool => 'Item surface' === ($block['attrs']['label'] ?? '')
+));
+$itemSurfaceAttrs = is_array($itemSurfaceLinks[0]['attrs'] ?? null) ? $itemSurfaceLinks[0]['attrs'] : array();
+
+$assert(
+    str_contains((string) ($itemSurfaceAttrs['className'] ?? ''), 'li-only')
+        && ! str_contains((string) ($itemSurfaceAttrs['anchorClassName'] ?? ''), 'li-only')
+        && '' === $liBody,
+    'a bare class authored on the source li stays item-owned and is not re-pointed',
+    'attrs=' . json_encode($itemSurfaceAttrs) . ' body=' . $liBody
+);
+
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand cue carrier contract: {$failures} failed, {$passes} passed\n");
