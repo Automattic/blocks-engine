@@ -1348,13 +1348,15 @@ final class HtmlTransformer
     private function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';
-        if ( ! str_contains($serializedBlocks, $prefix)
-            || ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        $currentPrefix = 'blocks-engine-navigation-current-color-';
+        if ( (! str_contains($serializedBlocks, $prefix) && ! str_contains($serializedBlocks, $currentPrefix))
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
         ) {
             return array();
         }
 
         $rules = array();
+        $currentColors = array();
         foreach ( $matches as $match ) {
             $attrs = json_decode($match[1], true);
             if ( ! is_array($attrs) ) {
@@ -1371,13 +1373,40 @@ final class HtmlTransformer
 
             $expectedClass = $prefix . hash('sha256', $color);
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-            if ( ! in_array($expectedClass, $classes, true) ) {
-                continue;
+            if ( in_array($expectedClass, $classes, true) ) {
+                $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
+                    . '>.wp-block-navigation-item__content:not(:hover):not(:focus):not(:focus-visible):not(:active)';
+                $rules[$expectedClass] = $selector . '{color:' . $color . '}';
             }
 
-            $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
-                . '>.wp-block-navigation-item__content';
-            $rules[$expectedClass] = $selector . '{color:' . $color . '}';
+            if ( in_array('blocks-engine-current-navigation-item', $classes, true) ) {
+                $currentColors[$currentPrefix . hash('sha256', $color)] = $color;
+            }
+        }
+
+        if ( array() !== $currentColors
+            && preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $navigationMatches, PREG_SET_ORDER)
+        ) {
+            foreach ( $navigationMatches as $navigationMatch ) {
+                $attrs = json_decode($navigationMatch[1], true);
+                if ( ! is_array($attrs) ) {
+                    continue;
+                }
+
+                $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+                foreach ( $classes as $className ) {
+                    if ( ! isset($currentColors[$className]) ) {
+                        continue;
+                    }
+
+                    $restingSuffix = ':not(:hover):not(:focus):not(:focus-visible):not(:active)';
+                    $selector = '.wp-block-navigation.' . $className
+                        . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content' . $restingSuffix
+                        . ',.wp-block-navigation.' . $className
+                        . ' .wp-block-navigation-item__content[aria-current]' . $restingSuffix;
+                    $rules['current:' . $className] = $selector . '{color:' . $currentColors[$className] . '}';
+                }
+            }
         }
 
         return array_values($rules);

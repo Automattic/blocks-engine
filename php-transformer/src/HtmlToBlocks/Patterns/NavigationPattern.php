@@ -14,6 +14,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const LINK_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-link-color-';
 
+    private const CURRENT_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-current-color-';
+
     /**
      * @return array<string, mixed>|null
      */
@@ -93,6 +95,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
+        if ( '' !== $currentTextColorClass ) {
+            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
+        }
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
@@ -263,6 +269,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             unset($commonTextAttrs['style']['typography']);
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
+        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
+        if ( '' !== $currentTextColorClass ) {
+            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
+        }
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
 
@@ -721,13 +731,14 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
+        $isCurrentNavigationItem = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
-        if ( '' !== $textColor ) {
+        if ( '' !== $textColor && ! $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' '
                 . self::LINK_COLOR_CLASS_PREFIX . hash('sha256', $textColor));
         }
 
-        if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
+        if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
             $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
@@ -759,6 +770,32 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+    }
+
+    /** @param array<int, array<string, mixed>> $links */
+    private function currentNavigationTextColorClass(array $links): string
+    {
+        $colors = array();
+        $collect = static function (array $items) use (&$collect, &$colors): void {
+            foreach ( $items as $link ) {
+                $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+                $className = (string) ($attrs['className'] ?? '');
+                $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+                if ( '' !== $color && str_contains($className, 'blocks-engine-current-navigation-item') ) {
+                    $colors[$color] = true;
+                }
+
+                $collect(is_array($link['innerBlocks'] ?? null) ? $link['innerBlocks'] : array());
+            }
+        };
+        $collect($links);
+
+        if ( 1 !== count($colors) ) {
+            return '';
+        }
+
+        $color = (string) array_key_first($colors);
+        return self::CURRENT_COLOR_CLASS_PREFIX . hash('sha256', $color);
     }
 
 
