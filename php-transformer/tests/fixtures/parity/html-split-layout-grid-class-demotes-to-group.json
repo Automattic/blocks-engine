@@ -25,7 +25,7 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid hero-grid\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Fresh Bread Daily\",\"level\":1} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":1} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:columns" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-columns" }
   ]

@@ -6,6 +6,21 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 final class Runtime
 {
     /**
+     * RichText attributes derived from saved HTML rather than block comments.
+     *
+     * The transformer keeps these values in its working block arrays while it
+     * builds markup and reports. WordPress derives them from innerHTML when it
+     * parses a block, so passing them to serialize_blocks() duplicates the
+     * source value in the delimiter and exposes the block-only `rich-text`
+     * type to REST schema validation during rendering.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private const HTML_SOURCED_RICH_TEXT_ATTRIBUTES = array(
+        'core/heading' => array( 'content' ),
+    );
+
+    /**
      * @var array<int, string>
      */
     private const FALLBACK_CORE_BLOCK_NAMES = array(
@@ -280,6 +295,7 @@ final class Runtime
     public function serializeBlocks(array $blocks): string
     {
         $this->diagnostics = array();
+        $blocks = $this->canonicalRuntimeBlocks($blocks);
 
         if ( $this->canSerializeBlocks() ) {
             return serialize_blocks($blocks);
@@ -301,6 +317,7 @@ final class Runtime
     public function renderBlock(array $block): string
     {
         $this->diagnostics = array();
+        $block = $this->canonicalRuntimeBlocks(array( $block ))[0];
 
         if ( $this->canRenderBlock() ) {
             return render_block($block);
@@ -317,6 +334,7 @@ final class Runtime
     public function renderBlocks(array $blocks): string
     {
         $this->diagnostics = array();
+        $blocks = $this->canonicalRuntimeBlocks($blocks);
 
         $html = '';
         foreach ( $blocks as $block ) {
@@ -333,6 +351,29 @@ final class Runtime
         }
 
         return $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalRuntimeBlocks(array $blocks): array
+    {
+        foreach ( $blocks as &$block ) {
+            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            if ( isset(self::HTML_SOURCED_RICH_TEXT_ATTRIBUTES[ $name ]) && is_array($block['attrs'] ?? null) ) {
+                foreach ( self::HTML_SOURCED_RICH_TEXT_ATTRIBUTES[ $name ] as $attribute ) {
+                    unset($block['attrs'][ $attribute ]);
+                }
+            }
+
+            if ( is_array($block['innerBlocks'] ?? null) ) {
+                $block['innerBlocks'] = $this->canonicalRuntimeBlocks($block['innerBlocks']);
+            }
+        }
+        unset($block);
+
+        return $blocks;
     }
 
     /**

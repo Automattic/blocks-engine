@@ -1625,7 +1625,7 @@ $coverHero = ( new HtmlTransformer() )->transform(
     '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
 )->toArray();
 $coverHeroSerialized = (string) ($coverHero['serialized_blocks'] ?? '');
-$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"content":"Build","level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph {"content":"Ship faster with blocks."} --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
+$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph {"content":"Ship faster with blocks."} --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
 $assert($expectedCoverHeroSerialized === $coverHeroSerialized, 'gated hero serializes to the exact canonical core/cover golden', $coverHeroSerialized);
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($coverHero['blocks'] ?? array()), 'canonical hero cover passes save-shape validation');
 
@@ -1649,7 +1649,7 @@ $repeatingTexture = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
 )->toArray();
 $repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
-$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"content":"Pricing","level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph {"content":"Plans"} --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph {"content":"Plans"} --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
 $assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
 
@@ -1839,7 +1839,7 @@ $assert('Mastodon' === ($footerNavigationMenus[2]['items'][0]['label'] ?? ''), '
 $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'icon-only social links use title as navigation label');
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
-$assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"content":"Product","level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
 $assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title","content":"Company"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
 $assert(2 === substr_count($footerNavigationSerialized, '"orientation":"vertical"'), 'labeled footer navigation retains vertical column flow without changing unlabeled social navigation');
 
@@ -3994,7 +3994,7 @@ assertSame(0, $result['metrics']['fallback_count'], 'HTML metrics should not cou
 assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
-if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
+if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
     exit(1);
 }
@@ -4288,7 +4288,7 @@ $htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')
 assertSame('success', $htmlToBlocksResult['status'], 'Format bridge result conversion should succeed for public default adapters.');
 assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schema'], 'Format bridge result conversion should use the shared result envelope.');
 assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Format bridge result conversion should expose block arrays.');
-assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
+assertStringContains('<!-- wp:heading {"level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
 $htmlAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $htmlAssetResult['assets'] ?? array()));

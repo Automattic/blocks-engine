@@ -28,7 +28,7 @@
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/heading" },
     { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/paragraph" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Hello blocks\",\"level\":1} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"level\":1} -->" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }
