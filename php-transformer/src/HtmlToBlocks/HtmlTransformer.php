@@ -785,6 +785,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
 
@@ -3459,6 +3460,97 @@ final class HtmlTransformer
     }
 
     /**
+     * Responsive menus sometimes keep the visible desktop items shallow while a
+     * duplicate item with the same stable id owns the complete submenu tree.
+     * Reconcile that source-authored relationship before navigation conversion so
+     * the visible variant becomes one canonical core/navigation-submenu tree.
+     */
+    private function hydrateDuplicateNavigationSubmenus(DOMElement $body): void
+    {
+        $variants = array();
+        foreach ( $body->getElementsByTagName('li') as $item ) {
+            if ( ! $item instanceof DOMElement ) {
+                continue;
+            }
+
+            $id = trim($this->attr($item, 'id'));
+            $anchor = $this->directNavigationItemAnchor($item);
+            if ( '' === $id || ! $anchor instanceof DOMElement ) {
+                continue;
+            }
+
+            $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+            if ( '' === $label ) {
+                continue;
+            }
+
+            $variants[$id . '|' . $label][] = $item;
+        }
+
+        foreach ( $variants as $items ) {
+            if ( 2 > count($items) ) {
+                continue;
+            }
+
+            $sourceCarriers = array();
+            $sourceLinkCount = 0;
+            foreach ( $items as $item ) {
+                $carriers = $this->directNavigationSubmenuCarriers($item);
+                $linkCount = 0;
+                foreach ( $carriers as $carrier ) {
+                    $linkCount += $carrier->getElementsByTagName('a')->length;
+                }
+                if ( $linkCount > $sourceLinkCount ) {
+                    $sourceCarriers = $carriers;
+                    $sourceLinkCount = $linkCount;
+                }
+            }
+
+            if ( 0 === $sourceLinkCount ) {
+                continue;
+            }
+
+            foreach ( $items as $item ) {
+                if ( array() !== $this->directNavigationSubmenuCarriers($item) ) {
+                    continue;
+                }
+                foreach ( $sourceCarriers as $carrier ) {
+                    $item->appendChild($carrier->cloneNode(true));
+                }
+            }
+        }
+    }
+
+    private function directNavigationItemAnchor(DOMElement $item): ?DOMElement
+    {
+        foreach ( $item->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function directNavigationSubmenuCarriers(DOMElement $item): array
+    {
+        $carriers = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'a' === strtolower($child->tagName) ) {
+                continue;
+            }
+            if ( 0 < $child->getElementsByTagName('a')->length
+                && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length )
+            ) {
+                $carriers[] = $child;
+            }
+        }
+
+        return $carriers;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
@@ -4422,6 +4514,10 @@ final class HtmlTransformer
                 ));
 
                 return $this->htmlPreservationBlock($element);
+            }
+
+            if ( $this->isEmptyInteractiveFeatureShell($element) ) {
+                return null;
             }
 
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
@@ -6800,6 +6896,58 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    /**
+     * Empty search and cart shells are dead platform chrome, not authored layout.
+     * Content, controls, media, links, and runtime bindings keep their existing
+     * native or capability-owned conversion path.
+     */
+    private function isEmptyInteractiveFeatureShell(DOMElement $element): bool
+    {
+        $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
+        if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
+            || '' !== $this->renderedTextContent($element)
+            || $this->isRuntimeDomTarget($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || $this->hasAuthorInlineAlignment($element)
+        ) {
+            return false;
+        }
+
+        foreach ( array( 'a', 'audio', 'button', 'canvas', 'iframe', 'img', 'input', 'object', 'picture', 'select', 'svg', 'textarea', 'video' ) as $tagName ) {
+            if ( 0 < $element->getElementsByTagName($tagName)->length ) {
+                return false;
+            }
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasAuthorInlineAlignment(DOMElement $element): bool
+    {
+        $declarations = $this->presentationDeclarations($element);
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use ($element, &$declarations): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $this->parsedCssSelector($selector);
+                if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+                    $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($body));
+                    break;
+                }
+            }
+            return $prelude;
+        });
+
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
+        return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
+            && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);
     }
 
     private function isInertHiddenEmptyElement(DOMElement $element): bool

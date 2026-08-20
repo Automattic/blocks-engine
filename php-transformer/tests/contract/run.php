@@ -1864,6 +1864,18 @@ $assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), '
 $assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder') && ! str_contains($visibleVariantSerialized, 'collapsed-nav'), 'navigation deduplication prefers the visible source variant over hidden placeholder and collapsed variants');
 $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
 
+$splitResponsiveSubmenu = ( new HtmlTransformer() )->transform(
+    '<header><div class="desktop"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio"><a>Portfolio</a></li><li id="about"><a href="/about">About</a></li></ul></div>'
+    . '<div class="mobile" style="display:none"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio" class="has-submenu"><a>Portfolio</a><div class="menu-wrap"><ul><li><a href="/portraits">Portraits</a></li><li><a href="/families">Families</a></li></ul></div></li><li id="about"><a href="/about">About</a></li></ul></div></header>'
+)->toArray();
+$splitResponsiveSubmenuSerialized = (string) ($splitResponsiveSubmenu['serialized_blocks'] ?? '');
+$splitResponsiveSubmenuMenus = $splitResponsiveSubmenu['source_reports']['semantic_parity']['navigation_menus']['blocks'] ?? array();
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation {'), 'split responsive menu variants reconcile into one canonical navigation block');
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation-submenu '), 'visible shallow navigation item adopts the duplicate responsive submenu');
+$assert(str_contains($splitResponsiveSubmenuSerialized, '"label":"Portfolio"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Portraits","url":"/portraits"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Families","url":"/families"'), 'reconciled submenu preserves the parent label and ordered child destinations');
+$assert(5 === ($splitResponsiveSubmenuMenus[0]['item_count'] ?? null), 'reconciled responsive navigation reports every parent and submenu item');
+$assert('pass' === ($splitResponsiveSubmenu['source_reports']['wp_block_validity']['status'] ?? ''), 'reconciled responsive submenu remains WordPress block-valid');
+
 $bodyStateProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="fixed-shell no-header-page"><div class="wrapper"><div class="main-wrap"><p>Content</p></div></div></body></html>',
     array( 'static_css' => '.no-header-page .main-wrap{padding-top:80px}body.fixed-shell .main-wrap{background:#fff}' )
@@ -4205,6 +4217,27 @@ $hiddenEmptyResult = (new HtmlTransformer())->transform(
 $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'inert hidden empty elements are pruned instead of becoming empty groups');
 $assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
 $assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
+
+$emptyFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header><div class="empty-search-shell"><div class="container"><span></span></div></div>'
+    . '<div class="mini-cart"></div><div class="real-search-shell"><input type="search" aria-label="Search"></div>'
+    . '<div class="cart-status">2 items</div><div id="runtime-cart" class="cart"></div></header>',
+    array('runtime_dom_selectors' => array('#runtime-cart'))
+)->toArray();
+$emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
+$assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
+$assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
+$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label=\"Search\"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
+$assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
+
+$layoutFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header class="toolbar"><div class="empty-search-shell"></div><nav><a href="/">Home</a></nav><div class="mini-cart"></div></header>',
+    array('static_css' => '.toolbar{display:flex;justify-content:space-between}.mini-cart{display:inline-block;vertical-align:middle}')
+)->toArray();
+$layoutFeatureShellSerialized = (string) ($layoutFeatureShellResult['serialized_blocks'] ?? '');
+$assert(str_contains($layoutFeatureShellSerialized, 'empty-search-shell'), 'empty feature chrome participating in author-owned layout remains available to preserve sibling placement');
+$assert(str_contains($layoutFeatureShellSerialized, 'mini-cart'), 'empty inline feature chrome with explicit vertical alignment remains available to preserve the inline baseline');
 
 $runtimeGeometryResult = (new HtmlTransformer())->transform(
     '<main><div id="runtime-geometry" style="width:290px !important;height:62px !important"></div></main>',
