@@ -1184,7 +1184,7 @@ final class HtmlTransformer
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
         }
-        foreach ( $this->navigationItemStateAnchorRules($serializedBlocks) as $itemAnchorRule ) {
+        foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
             $afterAuthorCssParts[] = $itemAnchorRule;
         }
         $directNavigationCss = $this->directNavigationSupportCss($serializedBlocks);
@@ -1573,12 +1573,15 @@ final class HtmlTransformer
      *
      * Resting declarations are handled by listNavigationItemAnchorRules(),
      * which proves each source-cascade winner before increasing specificity.
-     * State rules stay colour-only and map design-time current classes onto
-     * WordPress runtime current state, including direct-anchor navigation.
+     * State rules apply the same winner proof before mapping design-time current
+     * classes onto WordPress runtime current state, including direct-anchor
+     * navigation. Compatibility output stays colour-only and retains the
+     * authored condition stack.
      *
+     * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<int, string>
      */
-    private function navigationItemStateAnchorRules(string $serializedBlocks): array
+    private function navigationItemStateAnchorRules(string $serializedBlocks, array $sourceProvenance): array
     {
         $hasListNavigation = str_contains($serializedBlocks, 'blocks-engine-list-navigation');
         if ( ! str_contains($serializedBlocks, '<!-- wp:navigation ') ) {
@@ -1588,14 +1591,15 @@ final class HtmlTransformer
         $itemClasses = $this->listNavigationItemClasses($serializedBlocks);
         $listHostClasses = $this->listNavigationHostClasses($serializedBlocks);
         $allHostClasses = $this->listNavigationHostClasses($serializedBlocks, false);
+        $authoredRules = $this->navigationAuthorStyleRules();
         $rules = array();
-        foreach ( $this->navigationStateStyleRules as $rule ) {
+        foreach ( $authoredRules as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
             $match = array();
             if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $anchorMatch) ) {
-                $match = array( $anchorMatch[1], $anchorMatch[2], $anchorMatch[3] );
+                $match = array( $anchorMatch[1], $anchorMatch[2], $anchorMatch[3], 'anchor' );
             } elseif ( 1 === preg_match('/^(.*?)(?:^|\s)\.([A-Za-z_][A-Za-z0-9_-]*)\s*>\s*a((?::[a-z-]+)*)$/', $selector, $itemMatch) ) {
-                $match = array( $itemMatch[1], $itemMatch[2], $itemMatch[3] );
+                $match = array( $itemMatch[1], $itemMatch[2], $itemMatch[3], 'item' );
             }
             if ( array() === $match ) {
                 continue;
@@ -1603,7 +1607,11 @@ final class HtmlTransformer
 
             $ancestor = trim($match[0]);
             $class = $match[1];
-            $pseudo = $match[2];
+            $pseudo = strtolower($match[2]);
+            $classOwner = $match[3];
+            if ( ! in_array($pseudo, array( ':hover', ':focus', ':focus-visible', ':active' ), true) ) {
+                continue;
+            }
             $isCurrentClass = $this->isAuthoredCurrentNavigationClass($class);
             if ( ! $isCurrentClass && (! $hasListNavigation || ! isset($itemClasses[$class])) ) {
                 continue;
@@ -1611,6 +1619,15 @@ final class HtmlTransformer
 
             $hostClasses = $isCurrentClass ? $allHostClasses : $listHostClasses;
             if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
+                continue;
+            }
+
+            $sourceAnchors = 'anchor' === $classOwner
+                ? $this->navigationSourceAnchorsForClass($class, $sourceProvenance)
+                : $this->navigationSourceAnchorsForItemClass($class, $sourceProvenance);
+            if ( array() === $sourceAnchors
+                || ! $this->navigationRuleWinsPropertyOnAnchors($rule, 'color', $authoredRules, $sourceAnchors)
+            ) {
                 continue;
             }
 
@@ -1650,7 +1667,12 @@ final class HtmlTransformer
                 $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
                     . $class . '>.wp-block-navigation-item__content' . $pseudo;
             }
-            $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
+            $mappedRule = $selectorText . '{' . implode(';', $declarations) . '}';
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            foreach ( array_reverse($conditions) as $condition ) {
+                $mappedRule = $condition . '{' . $mappedRule . '}';
+            }
+            $rules[$selectorText . "\0" . json_encode($conditions)] = $mappedRule;
         }
 
         return array_values($rules);
@@ -1818,6 +1840,41 @@ final class HtmlTransformer
                 && isset($selectors[$this->elementSelector($element)])
             ) {
                 $anchors[] = $element;
+            }
+        }
+        return $anchors;
+    }
+
+    /**
+     * Source navigation anchors directly owned by a class-bearing source item.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return list<DOMElement>
+     */
+    private function navigationSourceAnchorsForItemClass(string $class, array $sourceProvenance): array
+    {
+        $selectors = array();
+        foreach ( $sourceProvenance as $entry ) {
+            if ( 'core/navigation-link' === ($entry['block_name'] ?? '') && 'a' === ($entry['tag'] ?? '') ) {
+                $selectors[(string) ($entry['selector'] ?? '')] = true;
+            }
+        }
+        if ( array() === $selectors ) {
+            return array();
+        }
+
+        $anchors = array();
+        foreach ( $this->authorStyleSourceElementsByClass[$class] ?? array() as $item ) {
+            if ( ! $item instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $item->childNodes as $child ) {
+                if ( $child instanceof DOMElement
+                    && 'a' === strtolower($child->tagName)
+                    && isset($selectors[$this->elementSelector($child)])
+                ) {
+                    $anchors[] = $child;
+                }
             }
         }
         return $anchors;
