@@ -331,19 +331,29 @@ $alphaCss = implode("\n", array_map(
 $alphaLinks = $alphaNavigation['innerBlocks'] ?? array();
 $alphaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgba(255,255,255,0.82)');
 $activeCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', 'rgb(255,255,255)');
+$currentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', 'rgb(255,255,255)');
 $assert(
     str_contains((string) ($alphaLinks[1]['attrs']['className'] ?? ''), $alphaCarrier)
         && str_contains((string) ($alphaLinks[2]['attrs']['className'] ?? ''), $alphaCarrier)
-        && str_contains((string) ($alphaLinks[0]['attrs']['className'] ?? ''), $activeCarrier),
-    'every coloured navigation link carries a deterministic rendered-colour class',
+        && ! str_contains((string) ($alphaLinks[0]['attrs']['className'] ?? ''), $activeCarrier),
+    'resting links carry deterministic colour classes without baking the design-time current item',
     json_encode($alphaLinks)
 );
 $assert(
-    str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{color:rgba(255,255,255,0.82)}')
-        && str_contains($alphaCss, '.' . $activeCarrier . '>.wp-block-navigation-item__content{color:rgb(255,255,255)}')
-        && ! str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{color:rgba(255,255,255,0.82)!important}'),
-    'rendered navigation-link colour rules preserve alpha bytes without important',
+    str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content:not(:hover)')
+        && str_contains($alphaCss, '{color:rgba(255,255,255,0.82)}')
+        && ! str_contains($alphaCss, '.' . $alphaCarrier . '>.wp-block-navigation-item__content{')
+        && ! str_contains($alphaCss, 'color:rgba(255,255,255,0.82)!important'),
+    'resting navigation-link colour rules preserve alpha without freezing hover or using important',
     substr($alphaCss, -900)
+);
+$assert(
+    str_contains((string) ($alphaNavigation['attrs']['className'] ?? ''), $currentCarrier)
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
+        && str_contains($alphaCss, '.wp-block-navigation.' . $currentCarrier . ' .wp-block-navigation-item__content[aria-current]:not(:hover)')
+        && str_contains($alphaCss, '{color:rgb(255,255,255)}'),
+    'authored current colour follows the WordPress runtime current item within its navigation',
+    'attrs=' . json_encode($alphaNavigation['attrs'] ?? array()) . ' css=' . substr($alphaCss, -1200)
 );
 
 $uncolouredNavigationResult = $transform(
@@ -353,6 +363,25 @@ $assert(
     ! str_contains((string) ($uncolouredNavigationResult['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-color-'),
     'uncoloured navigation links remain under theme colour ownership',
     (string) ($uncolouredNavigationResult['serialized_blocks'] ?? '')
+);
+
+$submenuColour = $transform(
+    '<style>.submenu-colour a{color:#345678}</style><nav class="submenu-colour"><ul>'
+        . '<li><a href="/services">Services</a><ul><li><a href="/design">Design</a></li></ul></li>'
+        . '<li><a href="/about">About</a></li></ul></nav>'
+);
+$submenuBlocks = $findBlocks($submenuColour['blocks'] ?? array(), 'core/navigation-submenu');
+$submenuCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($submenuColour['assets'] ?? null) ? $submenuColour['assets'] : array()
+));
+$submenuCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#345678');
+$assert(
+    1 === count($submenuBlocks)
+        && str_contains((string) ($submenuBlocks[0]['attrs']['className'] ?? ''), $submenuCarrier)
+        && str_contains($submenuCss, '.' . $submenuCarrier . '>.wp-block-navigation-item__content:not(:hover)'),
+    'a coloured navigation-submenu owner receives the same rendered-anchor carrier',
+    'blocks=' . json_encode($submenuBlocks) . ' css=' . substr($submenuCss, -700)
 );
 
 $tiedColour = $transform(
