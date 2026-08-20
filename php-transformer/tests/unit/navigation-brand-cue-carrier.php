@@ -338,6 +338,50 @@ $assert(
     'attrs=' . json_encode($itemSurfaceAttrs) . ' body=' . $liBody
 );
 
+// A mapped rule must not gain cascade power it lacked in the authored design.
+// zesty-canyon's bare CTA rule owns the pill surface, but its text geometry and
+// padding lose to the more-specific `.navlinks a` rule on that same anchor.
+$losingHeader =
+    '<style>.navlinks{list-style:none;display:flex}'
+    . '.navlinks a{font-family:Inter;font-weight:600;font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;color:#fff;padding:.35rem 0;border-bottom:2px solid transparent}'
+    . '.nav-cta{font-family:Space Grotesk;font-weight:700;font-size:.9rem;letter-spacing:.12em;text-transform:none;color:#13202A;background:#22E1FF;padding:.6rem 1.05rem;border:2px solid #22E1FF}</style>'
+    . '<header><nav aria-label="Main">'
+    . '<a class="brand" href="#hero">Super <span>Coaching</span></a>'
+    . '<ul class="navlinks">'
+    . '<li><a href="#hero">Home</a></li>'
+    . '<li><a href="#about">About</a></li>'
+    . '<li><a class="nav-cta" href="#contact">Book a Session</a></li>'
+    . '</ul></nav></header>';
+
+$losingResult = $transform($losingHeader);
+$losingSupportCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '')
+        && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+        ? (string) ($asset['content'] ?? '')
+        : '',
+    is_array($losingResult['assets'] ?? null) ? $losingResult['assets'] : array()
+));
+$losingBody = $mappedBody($losingSupportCss, 'nav-cta');
+
+$assert(
+    str_contains($losingBody, 'background:#22E1FF')
+        && str_contains($losingBody, 'border:2px solid #22E1FF'),
+    'an anchor-carried bare rule keeps uncontested surface declarations',
+    'body=' . $losingBody
+);
+
+$assert(
+    ! str_contains($losingBody, 'font-family:')
+        && ! str_contains($losingBody, 'font-weight:')
+        && ! str_contains($losingBody, 'font-size:')
+        && ! str_contains($losingBody, 'letter-spacing:')
+        && ! str_contains($losingBody, 'text-transform:')
+        && ! str_contains($losingBody, 'color:')
+        && ! str_contains($losingBody, 'padding:'),
+    'a mapped bare rule drops declarations that lose on the authored source anchor',
+    'body=' . $losingBody
+);
+
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand cue carrier contract: {$failures} failed, {$passes} passed\n");
