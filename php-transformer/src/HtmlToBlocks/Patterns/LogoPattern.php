@@ -281,6 +281,18 @@ final class LogoPattern
             }
         }
 
+        foreach ( $anchor->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'true' !== strtolower(trim($child->getAttribute('aria-hidden'))) ) {
+                continue;
+            }
+
+            if ( '' !== trim($child->getAttribute('class'))
+                || '' !== trim($child->getAttribute('id'))
+                || '' !== trim($child->getAttribute('style')) ) {
+                return true;
+            }
+        }
+
         return false;
     }
 

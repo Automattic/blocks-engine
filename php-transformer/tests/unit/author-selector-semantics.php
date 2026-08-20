@@ -140,6 +140,27 @@ $assert(
     $textLockupLogoMarkup
 );
 
+$decorativeMarkLogo = $transform('<style>.brand{display:inline-flex;align-items:center;gap:.7rem;font-size:.94rem;font-weight:750}.brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:#c9f27b}</style><a class="brand" href="#top" aria-label="Architecture home"><span class="brand-mark" aria-hidden="true">S</span><span>Architecture</span></a>');
+$decorativeMarkLogoMarkup = (string) ($decorativeMarkLogo['serialized_blocks'] ?? '');
+$assert(
+    'core/buttons' === ($decorativeMarkLogo['blocks'][0]['blockName'] ?? '')
+        && 'core/button' === ($decorativeMarkLogo['blocks'][0]['innerBlocks'][0]['blockName'] ?? '')
+        && str_contains($decorativeMarkLogoMarkup, '<span class="brand-mark" aria-hidden="true"')
+        && str_contains($decorativeMarkLogoMarkup, 'background-color:transparent')
+        && str_contains($decorativeMarkLogoMarkup, 'border-radius:0')
+        && str_contains($decorativeMarkLogoMarkup, 'padding-top:0')
+        && 'pass' === ($decorativeMarkLogo['source_reports']['wp_block_validity']['status'] ?? ''),
+    'logo anchors with direct decorative marks retain the neutral structured button path',
+    $decorativeMarkLogoMarkup
+);
+
+$nestedDecorativeMarkLogo = $transform('<a class="brand" href="#top"><span class="word">Architecture<span class="spark" aria-hidden="true">*</span></span></a>');
+$assert(
+    'core/paragraph' === ($nestedDecorativeMarkLogo['blocks'][0]['blockName'] ?? ''),
+    'nested decorative text does not make a visible text lockup structured button chrome',
+    (string) ($nestedDecorativeMarkLogo['serialized_blocks'] ?? '')
+);
+
 // Header lockups become synthetic paragraphs. Their inner anchor must retain
 // only source-proven winners; otherwise flex semantics sit on the generated
 // paragraph while the inner anchor loses them.
