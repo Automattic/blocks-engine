@@ -208,7 +208,7 @@ $ctaHeader =
     '<style>header nav{display:flex;gap:20px;padding:22px}'
     . '.navlinks{list-style:none;display:flex;gap:16px;margin:0;padding:0}'
     . '.navlinks a.nav-cta{background:#FFD400;color:#1B1033;padding:.5rem 1.05rem}'
-    . '.navlinks a.nav-cta:hover{background:#fff}</style>'
+    . '.navlinks a.nav-cta:hover{background:#fff;color:#224466}</style>'
     . '<header><nav aria-label="Main">'
     . '<a class="brand" href="#hero">Super <span>Coaching</span></a>'
     . '<ul class="navlinks">'
@@ -257,8 +257,9 @@ $assert(
 // re-pointing. The class moves to the navigation item, so the source selector
 // cannot match core's rendered anchor by itself.
 $assert(
-    str_contains($ctaCss, $contentSelector . ':hover{background:#fff}'),
-    'the authored hover variant is re-pointed onto rendered navigation-link content',
+    str_contains($ctaCss, $contentSelector . ':hover{color:#224466}')
+        && ! str_contains($ctaCss, $contentSelector . ':hover{background:'),
+    'navigation interaction remapping carries only link colour',
     substr($ctaCss, -300)
 );
 
@@ -415,21 +416,31 @@ $assert(
 );
 
 $dynamicCurrentList = $transform(
-    '<style>.current-menu a{color:#223344}.current-menu a.current{color:#aa1100}</style>'
-        . '<nav class="current-menu"><ul><li><a class="current" aria-current="page" href="/">Home</a></li>'
+    '<style>.current-menu a{color:#223344}.current-menu .current>a{color:#aa1100}'
+        . '.current-menu .current>a:hover{color:#00cc44}</style>'
+        . '<nav class="current-menu"><ul><li class="current"><a aria-current="page" href="/">Home</a></li>'
         . '<li><a href="/about">About</a></li><li><a href="/contact">Contact</a></li></ul></nav>'
 );
+$dynamicCurrentNavigation = $findBlocks($dynamicCurrentList['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$dynamicCurrentLinks = $dynamicCurrentNavigation['innerBlocks'] ?? array();
 $dynamicCurrentCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($dynamicCurrentList['assets'] ?? null) ? $dynamicCurrentList['assets'] : array()
 ));
 $staticCurrentSelector = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.current>.wp-block-navigation-item__content';
+$dynamicCurrentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', '#aa1100' . "\0" . '1');
 $assert(
-    ! str_contains($dynamicCurrentCss, $staticCurrentSelector . '{color:#aa1100}')
-        && str_contains($dynamicCurrentCss, '.wp-block-navigation.blocks-engine-navigation-current-color-')
-        && str_contains($dynamicCurrentCss, '.current-menu-item>.wp-block-navigation-item__content'),
-    'list-shaped current colour targets runtime current state without colouring the static source item',
-    substr($dynamicCurrentCss, -1200)
+    ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['className'] ?? ''), ' current')
+        && ! str_contains((string) ($dynamicCurrentLinks[0]['attrs']['anchorClassName'] ?? ''), 'current')
+        && ! str_contains($dynamicCurrentCss, $staticCurrentSelector)
+        && str_contains((string) ($dynamicCurrentNavigation['attrs']['className'] ?? ''), $dynamicCurrentCarrier)
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.' . $dynamicCurrentCarrier
+            . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:not(:hover)')
+        && str_contains($dynamicCurrentCss, '.wp-block-navigation.blocks-engine-list-navigation.current-menu'
+            . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content:hover')
+        && str_contains($dynamicCurrentCss, '{color:#00cc44}'),
+    'list-shaped current and interaction colours follow runtime current state without retaining the static source marker',
+    'attrs=' . json_encode($dynamicCurrentNavigation) . ' css=' . substr($dynamicCurrentCss, -1800)
 );
 
 $tiedColour = $transform(
