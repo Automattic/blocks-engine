@@ -5745,6 +5745,8 @@ final class HtmlTransformer
         if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
             || '' !== $this->renderedTextContent($element)
             || $this->isRuntimeDomTarget($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || $this->hasAuthorInlineAlignment($element)
         ) {
             return false;
         }
@@ -5762,6 +5764,26 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    private function hasAuthorInlineAlignment(DOMElement $element): bool
+    {
+        $declarations = $this->presentationDeclarations($element);
+        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use ($element, &$declarations): string {
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $this->parsedCssSelector($selector);
+                if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+                    $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($body));
+                    break;
+                }
+            }
+            return $prelude;
+        });
+
+        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
+        $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
+        return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
+            && ! in_array($verticalAlign, array( '', 'baseline', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true);
     }
 
     private function isInertHiddenEmptyElement(DOMElement $element): bool

@@ -4231,6 +4231,14 @@ $assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_c
 $assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
 $assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
 
+$layoutFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header class="toolbar"><div class="empty-search-shell"></div><nav><a href="/">Home</a></nav><div class="mini-cart"></div></header>',
+    array('static_css' => '.toolbar{display:flex;justify-content:space-between}.mini-cart{display:inline-block;vertical-align:middle}')
+)->toArray();
+$layoutFeatureShellSerialized = (string) ($layoutFeatureShellResult['serialized_blocks'] ?? '');
+$assert(str_contains($layoutFeatureShellSerialized, 'empty-search-shell'), 'empty feature chrome participating in author-owned layout remains available to preserve sibling placement');
+$assert(str_contains($layoutFeatureShellSerialized, 'mini-cart'), 'empty inline feature chrome with explicit vertical alignment remains available to preserve the inline baseline');
+
 $runtimeGeometryResult = (new HtmlTransformer())->transform(
     '<main><div id="runtime-geometry" style="width:290px !important;height:62px !important"></div></main>',
     array('runtime_dom_selectors' => array('#runtime-geometry'))
