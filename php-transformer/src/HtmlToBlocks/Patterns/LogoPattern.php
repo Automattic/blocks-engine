@@ -275,37 +275,8 @@ final class LogoPattern
 
     private function hasStructuredAnchorChrome(DOMElement $anchor): bool
     {
-        if ( '' === trim($anchor->getAttribute('class')) ) {
-            return false;
-        }
-
-        foreach ( $anchor->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg' ), true)
-                || '' !== trim($child->getAttribute('class'))
-                || $this->descendantHasClassedInlineChrome($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function descendantHasClassedInlineChrome(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( '' !== trim($child->getAttribute('class')) ) {
-                return true;
-            }
-
-            if ( $this->descendantHasClassedInlineChrome($child) ) {
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'picture', 'svg' ), true) ) {
                 return true;
             }
         }
