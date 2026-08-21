@@ -1,0 +1,14 @@
+{
+  "schema": "blocks-engine/php-transformer/standalone-block-attribute-serialization/v1",
+  "cases": [
+    {
+      "name": "backslashes-quotes-comment-delimiters-unicode-and-markup",
+      "attrs": {
+        "backslashes": "C:\\Users\\Chris\\blocks-engine",
+        "quoted": "She said \"hello\"",
+        "commentAndMarkup": "<!-- note --><span data-label=\"A&B\">naïve ✓</span>"
+      },
+      "expected": "<!-- wp:blocks-engine/fixture {\"backslashes\":\"C:\\u005cUsers\\u005cChris\\u005cblocks-engine\",\"quoted\":\"She said \\u0022hello\\u0022\",\"commentAndMarkup\":\"\\u003c!\\u002d\\u002d note \\u002d\\u002d\\u003e\\u003cspan data-label=\\u0022A\\u0026B\\u0022\\u003enaïve ✓\\u003c/span\\u003e\"} /-->"
+    }
+  ]
+}
