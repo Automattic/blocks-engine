@@ -27,7 +27,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery {\"className\":\"photo-strip\",\"caption\":\"Strip caption\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery {\"className\":\"photo-strip\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery {\"className\":\"media-grid\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figcaption class=\"blocks-gallery-caption wp-element-caption\">Strip caption</figcaption>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

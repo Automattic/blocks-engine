@@ -6,21 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 final class Runtime
 {
     /**
-     * RichText attributes derived from saved HTML rather than block comments.
-     *
-     * The transformer keeps these values in its working block arrays while it
-     * builds markup and reports. WordPress derives them from innerHTML when it
-     * parses a block, so passing them to serialize_blocks() duplicates the
-     * source value in the delimiter and exposes the block-only `rich-text`
-     * type to REST schema validation during rendering.
-     *
-     * @var array<string, array<int, string>>
-     */
-    private const HTML_SOURCED_RICH_TEXT_ATTRIBUTES = array(
-        'core/heading' => array( 'content' ),
-    );
-
-    /**
      * @var array<int, string>
      */
     private const FALLBACK_CORE_BLOCK_NAMES = array(
@@ -72,6 +57,9 @@ final class Runtime
 
     /** @var array<string, array<string, mixed>>|null */
     private ?array $fallbackCoreBlockSupports = null;
+
+    /** @var array<string, array<string, array<string, mixed>>>|null */
+    private ?array $fallbackCoreBlockAttributes = null;
 
     public function hasWordPress(): bool
     {
@@ -218,16 +206,20 @@ final class Runtime
      */
     private function registeredBlockSupports(string $blockName): ?array
     {
+        $blockType = $this->registeredBlockType($blockName);
+        return is_object($blockType) ? (is_array($blockType->supports ?? null) ? $blockType->supports : array()) : null;
+    }
+
+    private function registeredBlockType(string $blockName): ?object
+    {
         foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
             $name = is_string($key) ? $key : '';
             if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
                 $name = $blockType->name;
             }
-            if ( $blockName !== $name || ! is_object($blockType) ) {
-                continue;
+            if ( $blockName === $name && is_object($blockType) ) {
+                return $blockType;
             }
-
-            return is_array($blockType->supports ?? null) ? $blockType->supports : array();
         }
 
         return null;
@@ -235,21 +227,46 @@ final class Runtime
 
     /**
      * Standalone transforms have no WP_Block_Type_Registry. Load the generated
-     * WordPress 6.6 declaration snapshot so the same block.json support check is
-     * still available. Live registered declarations always take precedence.
+     * latest WordPress declaration snapshot so the same block.json support check
+     * is still available. Live registered declarations always take precedence.
      *
      * @return array<string, mixed>|null
      */
     private function fallbackBlockSupports(string $blockName): ?array
     {
         if ( null === $this->fallbackCoreBlockSupports ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-6.6-core-block-supports.json';
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-supports.json';
             $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
             $this->fallbackCoreBlockSupports = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
         }
 
         $supports = $this->fallbackCoreBlockSupports[ $blockName ] ?? null;
         return is_array($supports) ? $supports : null;
+    }
+
+    /**
+     * Resolve attributes from a live registered declaration first, then from
+     * the generated core snapshot for standalone transforms. A registered
+     * declaration without attributes is authoritative and deliberately does
+     * not fall back to a possibly stale snapshot.
+     *
+     * @return array<string, array<string, mixed>>|null
+     */
+    private function blockAttributes(string $blockName): ?array
+    {
+        $blockType = $this->registeredBlockType($blockName);
+        if ( is_object($blockType) ) {
+            return is_array($blockType->attributes ?? null) ? $blockType->attributes : array();
+        }
+
+        if ( null === $this->fallbackCoreBlockAttributes ) {
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-attributes.json';
+            $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+            $this->fallbackCoreBlockAttributes = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
+        }
+
+        $attributes = $this->fallbackCoreBlockAttributes[ $blockName ] ?? null;
+        return is_array($attributes) ? $attributes : null;
     }
 
     /**
@@ -359,21 +376,29 @@ final class Runtime
      */
     private function canonicalRuntimeBlocks(array $blocks): array
     {
-        foreach ( $blocks as &$block ) {
+        $canonical = array();
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
             $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-            if ( isset(self::HTML_SOURCED_RICH_TEXT_ATTRIBUTES[ $name ]) && is_array($block['attrs'] ?? null) ) {
-                foreach ( self::HTML_SOURCED_RICH_TEXT_ATTRIBUTES[ $name ] as $attribute ) {
-                    unset($block['attrs'][ $attribute ]);
+            $attributes = $this->blockAttributes($name);
+            if ( is_array($attributes) && is_array($block['attrs'] ?? null) ) {
+                foreach ( $attributes as $attribute => $schema ) {
+                    if ( is_array($schema) && ( array_key_exists('source', $schema) || 'local' === ($schema['role'] ?? null) ) ) {
+                        unset($block['attrs'][ $attribute ]);
+                    }
                 }
             }
 
             if ( is_array($block['innerBlocks'] ?? null) ) {
                 $block['innerBlocks'] = $this->canonicalRuntimeBlocks($block['innerBlocks']);
             }
+            $canonical[] = $block;
         }
-        unset($block);
 
-        return $blocks;
+        return $canonical;
     }
 
     /**
