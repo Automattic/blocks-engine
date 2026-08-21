@@ -71,6 +71,39 @@ final class CssSelectorMatcher
         );
     }
 
+    /** @param array<string, mixed> $selector */
+    public static function specificity(array $selector): int
+    {
+        if ( ! ($selector['supported'] ?? false) ) {
+            return 0;
+        }
+
+        $specificity = 0;
+        foreach ( $selector['compounds'] as $compound ) {
+            $specificity += 100 * count($compound['ids']);
+            $specificity += 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child']);
+            $specificity += null === $compound['type'] ? 0 : 1;
+            foreach ( $compound['not'] as $negated ) {
+                $specificity += self::compoundSpecificity($negated);
+            }
+        }
+        if ( null !== $selector['pseudo_state_suffix_span'] ) {
+            $specificity += 10;
+        }
+        return $specificity;
+    }
+
+    /** @param array<string, mixed> $compound */
+    private static function compoundSpecificity(array $compound): int
+    {
+        $specificity = 100 * count($compound['ids']) + 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child']);
+        $specificity += null === $compound['type'] ? 0 : 1;
+        foreach ( $compound['not'] as $negated ) {
+            $specificity += self::compoundSpecificity($negated);
+        }
+        return $specificity;
+    }
+
     /**
      * Match from the rightmost compound. Only hover, focus, active, and visited
      * are detachable dynamic suffixes; callers must explicitly account for them.
