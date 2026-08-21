@@ -66,8 +66,12 @@ trait DomHelpersTrait
 
             $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
             if ( '' === $href ) {
+                $this->invalidateSourceSelectorMatchCache();
                 $anchor->removeAttribute('href');
                 continue;
+            }
+            if ( $href !== $anchor->getAttribute('href') ) {
+                $this->invalidateSourceSelectorMatchCache();
             }
             $anchor->setAttribute('href', $href);
         }
