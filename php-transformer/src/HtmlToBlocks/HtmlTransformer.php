@@ -215,6 +215,11 @@ final class HtmlTransformer
 
     private readonly ContentRoundTripReporter $contentRoundTripReporter;
 
+    private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
+
+    /** @var array<string, string> */
+    private array $reusableComponentFingerprints = array();
+
     /**
      * Text the transformer SYNTHESIZES from form controls (label + value/
      * placeholder/required state) rather than extracting from visible source.
@@ -332,6 +337,8 @@ final class HtmlTransformer
      * fall back to a generic namespace.
      */
     private string $generatedBlockNamespace = 'custom';
+
+    private string $generatedAssetRoot = '';
 
     /**
      * @var array<int, array<string, mixed>>
@@ -621,6 +628,7 @@ final class HtmlTransformer
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
+        $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->fallbackEmitter = new FallbackEmitter(
             $this->runtime,
             fn (DOMElement $element): array => $this->sourceContext($element)
@@ -653,11 +661,13 @@ final class HtmlTransformer
         $this->responsiveImageFallbacks = array();
         $this->responsiveImageFallbackSelectors = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
+        $this->generatedAssetRoot = trim((string) ($options['generated_asset_root'] ?? ''), '/');
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
+        $this->reusableComponentFingerprints = array();
         $this->nativeSearchTriggerCssRules = array();
         $this->nativeButtonStyleRules = array();
         $this->syntheticHeaderAnchorStyleRules = array();
@@ -811,6 +821,10 @@ final class HtmlTransformer
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
         $this->collectEditorHiddenStateFindings($body);
+        $reusableComponentRecognition = $this->reusableComponentRecognizer->recognize($body);
+        foreach ($reusableComponentRecognition['candidates'] as $candidate) {
+            if (is_array($candidate) && is_string($candidate['path'] ?? null) && is_string($candidate['fingerprint'] ?? null)) $this->reusableComponentFingerprints[$candidate['path']] = $candidate['fingerprint'];
+        }
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
@@ -823,6 +837,7 @@ final class HtmlTransformer
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $this->finalizeFallbackBindings($fallbacks, $blocks);
+        $reusableComponentRecognition = $this->finalizeReusableComponentRecognition($reusableComponentRecognition);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
@@ -916,6 +931,7 @@ final class HtmlTransformer
                 'source_provenance'    => $sourceProvenance,
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
                 'structure_signals'    => $this->structureProvenance,
+                'reusable_components' => $reusableComponentRecognition,
                 'script_metadata'      => $this->scriptMetadata,
                 'runtime_islands'      => $this->runtimeIslands,
             ),
@@ -1044,6 +1060,31 @@ final class HtmlTransformer
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($output),
         );
+    }
+
+    private function reusableComponentFingerprintFor(DOMElement $element): ?string
+    {
+        return $this->reusableComponentFingerprints[$element->getNodePath()] ?? null;
+    }
+
+    /** @param array<string, mixed> $recognition @return array<string, mixed> */
+    private function finalizeReusableComponentRecognition(array $recognition): array
+    {
+        $assetOccurrences = array();
+        foreach ($this->generatedAssets as $asset) {
+            if (!is_array($asset) || 'inline-svg' !== ($asset['source'] ?? null)) continue;
+            foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $assetOccurrences[$fingerprint] = (int) ($assetOccurrences[$fingerprint] ?? 0) + $count;
+        }
+        foreach ($recognition['components'] as &$component) {
+            if (!is_array($component) || 'svg' !== ($component['tag'] ?? null)) continue;
+            $mapped = (int) ($assetOccurrences[$component['fingerprint']] ?? 0);
+            $component['mapping'] = $mapped === ($component['occurrence_count'] ?? 0) && 0 < $mapped
+                ? 'shared_core_image_asset'
+                : 'capability_gap:svg_instances_not_all_core_image_assets';
+            $component['mapped_asset_occurrence_count'] = $mapped;
+        }
+        unset($component);
+        return $recognition;
     }
 
     /**
@@ -7762,7 +7803,9 @@ final class HtmlTransformer
 
     private function isGeneratedInlineSvgSource(string $source): bool
     {
-        return isset($this->generatedAssets[$source]) && 'inline-svg' === ($this->generatedAssets[$source]['source'] ?? '');
+        if (isset($this->generatedAssets[$source]) && 'inline-svg' === ($this->generatedAssets[$source]['source'] ?? '')) return true;
+        foreach ($this->generatedAssets as $asset) if (is_array($asset) && 'inline-svg' === ($asset['source'] ?? '') && $source === ($asset['source_url'] ?? null)) return true;
+        return false;
     }
 
     private function stripDecorativeSvgFromRichText(string $content): string
