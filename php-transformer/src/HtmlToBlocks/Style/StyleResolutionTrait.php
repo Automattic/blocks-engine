@@ -2604,7 +2604,7 @@ trait StyleResolutionTrait
         return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
     }
 
-    /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
+    /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
     private function styleRuleCandidateIndex(string $collection): array
     {
         $rules = match ($collection) {
@@ -2613,7 +2613,7 @@ trait StyleResolutionTrait
             'static-conditional' => array_merge($this->staticStyleRules, $this->conditionalStyleRules),
             'static-conditional-pseudo' => array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules),
         };
-        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'total' => count($rules));
+        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
             $parsed = $this->parsedCssSelector((string) ($rule['selector'] ?? ''));
             $compounds = $parsed['compounds'] ?? array();
@@ -2630,6 +2630,12 @@ trait StyleResolutionTrait
                 } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
                     $target = 'tags';
                     $key = strtolower((string) $rightmost['type']);
+                } elseif ( array() !== ($rightmost['attributes'] ?? array()) ) {
+                    $name = (string) ($rightmost['attributes'][0]['name'] ?? '');
+                    if ( 1 === preg_match('/^[a-z][a-z0-9_-]*$/', $name) ) {
+                        $target = 'attributes';
+                        $key = $name;
+                    }
                 }
             }
             $entry = array('order' => (int) $order, 'rule' => $rule);

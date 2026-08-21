@@ -18,6 +18,9 @@ final class CssSelectorMatchCache
     /** @var array<string, array<string, string|null>> */
     private array $attributes = array();
 
+    /** @var array<string, list<string>> */
+    private array $attributeNames = array();
+
     /** @var array<string, array{supported: bool, matches: bool}> */
     private array $matches = array();
 
@@ -64,6 +67,26 @@ final class CssSelectorMatchCache
         return $this->attributes[$key][$name] = $element->hasAttribute($name) ? $element->getAttribute($name) : null;
     }
 
+    /** @return list<string> */
+    public function attributeNames(DOMElement $element): array
+    {
+        $key = $this->elementKey($element);
+        if ( isset($this->attributeNames[$key]) ) {
+            return $this->attributeNames[$key];
+        }
+
+        $names = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            // The selector parser's supported HTML attribute names are simple
+            // identifiers. Keep namespace and other syntax conservative.
+            if ( 1 === preg_match('/^[a-z][a-z0-9_-]*$/', $name) ) {
+                $names[] = $name;
+            }
+        }
+        return $this->attributeNames[$key] = $names;
+    }
+
     /** @param array<string, mixed> $selector @return array{supported: bool, matches: bool} */
     public function matches(DOMElement $element, string $selectorText, array $selector, bool $accountForPseudoStateSuffix = false): array
     {
@@ -83,7 +106,7 @@ final class CssSelectorMatchCache
     }
 
     /**
-     * @param array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} $index
+     * @param array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} $index
      * @return list<array<string, mixed>>
      */
     public function styleRuleCandidates(DOMElement $element, string $collection, array $index): array
@@ -102,6 +125,9 @@ final class CssSelectorMatchCache
             $candidates = array_merge($candidates, $index['classes'][$class] ?? array());
         }
         $candidates = array_merge($candidates, $index['tags'][strtolower($element->tagName)] ?? array());
+        foreach ( $this->attributeNames($element) as $name ) {
+            $candidates = array_merge($candidates, $index['attributes'][$name] ?? array());
+        }
 
         $ordered = array();
         foreach ( $candidates as $candidate ) {
@@ -129,6 +155,7 @@ final class CssSelectorMatchCache
     {
         $this->classTokens = array();
         $this->attributes = array();
+        $this->attributeNames = array();
         $this->matches = array();
         $this->ruleCandidates = array();
         $this->candidateRulesRetained = 0;
