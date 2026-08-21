@@ -613,7 +613,7 @@ final class Runtime
      * Serialize block attributes for the comment delimiter the way WordPress
      * core's serialize_block_attributes() does: JSON-encode, then escape the
      * characters that could otherwise break out of the surrounding HTML comment
-     * (`--`, `<`, `>`, `&`) plus escaped quotes. This keeps the delimiter
+     * (`\\`, `--`, `<`, `>`, `&`) plus escaped quotes. This keeps the delimiter
      * comment-safe and WP-canonical even when an attribute value embeds raw HTML
      * (e.g. a core/paragraph `content` carrying an inline `<a>`), so the comment
      * stays a single parseable token. The codebase's unescaped-slash/unicode JSON
@@ -623,13 +623,17 @@ final class Runtime
      */
     private function serializeBlockAttributes(array $attrs): string
     {
-        $encoded = $this->encodeJson($attrs);
-        $encoded = str_replace('--', '\\u002d\\u002d', $encoded);
-        $encoded = preg_replace('/</', '\\u003c', $encoded) ?? $encoded;
-        $encoded = preg_replace('/>/', '\\u003e', $encoded) ?? $encoded;
-        $encoded = preg_replace('/&/', '\\u0026', $encoded) ?? $encoded;
-
-        return preg_replace('/\\\\"/', '\\u0022', $encoded) ?? $encoded;
+        return strtr(
+            $this->encodeJson($attrs),
+            array(
+                '\\\\' => '\\u005c',
+                '--'   => '\\u002d\\u002d',
+                '<'    => '\\u003c',
+                '>'    => '\\u003e',
+                '&'    => '\\u0026',
+                '\\"'  => '\\u0022',
+            )
+        );
     }
 
     /**

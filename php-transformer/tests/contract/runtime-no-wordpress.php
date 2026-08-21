@@ -63,6 +63,21 @@ $escapedHyphen = chr(92) . 'u002d';
 assertSame(true, str_contains($customPropertyMarkup, 'var(' . $escapedHyphen . $escapedHyphen . 'responsive-font-size,20px)'), 'Fallback serializer should retain escaped CSS custom-property hyphens.');
 assertSame(false, str_contains($customPropertyMarkup, 'var(u002du002dresponsive-font-size,20px)'), 'Fallback serializer should not drop custom-property escape backslashes.');
 
+$attributeSerializationFixtures = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/standalone-block-attribute-serialization.json'), true);
+assertSame('blocks-engine/php-transformer/standalone-block-attribute-serialization/v1', $attributeSerializationFixtures['schema'] ?? null, 'Standalone block attribute serialization fixture should expose its schema.');
+foreach ( $attributeSerializationFixtures['cases'] ?? array() as $case ) {
+    $block = array(
+        'blockName'    => 'blocks-engine/fixture',
+        'attrs'        => $case['attrs'],
+        'innerBlocks'  => array(),
+        'innerHTML'    => '',
+        'innerContent' => array(),
+    );
+    $serialized = $runtime->serializeBlocks(array( $block ));
+    assertSame($case['expected'], $serialized, 'Fallback serializer should match WordPress core attribute escaping for fixture ' . $case['name']);
+    assertSame($case['attrs'], $runtime->parseBlocks($serialized)[0]['attrs'] ?? null, 'Fallback parser should round-trip fixture attributes for ' . $case['name']);
+}
+
 // Dynamic/nested blocks (core/navigation et al.) save() to null inner HTML, so
 // the WordPress-free fallback serializer must emit canonical comment-delimited
 // markup recursively rather than rendering static HTML. A standalone navigation
