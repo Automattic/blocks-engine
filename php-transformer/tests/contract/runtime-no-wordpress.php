@@ -24,8 +24,21 @@ assertSame('core/paragraph', $blocks[0]['blockName'] ?? null, 'Fallback parser s
 assertSame('wordpress_parse_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback parser should expose a diagnostic.');
 
 $serialized = $runtime->serializeBlocks($blocks);
-assertSame('<!-- wp:paragraph {"content":"Hello"} --><p>Hello</p><!-- /wp:paragraph -->', $serialized, 'Fallback serializer should preserve block comments and inner HTML.');
+assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $serialized, 'Standalone canonicalization should omit Paragraph rich-text content from block comments.');
 assertSame('wordpress_serialize_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback serializer should expose a diagnostic.');
+
+$image = array(
+    'blockName'    => 'core/image',
+    'attrs'        => array('url' => '/image.jpg', 'alt' => 'Image', 'caption' => 'Caption', 'id' => 42, 'unknown' => 'preserved'),
+    'innerBlocks'  => array(),
+    'innerHTML'    => '<figure><img src="/image.jpg" alt="Image"><figcaption>Caption</figcaption></figure>',
+    'innerContent' => array('<figure><img src="/image.jpg" alt="Image"><figcaption>Caption</figcaption></figure>'),
+);
+assertSame(
+    '<!-- wp:image {"id":42,"unknown":"preserved"} --><figure><img src="/image.jpg" alt="Image"><figcaption>Caption</figcaption></figure><!-- /wp:image -->',
+    $runtime->serializeBlocks(array($image)),
+    'Standalone canonicalization should omit generated rich-text and attribute-derived Image attrs while retaining unsourced and unknown attrs.'
+);
 
 $customPropertyMarkup = $runtime->serializeBlocks(array(array(
     'blockName'    => 'core/paragraph',

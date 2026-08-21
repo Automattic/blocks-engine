@@ -40,6 +40,7 @@ $requiredFiles = array(
     'docs/contracts/php-transformer-visual-parity-fixture.schema.json',
     'docs/contracts/php-transformer-visual-parity-report.schema.json',
     'docs/contracts/visual-parity-report.md',
+    'resources/wordpress-6.6-core-block-attributes.json',
     'resources/wordpress-6.6-core-block-supports.json',
     'tools/visual-parity/package-lock.json',
     'tools/visual-parity/package.json',
