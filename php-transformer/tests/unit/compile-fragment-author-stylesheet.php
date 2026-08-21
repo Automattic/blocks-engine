@@ -254,6 +254,17 @@ $assert(
     'an !important desktop override still outranks a normal inline aspect-ratio'
 );
 
+$inlineScaleOnly = $compiler->compileFragment(
+    '<img src="https://example.com/crop.jpg" alt="Crop" style="object-fit:cover">',
+    'design/home.html',
+    'html'
+);
+$inlineScaleOnlyAttrs = is_array($inlineScaleOnly->blocks[0]['attrs'] ?? null) ? $inlineScaleOnly->blocks[0]['attrs'] : array();
+$assert(
+    'cover' === ($inlineScaleOnlyAttrs['scale'] ?? null) && ! isset($inlineScaleOnlyAttrs['aspectRatio']),
+    'an explicit inline object-fit becomes a scale-only native image attribute without inventing box geometry'
+);
+
 if ( 0 < $failures ) {
     exit(1);
 }

@@ -99,7 +99,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -124,6 +124,34 @@ final class CssSelectorMatcher
                     return null;
                 }
                 $lowerName = strtolower($name);
+                if ( in_array($lowerName, array( 'is', 'where' ), true) && '(' === ($source[ $offset ] ?? '') ) {
+                    $closing = strpos($source, ')', $offset + 1);
+                    if ( false === $closing ) {
+                        return null;
+                    }
+                    $selected = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
+                    if ( null === $selected || null !== $selected['suffix'] || array() !== $selected['compound']['not'] || null !== $selected['compound']['nth_child'] || $selected['compound']['first_child'] || $selected['compound']['last_child'] ) {
+                        return null;
+                    }
+                    $selectedCompound = $selected['compound'];
+                    if ( null !== $selectedCompound['type'] && null !== $compound['type'] ) {
+                        return null;
+                    }
+                    $compound['type'] ??= $selectedCompound['type'];
+                    $compound['universal'] = $compound['universal'] || $selectedCompound['universal'];
+                    foreach ( array( 'classes', 'ids', 'attributes' ) as $key ) {
+                        array_push($compound[$key], ...$selectedCompound[$key]);
+                    }
+                    if ( 'where' === $lowerName ) {
+                        $compound['zero_specificity']['types'] += null === $selectedCompound['type'] ? 0 : 1;
+                        foreach ( array( 'classes', 'ids', 'attributes' ) as $key ) {
+                            $compound['zero_specificity'][$key] += count($selectedCompound[$key]);
+                        }
+                    }
+                    $offset = $closing + 1;
+                    $hasSimple = true;
+                    continue;
+                }
                 if ( 'not' === $lowerName && '(' === ($source[ $offset ] ?? '') ) {
                     $closing = strpos($source, ')', $offset + 1);
                     if ( false === $closing ) {

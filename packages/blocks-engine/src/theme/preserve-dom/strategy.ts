@@ -83,13 +83,57 @@ function inlineHtml($: CheerioAPI, el: Element): string {
   return out;
 }
 
-function imageBlock($: CheerioAPI, imgEl: Element, sheet: InstanceStyleSheet): string {
-  const src = escapeHtml($(imgEl).attr('src') ?? '');
+function imageSource($img: Cheerio<Element>): string {
+  const src = $img.attr('src')?.trim() ?? '';
+  if (src && !src.toLowerCase().startsWith('data:')) return src;
+
+  for (const name of ['data-src', 'data-lazy-src', 'data-original', 'data-image-src']) {
+    const value = $img.attr(name)?.trim();
+    if (value) return value;
+  }
+  return src;
+}
+
+function imageBlock(
+  $: CheerioAPI,
+  imgEl: Element,
+  sheet: InstanceStyleSheet,
+  wrapper?: Element,
+): string {
+  const $img = $(imgEl);
+  const $wrapper = wrapper ? $(wrapper) : $img;
+  const src = escapeHtml(imageSource($img));
   const alt = escapeHtml($(imgEl).attr('alt') ?? '');
-  const cls = classNameWithInstance($(imgEl), sheet);
-  const attrs = blockAttrs([], cls);
+  const cls = [classNameWithInstance($wrapper, sheet), classNameWithInstance($img, sheet)]
+    .flatMap((value) => value.split(/\s+/))
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(' ');
+  const id = $wrapper.attr('id')?.trim() || $img.attr('id')?.trim();
+  const attrs = blockAttrs(id ? [`"anchor":${attrJson(id)}`] : [], cls);
   const figCls = ['wp-block-image', cls].filter(Boolean).join(' ');
-  return `<!-- wp:image${attrs} -->\n<figure class="${escapeHtml(figCls)}"><img src="${src}" alt="${alt}"/></figure>\n<!-- /wp:image -->`;
+  const idPart = id ? ` id="${escapeHtml(id)}"` : '';
+  const responsiveAttrs = ['srcset', 'sizes', 'width', 'height', 'loading', 'decoding']
+    .map((name) => {
+      const value = $img.attr(name)?.trim();
+      return value ? ` ${name}="${escapeHtml(value)}"` : '';
+    })
+    .join('');
+  return `<!-- wp:image${attrs} -->\n<figure${idPart} class="${escapeHtml(figCls)}"><img src="${src}" alt="${alt}"${responsiveAttrs}/></figure>\n<!-- /wp:image -->`;
+}
+
+function isImageOnlyWrapper($: CheerioAPI, el: Element): Element | null {
+  const tag = el.tagName?.toLowerCase() ?? '';
+  const $el = $(el);
+  const isImageContainer = tag === 'picture' || tag.includes('-');
+  if (!isImageContainer || $el.text().trim()) return null;
+
+  const images = $el.find('img').toArray() as Element[];
+  if (images.length !== 1) return null;
+
+  // A custom element or picture with one image and no textual content is an image
+  // presentation wrapper. The wrapper's CSS identity moves to the figure below.
+  return images[0] ?? null;
 }
 
 function svgAltText($: CheerioAPI, svgEl: Element): string | null {
@@ -170,6 +214,11 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     return { markup: imageBlock($, el, sheet), clean: true };
   }
 
+  const wrappedImage = isImageOnlyWrapper($, el);
+  if (wrappedImage && imageSource($(wrappedImage))) {
+    return { markup: imageBlock($, wrappedImage, sheet, el), clean: true };
+  }
+
   if (tag === 'svg') {
     const markup = svgImageBlock($, el, sheet);
     if (markup) return { markup, clean: true };
@@ -246,6 +295,18 @@ function emitContainer(
   if (!innerMarkup) {
     const verbatim = $.html(el).trim();
     return verbatim ? { markup: coreHtmlIsland(verbatim), clean: true } : { markup: '', clean: false };
+  }
+
+  // Anonymous div/span wrappers are layout noise once their contents are native
+  // blocks. Keeping them creates an editor hierarchy with no source identity to edit.
+  if (
+    (tag === 'div' || tag === 'span') &&
+    !$el.attr('id') &&
+    !$el.attr('class') &&
+    !$el.attr('style') &&
+    !$el.attr('role')
+  ) {
+    return { markup: innerMarkup, clean: childResults.every((res) => res.clean) };
   }
 
   const cls = classNameWithInstance($el, sheet);

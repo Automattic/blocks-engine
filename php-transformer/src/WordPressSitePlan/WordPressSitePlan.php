@@ -669,7 +669,7 @@ final class WordPressSitePlan
         $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
         $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
         foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
-        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('article' === ($node['name'] ?? null)) $add($evidence, 'html:article'); if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
         foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
         $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
         if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
@@ -706,7 +706,7 @@ final class WordPressSitePlan
             foreach (self::routeAncestors($path) as $ancestor) if (!isset($byRoute[$ancestor])) {
             $source = 'wordpress-site-plan/routes/' . trim($ancestor, '/') . '.html';
             if (isset($sources[$source])) throw new InvalidArgumentException('WordPress site plan synthetic route source collides with a document.');
-            $markup = '<!-- wp:group {"layout":{"type":"constrained"}} --><!-- /wp:group -->' . "\n";
+            $markup = '<!-- wp:group {"layout":{"type":"constrained"}} --><div class="wp-block-group"></div><!-- /wp:group -->' . "\n";
             $pages[] = array('source_path' => $source, 'slug' => self::routeSlug($ancestor), 'title' => ucwords(str_replace('-', ' ', self::routeSlug($ancestor))), 'post_type' => 'page', 'parent_source_path' => '', 'entrypoint' => false, 'area' => null, 'placement' => null, 'canonical_block_markup' => $markup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $source, 'kind' => 'synthetic_route'), 'title' => self::routeSlug($ancestor), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => array(), 'reconciliation_identity' => self::identity('page', $source, $ancestor), 'content_hash' => hash('sha256', $markup), 'route' => array('path' => $ancestor, 'parent_path' => self::parentRoutePath($ancestor), 'slug' => self::routeSlug($ancestor)), 'synthetic' => true);
             $byRoute[$ancestor] = count($pages) - 1;
             $sources[$source] = true;
@@ -853,7 +853,8 @@ final class WordPressSitePlan
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
-                $lines[] = "    if ( {$condition} ) wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null );";
+                $media = is_string($asset['media'] ?? null) && '' !== trim($asset['media']) ? ', ' . var_export($asset['media'], true) : '';
+                $lines[] = "    if ( {$condition} ) wp_enqueue_style( '{$handle}', get_theme_file_uri( '{$asset['target_path']}' ), array(), null{$media} );";
             }
         }
         $attributes = array();
@@ -868,7 +869,7 @@ final class WordPressSitePlan
         }
         $lines[] = "}, 1 );";
         $editorStyles = array();
-        foreach ($assets as $asset) if ('css' === $asset['kind']) $editorStyles[] = array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes']);
+        foreach ($assets as $asset) if ('css' === $asset['kind']) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'media' => $asset['media'] ?? null), static fn(mixed $value): bool => null !== $value);
         if (array() !== $editorStyles) {
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
             $lines[] = "    \$post = \$context->post ?? null; if ( ! \$post instanceof WP_Post ) return \$settings;";
@@ -880,7 +881,7 @@ final class WordPressSitePlan
             $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
             $lines[] = "        }";
             $lines[] = "        if ( ! \$matches ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
-            $lines[] = "        if ( false !== \$css ) \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' );";
+            $lines[] = "        if ( false !== \$css ) { if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
             $lines[] = "    }";
             $lines[] = "    return \$settings;";
             $lines[] = "}, 10, 2 );";

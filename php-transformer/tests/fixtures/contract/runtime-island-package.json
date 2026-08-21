@@ -29,17 +29,7 @@
           "index.html": "<main><h1>Home</h1><script src=\"https://www.googletagmanager.com/gtag/js?id=GA123\"></script></main>"
         }
       },
-      "expect_island": {
-        "kind": "script",
-        "select_by_role": "telemetry",
-        "disposition": "drop",
-        "js_handling": "drop",
-        "markup_fidelity": "verbatim",
-        "script_source_kind": "external",
-        "script_role": "telemetry",
-        "materialized": false,
-        "droppable": true
-      }
+      "expect_no_package": true
     },
     {
       "name": "canvas-island-external-and-inline-scripts",

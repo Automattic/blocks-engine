@@ -220,6 +220,14 @@ $siblingSupportAssets = $siblingSupport['assets'] ?? array();
 $siblingWordPressAssets = $siblingSupport['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', (string) ($siblingSupportAssets[0]['path'] ?? '')) && 'before-author' === ($siblingSupportAssets[0]['stylesheet_placement'] ?? '') && 'index.css' === ($siblingSupportAssets[1]['path'] ?? '') && 'about.css' === ($siblingSupportAssets[2]['path'] ?? '') && 'about.html' === ($siblingSupportAssets[0]['compilation']['id'] ?? '') && 'about.html' === ($siblingWordPressAssets[0]['scopes'][0]['source_path'] ?? ''), 'non-entry page support stays page-scoped and precedes every author stylesheet');
 
+$scopedResponsive = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>:where(.mobile-document) [data-mesh-id="content"] > #copy{position:relative;margin:36px 0 52px}</style><main><div class="mobile-document"><div data-mesh-id="content"><div id="copy">Copy</div></div></div></main>' ),
+    ),
+) )->toArray();
+$scopedResponsiveCss = implode("\n", array_column($scopedResponsive['assets'] ?? array(), 'content'));
+$assert(str_contains($scopedResponsiveCss, ':where(.mobile-document) :where(#copy)') && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry projection through canonical block markup');
+
 $externalLayouts = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(

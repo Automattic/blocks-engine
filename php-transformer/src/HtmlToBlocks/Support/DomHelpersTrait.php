@@ -463,7 +463,7 @@ trait DomHelpersTrait
                 continue;
             }
             $tag = strtolower($child->tagName);
-            if ( in_array($tag, array( 'script', 'style', 'foreignobject', 'title', 'desc', 'metadata' ), true) ) {
+            if ( in_array($tag, array( 'script', 'style', 'foreignobject', 'title', 'desc', 'metadata', 'defs' ), true) ) {
                 continue;
             }
             if ( $this->hasAncestorTag($child, array( 'foreignobject' )) ) {

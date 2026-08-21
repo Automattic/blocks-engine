@@ -757,9 +757,6 @@ final class BlockFactory
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),
-                'aria-label'  => (string) ($attrs['linkAriaLabel'] ?? ''),
-                'aria-hidden' => (string) ($attrs['linkAriaHidden'] ?? ''),
-                'tabindex'    => (string) ($attrs['linkTabIndex'] ?? ''),
             );
             $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
         }
@@ -808,7 +805,7 @@ final class BlockFactory
         // aspectRatio/scale-only image carries no width/height styles at all.
         if ( array_key_exists('width', $attrs) || array_key_exists('height', $attrs) ) {
             if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
-                $style[] = 'width:' . (string) $attrs['width'];
+                $style[] = 'width:' . $this->imageDimensionCssValue((string) $attrs['width'], ! empty($attrs['href']));
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
@@ -819,11 +816,23 @@ final class BlockFactory
                     $style[] = 'height:auto';
                 }
             } else {
-                $style[] = 'height:' . (string) $attrs['height'];
+                $style[] = 'height:' . $this->imageDimensionCssValue((string) $attrs['height'], ! empty($attrs['href']));
             }
         }
 
         return implode(';', $style);
+    }
+
+    private function imageDimensionCssValue(string $value, bool $linked): string
+    {
+        $value = trim($value);
+        if ( $linked && preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
+            return $matches[1];
+        }
+        if ( $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ) {
+            return $value;
+        }
+        return preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
     }
 
     private function isPercentageWidth(string $width): bool
