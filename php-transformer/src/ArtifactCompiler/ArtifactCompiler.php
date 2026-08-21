@@ -3467,19 +3467,24 @@ final class ArtifactCompiler
             }
 
             $slug = $this->slugFromPath($path);
+            $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
+            $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
             $parts[] = array_filter(
                 array(
                     'source_path'  => $path,
                     'slug'         => $slug,
                     'title'        => $this->titleFromPath($path),
-                    'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
+                    'area'         => $area,
+                    'tag_name'     => $tagName,
                     'body_format'  => (string) ($file['kind'] ?? ''),
                     'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
                     'document_metadata' => $this->fullDocumentMetadata((string) ($file['content'] ?? ''), $path, $files),
                     'runtime_islands' => array(),
                     'bytes'        => $file['bytes'] ?? 0,
                     'provenance'   => $file['provenance'] ?? array(),
-                    'placement'    => array('kind' => 'unbound'),
+                    'placement'    => 'aside' === $tagName
+                        ? array('kind' => 'shared_shell', 'source_path' => $path, 'template_slugs' => array('index', 'page', 'front-page'))
+                        : array('kind' => 'unbound'),
                 ),
                 static fn (mixed $value): bool => '' !== $value && array() !== $value
             );

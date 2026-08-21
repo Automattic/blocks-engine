@@ -9,6 +9,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
  */
 final class ShellLandmarkPolicy
 {
+    /** @var array<string, string> */
+    private const TEMPLATE_PART_AREA_TAGS = array(
+        'uncategorized'      => 'div',
+        'header'             => 'header',
+        'footer'             => 'footer',
+        'navigation-overlay' => 'div',
+    );
+
     /** @var array<int, string> */
     private const GLOBAL_SHELL_LANDMARK_TAGS = array( 'header', 'footer', 'nav' );
 
@@ -79,10 +87,34 @@ final class ShellLandmarkPolicy
 
     public static function templatePartArea(string $path, string $role): string
     {
+        return match ( self::templatePartKind($path, $role) ) {
+            'header'     => 'header',
+            'footer'     => 'footer',
+            'navigation' => 'navigation-overlay',
+            default      => 'uncategorized',
+        };
+    }
+
+    public static function templatePartTagName(string $path, string $role): string
+    {
+        if ( 'sidebar' === self::templatePartKind($path, $role) ) {
+            return 'aside';
+        }
+
+        return self::templatePartAreaTagName(self::templatePartArea($path, $role));
+    }
+
+    public static function templatePartAreaTagName(string $area): string
+    {
+        return self::TEMPLATE_PART_AREA_TAGS[$area] ?? self::TEMPLATE_PART_AREA_TAGS['uncategorized'];
+    }
+
+    private static function templatePartKind(string $path, string $role): string
+    {
         if ( preg_match('/\b(header|footer|sidebar|navigation)\b/i', $path . ' ' . $role, $match) ) {
             return strtolower($match[1]);
         }
 
-        return 'uncategorized';
+        return '';
     }
 }
