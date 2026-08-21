@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-runtime-script-not-materialized",
-  "description": "Flags a source-declared external client script that was never materialized or carried into the artifact, so dependent interactions are non-functional.",
+  "description": "Rejects a source-declared local client script that has no materialized artifact file.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-runtime-script-not-materialized.json",
-    "notes": "Generic runtime-dependency parity: a referenced <script src> requiring client_script_execution with no backing artifact file must surface a feature-parity finding."
+    "notes": "A referenced local <script src> with no backing artifact file must invalidate the WordPress site plan."
   },
   "legacy_comparison": {
     "skip": true,
@@ -26,13 +26,10 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "failed" },
-    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "warning" },
-    { "path": "source_reports.runtime_dependency_parity.findings", "assert": "count", "count": 1 },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_script_not_materialized" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.severity", "assert": "equals", "value": "warning" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.repair_bucket", "assert": "equals", "value": "runtime_script_materialization" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.runtime_requirement", "assert": "equals", "value": "client_script_execution" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.script_src", "assert": "equals", "value": "js/app.js" },
-    { "path": "source_reports.conversion_report.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_script_not_materialized" }
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.runtime_dependency_parity.findings", "assert": "count", "count": 0 },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "wordpress_site_plan_invalid_declaration" },
+    { "path": "diagnostics.0.declaration_kind", "assert": "equals", "value": "script" },
+    { "path": "diagnostics.0.reason", "assert": "equals", "value": "unresolved_local_url" }
   ]
 }

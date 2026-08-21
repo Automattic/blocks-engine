@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-section-runtime-island-classification",
-  "description": "A genuine canvas/script section remains preserved as raw HTML but carries explicit preserved-runtime-island metadata.",
+  "description": "A genuine canvas/script section keeps its runtime canvas as a bounded island while surrounding content remains native and editable.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-section-runtime-island-classification.json",
@@ -28,16 +28,19 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/html" }
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "app_shell" },
-    { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": "#stage" },
-    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "runtime_app_shell" },
-    { "path": "source_reports.runtime_islands.0.runtime_requirement", "assert": "equals", "value": "client_script_execution" },
-    { "path": "source_reports.runtime_islands.0.target_count", "assert": "equals", "value": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html --><section id=\"stage\"" }
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "canvas" },
+    { "path": "source_reports.runtime_islands.0.selector", "assert": "equals", "value": "#stage-canvas" },
+    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "canvas_requires_runtime" },
+    { "path": "source_reports.runtime_islands.0.runtime_requirement", "assert": "equals", "value": "canvas_element_and_client_script_execution" },
+    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "script" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"stage\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html --><canvas id=\"stage-canvas\"" }
   ]
 }

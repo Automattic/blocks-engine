@@ -46,7 +46,7 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 4 },
     { "path": "source_reports.artifact.asset_references.1.selector", "assert": "equals", "value": "css:@import(1)" },
     { "path": "source_reports.artifact.asset_references.1.context", "assert": "equals", "value": "css-import" },

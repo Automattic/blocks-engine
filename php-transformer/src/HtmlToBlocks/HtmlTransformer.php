@@ -13825,7 +13825,8 @@ final class HtmlTransformer
             $generated = $this->fallbackEmitter->maybeGenerateCustomBlock(
                 $element,
                 $this->generatedBlocks,
-                $this->generatedBlockNamespace
+                $this->generatedBlockNamespace,
+                true
             );
             if ( null !== $generated ) {
                 return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
@@ -13877,6 +13878,7 @@ final class HtmlTransformer
     private function isInertHiddenSvgStorage(DOMElement $element): bool
     {
         if ( $this->svgHasDrawableContent($element)
+            || 0 < $element->getElementsByTagName('use')->length
             || '' !== trim($element->textContent ?? '')
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))

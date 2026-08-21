@@ -38,7 +38,8 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero\",\"tagName\":\"section\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero-mark\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"<section class=\\\"hero\\\"" },
-    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "dom" },
-    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "runtime_dom_target" }
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "script" },
+    { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "script_requires_runtime" },
+    { "path": "source_reports.runtime_islands.0.script_source_kind", "assert": "equals", "value": "inline" }
   ]
 }

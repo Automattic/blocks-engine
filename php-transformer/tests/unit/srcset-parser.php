@@ -5,12 +5,12 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 
-$wixOne = 'https://static.wixstatic.com/media/icon.png/v1/fill/w_25,h_25,al_c,q_85/icon.png';
-$wixTwo = 'https://static.wixstatic.com/media/icon.png/v1/fill/w_50,h_50,al_c,q_85/icon.png';
-$srcset = $wixOne . ' 1x, ' . $wixTwo . ' 2x';
+$commaUrlOne = 'https://images.example.test/transform/width_25,height_25,quality_85/icon.png';
+$commaUrlTwo = 'https://images.example.test/transform/width_50,height_50,quality_85/icon.png';
+$srcset = $commaUrlOne . ' 1x, ' . $commaUrlTwo . ' 2x';
 $candidates = SrcsetParser::parse($srcset);
 
-if (array($wixOne, $wixTwo) !== array_column($candidates, 'url') || array('1x', '2x') !== array_column($candidates, 'descriptor')) {
+if (array($commaUrlOne, $commaUrlTwo) !== array_column($candidates, 'url') || array('1x', '2x') !== array_column($candidates, 'descriptor')) {
     throw new RuntimeException('URL-internal commas must not split srcset candidates.');
 }
 

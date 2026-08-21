@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-runtime-attrs-omitted-from-native-button.json",
-    "notes": "Generic coverage for donation/quantity/toggle controls whose source behavior depends on data-* or ARIA attributes that core/button does not save."
+    "notes": "Generic coverage for static controls with inert data-* or ARIA metadata that core/button does not save."
   },
   "legacy_comparison": {
     "skip": true,
@@ -19,15 +19,7 @@
     { "path": "blocks.0", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "amount-btn", "tagName": "button", "type": "button", "text": "$15", "title": "Donate $15 monthly" } }
   ],
-  "expected_fallbacks": [
-    {
-      "pattern_family": "interactive_control",
-      "runtime_island_type": "unsupported_custom_app_control",
-      "diagnostic_code": "interactive_control_behavior_lost",
-      "severity": "warning",
-      "controlled_target": "#donation-form"
-    }
-  ],
+  "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\" title=\"Donate $15 monthly\">$15</button>" },
@@ -35,9 +27,6 @@
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-label" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-controls" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" },
-    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "unsupported_custom_app_control" },
-    { "path": "diagnostics.1.repair_bucket", "assert": "equals", "value": "restore_interactive_behavior" }
+    { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

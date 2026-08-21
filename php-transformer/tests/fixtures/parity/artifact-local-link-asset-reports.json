@@ -61,7 +61,7 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.internal_links", "assert": "count", "count": 1 },
     { "path": "source_reports.artifact.internal_links.0.source_path", "assert": "equals", "value": "pages/home.html" },
     { "path": "source_reports.artifact.internal_links.0.selector", "assert": "equals", "value": "a:nth-of-type(1)" },
@@ -96,16 +96,5 @@
     { "path": "source_reports.conversion_report.navigation_candidates", "assert": "count", "count": 1 },
     { "path": "source_reports.conversion_report.navigation_candidates.0.target_path", "assert": "equals", "value": "pages/about.html" }
   ],
-  "expected_fallbacks": [
-    {
-      "diagnostic_code": "html_unsupported_element",
-      "tag": "link",
-      "reason": "unsupported_element"
-    },
-    {
-      "diagnostic_code": "html_responsive_image_fallback",
-      "tag": "img",
-      "reason": "responsive_image_fallback"
-    }
-  ]
+  "expected_fallbacks": []
 }

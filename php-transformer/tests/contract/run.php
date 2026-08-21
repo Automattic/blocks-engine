@@ -86,7 +86,7 @@ $assert(
         && array() === ($responsiveImageResult['fallbacks'] ?? array()),
     'responsive img sources use their captured primary candidate in valid editable core/image markup'
 );
-$customImageResult = ( new HtmlTransformer() )->transform('<wow-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></wow-image>')->toArray();
+$customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
 $assert(
     'core/image' === ($customImageResult['blocks'][0]['blockName'] ?? null)
         && 'hero.jpg' === ($customImageResult['blocks'][0]['attrs']['url'] ?? null)
@@ -96,7 +96,7 @@ $assert(
         && array() === ($customImageResult['fallbacks'] ?? array()),
     'image-only custom elements should lower to core/image while retaining lazy image and CSS identity'
 );
-$dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<wow-image><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></wow-image>')->toArray();
+$dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<media-image><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></media-image>')->toArray();
 $assert(
     str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'style="object-fit:cover;width:320px;height:281px"')
         && ! str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'width:1951px'),
@@ -107,7 +107,7 @@ $assert(
     str_contains((string) ($linkedDimensionedImageResult['serialized_blocks'] ?? ''), 'style="width:44;height:44"'),
     'linked core image dimensions match the unitless WordPress canonical save shape'
 );
-$visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><wow-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></wow-image></div></div>')->toArray();
+$visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
 $assert(
     str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:group')
@@ -115,15 +115,16 @@ $assert(
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
-$stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><wow-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></wow-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
+$stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><media-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
 $stickyVisualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stickyVisualLayerImageResult['assets'] ?? array()));
 $assert(
     ! str_contains($stickyVisualLayerImageCss, 'min-height:281px'),
     'an absolute visual layer does not impose its image height when normal-flow content already establishes the section height'
 );
-$customPictureResult = ( new HtmlTransformer() )->transform('<wow-image><picture><source media="(min-width: 800px)" srcset="hero-large.jpg 1200w"><img src="hero.jpg" alt="Hero"></picture></wow-image>')->toArray();
+$customPictureResult = ( new HtmlTransformer() )->transform('<media-image><picture><source media="(min-width: 800px)" srcset="hero-large.jpg 1200w"><img src="hero.jpg" alt="Hero"></picture></media-image>')->toArray();
 $assert(
     str_starts_with((string) ($customPictureResult['blocks'][0]['blockName'] ?? ''), 'custom/')
+        && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', '<media-image><picture>')
         && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', 'media="(min-width: 800px)" srcset="hero-large.jpg 1200w"')
         && array() === ($customPictureResult['fallbacks'] ?? array()),
     'custom image wrappers should preserve picture source selection in a generated editable block'
@@ -143,6 +144,7 @@ $assert(
     str_starts_with((string) ($responsiveGallery['blocks'][0]['blockName'] ?? ''), 'custom/')
         && 1 === count($responsiveGallery['source_reports']['generated_blocks'] ?? array())
         && array() === ($responsiveGallery['fallbacks'] ?? array())
+        && str_contains($responsiveGallery['source_reports']['generated_blocks'][0]['render'] ?? '', '<div class="gallery">')
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
     'responsive gallery media is preserved as one generated editable block instead of a gallery with unsupported children'
 );
@@ -1095,11 +1097,11 @@ $unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"
 $unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');
 $assert(str_contains($unlinkedWrappedImageMarkup, '<!-- wp:image') && str_contains($unlinkedWrappedImageMarkup, 'src="testimonial.jpg"'), 'image-only anchors without href preserve their image as a native block');
 
-$imageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><div class="gallery-frame"><wow-image class="source-image"><img src="product.jpg" alt="Product"></wow-image></div><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></button></main>')->toArray();
+$imageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><div class="gallery-frame"><media-image class="source-image"><img src="product.jpg" alt="Product"></media-image></div><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></button></main>')->toArray();
 $imageCarrierButtonMarkup = (string) ($imageCarrierButton['serialized_blocks'] ?? '');
 $assert(str_contains($imageCarrierButtonMarkup, '<!-- wp:image') && str_contains($imageCarrierButtonMarkup, 'src="product.jpg"'), 'an unlabeled image carrier control preserves its nested image as a native block');
 $assert(! str_contains($imageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled image carrier control does not route media through core/button RichText');
-$multiImageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><wow-image><img src="one.jpg" alt="Product"></wow-image><wow-image><img src="two.jpg" alt="Product"></wow-image></button></main>')->toArray();
+$multiImageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><media-image><img src="one.jpg" alt="Product"></media-image><media-image><img src="two.jpg" alt="Product"></media-image></button></main>')->toArray();
 $multiImageCarrierButtonMarkup = (string) ($multiImageCarrierButton['serialized_blocks'] ?? '');
 $assert(2 === substr_count($multiImageCarrierButtonMarkup, '<!-- wp:image') && str_contains($multiImageCarrierButtonMarkup, 'src="one.jpg"') && str_contains($multiImageCarrierButtonMarkup, 'src="two.jpg"'), 'an unlabeled multi-image gallery control preserves every nested image as native blocks');
 $assert(! str_contains($multiImageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled multi-image gallery control does not flatten image alternatives into button RichText');
