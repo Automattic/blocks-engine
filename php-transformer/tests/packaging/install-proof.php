@@ -40,7 +40,8 @@ $requiredFiles = array(
     'docs/contracts/php-transformer-visual-parity-fixture.schema.json',
     'docs/contracts/php-transformer-visual-parity-report.schema.json',
     'docs/contracts/visual-parity-report.md',
-    'resources/wordpress-6.6-core-block-supports.json',
+    'resources/wordpress-latest-core-block-attributes.json',
+    'resources/wordpress-latest-core-block-supports.json',
     'tools/visual-parity/package-lock.json',
     'tools/visual-parity/package.json',
     'tools/visual-parity/bin/visual-parity.mjs',
@@ -66,11 +67,11 @@ if (array('width' => '2px', 'style' => 'solid', 'color' => 'red') !== $groupBord
     fwrite(STDERR, "php-transformer install proof failed native border support\n");
     exit(1);
 }
-$quote = $transformer->transform('<blockquote style="border-left:2px solid red">Fallback</blockquote>')->toArray();
+$quote = $transformer->transform('<blockquote style="border-left:2px solid red">Native quote</blockquote>')->toArray();
 $quoteAttrs = $quote['blocks'][0]['attrs'] ?? array();
-$quoteCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $quote['assets'] ?? array()));
-if (isset($quoteAttrs['style']['border']) || ! str_contains((string) ($quoteAttrs['className'] ?? ''), 'be-inline-geometry-') || ! str_contains($quoteCss, 'border-left-width:2px !important')) {
-    fwrite(STDERR, "php-transformer install proof failed unsupported border fallback\n");
+$quoteBorder = $quoteAttrs['style']['border']['left'] ?? null;
+if (array('width' => '2px', 'style' => 'solid', 'color' => 'red') !== $quoteBorder || str_contains((string) ($quoteAttrs['className'] ?? ''), 'be-inline-geometry-')) {
+    fwrite(STDERR, "php-transformer install proof failed WordPress 7.1 Quote border support\n");
     exit(1);
 }
 PHP;

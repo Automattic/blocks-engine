@@ -1349,7 +1349,7 @@ $directQuote = $quoteMarginResult['blocks'][0] ?? array();
 $sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
 $quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
 $quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"content":"Direct quote.","className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
 $assert(str_contains($quoteMarginCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
 $assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');
@@ -1522,9 +1522,13 @@ $coffeeSerialized = (string) ($coffeeResult['serialized_blocks'] ?? '');
 $coffeeStylesheets = array_values(array_filter($coffeeResult['assets'] ?? array(), static fn (array $asset): bool => 'stylesheet' === ($asset['role'] ?? '') && 'text/css' === ($asset['mime_type'] ?? '')));
 $coffeeStylesheetCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $coffeeStylesheets));
 $coffeeRiskCount = 0;
-if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
+if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)(?: (\{.*?\}))? -->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
     foreach ( $coffeeBlocks as $coffeeBlock ) {
-        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[2]) ) {
+        $coffeeAttrs = json_decode($coffeeBlock[2] ?? '', true);
+        if ( str_contains((string) ($coffeeAttrs['className'] ?? ''), 'blocks-engine-inline-layout-carrier') ) {
+            continue;
+        }
+        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[3]) ) {
             ++$coffeeRiskCount;
         }
     }
@@ -1626,7 +1630,7 @@ $coverHero = ( new HtmlTransformer() )->transform(
     '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
 )->toArray();
 $coverHeroSerialized = (string) ($coverHero['serialized_blocks'] ?? '');
-$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph {"content":"Ship faster with blocks."} --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
+$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
 $assert($expectedCoverHeroSerialized === $coverHeroSerialized, 'gated hero serializes to the exact canonical core/cover golden', $coverHeroSerialized);
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($coverHero['blocks'] ?? array()), 'canonical hero cover passes save-shape validation');
 
@@ -1650,7 +1654,7 @@ $repeatingTexture = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
 )->toArray();
 $repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
-$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph {"content":"Plans"} --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
 $assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
 
@@ -1669,7 +1673,7 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"url":"https://example.com/decor.png","className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
 $assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
@@ -1841,7 +1845,7 @@ $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'ic
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
-$assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title","content":"Company"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
 $assert(2 === substr_count($footerNavigationSerialized, '"orientation":"vertical"'), 'labeled footer navigation retains vertical column flow without changing unlabeled social navigation');
 
 $complexHeaderNavigation = ( new HtmlTransformer() )->transform(
@@ -3218,7 +3222,7 @@ foreach ( $legacyFrontPageSite['source_reports']['materialization_plan']['pages'
 }
 $legacyBlockMarkup = (string) ($legacyPlanPage['block_markup'] ?? '');
 $assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
-$assert(str_contains($legacyBlockMarkup, 'About Hank\'s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
+$assert(str_contains($legacyBlockMarkup, 'About Hank&#039;s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
 $assert(str_contains($legacyBlockMarkup, '<!-- wp:table'), 'legacy HTML 4 layout tables convert to table block markup instead of empty fallback metadata');
 
 $legacyInline = ( new HtmlTransformer() )->transform('<CENTER><FONT FACE="Arial" SIZE="2">Visible legacy inline copy</FONT></CENTER>')->toArray();
@@ -4259,7 +4263,7 @@ $emptyFeatureShellResult = (new HtmlTransformer())->transform(
 $emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
 $assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
 $assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
-$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label=\"Search\"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label="Search"'), 'a real search control remains on its existing safe conversion path');
 $assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
 $assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
 
