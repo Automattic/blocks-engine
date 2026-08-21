@@ -160,7 +160,7 @@ $beforeFamilies = array(
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
-    'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}',
+    'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
     'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',

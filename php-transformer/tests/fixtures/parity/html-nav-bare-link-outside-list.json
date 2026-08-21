@@ -24,7 +24,7 @@
       "name": "core/navigation",
       "attrs": {
         "customTextColor": "#DDE3EB",
-        "overlayMenu": "mobile"
+        "overlayMenu": "never"
       }
     },
     {

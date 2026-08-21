@@ -33,7 +33,7 @@
     { "path": "blocks.0.innerBlocks.4.innerBlocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "blocks.0.innerBlocks.4.innerBlocks.1.attrs.url", "assert": "equals", "value": null },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"primary\",\"overlayMenu\":\"mobile\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"primary\",\"overlayMenu\":\"never\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Alpha\",\"url\":\"/alpha\",\"kind\":\"custom\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Unsafe\",\"kind\":\"custom\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-navigation__container" },

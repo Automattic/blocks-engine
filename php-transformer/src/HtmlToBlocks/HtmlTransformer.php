@@ -1164,10 +1164,12 @@ final class HtmlTransformer
             $authorCssParts[] = $authorCss;
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            // The source mobile menu hides its desktop list container. Core
-            // navigation owns that responsive swap now, so keep the block host
-            // visible and let core hide only its responsive inner container.
-            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            // Keep only source-responsive navigation hosts visible. Ordinary
+            // link rows retain authored mobile display rules without core's
+            // overlay control replacing them.
+            if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
+                $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
+            }
             // Size a carried menu to its content when it sits inside a brand
             // carrier. The carrier renders <nav> and core/navigation renders
             // another <nav> inside it, so an authored `header nav` rule matches
@@ -3859,7 +3861,8 @@ final class HtmlTransformer
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement)
+            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
         );
     }
 
@@ -12930,11 +12933,12 @@ final class HtmlTransformer
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        // Declare responsive-overlay intent explicitly (see NavigationPattern):
-        // `overlayMenu` => `mobile` matches the core default so WP renders the
-        // responsive overlay and enqueues the navigation view module instead of
-        // depending on the render-time default being applied.
-        $blocks[] = $this->createBlock('core/navigation', array( 'overlayMenu' => 'mobile' ), $links, $element);
+        $overlayMenu = $this->navigationOverlayMenu($element);
+        $navigationAttrs = array( 'overlayMenu' => $overlayMenu );
+        if ( 'mobile' === $overlayMenu ) {
+            $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
+        }
+        $blocks[] = $this->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
     }

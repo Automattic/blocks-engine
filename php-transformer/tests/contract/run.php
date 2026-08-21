@@ -2646,7 +2646,7 @@ $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(str_contains($artifactNavStructureCompatCss, '.desktop-nav.wp-block-navigation .wp-block-navigation__container .wp-block-navigation-item { float:left }'), 'artifact navigation projection maps classed navigation ancestor item selectors onto core navigation structure', $artifactNavStructureCompatCss);
-$assert(str_contains($artifactNavStructureAssetCss, '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}'), 'list navigation keeps the core responsive host visible when source mobile CSS hides its legacy menu container', $artifactNavStructureAssetCss);
+$assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
 
@@ -2661,6 +2661,20 @@ $artifactMobileNavOverlay = $compiler->compile(
 )->toArray();
 $artifactMobileNavOverlayAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactMobileNavOverlay['assets'] ?? array()));
 $assert(str_contains($artifactMobileNavOverlayAssetCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}'), 'deduplicated mobile navigation projects its authored background authoritatively over the core overlay default', $artifactMobileNavOverlayAssetCss);
+$assert(str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), 'blocks-engine-native-responsive-navigation') && str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), '"overlayMenu":"mobile"'), 'equivalent authored desktop/mobile navigations retain one native responsive overlay');
+
+$artifactToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><button aria-controls="menu" aria-expanded="false"><span></span><span></span></button><nav id="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialized_blocks'] ?? '');
+$artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
+$assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
