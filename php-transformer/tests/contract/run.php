@@ -3545,6 +3545,11 @@ $legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
 );
 $assert(array('Lora', 'Roboto') === array_map(static fn (array $font): string => (string) $font['family'], $legacyFontPlan['fonts'] ?? array()), 'web-font detection handles legacy css family pipes');
 $assert(array(400, 700) === ($legacyFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses legacy comma weight lists');
+$malformedLegacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Raleway:300|400">',
+    ''
+);
+$assert(array(array('family' => 'Raleway', 'weights' => array(300))) === ($malformedLegacyFontPlan['fonts'] ?? null), 'web-font detection rejects numeric legacy pipe tokens as font families');
 
 // Web-font sources flow through the full materialization plan theme contract.
 $webFontMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(

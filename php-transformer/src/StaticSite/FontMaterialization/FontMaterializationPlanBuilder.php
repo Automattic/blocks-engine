@@ -609,6 +609,7 @@ final class FontMaterializationPlanBuilder
         return str_contains($family, '(')
             || str_contains($family, ')')
             || str_starts_with($family, '--')
+            || is_numeric($family)
             || in_array(strtolower($family), self::CSS_WIDE_KEYWORDS, true);
     }
 
