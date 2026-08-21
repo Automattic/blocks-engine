@@ -33,6 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
@@ -558,6 +559,8 @@ final class HtmlTransformer
     /** @var array<string, array<string, mixed>> */
     private array $parsedCssSelectors = array();
 
+    private ?CssSelectorMatchCache $authorSelectorMatchCache = null;
+
     /** @var list<array{selector:string,parsed:array<string,mixed>}> */
     private array $authorSelectors = array();
 
@@ -680,6 +683,7 @@ final class HtmlTransformer
 		$this->authorStyleSourceClasses = array();
         $this->authorSourceSelectorMatches = array();
         $this->parsedCssSelectors = array();
+        $this->authorSelectorMatchCache = null;
         $this->authorSelectors = array();
         $this->authorMarkerSeed = '';
         $this->authorMarkerCounter = 0;
@@ -692,13 +696,15 @@ final class HtmlTransformer
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysisKey = $this->styleAnalysisKey($html, $staticCss);
-        if ( $styleAnalysisKey === ($this->analysisCache->style['key'] ?? null) ) {
-            $this->staticStyleRules = $this->analysisCache->style['static'];
-            $this->conditionalStyleRules = $this->analysisCache->style['conditional'];
-            $this->navigationStateStyleRules = $this->analysisCache->style['navigation_state'];
-            $this->imageShapeStyleRules = $this->analysisCache->style['image_shape'];
-            $this->staticPseudoElementStyleRules = $this->analysisCache->style['pseudo'];
-            $this->cssCustomProperties = $this->analysisCache->style['custom_properties'];
+        if ( isset($this->analysisCache->styles[$styleAnalysisKey]) ) {
+            ++$this->analysisCache->styleHits;
+            $styleAnalysis = $this->analysisCache->styles[$styleAnalysisKey];
+            $this->staticStyleRules = $styleAnalysis['static'];
+            $this->conditionalStyleRules = $styleAnalysis['conditional'];
+            $this->navigationStateStyleRules = $styleAnalysis['navigation_state'];
+            $this->imageShapeStyleRules = $styleAnalysis['image_shape'];
+            $this->staticPseudoElementStyleRules = $styleAnalysis['pseudo'];
+            $this->cssCustomProperties = $styleAnalysis['custom_properties'];
         } else {
             ++$this->analysisCache->styleBuilds;
             $this->staticStyleRules = $this->staticStyleRules($html, $staticCss);
@@ -707,15 +713,14 @@ final class HtmlTransformer
             $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, $staticCss);
             $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, $staticCss);
             $this->cssCustomProperties = $this->cssCustomProperties($html, $staticCss);
-            $this->analysisCache->style = array(
-                'key' => $styleAnalysisKey,
+            $this->analysisCache->rememberStyle($styleAnalysisKey, array(
                 'static' => $this->staticStyleRules,
                 'conditional' => $this->conditionalStyleRules,
                 'navigation_state' => $this->navigationStateStyleRules,
                 'image_shape' => $this->imageShapeStyleRules,
                 'pseudo' => $this->staticPseudoElementStyleRules,
                 'custom_properties' => $this->cssCustomProperties,
-            );
+            ));
         }
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
@@ -2571,6 +2576,7 @@ final class HtmlTransformer
         }
 
         $this->authorStyleSourceBody = $sourceBody;
+        $this->authorSelectorMatchCache = new CssSelectorMatchCache();
 		for ( $ancestor = $sourceBody; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
 			$this->recordAuthorSelectorSignals($ancestor);
 		}
@@ -2592,9 +2598,11 @@ final class HtmlTransformer
         }
 
 		$authorAnalysisKey = hash('sha256', $this->combinedAuthorCss);
-        if ( $authorAnalysisKey === ($this->analysisCache->authorSelectors['key'] ?? null) ) {
-            $sourceTagSelectorNames = $this->analysisCache->authorSelectors['source_tags'];
-            $authorSelectors = $this->analysisCache->authorSelectors['selectors'];
+        if ( isset($this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey]) ) {
+            ++$this->analysisCache->authorSelectorHits;
+            $authorAnalysis = $this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey];
+            $sourceTagSelectorNames = $authorAnalysis['source_tags'];
+            $authorSelectors = $authorAnalysis['selectors'];
         } else {
 			++$this->analysisCache->authorSelectorBuilds;
 			$sourceTagSelectorNames = array();
@@ -2612,11 +2620,10 @@ final class HtmlTransformer
 				}
 				return $prelude;
 			});
-            $this->analysisCache->authorSelectors = array(
-                'key' => $authorAnalysisKey,
+            $this->analysisCache->rememberAuthorSelectors($authorAnalysisKey, array(
                 'source_tags' => $sourceTagSelectorNames,
                 'selectors' => $authorSelectors,
-            );
+            ));
         }
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
@@ -2627,6 +2634,10 @@ final class HtmlTransformer
 		$this->discoverAuthorRootChildPaths($authorSelectors);
 		$this->discoverAuthorTablePaths($authorSelectors);
         $this->sourceBodyProjectionClasses = $this->referencedSourceBodyClasses($sourceBody);
+        $this->analysisCache->authorSelectorClassTokenBuilds += $this->authorSelectorMatchCache->classTokenBuilds;
+        $this->analysisCache->authorSelectorClassTokenHits += $this->authorSelectorMatchCache->classTokenHits;
+        $this->analysisCache->authorSelectorAttributeReads += $this->authorSelectorMatchCache->attributeReads;
+        $this->authorSelectorMatchCache = null;
     }
 
     /** @return list<string> */
@@ -3199,14 +3210,16 @@ final class HtmlTransformer
     private function matchingAuthorSourceElements(string $selector, array $parsed): array
     {
         if ( array_key_exists($selector, $this->authorSourceSelectorMatches) ) {
+            ++$this->analysisCache->authorSelectorMatchResultHits;
             return $this->authorSourceSelectorMatches[$selector];
         }
+		++$this->analysisCache->authorSelectorMatchResultBuilds;
 		if ( ! $this->authorSelectorCanMatch($parsed) ) {
 			return $this->authorSourceSelectorMatches[$selector] = array();
 		}
         $matches = array();
         foreach ( $this->authorSelectorCandidates($parsed) as $element ) {
-            if ( CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+            if ( CssSelectorMatcher::matches($element, $parsed, true, $this->authorSelectorMatchCache)['matches'] ) {
                 $matches[] = $element;
             }
         }
