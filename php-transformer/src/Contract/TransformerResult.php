@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
 use InvalidArgumentException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
 
 final class TransformerResult
 {
@@ -68,6 +69,12 @@ final class TransformerResult
         self::assertCanonicalEnvelope($result);
 
         return $result;
+    }
+
+    /** @return array<string,mixed> */
+    public function toWordPressSitePlanView(): array
+    {
+        return ( new WordPressSitePlanView() )->fromResult($this);
     }
 
     /**

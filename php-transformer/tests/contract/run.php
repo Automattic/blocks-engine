@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecogniz
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
@@ -2695,6 +2696,13 @@ $simple = $compiler->compile(
 )->toArray();
 TransformerResult::assertCanonicalEnvelope($simple);
 $assert('success' === $simple['status'], 'simple artifact compiles successfully', (string) $simple['status']);
+$simplePlanView = ( new WordPressSitePlanView() )->fromResult($simple);
+$simpleObjectPlanView = $compiler->compile(array('generated_html' => '<main><h1>Bounded handoff</h1></main>'))->toWordPressSitePlanView();
+$assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'WordPress site plan view exposes its own schema');
+$assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
+$assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
+$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
+$assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
