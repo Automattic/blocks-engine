@@ -747,16 +747,19 @@ final class FigmaTransformer
             if ( '' !== $html ) {
                 $sourceFrameIdentity = is_array($page['source_frame_identity'] ?? null) ? $page['source_frame_identity'] : array();
                 $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
-                $files[] = array(
-                    'path'                    => $path,
-                    'role'                    => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
-                    'mime_type'               => 'text/html',
-                    'content'                 => $html,
-                    'page_type'               => $pageType,
-                    'template_slug'           => $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? ''),
-                    'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
-                    'source_frame_identity'   => $sourceFrameIdentity,
-                );
+                $templateAliasReplacesSource = $emitTemplateAliases && '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path;
+                if ( ! $templateAliasReplacesSource ) {
+                    $files[] = array(
+                        'path'                    => $path,
+                        'role'                    => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
+                        'mime_type'               => 'text/html',
+                        'content'                 => $html,
+                        'page_type'               => $pageType,
+                        'template_slug'           => $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? ''),
+                        'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
+                        'source_frame_identity'   => $sourceFrameIdentity,
+                    );
+                }
                 if ( in_array($pageType, array('single', 'archive', '404'), true) && (! $emitTemplateAliases || $canonicalTemplatePath === $path) ) {
                     $files[array_key_last($files)]['metadata'] = array(
                         'template_surface' => array(
@@ -770,7 +773,7 @@ final class FigmaTransformer
                     );
                 }
 
-                if ( $emitTemplateAliases && '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path ) {
+                if ( $templateAliasReplacesSource ) {
                     $files[] = array(
                         'path'                    => $canonicalTemplatePath,
                         'role'                    => 'template-alias',

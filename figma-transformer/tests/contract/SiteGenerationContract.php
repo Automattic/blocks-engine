@@ -82,7 +82,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         static fn (array $file): string => (string) ($file['path'] ?? ''),
         array_filter($templateArtifactResult['files'] ?? array(), static fn (array $file): bool => 'text/html' === ($file['mime_type'] ?? null))
     ));
-    $assert(array_values(array_intersect(array('index.html', 'single.html', 'archive.html', '404.html'), $templatePaths)) === array('index.html', 'single.html', 'archive.html', '404.html'), 'multi-template-artifact-emits-canonical-html-paths');
+    $canonicalTemplatePaths = array('index.html', 'single.html', 'archive.html', '404.html');
+    $assert(count($canonicalTemplatePaths) === count($templatePaths) && array() === array_values(array_diff($templatePaths, $canonicalTemplatePaths)), 'multi-template-artifact-emits-only-canonical-template-html-paths');
     $singleTemplateHtml = $fileContent($templateArtifactResult, 'single.html');
     $assert(str_contains($singleTemplateHtml, 'data-template-type="single"') && str_contains($singleTemplateHtml, 'data-template-slug="single"'), 'single-template-root-carries-template-metadata');
     $assert(str_contains($singleTemplateHtml, 'data-template-area="header"') && str_contains($singleTemplateHtml, 'data-template-area="content"') && str_contains($singleTemplateHtml, 'data-template-area="comments"') && str_contains($singleTemplateHtml, 'data-template-area="footer"'), 'single-template-carries-semantic-area-metadata');
