@@ -78,7 +78,7 @@ $responsiveMarkup = (string) ($responsiveResolved['pages'][0]['resolved_block_ma
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
-$responsiveId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Responsive fallback', 'post_content' => $responsiveMarkup), true);
+$responsiveId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Responsive fallback', 'post_content' => wp_slash($responsiveMarkup)), true);
 if (is_wp_error($responsiveId)) throw new RuntimeException($responsiveId->get_error_message());
 $pageIds['responsive-fallback'] = $responsiveId;
 $responsiveSaved = (string) get_post_field('post_content', $responsiveId);
