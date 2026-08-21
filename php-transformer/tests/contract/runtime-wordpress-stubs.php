@@ -193,6 +193,9 @@ assertSame(array('core/accordion', 'core/group', 'core/heading', 'core/icon', 'c
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Runtime should resolve border width from the registered Group declaration.');
 assertSame(false, $runtime->blockSupportsBorder('core/group', 'style'), 'Registered Group metadata should override the standalone snapshot component by component.');
 assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'A registered Quote declaration without border support should fail closed.');
+$registeredGroupNormalization = $runtime->normalizeBlockSupportAttributes('core/group', array( 'style' => array( 'dimensions' => array( 'minHeight' => '20rem' ) ) ));
+assertSame(array(), $registeredGroupNormalization['attrs'], 'Live registered Group metadata takes precedence over the bundled snapshot when normalizing supports.');
+assertSame('20rem', $registeredGroupNormalization['fallbackStyle']['dimensions']['minHeight'] ?? null, 'Live metadata returns rejected support values for the existing carrier path.');
 
 fwrite(STDOUT, "WordPress runtime stub contract passed.\n");
 

@@ -412,6 +412,12 @@ final class HtmlTransformer
      */
     private array $navigationStateStyleRules = array();
 
+    /** @var array<string, array<string, string>> */
+    private array $listNavigationPaddingFallbacks = array();
+
+    /** @var array<string, string> */
+    private array $navigationLinkColorFallbacks = array();
+
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
 
@@ -688,6 +694,8 @@ final class HtmlTransformer
         $this->reusableComponentFingerprints = array();
         $this->nativeSearchTriggerCssRules = array();
         $this->nativeButtonStyleRules = array();
+        $this->listNavigationPaddingFallbacks = array();
+        $this->navigationLinkColorFallbacks = array();
         $this->syntheticHeaderAnchorStyleRules = array();
         $this->headerRichTextStyleRules = array();
         $this->gutenbergIncompatibilities = array();
@@ -1544,6 +1552,14 @@ final class HtmlTransformer
             $padding = is_array($attrs['style']['spacing']['padding'] ?? null)
                 ? $attrs['style']['spacing']['padding']
                 : array();
+            if ( array() === $padding ) {
+                foreach ( $classes as $class ) {
+                    if ( isset($this->listNavigationPaddingFallbacks[ $class ]) ) {
+                        $padding = $this->listNavigationPaddingFallbacks[ $class ];
+                        break;
+                    }
+                }
+            }
             $declarations = array();
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $property = 'padding-' . $side;
@@ -2370,6 +2386,14 @@ final class HtmlTransformer
             }
 
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+            if ( '' === $color ) {
+                foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                    if ( isset($this->navigationLinkColorFallbacks[ $class ]) ) {
+                        $color = $this->navigationLinkColorFallbacks[ $class ];
+                        break;
+                    }
+                }
+            }
             if ( '' === $color
                 || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
                 || array() === $this->cssDeclarations('color:' . $color)
@@ -5397,7 +5421,7 @@ final class HtmlTransformer
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
                 $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
             }
-            $attrs = $this->applyDeclaredBorderSupport($name, $attrs, $sourceElement);
+            $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
@@ -5486,60 +5510,71 @@ final class HtmlTransformer
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
-    private function applyDeclaredBorderSupport(string $name, array $attrs, DOMElement $sourceElement): array
+    private function applyDeclaredBlockSupport(string $name, array $attrs, DOMElement $sourceElement): array
     {
-        $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
-        if ( array() === $border ) {
-            return $attrs;
-        }
-
-        $fallback = array();
-        foreach ( array( 'width', 'style', 'color' ) as $component ) {
-            if ( ! array_key_exists($component, $border) || $this->runtime->blockSupportsBorder($name, $component) ) {
-                continue;
-            }
-            $fallback[ $component ] = $border[ $component ];
-            unset($border[ $component ]);
-        }
-        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
-            $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array();
-            foreach ( array( 'width', 'style', 'color' ) as $component ) {
-                if ( ! array_key_exists($component, $sideBorder) || $this->runtime->blockSupportsBorder($name, $component) ) {
-                    continue;
+        $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
+        $fallback = $normalized['fallbackStyle'];
+        $attrs = $normalized['attrs'];
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+        if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
+            foreach ( $classes as $class ) {
+                if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
+                    $this->listNavigationPaddingFallbacks[ $class ] = $fallback['spacing']['padding'];
                 }
-                $fallback[ $side ][ $component ] = $sideBorder[ $component ];
-                unset($sideBorder[ $component ]);
-            }
-            if ( array() === $sideBorder ) {
-                unset($border[ $side ]);
-            } else {
-                $border[ $side ] = $sideBorder;
             }
         }
-
+        if ( in_array($name, array( 'core/navigation-link', 'core/navigation-submenu' ), true) && '' !== trim((string) ($fallback['color']['text'] ?? '')) ) {
+            foreach ( $classes as $class ) {
+                if ( (str_starts_with($class, 'blocks-engine-navigation-link-color-')
+                        && ! str_starts_with($class, 'blocks-engine-navigation-link-color-states-'))
+                    || str_starts_with($class, 'blocks-engine-navigation-current-color-')
+                ) {
+                    $this->navigationLinkColorFallbacks[ $class ] = (string) $fallback['color']['text'];
+                }
+            }
+        }
         if ( array() === $fallback ) {
             return $attrs;
         }
 
-        $fallbackStyle = $this->styleAttributeMapper()->serialize(array( 'border' => $fallback ))['style'];
+        $fallbackStyle = $this->styleAttributeMapper()->serialize($fallback)['style'];
         $fallbackDeclarations = $this->cssDeclarations($fallbackStyle);
+        $inlineDeclarations = $this->cssDeclarations($this->attr($sourceElement, 'style'));
+        $inlineMapped = $this->styleAttributeMapper()->map($inlineDeclarations);
+        $inlineFallbackDeclarations = $this->cssDeclarations($this->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
+        foreach ( array_keys($fallbackDeclarations) as $property ) {
+            if ( 'core/button' === $name
+                && 'border-radius' === $property
+                && '0' === (string) ($fallback['border']['radius'] ?? '')
+            ) {
+                // ButtonStyleResolver adds a square radius to suppress the
+                // theme's default rounded button chrome. It is generated
+                // compatibility geometry, not a missing source declaration.
+                continue;
+            }
+            if ( ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
+                unset($fallbackDeclarations[ $property ]);
+            }
+        }
+        if ( preg_match('/(?:^|\s)be-inline-geometry-[^\s]+/', (string) ($attrs['className'] ?? '')) ) {
+            // The source geometry carrier preserves declaration priority and
+            // custom-property case. Do not add a lossy mapped duplicate.
+            foreach ( $this->inlineGeometryProperties() as $property ) {
+                unset($fallbackDeclarations[ $property ]);
+            }
+            unset($fallbackDeclarations['box-shadow']);
+        }
+        if ( array() === $fallbackDeclarations ) {
+            return $attrs;
+        }
         $carrier = $this->inlineGeometryClassName(
             $sourceElement,
-            array(),
+            array_diff($this->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
             array_keys($fallbackDeclarations),
             $fallbackDeclarations
         );
         if ( '' !== $carrier ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
-        }
-
-        if ( array() === $border ) {
-            unset($attrs['style']['border']);
-        } else {
-            $attrs['style']['border'] = $border;
-        }
-        if ( empty($attrs['style']) ) {
-            unset($attrs['style']);
         }
 
         return $attrs;

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /**
  * @internal Block construction is owned by HtmlTransformer.
@@ -70,9 +71,16 @@ final class BlockFactory
 
     private ?StyleAttributeMapper $styleMapper = null;
 
+    private ?Runtime $runtime = null;
+
     private function styleMapper(): StyleAttributeMapper
     {
         return $this->styleMapper ??= new StyleAttributeMapper();
+    }
+
+    private function runtime(): Runtime
+    {
+        return $this->runtime ??= new Runtime();
     }
 
     /**
@@ -111,6 +119,8 @@ final class BlockFactory
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
         $attrs = $this->normalizeClassNameAttr($attrs);
+
+        $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
 
         // Layout is a block-supports opt-in. Stamping it on a block whose
         // supports do not accept an authored layout bakes is-layout-* classes

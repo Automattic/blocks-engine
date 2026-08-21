@@ -299,9 +299,8 @@ foreach ( array( 'animation', 'filter', 'counter-reset' ) as $property ) {
 }
 
 // ---------------------------------------------------------------------------
-// C3 — no double ownership. A box-shadow consumed by the core/button shadow
-// support must not also get a carrier rule: carriers can outrank the
-// editor-visible support value and desynchronise the editor from the front end.
+// C3 — metadata rejects button shadow support, so the inline winner must remain
+// exclusively in the carrier rather than an ignored native style attribute.
 // ---------------------------------------------------------------------------
 $button = $transform(
     '<style>.btn{display:inline-block;background:#5b18a6;color:#fff;padding:0.8rem 1.2rem;'
@@ -311,16 +310,8 @@ $button = $transform(
 $buttonCss = $cssFor($button, 'engine-support');
 $buttonSerialized = (string) ($button['serialized_blocks'] ?? '');
 
-$assert(
-    str_contains($buttonSerialized, '"shadow":"0 10px 0 -2px rgba(0,0,0,0.22)"'),
-    'C3: the inline box-shadow still becomes the core/button shadow support',
-    $buttonSerialized
-);
-$assert(
-    '' === $anyWith($tierRules($buttonCss), 'box-shadow'),
-    'C3: the property consumed by the shadow support gets no competing carrier rule',
-    $buttonCss
-);
+$assert(! str_contains($buttonSerialized, '"shadow"'), 'C3: metadata-rejected button shadow stays out of native block attributes', $buttonSerialized);
+$assert('' !== $importantWith($tierRules($buttonCss), 'box-shadow:0 10px 0 -2px rgba(0,0,0,0.22)'), 'C3: the carrier preserves the inline button shadow', $buttonCss);
 
 // ---------------------------------------------------------------------------
 // C4 — no-op when the value equals the default.

@@ -107,6 +107,7 @@ $result = ( new HtmlTransformer() )->transform(
 $button = $result['blocks'][0]['innerBlocks'][0] ?? array();
 $buttonTypography = $button['attrs']['style']['typography'] ?? null;
 $serialized = (string) ($result['serialized_blocks'] ?? '');
+$css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
 
 $assert(
     'core/button' === ($button['blockName'] ?? ''),
@@ -114,26 +115,23 @@ $assert(
     (string) ($button['blockName'] ?? '(none)')
 );
 $assert(
-    '"Trebuchet MS", "Segoe UI", sans-serif' === (string) ($buttonTypography['fontFamily'] ?? ''),
-    'end to end: the block attributes carry the authored typeface',
+    ! isset($buttonTypography['fontFamily']) && str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif'),
+    'end to end: the CSS carrier preserves the authored typeface',
     json_encode($buttonTypography)
 );
 $assert(
-    str_contains($serialized, 'font-family:&quot;Trebuchet MS&quot;, &quot;Segoe UI&quot;, sans-serif')
-        || str_contains($serialized, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif'),
-    'end to end: the rendered button link declares the authored typeface inline, where theme.json cannot outrank it',
-    $serialized
+    str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif'),
+    'end to end: the rendered button link receives the authored typeface through its carrier, where theme.json cannot outrank it',
+    $css
 );
 $assert(
-    array(
-        'fontFamily' => '"Trebuchet MS", "Segoe UI", sans-serif',
-        'fontSize' => '0.88rem',
-        'fontWeight' => '700',
-        'letterSpacing' => '0.08em',
-        'textTransform' => 'uppercase',
-    ) === $buttonTypography,
-    'end to end: the other carried typography declarations are unchanged',
-    json_encode($buttonTypography)
+    null === $buttonTypography
+        && str_contains($css, 'font-size:0.88rem!important')
+        && str_contains($css, 'font-weight:700!important')
+        && str_contains($css, 'letter-spacing:0.08em!important')
+        && str_contains($css, 'text-transform:uppercase!important'),
+    'end to end: the other carried typography declarations remain in the CSS carrier',
+    $css
 );
 
 if ( $failures > 0 ) {

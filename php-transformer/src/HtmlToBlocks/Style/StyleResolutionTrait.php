@@ -706,6 +706,9 @@ trait StyleResolutionTrait
         array $excludedProperties
     ): array {
         $candidates = $this->styleAttributeMapper()->map($inlineDeclarations)['leftover'] ?? array();
+        if ( isset($inlineDeclarations['box-shadow']) ) {
+            $candidates['box-shadow'] = $inlineDeclarations['box-shadow'];
+        }
         foreach ( array_keys($candidates) as $property ) {
             if ( isset($carried[ $property ])
                 || in_array($property, $excludedProperties, true)

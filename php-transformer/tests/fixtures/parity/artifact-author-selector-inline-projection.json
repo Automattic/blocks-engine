@@ -18,12 +18,12 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.0.path", "assert": "equals", "value": "index.inline.css" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
-    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": ".hero-text p" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "a.cta:hover" },
-    { "path": "source_reports.materialization_plan.assets.0.target_path", "assert": "equals", "value": "index.inline.css" },
-    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "not_contains", "value": ".hero-text p" }
+    { "path": "assets.1.path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "assets.1.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": ".hero-text p" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": "a.cta:hover" },
+    { "path": "source_reports.materialization_plan.assets.1.target_path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "not_contains", "value": ".hero-text p" }
   ]
 }

@@ -230,16 +230,7 @@ $assert(
 // The carrier renders the authored outer nav plus a generated inner nav. When
 // the authored outer nav owns padding, its selector also hits that new inner
 // nav. The source list's resolved padding is the exact replacement geometry.
-$assert(
-    array(
-        'top' => '0',
-        'right' => '0',
-        'bottom' => '0',
-        'left' => '0',
-    ) === ($geometryAttrs['style']['spacing']['padding'] ?? null),
-    'a generated nested navigation carries the source list padding over duplicated outer-nav padding',
-    json_encode($geometryAttrs)
-);
+$assert(! isset($geometryAttrs['style']['spacing']['padding']), 'a generated nested navigation keeps source list padding out of unsupported native attributes', json_encode($geometryAttrs));
 
 $assert(
     str_contains(
@@ -438,15 +429,25 @@ $majorityColour = $transform(
         . '<a href="/about">About</a><a class="nav-cta" href="/book">Book</a><a href="/contact">Contact</a></nav>'
 );
 $majorityNavigation = $findBlocks($majorityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$majorityCss = implode("\n", array_column($majorityColour['assets'] ?? array(), 'content'));
+$majorityDefaultCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#5c7c99' . "\0" . '0');
+$majorityCurrentCarrier = 'blocks-engine-navigation-current-color-' . hash('sha256', '#dde6ef' . "\0" . '0');
+$majorityCtaCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#071018' . "\0" . '0');
 $assert(
-    '#5c7c99' === ($majorityNavigation['attrs']['customTextColor'] ?? null),
-    'a unique strict-majority link colour is carried by core/navigation',
+    ! isset($majorityNavigation['attrs']['customTextColor'])
+        && ! isset($majorityNavigation['attrs']['style']['color']['text'])
+        && str_contains($majorityCss, '.' . $majorityDefaultCarrier . '>.wp-block-navigation-item__content{color:#5c7c99}'),
+    'a strict-majority link colour remains in the exact per-link carrier when navigation metadata rejects it',
     json_encode($majorityNavigation['attrs'] ?? array())
 );
 $assert(
-    '#dde6ef' === ($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'] ?? null)
-        && '#071018' === ($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'] ?? null),
-    'current and CTA link colour exceptions remain on their own navigation links',
+    ! isset($majorityNavigation['innerBlocks'][0]['attrs']['style']['color']['text'])
+        && ! isset($majorityNavigation['innerBlocks'][3]['attrs']['style']['color']['text'])
+        && str_contains((string) ($majorityNavigation['attrs']['className'] ?? ''), $majorityCurrentCarrier)
+        && str_contains($majorityCss, '.wp-block-navigation.' . $majorityCurrentCarrier . ' .wp-block-navigation-item.current-menu-item>.wp-block-navigation-item__content')
+        && str_contains($majorityCss, '{color:#dde6ef}')
+        && str_contains($majorityCss, '.' . $majorityCtaCarrier . '>.wp-block-navigation-item__content{color:#071018}'),
+    'current and CTA link colour exceptions remain in their own scoped CSS carriers',
     json_encode($majorityNavigation['innerBlocks'] ?? array())
 );
 
@@ -460,9 +461,13 @@ $specificityColour = $transform(
         . '<a class="nav-cta" href="/book">Book</a></nav>'
 );
 $specificityNavigation = $findBlocks($specificityColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
+$specificityCss = implode("\n", array_column($specificityColour['assets'] ?? array(), 'content'));
+$specificityCarrier = 'blocks-engine-navigation-link-color-' . hash('sha256', '#5c7c99' . "\0" . '0');
 $assert(
-    '#5c7c99' === ($specificityNavigation['innerBlocks'][2]['attrs']['style']['color']['text'] ?? null),
-    'navigation link colour resolution honors selector specificity before source order',
+    ! isset($specificityNavigation['innerBlocks'][2]['attrs']['style']['color']['text'])
+        && str_contains((string) ($specificityNavigation['innerBlocks'][2]['attrs']['className'] ?? ''), $specificityCarrier)
+        && str_contains($specificityCss, '.' . $specificityCarrier . '>.wp-block-navigation-item__content{color:#5c7c99}'),
+    'navigation link colour resolution keeps the specificity winner in its CSS carrier',
     json_encode($specificityNavigation['innerBlocks'][2]['attrs'] ?? array())
 );
 
@@ -472,8 +477,9 @@ $alphaColour = $transform(
 );
 $alphaNavigation = $findBlocks($alphaColour['blocks'] ?? array(), 'core/navigation')[0] ?? array();
 $assert(
-    'rgba(255,255,255,0.82)' === ($alphaNavigation['attrs']['customTextColor'] ?? null),
-    'strict-majority promotion preserves authored alpha bytes',
+    ! isset($alphaNavigation['attrs']['customTextColor'])
+        && ! isset($alphaNavigation['attrs']['style']['color']['text']),
+    'strict-majority promotion keeps authored alpha bytes out of rejected navigation metadata',
     json_encode($alphaNavigation['attrs'] ?? array())
 );
 

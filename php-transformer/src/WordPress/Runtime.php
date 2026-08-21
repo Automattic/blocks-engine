@@ -158,6 +158,44 @@ final class Runtime
     }
 
     /**
+     * Remove support attributes the target block cannot serialize. Unsupported
+     * values remain available to the caller for its deterministic CSS carrier.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array{attrs: array<string, mixed>, fallbackStyle: array<string, mixed>}
+     */
+    public function normalizeBlockSupportAttributes(string $blockName, array $attrs): array
+    {
+        $supports = $this->registeredBlockSupports($blockName) ?? $this->fallbackBlockSupports($blockName);
+        if ( null === $supports ) return array( 'attrs' => $attrs, 'fallbackStyle' => array() );
+        $fallback = array();
+        if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
+        if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $this->filterStyleGroup($style, $fallback, $supports, 'dimensions', array( 'minHeight' => 'minHeight', 'maxWidth' => 'maxWidth' ));
+        $this->filterSpacing($style, $fallback, $supports);
+        $this->filterStyleGroup($style, $fallback, $supports, 'typography', array( 'fontFamily' => '__experimentalFontFamily', 'fontSize' => 'fontSize', 'fontWeight' => '__experimentalFontWeight', 'lineHeight' => 'lineHeight', 'letterSpacing' => '__experimentalLetterSpacing', 'textTransform' => '__experimentalTextTransform', 'textDecoration' => '__experimentalTextDecoration', 'fontStyle' => '__experimentalFontStyle' ));
+        $this->filterStyleGroup($style, $fallback, $supports, 'color', array( 'text' => 'text', 'background' => 'background', 'gradient' => 'gradients' ), true);
+        $this->filterBorder($style, $fallback, $supports);
+        if ( isset($style['shadow']) && ! $this->supportsFeature($supports, 'shadow', 'shadow') ) { $fallback['shadow'] = $style['shadow']; unset($style['shadow']); }
+        if ( array() === $style ) unset($attrs['style']); else $attrs['style'] = $style;
+        foreach ( array( 'textColor' => 'text', 'backgroundColor' => 'background' ) as $attribute => $feature ) if ( isset($attrs[ $attribute ]) && ! $this->supportsFeature($supports, 'color', $feature, true) ) unset($attrs[ $attribute ]);
+        return array( 'attrs' => $attrs, 'fallbackStyle' => $fallback );
+    }
+
+    /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports @param array<string, string> $features */
+    private function filterStyleGroup(array &$style, array &$fallback, array $supports, string $group, array $features, bool $colorDefaults = false): void { $values = is_array($style[ $group ] ?? null) ? $style[ $group ] : array(); foreach ( $features as $key => $feature ) if ( array_key_exists($key, $values) && ! $this->supportsFeature($supports, $group, $feature, $colorDefaults) ) { $fallback[ $group ][ $key ] = $values[ $key ]; unset($values[ $key ]); } if ( array() === $values ) unset($style[ $group ]); else $style[ $group ] = $values; }
+
+    /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports */
+    private function filterSpacing(array &$style, array &$fallback, array $supports): void { $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array(); foreach ( array( 'margin', 'padding' ) as $box ) { $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array(); foreach ( $sides as $side => $value ) if ( ! $this->supportsFeature($supports, 'spacing', $box, false, (string) $side) ) { $fallback['spacing'][ $box ][ $side ] = $value; unset($sides[ $side ]); } if ( array() === $sides ) unset($spacing[ $box ]); else $spacing[ $box ] = $sides; } if ( isset($spacing['blockGap']) && ! $this->supportsFeature($supports, 'spacing', 'blockGap') ) { $fallback['spacing']['blockGap'] = $spacing['blockGap']; unset($spacing['blockGap']); } if ( array() === $spacing ) unset($style['spacing']); else $style['spacing'] = $spacing; }
+
+    /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports */
+    private function filterBorder(array &$style, array &$fallback, array $supports): void { $border = is_array($style['border'] ?? null) ? $style['border'] : array(); foreach ( array( 'color', 'style', 'width', 'radius' ) as $feature ) if ( isset($border[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { $fallback['border'][ $feature ] = $border[ $feature ]; unset($border[ $feature ]); } foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) { $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array(); foreach ( array( 'color', 'style', 'width' ) as $feature ) if ( isset($sideBorder[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { $fallback['border'][ $side ][ $feature ] = $sideBorder[ $feature ]; unset($sideBorder[ $feature ]); } if ( array() === $sideBorder ) unset($border[ $side ]); else $border[ $side ] = $sideBorder; } if ( array() === $border ) unset($style['border']); else $style['border'] = $border; }
+
+    /** @param array<string, mixed> $supports */
+    private function supportsFeature(array $supports, string $group, string $feature, bool $colorDefaults = false, string $side = ''): bool { $declaration = 'border' === $group ? ($supports['border'] ?? $supports['__experimentalBorder'] ?? false) : ($supports[ $group ] ?? false); if ( true === $declaration ) return true; if ( ! is_array($declaration) || true === ($declaration['__experimentalSkipSerialization'] ?? false) ) return false; $skipped = $declaration['__experimentalSkipSerialization'] ?? array(); $skipFeature = lcfirst(str_replace('__experimental', '', $feature)); if ( is_array($skipped) && (in_array($feature, $skipped, true) || in_array($skipFeature, $skipped, true)) ) return false; if ( 'layout' === $group ) return 'grid' !== $feature || false !== ($declaration['allowSwitching'] ?? true); $value = $declaration[ $feature ] ?? ($colorDefaults ? true : false); return '' !== $side && is_array($value) ? in_array($side, $value, true) : true === $value; }
+
+    /**
      * @return array<int, string>
      */
     private function registeredCoreBlockNames(): array

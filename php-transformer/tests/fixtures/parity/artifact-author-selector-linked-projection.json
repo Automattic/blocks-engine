@@ -20,13 +20,13 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.0.path", "assert": "equals", "value": "assets/buttons.css" },
-    { "path": "assets.1.path", "assert": "equals", "value": "assets/type.css" },
-    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
-    { "path": "assets.0.content", "assert": "not_contains", "value": "a.cta:hover" },
-    { "path": "assets.1.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
-    { "path": "assets.1.content", "assert": "not_contains", "value": "p{color:red}" },
-    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "assets/buttons.css" },
-    { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "assets/type.css" }
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/buttons.css" },
+    { "path": "assets.2.path", "assert": "equals", "value": "assets/type.css" },
+    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.1.content", "assert": "not_contains", "value": "a.cta:hover" },
+    { "path": "assets.2.content", "assert": "contains", "value": ":where(.blocks-engine-source-p-" },
+    { "path": "assets.2.content", "assert": "not_contains", "value": "p{color:red}" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.1", "assert": "equals", "value": "assets/buttons.css" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.2", "assert": "equals", "value": "assets/type.css" }
   ]
 }
