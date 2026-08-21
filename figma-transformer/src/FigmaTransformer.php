@@ -775,7 +775,7 @@ final class FigmaTransformer
                         'path'                    => $canonicalTemplatePath,
                         'role'                    => 'template-alias',
                         'mime_type'               => 'text/html',
-                        'content'                 => str_replace('data-page-path="' . $this->sanitizeAttribute($path) . '"', 'data-page-path="' . $this->sanitizeAttribute($canonicalTemplatePath) . '"', $html),
+                        'content'                 => $html,
                         'page_type'               => $pageType,
                         'template_slug'           => $this->canonicalTemplateSlug($pageType),
                         'canonical_template_path' => $canonicalTemplatePath,
