@@ -1915,13 +1915,15 @@ $assert('Work' === ($brandedHeaderBlockMenu['items'][0]['label'] ?? ''), 'brande
 $assert(3 === ($brandedHeaderParity['navigation_menus']['source'][0]['item_count'] ?? null), 'branded header source parity counts the same signaled menu subset as generated navigation');
 
 $dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
-    '<header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
+    '<style>.dropdown{background:#181818;color:#f2f2f2}</style><header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
 )->toArray();
+$dropdownHeaderSerialized = (string) ($dropdownHeaderNavigation['serialized_blocks'] ?? '');
 $dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
 $dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
 $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
+$assert(str_contains($dropdownHeaderSerialized, '"color":{"background":"#181818"}'), 'dropdown header navigation carries authored submenu background into the native submenu container');
 
 $nestedNavMenu = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Main"><ul><li><a href="/coffee">Coffee</a><nav id="nav-links" class="wp-block-navigation nav-links" style="display:none;align-items:flex-start;gap:1.4rem;background:var(--cream);flex-direction:column;padding:1.8rem var(--gutter) 2rem;box-shadow:0 10px 20px rgba(0,0,0,.2)"><a href="#espresso">Espresso</a><a href="#latte">Latte</a></nav></li><li><a href="/visit">Visit</a></li></ul></nav>'

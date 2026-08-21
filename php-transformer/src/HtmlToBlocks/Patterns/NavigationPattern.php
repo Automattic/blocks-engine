@@ -878,12 +878,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
-
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
         if ( null !== $resolvedStyle ) {
             $resolvedTextColor = $this->navigationTextColorFromStyle($resolvedStyle($anchor));
             if ( '' !== $resolvedTextColor ) {
                 $itemAttrs['style']['color']['text'] = $resolvedTextColor;
+            }
+            if ( $submenuContainer instanceof DOMElement ) {
+                $resolvedBackgroundColor = $this->navigationBackgroundColorFromStyle($resolvedStyle($submenuContainer));
+                if ( '' !== $resolvedBackgroundColor ) {
+                    $itemAttrs['style']['color']['background'] = $resolvedBackgroundColor;
+                }
             }
         }
 
@@ -930,6 +935,22 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+    }
+
+    private function navigationBackgroundColorFromStyle(string $style): string
+    {
+        foreach ( array( 'background-color', 'background' ) as $property ) {
+            if ( 1 !== preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)/i', $style, $match) ) {
+                continue;
+            }
+
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+            if ( preg_match('/^(?:#[0-9a-f]{3,8}|rgba?\([^;]+\)|hsla?\([^;]+\)|var\([^;]+\)|[a-z]+)$/i', $value) ) {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     private function navigationColorStateMask(DOMElement $anchor, ?callable $navigationColorInteractionStates): int
