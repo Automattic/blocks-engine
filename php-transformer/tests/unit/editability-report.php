@@ -18,7 +18,7 @@ $blocks = array(array(
 
 $report = (new EditabilityReport())->fromBlocks($blocks, 'website/index.html', str_repeat('x', 120));
 $metrics = $report['metrics'];
-if (EditabilityReport::SCHEMA !== $report['schema'] || 'report_only' !== $report['enforcement']) throw new RuntimeException('Editability report must be versioned and observational.');
+if (EditabilityReport::SCHEMA !== $report['schema'] || 'thresholds_v1' !== $report['enforcement'] || 'passed' !== $report['status']) throw new RuntimeException('Editability reports must apply versioned meaningful-editability thresholds independently of parity.');
 if (4 !== $metrics['block_count'] || 2 !== $metrics['wrapper_block_count'] || 1 !== $metrics['empty_wrapper_count'] || 2 !== $metrics['max_nesting_depth']) throw new RuntimeException('Editability report must measure block-tree complexity deterministically.');
 if (1 !== $metrics['html_bearing_table_cell_count'] || 1 !== $metrics['source_marker_class_count'] || 1 !== $metrics['generated_geometry_class_count'] || 120 !== $metrics['serialized_bytes']) throw new RuntimeException('Editability report must expose opaque HTML and generated-class signals.');
 if (1 !== $metrics['html_bearing_attribute_count']) throw new RuntimeException('Supported RichText inline markup must not be classified as opaque structural HTML.');
@@ -43,5 +43,6 @@ $richTextReport = (new EditabilityReport())->fromBlocks(array(array(
 )));
 if (1 !== $richTextReport['metrics']['structural_rich_text_attribute_count'] || strlen($structuralRichText) !== $richTextReport['metrics']['structural_rich_text_attribute_bytes']) throw new RuntimeException('Editability reports must quantify structural HTML stored in RichText attributes.');
 if ('structural_rich_text_attribute' !== ($richTextReport['signals'][0]['kind'] ?? null) || 'core/list-item' !== ($richTextReport['signals'][0]['block_name'] ?? null)) throw new RuntimeException('Structural RichText evidence must retain block attribution.');
+if ('failed' !== $richTextReport['status'] || 'structural_rich_text_attribute_count' !== ($richTextReport['threshold_failures'][0]['metric'] ?? null)) throw new RuntimeException('Structural RichText must fail the bounded meaningful-editability threshold with an actionable metric.');
 
 fwrite(STDOUT, "editability report contract passed\n");

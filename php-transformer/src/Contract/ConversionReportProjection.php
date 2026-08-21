@@ -41,6 +41,7 @@ final class ConversionReportProjection
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
             'available_core_blocks' => self::stringList($sourceReports, 'available_core_blocks'),
+            'core_block_capabilities' => is_array($sourceReports['core_block_capabilities'] ?? null) ? $sourceReports['core_block_capabilities'] : array(),
             'metrics'               => $metrics,
         );
 

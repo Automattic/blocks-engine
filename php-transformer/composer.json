@@ -64,6 +64,7 @@
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
       "php tests/unit/editability-report.php",
+      "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/list-item-lowering.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/artifact-normalizer-source-budget.php",
