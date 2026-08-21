@@ -227,15 +227,15 @@ final class Runtime
 
     /**
      * Standalone transforms have no WP_Block_Type_Registry. Load the generated
-     * WordPress 7.1 declaration snapshot so the same block.json support check is
-     * still available. Live registered declarations always take precedence.
+     * latest WordPress declaration snapshot so the same block.json support check
+     * is still available. Live registered declarations always take precedence.
      *
      * @return array<string, mixed>|null
      */
     private function fallbackBlockSupports(string $blockName): ?array
     {
         if ( null === $this->fallbackCoreBlockSupports ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-7.1-core-block-supports.json';
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-supports.json';
             $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
             $this->fallbackCoreBlockSupports = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
         }
@@ -260,7 +260,7 @@ final class Runtime
         }
 
         if ( null === $this->fallbackCoreBlockAttributes ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-7.1-core-block-attributes.json';
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-attributes.json';
             $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
             $this->fallbackCoreBlockAttributes = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
         }
