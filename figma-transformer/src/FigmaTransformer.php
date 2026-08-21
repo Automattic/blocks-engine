@@ -757,7 +757,7 @@ final class FigmaTransformer
                     'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
                     'source_frame_identity'   => $sourceFrameIdentity,
                 );
-                if ( in_array($pageType, array('single', 'archive', '404'), true) && (! $emitTemplateAliases || $canonicalTemplatePath === $path) ) {
+                if ( in_array($pageType, array('single', 'archive', '404'), true) ) {
                     $files[array_key_last($files)]['metadata'] = array(
                         'template_surface' => array(
                             'schema' => 'blocks-engine/template-surface/v1',
@@ -775,7 +775,7 @@ final class FigmaTransformer
                         'path'                    => $canonicalTemplatePath,
                         'role'                    => 'template-alias',
                         'mime_type'               => 'text/html',
-                        'content'                 => str_replace('data-page-path="' . $this->sanitizeAttribute($path) . '"', 'data-page-path="' . $this->sanitizeAttribute($canonicalTemplatePath) . '"', $html),
+                        'content'                 => $html,
                         'page_type'               => $pageType,
                         'template_slug'           => $this->canonicalTemplateSlug($pageType),
                         'canonical_template_path' => $canonicalTemplatePath,
