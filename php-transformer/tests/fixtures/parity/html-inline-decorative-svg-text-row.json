@@ -24,6 +24,6 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"utility-left blocks-engine-synthetic-paragraph\",\"content\":\"<mark class=\\\"utility-current\\\"" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"utility-left blocks-engine-synthetic-paragraph\"} --><p class=\"utility-left blocks-engine-synthetic-paragraph\"><mark class=\"utility-current\"" }
   ]
 }

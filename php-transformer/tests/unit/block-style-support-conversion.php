@@ -120,7 +120,7 @@ $assert(true === ($orderedListAttrs['ordered'] ?? false) && str_contains((string
 $plainListResult = ( new HtmlTransformer() )->transform('<ul><li>Marker remains</li></ul>')->toArray();
 $plainListMarkup = (string) ($plainListResult['serialized_blocks'] ?? '');
 $assert(
-    '<!-- wp:list --><ul class="wp-block-list"><!-- wp:list-item {"content":"Marker remains"} --><li>Marker remains</li><!-- /wp:list-item --></ul><!-- /wp:list -->' === $plainListMarkup
+    '<!-- wp:list --><ul class="wp-block-list"><!-- wp:list-item --><li>Marker remains</li><!-- /wp:list-item --></ul><!-- /wp:list -->' === $plainListMarkup
     && array() === ($plainListResult['assets'] ?? array()),
     'L3: a list without authored list-style keeps canonical marker-rendering output and gains no carrier',
     $plainListMarkup
