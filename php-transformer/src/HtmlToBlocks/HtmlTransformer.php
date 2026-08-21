@@ -1532,8 +1532,8 @@ final class HtmlTransformer
      * A design styles a menu CTA through its anchor — sunny-ember writes
      * `.navlinks a.nav-cta{background;color;padding}`. core/navigation-link puts
      * the authored class on the `<li>` and hard-codes the anchor's own class in
-     * `render_block_core_navigation_link()`, which is why `anchorClassName` is
-     * discarded downstream: no renderer can consume it. The authored selector
+     * `render_block_core_navigation_link()`, so the source anchor class lands on
+     * the navigation item rather than the rendered anchor. The authored selector
      * therefore matches nothing and the pill renders as plain text.
      *
      * The rule is rewritten onto `.wp-block-navigation-item.<class> >
@@ -1569,7 +1569,7 @@ final class HtmlTransformer
             return array();
         }
 
-        $anchorClasses = $this->listNavigationAnchorClasses($serializedBlocks);
+        $anchorClasses = $this->listNavigationAnchorClasses($sourceProvenance);
         if ( array() === $anchorClasses ) {
             return array();
         }
@@ -1941,13 +1941,14 @@ final class HtmlTransformer
     {
         $selectors = array();
         foreach ( $sourceProvenance as $entry ) {
-            if ( 'core/navigation-link' !== ($entry['block_name'] ?? '') || 'a' !== ($entry['tag'] ?? '') ) {
+            if ( ! in_array($entry['block_name'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
                 continue;
             }
-            $attributes = is_array($entry['source_attributes'] ?? null) ? $entry['source_attributes'] : array();
-            $classes = preg_split('/\s+/', trim((string) ($attributes['class'] ?? ''))) ?: array();
-            if ( in_array($class, $classes, true) ) {
-                $selectors[(string) ($entry['selector'] ?? '')] = true;
+            if ( in_array($class, $this->navigationSourceOwnershipClasses($entry, 'anchor'), true) ) {
+                $selector = (string) ($entry['navigation_source_ownership']['anchor']['selector'] ?? $entry['selector'] ?? '');
+                if ( '' !== $selector ) {
+                    $selectors[$selector] = true;
+                }
             }
         }
         if ( array() === $selectors ) {
@@ -2239,27 +2240,20 @@ final class HtmlTransformer
     /**
      * Classes authored on anchors that became navigation-link blocks.
      *
-     * `anchorClassName` is retained in serialized block attributes as source
-     * provenance even though core's renderer cannot apply it to the anchor.
-     * Reading that field distinguishes an anchor-owned class from one authored
-     * on the source `<li>`, whose `className` legitimately belongs on the item.
+     * Source provenance distinguishes an anchor-owned class from one authored on
+     * the source `<li>`, whose `className` legitimately belongs on the item.
      *
      * @return array<string, true>
      */
-    private function listNavigationAnchorClasses(string $serializedBlocks): array
+    private function listNavigationAnchorClasses(array $sourceProvenance): array
     {
-        if ( ! preg_match_all('/<!--\s*wp:navigation-link\s*(\{.*?\})\s*\/-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
         $classes = array();
-        foreach ( $matches as $match ) {
-            $attrs = json_decode($match[1], true);
-            if ( ! is_array($attrs) ) {
+        foreach ( $sourceProvenance as $entry ) {
+            if ( ! in_array($entry['block_name'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim((string) ($attrs['anchorClassName'] ?? ''))) ?: array() as $candidate ) {
+            foreach ( $this->navigationSourceOwnershipClasses($entry, 'anchor') as $candidate ) {
                 if ( '' !== $candidate && ! str_starts_with($candidate, 'blocks-engine-') ) {
                     $classes[$candidate] = true;
                 }
@@ -7036,7 +7030,54 @@ final class HtmlTransformer
             'source_bytes'      => strlen($sourceHtml),
             'source_path'       => $this->fallbackProvenance['source'] ?? '',
             'context'           => $this->sourceContext($element),
-        ), $this->sourceConversionMetadata($blockName, $element));
+        ), $this->sourceConversionMetadata($blockName, $element), $this->navigationSourceOwnership($blockName, $element));
+    }
+
+    /** @return array<string, array<string, array<string, string>>> */
+    private function navigationSourceOwnership(string $blockName, DOMElement $element): array
+    {
+        if ( ! in_array($blockName, array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+            return array();
+        }
+
+        $anchor = 'a' === strtolower($element->tagName) ? $element : null;
+        $submenu = null;
+        if ( 'core/navigation-submenu' === $blockName ) {
+            foreach ( $element->childNodes as $child ) {
+                if ( ! $child instanceof DOMElement ) {
+                    continue;
+                }
+                if ( 'a' === strtolower($child->tagName) && ! $anchor instanceof DOMElement ) {
+                    $anchor = $child;
+                }
+                if ( 'a' !== strtolower($child->tagName)
+                    && 0 < $child->getElementsByTagName('a')->length
+                    && ! $submenu instanceof DOMElement
+                ) {
+                    $submenu = $child;
+                }
+            }
+        }
+
+        $ownership = array();
+        foreach ( array( 'anchor' => $anchor, 'submenu' => $submenu ) as $kind => $source ) {
+            if ( ! $source instanceof DOMElement ) {
+                continue;
+            }
+            $ownership[$kind] = array(
+                'selector'   => $this->elementSelector($source),
+                'class_name' => trim($this->attr($source, 'class')),
+            );
+        }
+
+        return array() === $ownership ? array() : array( 'navigation_source_ownership' => $ownership );
+    }
+
+    /** @return list<string> */
+    private function navigationSourceOwnershipClasses(array $entry, string $kind): array
+    {
+        $className = (string) ($entry['navigation_source_ownership'][$kind]['class_name'] ?? '');
+        return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array()));
     }
 
     /**

@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "site-nav" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Services", "url": "/services", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Book Now", "url": "/book", "kind": "custom", "anchorClassName": "btn btn-primary cta" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Book Now", "url": "/book", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
   "expect": [
