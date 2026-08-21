@@ -38,6 +38,15 @@ final class CssStylesheetTransformer
         return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule);
     }
 
+    /** Transform only top-level style rules, retaining nested at-rule bodies byte-for-byte. */
+    public function transformTopLevelStyleRules(string $stylesheet, callable $transformStyleRule): string
+    {
+        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+            return $stylesheet;
+        }
+        return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule, false);
+    }
+
     /**
      * @return array{preamble: string, stylesheet: string}
      */
@@ -100,7 +109,7 @@ final class CssStylesheetTransformer
     /**
      * @param callable(string): string $transformSelectorPrelude
      */
-    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule): string
+    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true): string
     {
         $output = '';
         $offset = 0;
@@ -128,7 +137,7 @@ final class CssStylesheetTransformer
             if ( $this->isAtRule($prelude) ) {
                 $output .= $prelude . '{';
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule) : $body;
+                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule) : $body;
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
