@@ -49,6 +49,7 @@ final class CustomBlockGenerator
             'name'       => $blockName,
             'title'      => $title,
             'category'   => self::CATEGORY,
+            'editorScript' => 'file:./index.js',
             'attributes' => array(
                 // The captured, sanitized subtree markup. Editable, so the block
                 // is a real content unit rather than frozen raw HTML.
@@ -71,6 +72,37 @@ final class CustomBlockGenerator
     public function render(string $content): string
     {
         return $content;
+    }
+
+    /** @return array<string, string> */
+    public function assets(string $blockName): array
+    {
+        $script = <<<'JS'
+( function( blocks, blockEditor, components, element ) {
+    var createElement = element.createElement;
+    function edit( props ) {
+        var content = props.attributes.content || '';
+        return createElement(
+            'div',
+            blockEditor.useBlockProps(),
+            createElement( element.RawHTML, null, content ),
+            createElement( components.TextareaControl, {
+                label: 'HTML',
+                value: content,
+                onChange: function( value ) { props.setAttributes( { content: value } ); }
+            } )
+        );
+    }
+    blocks.registerBlockType( '__BLOCK_NAME__', {
+        attributes: { content: { type: 'string', default: '' } },
+        supports: { html: false },
+        edit: edit,
+        save: function() { return null; }
+    } );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
+JS;
+
+        return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
     }
 
     /**
