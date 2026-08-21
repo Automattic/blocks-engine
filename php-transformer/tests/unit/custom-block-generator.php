@@ -37,12 +37,15 @@ $blockJson = $generator->blockJson('ssi-acme/collection-1234abcd', 'Custom Colle
 $assert(($blockJson['apiVersion'] ?? null) === 3, '1: block.json declares apiVersion 3');
 $assert(($blockJson['name'] ?? null) === 'ssi-acme/collection-1234abcd', '1: block.json carries the fully-qualified name');
 $assert(($blockJson['render'] ?? null) === 'file:./render.php', '1: block.json points render at render.php');
+$assert(($blockJson['editorScript'] ?? null) === 'file:./index.js', '1: block.json declares the generated editor script');
 $assert(isset($blockJson['attributes']['content']['type']) && 'string' === $blockJson['attributes']['content']['type'], '1: content attribute is a string');
 $assert(($blockJson['supports']['html'] ?? null) === false, '1: generated block disables raw-HTML support');
 
 $render = $generator->render('<p>hello</p>');
 $assert('<p>hello</p>' === $render, '2: render is the supplied sanitized static HTML');
 $assert(! str_contains($render, '<?'), '2: render contains no server code');
+$editorScript = $generator->assets('ssi-acme/collection-1234abcd')['index.js'] ?? '';
+$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'TextareaControl'), '2: editor asset registers the exact block with editable source content');
 
 $refAttrs = $generator->referenceAttributes('<p>hello</p>');
 $assert($refAttrs === array('content' => '<p>hello</p>'), '3: reference carries per-instance content only');
@@ -66,6 +69,7 @@ $assert('' === ($result['blocks'][0]['innerHTML'] ?? 'x'), '4: reference is self
 $assert(count($result['fallbacks']) === 0, '4: no core/html fallback emitted for the generated subtree');
 $assert(count($generated) === 1, '4: one generated block type recorded');
 $assert(($generated[0]['render'] ?? null) === ($result['blocks'][0]['attrs']['content'] ?? null), '4: generated type carries the reference sanitized content as static render');
+$assert(isset($generated[0]['assets']['index.js']) && array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element') === ($generated[0]['script_dependencies']['index.js'] ?? null), '4: generated definition carries its editor asset and WordPress dependencies');
 
 // ---------------------------------------------------------------------------
 // 5. Dedup: identical sanitized content -> one type, two references.

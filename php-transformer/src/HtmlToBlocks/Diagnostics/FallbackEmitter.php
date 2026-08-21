@@ -170,10 +170,15 @@ final class FallbackEmitter
         } else {
             $localName = $this->generatedBlockLocalName($result->signals(), $identity);
             $this->generatedBlockNames[$identity] = $localName;
+            $blockName = $namespace . '/' . $localName;
             $generatedBlocks[] = array(
                 'name'       => $localName,
-                'block_json' => $this->blockGenerator->blockJson($namespace . '/' . $localName, $this->generatedBlockTitle($result->signals())),
+                'block_json' => $this->blockGenerator->blockJson($blockName, $this->generatedBlockTitle($result->signals())),
                 'render'     => $this->blockGenerator->render($content),
+                'assets'     => $this->blockGenerator->assets($blockName),
+                'script_dependencies' => array(
+                    'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ),
+                ),
                 // Diagnostic-only; stripped before the payload reaches SSI.
                 'signature'  => $signature,
             );
