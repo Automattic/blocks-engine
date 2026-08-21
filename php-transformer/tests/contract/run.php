@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolic
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternResult;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
@@ -364,7 +365,54 @@ $registryContext = new PatternContext(
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
-$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)['blockName'] ?? null), 'pattern registry returns the first recognizer match');
+$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
+
+$candidateState = array(
+    'generated_assets' => array(),
+    'provenance' => array(),
+    'responsive_findings' => array(),
+    'markers' => array(),
+);
+$rejectedRegistry = new PatternRecognizerRegistry(array(
+    new class implements PatternRecognizerInterface {
+        public function match(DOMElement $element, PatternContext $context): ?array
+        {
+            $convertChildren = $context->convertChildrenCallback();
+            if ( null !== $convertChildren ) {
+                $convertChildren($element);
+            }
+
+            return null;
+        }
+    },
+));
+$rejectedContext = new PatternContext(
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => '',
+    static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks),
+    null,
+    static function (DOMElement $element) use (&$candidateState): PatternResult {
+        $candidateState['generated_assets'][] = 'candidate.svg';
+        $candidateState['provenance'][] = 'candidate';
+        $candidateState['responsive_findings'][] = 'candidate';
+        $candidateState['markers'][] = 'candidate';
+        return new PatternResult(null, array(), array(array('diagnostic_code' => 'candidate_fallback')));
+    },
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    static function () use (&$candidateState): Closure {
+        $snapshot = $candidateState;
+        return static function () use (&$candidateState, $snapshot): void {
+            $candidateState = $snapshot;
+        };
+    }
+);
+$assert(null === $rejectedRegistry->firstMatch($registryElement, $rejectedContext), 'rejected registry candidate does not match');
+$assert(array('generated_assets' => array(), 'provenance' => array(), 'responsive_findings' => array(), 'markers' => array()) === $candidateState, 'rejected registry recursion rolls back generated assets, provenance, responsive findings, and markers');
 
 $tableElement = static function (string $html): DOMElement {
     $document = new DOMDocument();
@@ -488,6 +536,11 @@ $assert('What is covered?' === ($accordionItems[0]['innerBlocks'][0]['attrs']['t
 $assert('core/accordion-panel' === ($accordionItems[0]['innerBlocks'][1]['blockName'] ?? null), 'accordion conversion emits core accordion panels');
 $assert('Assessment and treatment planning.' === ($accordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'accordion conversion preserves panel text');
 $assert(str_contains((string) ($accordionResult['serialized_blocks'] ?? ''), '<!-- wp:accordion '), 'accordion conversion serializes native accordion block comments');
+
+$accordionFallbackResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="answer-a">Question A</button><div id="answer-a"><unsupported-widget></unsupported-widget><p>Answer A</p></div></div><div class="faq-item"><button aria-controls="answer-b">Question B</button><div id="answer-b"><p>Answer B</p></div></div></section>')->toArray();
+$accordionFallback = current(array_filter($accordionFallbackResult['fallbacks'] ?? array(), static fn (array $fallback): bool => 'unsupported-widget' === ($fallback['tag'] ?? '')));
+$assert('core/accordion' === (($accordionFallbackResult['blocks'][0] ?? array())['blockName'] ?? null), 'accordion conversion remains native when a panel also preserves unsupported content');
+$assert('html_unsupported_element' === ($accordionFallback['diagnostic_code'] ?? ''), 'accordion recursive conversion returns unsupported child fallback findings');
 
 $complexAccordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">Question A</button><div id="a"><script src="accordion.js"></script><p>Answer A</p></div></div><div class="faq-item"><button aria-controls="b">Question B</button><div id="b"><p>Answer B</p></div></div></section>')->toArray();
 $assert('core/accordion' !== (($complexAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'runtime-heavy accordion markup is not forced into native accordion');

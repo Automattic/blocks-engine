@@ -12,13 +12,14 @@ final class PatternContext
      * @param callable(DOMElement): string $innerHtml
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param callable(DOMElement): bool|null $isRuntimeDomTarget
-     * @param callable(DOMElement): array<int, array<string, mixed>>|null $convertChildren
-     * @param callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null $convertChildrenWithoutTags
+     * @param callable(DOMElement): PatternResult|null $convertChildren
+     * @param callable(DOMElement, array<int, string>): PatternResult|null $convertChildrenWithoutTags
      * @param callable(DOMElement, DOMElement): string|null $navigationUnderlineColor
      * @param callable(DOMElement): string|null $resolvedStyle
-     * @param callable(DOMElement): array<string, mixed>|null $convertElement
+     * @param callable(DOMElement): PatternResult|null $convertElement
      * @param callable(DOMElement): list<string>|null $navigationColorInteractionStates
      * @param callable(DOMElement): string|null $navigationOverlayMenu
+     * @param callable(): callable|null $beginMutationScope
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -31,9 +32,13 @@ final class PatternContext
         private readonly mixed $resolvedStyle = null,
         private readonly mixed $convertElement = null,
         private readonly mixed $navigationColorInteractionStates = null,
-        private readonly mixed $navigationOverlayMenu = null
+        private readonly mixed $navigationOverlayMenu = null,
+        private readonly mixed $beginMutationScope = null
     ) {
     }
+
+    /** @var array<int, array<string, mixed>> */
+    private array $fallbacks = array();
 
     /**
      * @return callable(DOMElement): array<string, mixed>
@@ -68,11 +73,20 @@ final class PatternContext
     }
 
     /**
-     * @return callable(DOMElement): array<int, array<string, mixed>>|null
+     * @return callable(DOMElement): PatternResult|null
      */
     public function convertChildrenCallback(): ?callable
     {
-        return is_callable($this->convertChildren) ? $this->convertChildren : null;
+        if ( ! is_callable($this->convertChildren) ) {
+            return null;
+        }
+
+        return function (DOMElement $element): PatternResult {
+            $this->beginMutationScope();
+            $result = ($this->convertChildren)($element);
+            $this->record($result);
+            return $result;
+        };
     }
 
     /**
@@ -81,19 +95,37 @@ final class PatternContext
      * element's own conversion rather than its children's, so the sibling is
      * emitted exactly as it would be anywhere else in the document.
      *
-     * @return callable(DOMElement): array<string, mixed>|null
+     * @return callable(DOMElement): PatternResult|null
      */
     public function convertElementCallback(): ?callable
     {
-        return is_callable($this->convertElement) ? $this->convertElement : null;
+        if ( ! is_callable($this->convertElement) ) {
+            return null;
+        }
+
+        return function (DOMElement $element): PatternResult {
+            $this->beginMutationScope();
+            $result = ($this->convertElement)($element);
+            $this->record($result);
+            return $result;
+        };
     }
 
     /**
-     * @return callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null
+     * @return callable(DOMElement, array<int, string>): PatternResult|null
      */
     public function convertChildrenWithoutTagsCallback(): ?callable
     {
-        return is_callable($this->convertChildrenWithoutTags) ? $this->convertChildrenWithoutTags : null;
+        if ( ! is_callable($this->convertChildrenWithoutTags) ) {
+            return null;
+        }
+
+        return function (DOMElement $element, array $excludedTags): PatternResult {
+            $this->beginMutationScope();
+            $result = ($this->convertChildrenWithoutTags)($element, $excludedTags);
+            $this->record($result);
+            return $result;
+        };
     }
 
     /**
@@ -126,5 +158,60 @@ final class PatternContext
     public function navigationOverlayMenuCallback(): ?callable
     {
         return is_callable($this->navigationOverlayMenu) ? $this->navigationOverlayMenu : null;
+    }
+
+    public function matchScope(): self
+    {
+        return new self(
+            $this->presentationAttributes,
+            $this->innerHtml,
+            $this->createBlock,
+            $this->isRuntimeDomTarget,
+            $this->convertChildren,
+            $this->convertChildrenWithoutTags,
+            $this->navigationUnderlineColor,
+            $this->resolvedStyle,
+            $this->convertElement,
+            $this->navigationColorInteractionStates,
+            $this->navigationOverlayMenu,
+            $this->beginMutationScope
+        );
+    }
+
+    public function commitMutations(): void
+    {
+        $this->rollbackMutations = null;
+    }
+
+    public function discardMutations(): void
+    {
+        if ( null !== $this->rollbackMutations ) {
+            ($this->rollbackMutations)();
+            $this->rollbackMutations = null;
+        }
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function fallbacks(): array
+    {
+        return $this->fallbacks;
+    }
+
+    private function record(PatternResult $result): void
+    {
+        PatternResult::mergeFallbacksInto($this->fallbacks, $result->fallbacks());
+    }
+
+    /** @var callable|null */
+    private mixed $rollbackMutations = null;
+
+    private function beginMutationScope(): void
+    {
+        if ( null !== $this->rollbackMutations || ! is_callable($this->beginMutationScope) ) {
+            return;
+        }
+
+        $rollback = ($this->beginMutationScope)();
+        $this->rollbackMutations = is_callable($rollback) ? $rollback : null;
     }
 }

@@ -59,7 +59,8 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $panelBlocks = $panel instanceof DOMElement ? $convertChildren($panel) : $convertChildrenWithoutTags($item, array( 'summary' ));
+        $panelResult = $panel instanceof DOMElement ? $convertChildren($panel) : $convertChildrenWithoutTags($item, array( 'summary' ));
+        $panelBlocks = $panelResult->blocks();
         if ( array() === $panelBlocks ) {
             return null;
         }

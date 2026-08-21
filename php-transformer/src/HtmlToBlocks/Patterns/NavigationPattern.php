@@ -268,7 +268,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
-        $brand = $convertElement($anchor);
+        $brand = $convertElement($anchor)->block();
         $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
         if ( '' === $brandName || 'core/html' === $brandName ) {
             return null;
@@ -344,7 +344,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
-            $extraBlock = $convertElement($extra);
+            $extraBlock = $convertElement($extra)->block();
             $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
             if ( '' === $extraName || 'core/html' === $extraName ) {
                 return null;

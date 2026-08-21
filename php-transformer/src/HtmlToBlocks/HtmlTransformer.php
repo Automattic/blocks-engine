@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnder
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
@@ -4165,42 +4166,74 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
-            fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
-            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
+            fn (DOMElement $sourceElement): PatternResult => $this->convertPatternChildren($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedTags): PatternResult => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
+            fn (DOMElement $sourceElement): PatternResult => $this->convertPatternElement($sourceElement),
             fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
+            fn (): \Closure => $this->patternMutationRollback()
         );
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Capture every mutable transformer property before registry recursion. The
+     * recursive converter is deliberately allowed to use the normal pipeline;
+     * rejecting its candidate restores generated output, findings, provenance,
+     * markers, and style state as though that conversion never happened.
      */
-    private function convertPatternChildren(DOMElement $element): array
+    private function patternMutationRollback(): \Closure
     {
-        $fallbacks = array();
-        return $this->convertChildren($element, $fallbacks, true);
+        $state = array();
+        $reflection = new \ReflectionObject($this);
+        foreach ( $reflection->getProperties() as $property ) {
+            if ( $property->isStatic() || $property->isReadOnly() || ! $property->isInitialized($this) ) {
+                continue;
+            }
+
+            $value = $property->getValue($this);
+            if ( $value instanceof DOMNode ) {
+                continue;
+            }
+            $state[$property->getName()] = is_object($value) ? clone $value : $value;
+        }
+        $fallbackEmitterState = $this->fallbackEmitter->mutableState();
+
+        return function () use ($state, $fallbackEmitterState): void {
+            foreach ( $state as $name => $value ) {
+                $this->{$name} = $value;
+            }
+            $this->fallbackEmitter->restoreMutableState($fallbackEmitterState);
+        };
     }
 
     /**
-     * @return array<string, mixed>|null
+     * @return PatternResult
      */
-    private function convertPatternElement(DOMElement $element): ?array
+    private function convertPatternChildren(DOMElement $element): PatternResult
     {
         $fallbacks = array();
-        return $this->convertElement($element, $fallbacks, true);
+        return new PatternResult(null, $this->convertChildren($element, $fallbacks, true), $fallbacks);
+    }
+
+    /**
+     * @return PatternResult
+     */
+    private function convertPatternElement(DOMElement $element): PatternResult
+    {
+        $fallbacks = array();
+        return new PatternResult($this->convertElement($element, $fallbacks, true), array(), $fallbacks);
     }
 
     /**
      * @param array<int, string> $excludedTags
-     * @return array<int, array<string, mixed>>
+     * @return PatternResult
      */
-    private function convertPatternChildrenWithoutTags(DOMElement $element, array $excludedTags): array
+    private function convertPatternChildrenWithoutTags(DOMElement $element, array $excludedTags): PatternResult
     {
         $fallbacks = array();
-        return $this->convertChildrenWithoutTags($element, $fallbacks, $excludedTags);
+        return new PatternResult(null, $this->convertChildrenWithoutTags($element, $fallbacks, $excludedTags), $fallbacks);
     }
 
     /**
@@ -4449,9 +4482,10 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
-            if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+            $navigationResult = $this->patternRecognizers->firstMatch($element, $this->patternContext());
+            if ( null !== $navigationResult ) {
+                PatternResult::mergeFallbacksInto($fallbacks, $navigationResult->fallbacks());
+                return $this->rememberAccordionDisclosureRoot($navigationResult->block() ?? array(), $element);
             }
 
             if ( $this->isStructuredCardList($element) ) {
@@ -4841,9 +4875,10 @@ final class HtmlTransformer
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
-            if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+            $navigationResult = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
+            if ( null !== $navigationResult ) {
+                PatternResult::mergeFallbacksInto($fallbacks, $navigationResult->fallbacks());
+                return $this->rememberAccordionDisclosureRoot($navigationResult->block() ?? array(), $element);
             }
 
             $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
@@ -4952,9 +4987,10 @@ final class HtmlTransformer
             }
 
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
-                $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
-                if ( null !== $navigation ) {
-                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                $navigationResult = $this->patternRecognizers->firstMatch($element, $this->patternContext());
+                if ( null !== $navigationResult ) {
+                    PatternResult::mergeFallbacksInto($fallbacks, $navigationResult->fallbacks());
+                    return $this->rememberAccordionDisclosureRoot($navigationResult->block() ?? array(), $element);
                 }
             }
 
@@ -4966,7 +5002,7 @@ final class HtmlTransformer
 
                 $disclosure = $this->detailsPattern->matchDisclosure(
                     $element,
-                    fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
+                    fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement)->blocks(),
                     fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                     fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                     fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)

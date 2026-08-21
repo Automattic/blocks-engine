@@ -126,6 +126,28 @@ final class FallbackEmitter
     }
 
     /**
+     * @return array{runtime_island_origins: array<int, array{document: int, path: string}>, generated_block_names: array<string, string>, generated_block_identities: array<string, string>}
+     */
+    public function mutableState(): array
+    {
+        return array(
+            'runtime_island_origins'     => $this->runtimeIslandOrigins,
+            'generated_block_names'      => $this->generatedBlockNames,
+            'generated_block_identities' => $this->generatedBlockIdentities,
+        );
+    }
+
+    /**
+     * @param array{runtime_island_origins: array<int, array{document: int, path: string}>, generated_block_names: array<string, string>, generated_block_identities: array<string, string>} $state
+     */
+    public function restoreMutableState(array $state): void
+    {
+        $this->runtimeIslandOrigins     = $state['runtime_island_origins'];
+        $this->generatedBlockNames      = $state['generated_block_names'];
+        $this->generatedBlockIdentities = $state['generated_block_identities'];
+    }
+
+    /**
      * Producer link of the classify -> route -> generate chain (issue #497).
      *
      * At a `core/html` fallback decision (a subtree that mapped to nothing
