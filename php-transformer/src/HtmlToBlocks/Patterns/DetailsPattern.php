@@ -7,6 +7,8 @@ use DOMElement;
 
 final class DetailsPattern
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, array<int, string>): array<int, array<string, mixed>> $convertChildrenWithoutTags
@@ -63,7 +65,7 @@ final class DetailsPattern
 
         $toggle = $toggles[0];
 
-        $summaryHtml = $this->toggleLabelHtml($toggle, $innerHtml);
+        $summaryHtml = $this->disclosureLabelHtml($toggle, $innerHtml);
         if ( '' === trim(strip_tags($summaryHtml)) ) {
             return null;
         }
@@ -119,7 +121,7 @@ final class DetailsPattern
         }
 
         $tagName = strtolower($element->tagName);
-        $role = strtolower($this->attr($element, 'role'));
+        $role = strtolower($this->trimmedAttribute($element, 'role'));
 
         return 'button' === $tagName || 'summary' === $tagName || 'button' === $role
             || ( 'a' === $tagName && 'button' === $role );
@@ -131,7 +133,7 @@ final class DetailsPattern
      */
     private function disclosurePanel(DOMElement $element, DOMElement $toggle, DOMElement $header): ?DOMElement
     {
-        $controlledId = trim($this->attr($toggle, 'aria-controls'));
+        $controlledId = $this->trimmedAttribute($toggle, 'aria-controls');
         if ( '' !== $controlledId ) {
             foreach ( $element->getElementsByTagName('*') as $candidate ) {
                 if ( ! $candidate instanceof DOMElement || $candidate->getAttribute('id') !== $controlledId ) {
@@ -171,29 +173,9 @@ final class DetailsPattern
         return null;
     }
 
-    private function toggleLabelHtml(DOMElement $toggle, callable $innerHtml): string
-    {
-        $html = $innerHtml($toggle);
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
-
-        return trim($html);
-    }
-
     private function isNavigationLandmark(DOMElement $element): bool
     {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role'));
-    }
-
-    private function hasRuntimeHeavyDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement && in_array(strtolower($candidate->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->trimmedAttribute($element, 'role'));
     }
 
     private function containsNode(DOMElement $ancestor, DOMElement $node): bool
@@ -207,19 +189,4 @@ final class DetailsPattern
         return false;
     }
 
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? trim($element->getAttribute($name)) : '';
-    }
-
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
 }
