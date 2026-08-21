@@ -32,7 +32,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button {\"className\":\"donate-submit\",\"type\":\"button\",\"tagName\":\"button\",\"text\":\"Donate Now\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button {\"className\":\"donate-submit\",\"type\":\"button\",\"tagName\":\"button\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\">Donate Now</button>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-lightbox=\"Foggy cliff portrait\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "Add to cart" },

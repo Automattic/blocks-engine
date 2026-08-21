@@ -62,6 +62,12 @@ trait StyleResolutionTrait
 
     private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
 
+    /** Source-selector cache remains valid only between source-DOM mutations. */
+    private ?CssSelectorMatchCache $sourceSelectorMatchCache = null;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $styleRuleCandidateIndexes = array();
+
     /**
      * Author-declared values for the properties an element's inline style could
      * be overriding, keyed by element plus the queried property set. Resolving
@@ -182,6 +188,8 @@ trait StyleResolutionTrait
         $this->generatedGeometryRules = array();
         $this->geometryCarrierClassAllocator = null;
         $this->authorDeclaredPropertyValuesCache = array();
+        $this->sourceSelectorMatchCache = new CssSelectorMatchCache();
+        $this->styleRuleCandidateIndexes = array();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -255,6 +263,7 @@ trait StyleResolutionTrait
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
+                $this->editorAnchorClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -289,7 +298,7 @@ trait StyleResolutionTrait
         }
 
         $conditionalFamilies = array();
-        foreach ($this->conditionalStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -379,7 +388,7 @@ trait StyleResolutionTrait
 
     private function hasConditionalStyleFamily(DOMElement $element, string $family): bool
     {
-        foreach ($this->conditionalStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -576,7 +585,7 @@ trait StyleResolutionTrait
             return true;
         }
 
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -604,7 +613,7 @@ trait StyleResolutionTrait
             return false;
         }
 
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -770,7 +779,7 @@ trait StyleResolutionTrait
 
         $wanted = array_fill_keys($properties, true);
         $declared = array();
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -966,7 +975,7 @@ trait StyleResolutionTrait
             }
         }
 
-        foreach ( $this->conditionalStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($image, 'conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($image, $rule['selector']) ) {
                 continue;
             }
@@ -1050,7 +1059,7 @@ trait StyleResolutionTrait
     private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element): array
     {
         $consumed = array();
-        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules) as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional-pseudo') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -1178,7 +1187,7 @@ trait StyleResolutionTrait
     private function structuralPresentationDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
@@ -1198,7 +1207,7 @@ trait StyleResolutionTrait
     {
         $cascade = array();
         $sequence = 0;
-        foreach ($this->staticStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -1562,11 +1571,83 @@ trait StyleResolutionTrait
             $this->frozenHiddenStateFindings[] = array(
                 'tag'          => strtolower($element->tagName),
                 'selector'     => $this->elementSelector($element),
+                'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $stripped,
             );
         }
 
         return $declarations;
+    }
+
+    private function collectEditorHiddenStateFindings(DOMElement $body): void
+    {
+        $hiddenRules = $this->hiddenStateStyleRules();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+            $declarations = array();
+            foreach ( $hiddenRules as $rule ) {
+                if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                    $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+                }
+            }
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+            $this->stripFrozenHiddenState($element, $declarations);
+        }
+    }
+
+    /** @return array<int, array{selector:string,declarations:array<string,string>}> */
+    private function hiddenStateStyleRules(): array
+    {
+        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
+        $css = $this->topLevelCssRules($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = array_intersect_key(
+                $this->cssDeclarations((string) $match[2]),
+                array('display' => true, 'opacity' => true, 'visibility' => true)
+            );
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
+                    $rules[] = array('selector' => $selector, 'declarations' => $declarations);
+                }
+            }
+        }
+
+        return $rules;
+    }
+
+    private function editorStaticStateSelector(DOMElement $element): string
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
+            return '#' . $id;
+        }
+
+        $classes = array_values(array_filter(
+            preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(),
+            static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class)
+        ));
+
+        return array() === $classes ? '' : '.' . implode('.', $classes);
+    }
+
+    private function editorAnchorClassName(DOMElement $element): string
+    {
+        if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+            return '';
+        }
+        $anchor = $this->safeAnchor($this->attr($element, 'id'));
+        return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
     }
 
     /**
@@ -1614,7 +1695,7 @@ trait StyleResolutionTrait
         }
 
         $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
@@ -1629,6 +1710,184 @@ trait StyleResolutionTrait
         $this->mergedPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($declarations);
 
         return $this->mergedPresentationStyleCache[$cacheKey];
+    }
+
+    /**
+     * Resolve the authored resting cascade for navigation recognition.
+     *
+     * General presentation merging intentionally follows source order only,
+     * but navigation link colour becomes a rendered carrier and therefore must
+     * use the browser winner. A later low-specificity item class cannot replace
+     * an earlier, stronger menu-anchor rule.
+     */
+    private function specificityResolvedPresentationStyle(DOMElement $element): string
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $this->applyMediaTextCascadeDeclaration(
+                    $cascade,
+                    (string) $property,
+                    (string) $value,
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+            $this->applyMediaTextCascadeDeclaration(
+                $cascade,
+                (string) $property,
+                (string) $value,
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $declarations = array();
+        foreach ( $cascade as $property => $entry ) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $this->cssDeclarationString($declarations);
+    }
+
+    /**
+     * Return the authored cascade winner for an inherited property. Theme and
+     * user-agent defaults are deliberately absent: callers use this only when
+     * preserving a value the source CSS actually states.
+     */
+    private function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
+    {
+        $property = strtolower(trim($property));
+        if ( ! in_array($property, array(
+            'color',
+            'font-family',
+            'font-size',
+            'font-style',
+            'letter-spacing',
+            'line-height',
+            'text-transform',
+            'white-space',
+        ), true) ) {
+            return '';
+        }
+
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($current));
+            if ( ! array_key_exists($property, $declarations) ) {
+                continue;
+            }
+
+            $rawValue = (string) $declarations[$property];
+            if ( 1 === preg_match('/\s*!\s*important\s*$/i', $rawValue) ) {
+                return '';
+            }
+            $value = trim($rawValue);
+            $keyword = strtolower($value);
+            if ( in_array($keyword, array( 'inherit', 'unset' ), true) ) {
+                continue;
+            }
+            if ( in_array($keyword, array( 'initial', 'revert', 'revert-layer' ), true) ) {
+                return '';
+            }
+
+            return $this->resolveCssVariablesInValue($value);
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve gap shorthand and longhands as one cascade family.
+     *
+     * @return array{row-gap?: string, column-gap?: string}
+     */
+    private function specificityResolvedGapDeclarations(DOMElement $element): array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            $entries = $rule['mediaTextDeclarations'] ?? array();
+            foreach ( $rule['declarations'] ?? array() as $property => $value ) {
+                if ( ! in_array(strtolower((string) $property), array( 'gap', 'row-gap', 'column-gap' ), true) ) {
+                    continue;
+                }
+                $entries[] = array(
+                    'property' => (string) $property,
+                    'value' => (string) $value,
+                    'important' => str_contains(strtolower((string) $value), '!important'),
+                );
+            }
+            foreach ( $entries as $entry ) {
+                $this->applyGapCascadeDeclaration(
+                    $cascade,
+                    (string) ($entry['property'] ?? ''),
+                    (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry ) {
+            $this->applyGapCascadeDeclaration(
+                $cascade,
+                (string) ($entry['property'] ?? ''),
+                (string) ($entry['value'] ?? '') . (! empty($entry['important']) ? ' !important' : ''),
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $resolved = array();
+        foreach ( array( 'row-gap', 'column-gap' ) as $property ) {
+            if ( isset($cascade[$property]) ) {
+                $resolved[$property] = $cascade[$property]['value'] . ($cascade[$property]['important'] ? ' !important' : '');
+            }
+        }
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, array{value: string, important: bool, inline: bool, specificity: array{int, int, int}, sequence: int}> $cascade
+     * @param array{int, int, int} $specificity
+     */
+    private function applyGapCascadeDeclaration(array &$cascade, string $property, string $value, bool $inline, array $specificity, int $sequence): void
+    {
+        $property = strtolower(trim($property));
+        if ( 'gap' === $property ) {
+            $important = 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+            $plain = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+            $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+            if ( 1 > count($parts) || 2 < count($parts) ) {
+                return;
+            }
+            $suffix = $important ? ' !important' : '';
+            $this->applyMediaTextCascadeDeclaration($cascade, 'row-gap', $parts[0] . $suffix, $inline, $specificity, $sequence);
+            $this->applyMediaTextCascadeDeclaration($cascade, 'column-gap', ($parts[1] ?? $parts[0]) . $suffix, $inline, $specificity, $sequence);
+            return;
+        }
+
+        if ( in_array($property, array( 'row-gap', 'column-gap' ), true) ) {
+            $this->applyMediaTextCascadeDeclaration($cascade, $property, $value, $inline, $specificity, $sequence);
+        }
     }
 
     /**
@@ -1685,7 +1944,7 @@ trait StyleResolutionTrait
             return false;
         }
 
-        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -1748,6 +2007,66 @@ trait StyleResolutionTrait
                         'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                     );
                 }
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Keep top-level interaction rules separate from resting-style resolution.
+     * Navigation conversion uses these to yield a resting colour only for
+     * states where an authored colour replacement exists, and to re-point
+     * anchor-class selectors after core moves that class onto the item.
+     *
+     * Multi-state selectors fail closed. Treating `:hover:focus` as either
+     * independent state would remove the resting colour too broadly.
+     *
+     * @return list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
+     */
+    private function navigationStateStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
+        }
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $css = $this->topLevelCssRules($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' === $selector
+                    || 1 !== preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
+                ) {
+                    continue;
+                }
+
+                $state = strtolower((string) $stateMatches[1][0][0]);
+                $offset = (int) $stateMatches[0][0][1];
+                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                if ( '' === $baseSelector || $this->selectorCarriesPseudoState($baseSelector) || ! $this->isSupportedCssSelector($baseSelector) ) {
+                    continue;
+                }
+
+                $rules[] = array(
+                    'selector' => $selector,
+                    'base_selector' => $baseSelector,
+                    'state' => $state,
+                    'declarations' => $declarations,
+                );
             }
         }
 
@@ -2257,8 +2576,72 @@ trait StyleResolutionTrait
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $match = CssSelectorMatcher::matches($element, $this->parsedCssSelector($selector));
+        $match = ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
+    }
+
+    private function invalidateSourceSelectorMatchCache(): void
+    {
+        $this->sourceSelectorMatchCache?->clear();
+    }
+
+    private function recordSourceSelectorMatchWork(): void
+    {
+        if ( ! $this->sourceSelectorMatchCache instanceof CssSelectorMatchCache ) {
+            return;
+        }
+        $this->analysisCache->sourceSelectorMatchExecutions += $this->sourceSelectorMatchCache->matchExecutions;
+        $this->analysisCache->sourceSelectorMatchHits += $this->sourceSelectorMatchCache->matchHits;
+        $this->analysisCache->sourceSelectorClassTokenBuilds += $this->sourceSelectorMatchCache->classTokenBuilds;
+        $this->analysisCache->sourceSelectorClassTokenHits += $this->sourceSelectorMatchCache->classTokenHits;
+        $this->analysisCache->sourceSelectorAttributeReads += $this->sourceSelectorMatchCache->attributeReads;
+        $this->analysisCache->sourceStyleCandidateRuleChecks += $this->sourceSelectorMatchCache->candidateRuleChecks;
+        $this->analysisCache->sourceStyleCandidateRulesSkipped += $this->sourceSelectorMatchCache->candidateRulesSkipped;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function styleRuleCandidates(DOMElement $element, string $collection): array
+    {
+        $index = $this->styleRuleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
+        return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
+    private function styleRuleCandidateIndex(string $collection): array
+    {
+        $rules = match ($collection) {
+            'static' => $this->staticStyleRules,
+            'conditional' => $this->conditionalStyleRules,
+            'static-conditional' => array_merge($this->staticStyleRules, $this->conditionalStyleRules),
+            'static-conditional-pseudo' => array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules),
+        };
+        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'total' => count($rules));
+        foreach ( $rules as $order => $rule ) {
+            $parsed = $this->parsedCssSelector((string) ($rule['selector'] ?? ''));
+            $compounds = $parsed['compounds'] ?? array();
+            $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
+            $target = 'universal';
+            $key = '';
+            if ( $parsed['supported'] && null === ($parsed['pseudo_state_suffix_span'] ?? null) && is_array($rightmost) ) {
+                if ( array() !== ($rightmost['ids'] ?? array()) ) {
+                    $target = 'ids';
+                    $key = (string) $rightmost['ids'][0];
+                } elseif ( array() !== ($rightmost['classes'] ?? array()) ) {
+                    $target = 'classes';
+                    $key = (string) $rightmost['classes'][0];
+                } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
+                    $target = 'tags';
+                    $key = strtolower((string) $rightmost['type']);
+                }
+            }
+            $entry = array('order' => (int) $order, 'rule' => $rule);
+            if ( 'universal' === $target ) {
+                $index['universal'][] = $entry;
+            } else {
+                $index[$target][$key][] = $entry;
+            }
+        }
+        return $index;
     }
 
     /**

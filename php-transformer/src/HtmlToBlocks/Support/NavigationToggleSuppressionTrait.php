@@ -320,6 +320,128 @@ trait NavigationToggleSuppressionTrait
     }
 
     /**
+     * Preserve a responsive overlay only when the source declares equivalent
+     * desktop/mobile menus or an associated hamburger control.
+     */
+    private function navigationOverlayMenu(DOMElement $navigation): string
+    {
+        if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
+            return 'mobile';
+        }
+
+        $document = $navigation->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return 'never';
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $toggle ) {
+            if ( ! $toggle instanceof DOMElement
+                || ! $this->isHamburgerMenuToggleControl($toggle)
+                || ! $this->hasAssociatedNavigationMenu($toggle)
+            ) {
+                continue;
+            }
+
+            if ( $this->elementContains($navigation, $toggle) ) {
+                return 'mobile';
+            }
+
+            foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+                $target = '' === $controlledId ? null : $this->elementWithId($toggle, $controlledId);
+                if ( $target instanceof DOMElement
+                    && ($this->elementContains($target, $navigation) || $this->elementContains($navigation, $target))
+                ) {
+                    return 'mobile';
+                }
+            }
+
+            $scope = $this->menuToggleScope($toggle);
+            if ( 'body' !== strtolower($scope->tagName) && $this->elementContains($scope, $navigation) ) {
+                return 'mobile';
+            }
+        }
+
+        return 'never';
+    }
+
+    private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool
+    {
+        $document = $navigation->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return false;
+        }
+
+        $navigationRoot = $this->navigationLandmarkAncestor($navigation) ?? $navigation;
+        $signature = $this->sourceNavigationSignature($navigationRoot);
+        if ( '' === $signature ) {
+            return false;
+        }
+
+        foreach ( $document->getElementsByTagName('nav') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($navigationRoot)
+                || $this->elementContains($navigationRoot, $candidate)
+                || $this->elementContains($candidate, $navigationRoot)
+            ) {
+                continue;
+            }
+            if ( $signature === $this->sourceNavigationSignature($candidate)
+                && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasMobileNavigationSignal(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            $identity = strtolower(trim($this->attr($node, 'id') . ' ' . $this->attr($node, 'class') . ' ' . $this->attr($node, 'aria-label')));
+            if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:$|[\s_-])/', $identity) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function navigationLandmarkAncestor(DOMElement $element): ?DOMElement
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isNavigationLandmark($node) ) {
+                return $node;
+            }
+        }
+
+        return null;
+    }
+
+    private function sourceNavigationSignature(DOMElement $navigation): string
+    {
+        $links = array();
+        foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && '' !== trim($anchor->textContent ?? '') ) {
+                $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim($this->attr($anchor, 'href'));
+            }
+        }
+
+        return 2 > count($links) ? '' : implode("\n", $links);
+    }
+
+    private function elementContains(DOMElement $container, DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($container) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether an element is a navigation menu the toggle can be bound to: a
      * structural/semantic navigation menu candidate (nav landmark or signaled
      * list), or any container that converts to core/navigation (e.g. a signaled

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -11,6 +13,18 @@ final class NavigationPattern implements PatternRecognizerInterface
     use PatternDomHelpersTrait;
 
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
+
+    private const LINK_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-link-color-';
+
+    private const CURRENT_COLOR_CLASS_PREFIX = 'blocks-engine-navigation-current-color-';
+
+    private const LINK_COLOR_STATE_CLASS_PREFIX = 'blocks-engine-navigation-link-color-states-';
+
+    private const DIRECT_NAVIGATION_CLASS = 'blocks-engine-direct-navigation';
+
+    private const DIRECT_NAVIGATION_CARRIER_CLASS = 'blocks-engine-brand-navigation-carrier';
+
+    private const DIRECT_NAVIGATION_LINK_COLOR_PREFIX = 'blocks-engine-direct-navigation-link-color-';
 
     /**
      * @return array<string, mixed>|null
@@ -23,6 +37,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $isRuntimeDomTarget = $context->isRuntimeDomTargetCallback();
         $navigationUnderlineColor = $context->navigationUnderlineColorCallback();
         $resolvedStyle = $context->resolvedStyleCallback();
+        $navigationColorInteractionStates = $context->navigationColorInteractionStatesCallback();
+        $navigationOverlayMenu = $context->navigationOverlayMenuCallback();
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
@@ -42,16 +58,27 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
-            return null;
-        }
-
-        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor);
+        // The carrier is offered the container BEFORE the deferral guard. Both
+        // exist to stop a branding anchor being absorbed as a menu item, but the
+        // carrier does it by emitting the brand as its own block beside a real
+        // core/navigation, where the guard does it by giving up on the container
+        // entirely. Consulting the guard first inverted the two: an anchor whose
+        // class sits outside the brand vocabulary reached the carrier, while the
+        // same markup naming itself `brand` deferred to a generic group and a
+        // wp:list of raw anchors — no core/navigation for WordPress to mark the
+        // current page in, and destinations left as inner-HTML hrefs rather than
+        // a navigation-link `url`. The guard still catches every container the
+        // carrier declines, so nothing it protected loses that protection.
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates, $navigationOverlayMenu);
         if ( null !== $hoisted ) {
             return $hoisted;
         }
 
-        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
+        if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
+            return null;
+        }
+
+        $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, false, $resolvedStyle, $navigationColorInteractionStates);
 
         if ( array() === $links ) {
             return null;
@@ -61,7 +88,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($element, $presentationAttributes);
-        $navigationAttrs['overlayMenu'] = 'mobile';
+        $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($element) : 'never';
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+        }
         if ( $label instanceof DOMElement ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
@@ -80,6 +110,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
+        if ( '' !== $currentTextColorClass ) {
+            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
+        }
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
@@ -133,7 +167,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      *
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor): ?array
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null, ?callable $navigationOverlayMenu = null): ?array
     {
         if ( null === $convertElement ) {
             return null;
@@ -146,6 +180,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         $anchor = null;
         $cluster = null;
         $brandLeads = true;
+        $extras = array();
+        $order = array();
+        $buttonSignals = new ButtonSignalClassifier();
         foreach ( $element->childNodes as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
@@ -172,15 +209,35 @@ final class NavigationPattern implements PatternRecognizerInterface
             // carrier converts the anchor rather than flattening it into a menu
             // item label, so a lockup built from a heading survives whole.
             if ( 'a' === strtolower($child->tagName) ) {
-                if ( $anchor instanceof DOMElement
-                    || '' === $this->anchorLabel($child, $innerHtml)
-                    || ! $this->readsAsBrandAnchor($child)
-                ) {
+                if ( '' === $this->anchorLabel($child, $innerHtml) ) {
                     return null;
                 }
 
-                $anchor = $child;
-                $brandLeads = ! $cluster instanceof DOMElement;
+                if ( ! $anchor instanceof DOMElement ) {
+                    if ( ! $this->readsAsBrandAnchor($child) ) {
+                        return null;
+                    }
+
+                    $anchor = $child;
+                    $brandLeads = ! $cluster instanceof DOMElement;
+                    $order[] = array( 'kind' => 'brand' );
+                    continue;
+                }
+
+                // A second anchor beside the brand and the menu is only carried
+                // when it reads as a CALL TO ACTION — calm-lantern authors
+                // `<a class="nav-cta">Book a Call</a>` after its list, and
+                // declining the whole container over it cost that project its
+                // entire navigation. Anything else stays ambiguous: position
+                // alone cannot tell a CTA from an ordinary menu item sitting
+                // outside the list, so the container still defers and the anchor
+                // is absorbed into the menu exactly as it is today.
+                if ( ! $buttonSignals->hasTransformSignal($child, null !== $resolvedStyle ? $resolvedStyle($child) : '') ) {
+                    return null;
+                }
+
+                $extras[] = $child;
+                $order[] = array( 'kind' => 'extra', 'index' => count($extras) - 1 );
                 continue;
             }
 
@@ -189,6 +246,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $cluster = $child;
+            $order[] = array( 'kind' => 'cluster' );
         }
 
         if ( ! $anchor instanceof DOMElement || ! $cluster instanceof DOMElement ) {
@@ -203,7 +261,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor);
+        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, false, $navigationUnderlineColor, true, $resolvedStyle, $navigationColorInteractionStates);
         if ( 2 > count($links) ) {
             return null;
         }
@@ -220,12 +278,58 @@ final class NavigationPattern implements PatternRecognizerInterface
         // element core/navigation stands in for, so the menu list's className
         // stays with the menu instead of being copied onto the landmark.
         $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
-        $navigationAttrs['overlayMenu'] = 'mobile';
+        if ( null !== $resolvedStyle && $this->isListNavigationSource($cluster) ) {
+            $clusterSpacing = $this->resolvedNavigationSpacing((string) $resolvedStyle($cluster));
+            $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
+            if ( '' !== $blockGap ) {
+                // A two-axis authored gap is valid CSS but cannot be inferred
+                // from core/navigation's one-axis default. Keep the exact
+                // cascade winner from the source list.
+                $navigationAttrs['style']['spacing']['blockGap'] = $blockGap;
+            }
+
+            if ( $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($element), 'padding') ) {
+                $padding = is_array($clusterSpacing['padding'] ?? null) ? $clusterSpacing['padding'] : array();
+                if ( array() !== $padding ) {
+                    // The carrier adds an inner nav that the authored outer-nav
+                    // selector also reaches. Inline source-list padding restores
+                    // the generated host to the element it replaces.
+                    $navigationAttrs['style']['spacing']['padding'] = $padding;
+                }
+            }
+        }
+        $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($cluster) : 'never';
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+        }
+        $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
+        $isDirectDivCascadeCollision = $isDirectDivCluster
+            && null !== $resolvedStyle
+            && $this->hasDirectNavigationBoxCollision(
+                (string) $resolvedStyle($element),
+                (string) $resolvedStyle($cluster)
+            );
+        if ( $isDirectDivCascadeCollision ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS);
+            $links = $this->markDirectNavigationLinkColors($links);
+            foreach ( array( 'margin', 'padding', 'max-width' ) as $family ) {
+                if ( null !== $resolvedStyle
+                    && $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($element), $family)
+                    && ! $this->resolvedStyleDeclaresFamily((string) $resolvedStyle($cluster), $family)
+                ) {
+                    $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS . '-reset-' . $family);
+                }
+            }
+        }
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
         if ( $this->isListNavigationSource($cluster) ) {
             unset($commonTextAttrs['style']['typography']);
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
+        $currentTextColorClass = $this->currentNavigationTextColorClass($links);
+        if ( '' !== $currentTextColorClass ) {
+            $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
+        }
 
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $cluster);
 
@@ -234,8 +338,127 @@ final class NavigationPattern implements PatternRecognizerInterface
         // attribute that carries an accessible name, and inventing one would emit
         // exactly the unregistered comment attribute this carrier exists to stop.
         $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
+        if ( $isDirectDivCascadeCollision ) {
+            $carrierAttrs = $this->withClassName($carrierAttrs, self::DIRECT_NAVIGATION_CARRIER_CLASS);
+        }
 
-        return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+        $extraBlocks = array();
+        foreach ( $extras as $extra ) {
+            $extraBlock = $convertElement($extra);
+            $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
+            if ( '' === $extraName || 'core/html' === $extraName ) {
+                return null;
+            }
+            $extraBlocks[] = $extraBlock;
+        }
+
+        if ( array() === $extraBlocks ) {
+            return $createBlock('core/group', $carrierAttrs, $brandLeads ? array( $brand, $navigation ) : array( $navigation, $brand ), $element);
+        }
+
+        // Authored order is the only order that reproduces the design: the CTA
+        // sits where the source put it, not wherever the carrier finds room.
+        $children = array();
+        foreach ( $order as $slot ) {
+            if ( 'brand' === $slot['kind'] ) {
+                $children[] = $brand;
+                continue;
+            }
+            if ( 'cluster' === $slot['kind'] ) {
+                $children[] = $navigation;
+                continue;
+            }
+            $children[] = $extraBlocks[$slot['index']];
+        }
+
+        return $createBlock('core/group', $carrierAttrs, $children, $element);
+    }
+
+    /**
+     * Per-link colour support is retained in block attributes for diagnostics,
+     * but core/navigation-link does not render it. Add a deterministic class to
+     * the runtime item so engine-support CSS can address the generated anchor.
+     *
+     * @param array<int, array<string, mixed>> $links
+     * @return array<int, array<string, mixed>>
+     */
+    private function markDirectNavigationLinkColors(array $links): array
+    {
+        foreach ( $links as &$link ) {
+            $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+            if ( '' !== $color ) {
+                $link['attrs'] = $this->withClassName(
+                    $attrs,
+                    self::DIRECT_NAVIGATION_LINK_COLOR_PREFIX . substr(hash('sha256', $color), 0, 12)
+                );
+            }
+            if ( is_array($link['innerBlocks'] ?? null) ) {
+                $link['innerBlocks'] = $this->markDirectNavigationLinkColors($link['innerBlocks']);
+            }
+        }
+        unset($link);
+
+        return $links;
+    }
+
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withClassName(array $attrs, string $className): array
+    {
+        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $className)) ?: array();
+        $attrs['className'] = implode(' ', array_values(array_unique(array_filter($classes))));
+        return $attrs;
+    }
+
+    private function resolvedStyleDeclaresFamily(string $style, string $family): bool
+    {
+        $property = match ( $family ) {
+            'margin' => 'margin(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
+            'padding' => 'padding(?:-(?:top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?',
+            default => preg_quote($family, '/'),
+        };
+
+        return 1 === preg_match('/(?:^|;)\s*' . $property . '\s*:/i', $style);
+    }
+
+    /** @return array<string, mixed> */
+    private function resolvedNavigationSpacing(string $style): array
+    {
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            $separator = strpos($declaration, ':');
+            if ( false === $separator ) {
+                continue;
+            }
+
+            $property = strtolower(trim(substr($declaration, 0, $separator)));
+            $value = trim(substr($declaration, $separator + 1));
+            if ( '' === $property || '' === $value ) {
+                continue;
+            }
+            $declarations[$property] = $value;
+        }
+
+        $mapped = ( new StyleAttributeMapper() )->map($declarations);
+        $styleObject = is_array($mapped['style'] ?? null) ? $mapped['style'] : array();
+        return is_array($styleObject['spacing'] ?? null) ? $styleObject['spacing'] : array();
+    }
+
+    private function hasDirectNavigationBoxCollision(string $landmarkStyle, string $clusterStyle): bool
+    {
+        // Enter this compatibility path only when replacing a plain div with a
+        // nested nav duplicates the landmark's complete centered box. Partial
+        // box ownership is not enough evidence that resetting the generated
+        // host preserves the source element's authored layout.
+        foreach ( array( 'margin', 'padding', 'max-width' ) as $family ) {
+            if ( ! $this->resolvedStyleDeclaresFamily($landmarkStyle, $family)
+                || $this->resolvedStyleDeclaresFamily($clusterStyle, $family)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -279,8 +502,10 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * Core navigation links render text styles from their parent block context.
-     * Promote only values shared by every link so mixed menus retain their own
-     * companion CSS rather than receiving an incorrect uniform native style.
+     * Promote a strict-majority colour so current/CTA exceptions do not erase
+     * the menu default. Typography still requires unanimity; genuinely mixed
+     * menus retain their companion CSS rather than receiving a false uniform
+     * native style.
      *
      * @param array<int, array<string, mixed>> $links
      * @return array<string, mixed>
@@ -294,15 +519,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $attrs = array();
         foreach ( array( 'textColor' ) as $name ) {
-            $value = $first[ $name ] ?? null;
-            if ( null !== $value && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs[ $name ] ?? null, $value) ) {
+            $value = $this->strictMajorityNavigationLinkString($links, static fn (array $linkAttrs): mixed => $linkAttrs[ $name ] ?? null);
+            if ( null !== $value ) {
                 $attrs[ $name ] = $value;
             }
         }
 
-        $customTextColor = $first['style']['color']['text'] ?? null;
-        if ( is_string($customTextColor) && '' !== trim($customTextColor) && $this->allNavigationLinksShare($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['color']['text'] ?? null, $customTextColor) ) {
-            $attrs['customTextColor'] = trim($customTextColor);
+        $customTextColor = $this->strictMajorityNavigationLinkString($links, static fn (array $linkAttrs): mixed => $linkAttrs['style']['color']['text'] ?? null);
+        if ( null !== $customTextColor ) {
+            $attrs['customTextColor'] = $customTextColor;
         }
 
         $typography = is_array($first['style']['typography'] ?? null) ? $first['style']['typography'] : array();
@@ -313,6 +538,44 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /**
+     * A menu can author one default colour plus exceptional current/CTA items.
+     * Core renders link colour from the parent navigation context, so requiring
+     * unanimity drops that default whenever an exception exists. Carry a value
+     * only when it is an unambiguous strict majority across every link; ties and
+     * genuinely mixed menus retain their per-link companion CSS without an
+     * invented parent colour.
+     *
+     * @param array<int, array<string, mixed>> $links
+     */
+    private function strictMajorityNavigationLinkString(array $links, callable $value): ?string
+    {
+        $counts = array();
+        $values = array();
+        foreach ( $links as $link ) {
+            $linkAttrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+            $candidate = $value($linkAttrs);
+            if ( ! is_string($candidate) || '' === trim($candidate) ) {
+                continue;
+            }
+
+            // Prefix with length so a numeric-looking string remains a string
+            // key instead of PHP coercing it to an integer array key.
+            $key = strlen($candidate) . ':' . $candidate;
+            $counts[ $key ] = ($counts[ $key ] ?? 0) + 1;
+            $values[ $key ] = $candidate;
+        }
+
+        $threshold = count($links) / 2;
+        foreach ( $counts as $key => $count ) {
+            if ( $count > $threshold ) {
+                return $values[ $key ];
+            }
+        }
+
+        return null;
     }
 
     /** @param array<int, array<string, mixed>> $links */
@@ -388,13 +651,18 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null, bool $itemsAreVouched = false, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $blocks = array();
         $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
-        $allowsDirectItems = $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
+        // A caller that has already established structurally that this element IS
+        // the nav's link cluster vouches for its direct anchors. The class
+        // vocabulary cannot do it: it splits on non-alphanumerics, so `navlinks`
+        // is a single token matching neither `nav` nor `links`, and amber-ember's
+        // whole menu became paragraphs on that spelling alone.
+        $allowsDirectItems = $itemsAreVouched || $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor);
+            return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
         }
 
         foreach ( $element->childNodes as $child ) {
@@ -421,12 +689,12 @@ final class NavigationPattern implements PatternRecognizerInterface
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
-                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationUnderlineColor);
+                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 continue;
             }
 
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                $listBlocks = $this->navigationBlocksFromList($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor);
+                $listBlocks = $this->navigationBlocksFromList($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 if ( array() === $listBlocks ) {
                     return array();
                 }
@@ -439,14 +707,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return array();
                 }
 
-                $block = $this->navigationBlockFromItem($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor);
+                $block = $this->navigationBlockFromItem($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
                 if ( null !== $block ) {
                     $blocks[] = $block;
                     continue;
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $allowsDescriptiveChrome, $navigationUnderlineColor);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $allowsDescriptiveChrome, $navigationUnderlineColor, false, $resolvedStyle, $navigationColorInteractionStates);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
@@ -467,7 +735,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null): array
+    private function navigationBlocksFromList(DOMElement $list, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $blocks = array();
         foreach ( $list->childNodes as $item ) {
@@ -487,7 +755,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return array();
             }
 
-            $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor);
+            $block = $this->navigationBlockFromItem($item, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
             if ( null === $block ) {
                 return array();
             }
@@ -498,7 +766,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $blocks;
     }
 
-    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null): ?array
+    private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): ?array
     {
         $anchor = $this->primaryNavigationAnchor($element);
         if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml) ) {
@@ -507,7 +775,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $submenuBlocks = array();
         foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
-            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, true) as $submenuBlock ) {
+            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, true, null, false, $resolvedStyle, $navigationColorInteractionStates) as $submenuBlock ) {
                 $submenuBlocks[] = $submenuBlock;
             }
         }
@@ -523,23 +791,23 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'kind'  => 'custom',
             );
             $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
-            return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationUnderlineColor), $submenuBlocks, $element);
+            return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates), $submenuBlocks, $element);
         }
 
         if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
             return null;
         }
 
-        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationUnderlineColor);
+        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
     }
 
-    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?callable $navigationUnderlineColor = null): array
+    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $this->anchorLabel($anchor, $innerHtml),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
-        ), $presentationAttributes, $navigationUnderlineColor), array(), $anchor);
+        ), $presentationAttributes, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates), array(), $anchor);
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml): string
@@ -593,18 +861,49 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param array<string, mixed> $baseAttrs
      * @return array<string, mixed>
      */
-    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?callable $navigationUnderlineColor = null): array
+    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes, ?callable $navigationUnderlineColor = null, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
+        $isCurrentNavigationItem = $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor);
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
+        if ( $isCurrentNavigationItem ) {
+            // Current-page identity belongs to WordPress/runtime URL state. A
+            // source snapshot's active/current/selected hooks must not remain
+            // on one permanently selected item in the shared header.
+            $itemAttrs = $this->withoutAuthoredCurrentNavigationSignals($itemAttrs);
+            $anchorAttrs = $this->withoutAuthoredCurrentNavigationSignals($anchorAttrs);
+            $submenuAttrs = $this->withoutAuthoredCurrentNavigationSignals($submenuAttrs);
+        }
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
-
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
+        if ( null !== $resolvedStyle ) {
+            $resolvedTextColor = $this->navigationTextColorFromStyle($resolvedStyle($anchor));
+            if ( '' !== $resolvedTextColor ) {
+                $itemAttrs['style']['color']['text'] = $resolvedTextColor;
+            }
+            if ( $submenuContainer instanceof DOMElement ) {
+                $resolvedBackgroundColor = $this->navigationBackgroundColorFromStyle($resolvedStyle($submenuContainer));
+                if ( '' !== $resolvedBackgroundColor ) {
+                    $itemAttrs['style']['color']['background'] = $resolvedBackgroundColor;
+                }
+            }
+        }
 
-        if ( $this->hasCurrentNavigationSignal($item) || $this->hasCurrentNavigationSignal($anchor) ) {
+        $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
+        if ( '' !== $textColor ) {
+            $stateMask = $this->navigationColorStateMask($anchor, $navigationColorInteractionStates);
+            $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' '
+                . self::LINK_COLOR_STATE_CLASS_PREFIX . $stateMask);
+            if ( ! $isCurrentNavigationItem ) {
+                $itemAttrs['className'] .= ' ' . self::LINK_COLOR_CLASS_PREFIX
+                    . hash('sha256', $textColor . "\0" . $stateMask);
+            }
+        }
+
+        if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
             $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
@@ -628,6 +927,77 @@ final class NavigationPattern implements PatternRecognizerInterface
             'submenuClassName' => $submenuAttrs['className'] ?? '',
         )), static fn ($value): bool => '' !== $value);
     }
+
+    private function navigationTextColorFromStyle(string $style): string
+    {
+        if ( 1 !== preg_match('/(?:^|;)\s*color\s*:\s*([^;]+)/i', $style, $match) ) {
+            return '';
+        }
+
+        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+    }
+
+    private function navigationBackgroundColorFromStyle(string $style): string
+    {
+        foreach ( array( 'background-color', 'background' ) as $property ) {
+            if ( 1 !== preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)/i', $style, $match) ) {
+                continue;
+            }
+
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+            if ( preg_match('/^(?:#[0-9a-f]{3,8}|rgba?\([^;]+\)|hsla?\([^;]+\)|var\([^;]+\)|[a-z]+)$/i', $value) ) {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function navigationColorStateMask(DOMElement $anchor, ?callable $navigationColorInteractionStates): int
+    {
+        if ( null === $navigationColorInteractionStates ) {
+            return 0;
+        }
+
+        $mask = 0;
+        $bits = array( 'hover' => 1, 'focus' => 2, 'focus-visible' => 4, 'active' => 8 );
+        foreach ( $navigationColorInteractionStates($anchor) as $state ) {
+            $mask |= $bits[$state] ?? 0;
+        }
+
+        return $mask;
+    }
+
+    /** @param array<int, array<string, mixed>> $links */
+    private function currentNavigationTextColorClass(array $links): string
+    {
+        $colors = array();
+        $collect = static function (array $items) use (&$collect, &$colors): void {
+            foreach ( $items as $link ) {
+                $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
+                $className = (string) ($attrs['className'] ?? '');
+                $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
+                if ( '' !== $color && str_contains($className, 'blocks-engine-current-navigation-item') ) {
+                    $stateMask = 0;
+                    if ( preg_match('/(?:^|\s)' . preg_quote(self::LINK_COLOR_STATE_CLASS_PREFIX, '/') . '(\d+)(?:\s|$)/', $className, $match) ) {
+                        $stateMask = (int) $match[1];
+                    }
+                    $colors[$color . "\0" . $stateMask] = array( 'color' => $color, 'state_mask' => $stateMask );
+                }
+
+                $collect(is_array($link['innerBlocks'] ?? null) ? $link['innerBlocks'] : array());
+            }
+        };
+        $collect($links);
+
+        if ( 1 !== count($colors) ) {
+            return '';
+        }
+
+        $current = reset($colors);
+        return self::CURRENT_COLOR_CLASS_PREFIX . hash('sha256', $current['color'] . "\0" . $current['state_mask']);
+    }
+
 
     /**
      * Carry inheritable anchor paint and typography through core's dynamic link.
@@ -781,14 +1151,41 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $attrs;
     }
 
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withoutAuthoredCurrentNavigationSignals(array $attrs): array
+    {
+        if ( is_string($attrs['className'] ?? null) ) {
+            $classNames = array_values(array_filter(
+                preg_split('/\s+/', trim($attrs['className'])) ?: array(),
+                fn (string $className): bool => ! $this->isCurrentNavigationSignalName($className)
+            ));
+            if ( array() === $classNames ) {
+                unset($attrs['className']);
+            } else {
+                $attrs['className'] = implode(' ', $classNames);
+            }
+        }
+
+        if ( is_string($attrs['anchor'] ?? null) && $this->isCurrentNavigationSignalName($attrs['anchor']) ) {
+            unset($attrs['anchor']);
+        }
+
+        return $attrs;
+    }
+
     private function hasCurrentNavigationSignal(DOMElement $element): bool
     {
         if ( '' !== trim($this->attr($element, 'aria-current')) ) {
             return true;
         }
 
-        foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'))) ?: array() as $token ) {
-            if ( in_array($token, array( 'active', 'current', 'current-menu-item', 'current-page-item', 'current_page_item', 'is-active', 'selected' ), true) ) {
+        return $this->isCurrentNavigationSignalName($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+    }
+
+    private function isCurrentNavigationSignalName(string $value): bool
+    {
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
+            if ( in_array($token, array( 'active', 'current', 'selected' ), true) ) {
                 return true;
             }
         }
@@ -834,7 +1231,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
+            if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true)
+                || $this->hasSubmenuSignal($child)
+                || ( $this->isNavigationWrapperElement($child)
+                    && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) )
+            ) {
                 $containers[] = $child;
             }
         }

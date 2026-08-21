@@ -16,7 +16,7 @@
     "content": "<style>.cover-art{width:100%;max-width:320px;aspect-ratio:1;display:block}</style><main><svg class=\"cover-art\" viewBox=\"0 0 500 500\" role=\"img\" aria-label=\"Cover art\"><defs><linearGradient id=\"paint\"><stop offset=\"0%\" stop-color=\"currentColor\"></stop><stop offset=\"100%\" stop-color=\"#b8552a\"></stop></linearGradient></defs><rect width=\"500\" height=\"500\" fill=\"url(#paint)\"></rect></svg></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "cover-art", "alt": "Cover art" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "cover-art be-inline-geometry-66c1821df5feef525c3555875ca3134a7f12048c6ea06d9bece8080cbc7dacd1 blocks-engine-synthetic-image-figure", "alt": "Cover art" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

@@ -25,6 +25,7 @@ if ( ! function_exists('serialize_blocks') ) {
      */
     function serialize_blocks(array $blocks): string
     {
+        $GLOBALS['blocks_engine_serialized_blocks_stub'] = $blocks;
         return 'stub serialized ' . count($blocks);
     }
 }
@@ -35,6 +36,7 @@ if ( ! function_exists('render_block') ) {
      */
     function render_block(array $block): string
     {
+        $GLOBALS['blocks_engine_rendered_block_stub'] = $block;
         return '<stub-rendered>' . ($block['blockName'] ?? '') . '</stub-rendered>';
     }
 }
@@ -96,7 +98,15 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
         {
             return array(
                 'core/icon' => (object) array('name' => 'core/icon'),
-                'plugin/card' => (object) array('name' => 'plugin/card'),
+                'plugin/card' => (object) array(
+                    'name' => 'plugin/card',
+                    'attributes' => array(
+                        'title' => array('source' => 'rich-text'),
+                        'imageUrl' => array('source' => 'attribute'),
+                        'previewState' => array('type' => 'string', 'role' => 'local'),
+                        'layout' => array('type' => 'string'),
+                    ),
+                ),
                 (object) array('name' => 'core/math'),
                 'core/accordion' => (object) array('name' => 'core/accordion'),
                 'core/group' => (object) array(
@@ -110,6 +120,13 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
                     ),
                 ),
                 'core/quote' => (object) array('name' => 'core/quote', 'supports' => array()),
+                'core/heading' => (object) array(
+                    'name' => 'core/heading',
+                    'attributes' => array(
+                        'content' => array('source' => 'rich-text'),
+                        'level' => array('type' => 'number'),
+                    ),
+                ),
             );
         }
     }
@@ -126,12 +143,51 @@ assertSame('stub/parsed', $runtime->parseBlocks('content')[0]['blockName'] ?? nu
 assertSame(array(), $runtime->diagnostics(), 'WordPress parser delegation should not emit fallback diagnostics.');
 assertSame('stub serialized 1', $runtime->serializeBlocks(array(array('blockName' => 'core/paragraph'))), 'Runtime should delegate serialization to serialize_blocks().');
 assertSame('<stub-rendered>core/paragraph</stub-rendered>', $runtime->renderBlock(array('blockName' => 'core/paragraph')), 'Runtime should delegate rendering to render_block().');
+$workingBlocks = array(array(
+    'blockName'   => 'core/group',
+    'attrs'       => array(),
+    'innerBlocks' => array(array(
+        'blockName'   => 'core/heading',
+        'attrs'       => array('content' => 'Nested', 'level' => 3, 'unknown' => 'preserved'),
+        'innerBlocks' => array(),
+    )),
+));
+$runtime->serializeBlocks($workingBlocks);
+assertSame(
+    array('level' => 3, 'unknown' => 'preserved'),
+    $GLOBALS['blocks_engine_serialized_blocks_stub'][0]['innerBlocks'][0]['attrs'] ?? null,
+    'Runtime should recursively remove source-derived rich-text attrs before native serialization while retaining unsourced and unknown attrs.'
+);
+assertSame(
+    array('content' => 'Nested', 'level' => 3, 'unknown' => 'preserved'),
+    $workingBlocks[0]['innerBlocks'][0]['attrs'],
+    'Runtime canonicalization must not mutate transformer working block arrays.'
+);
+$runtime->serializeBlocks(array(array(
+    'blockName' => 'plugin/card',
+    'attrs' => array('title' => 'Card title', 'imageUrl' => '/card.jpg', 'previewState' => 'selected', 'layout' => 'feature', 'unknown' => 'preserved'),
+)));
+assertSame(
+    array('layout' => 'feature', 'unknown' => 'preserved'),
+    $GLOBALS['blocks_engine_serialized_blocks_stub'][0]['attrs'] ?? null,
+    'Runtime should use registered custom block schemas to omit sourced and local attrs while retaining persisted and unknown attrs.'
+);
+$runtime->renderBlock(array(
+    'blockName'   => 'core/heading',
+    'attrs'       => array('content' => 'Rendered', 'level' => 2),
+    'innerBlocks' => array(),
+));
+assertSame(
+    array('level' => 2),
+    $GLOBALS['blocks_engine_rendered_block_stub']['attrs'] ?? null,
+    'Runtime should remove heading content before native rendering.'
+);
 assertSame('stub stripped Bold', $runtime->stripAllTags('<strong>Bold</strong>'), 'Runtime should delegate tag stripping to wp_strip_all_tags().');
 assertSame(array('stub' => 'ids="1,2"'), $runtime->parseShortcodeAttributes('ids="1,2"'), 'Runtime should delegate shortcode attributes to shortcode_parse_atts().');
 assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/demo')), 'Runtime should delegate JSON encoding to wp_json_encode().');
 assertSame('stub html <tag>', $runtime->escapeHtml('<tag>'), 'Runtime should delegate HTML escaping to esc_html().');
 assertSame('stub attr "value"', $runtime->escapeAttribute('"value"'), 'Runtime should delegate attribute escaping to esc_attr().');
-assertSame(array('core/accordion', 'core/group', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
+assertSame(array('core/accordion', 'core/group', 'core/heading', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Runtime should resolve border width from the registered Group declaration.');
 assertSame(false, $runtime->blockSupportsBorder('core/group', 'style'), 'Registered Group metadata should override the standalone snapshot component by component.');
 assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'A registered Quote declaration without border support should fail closed.');

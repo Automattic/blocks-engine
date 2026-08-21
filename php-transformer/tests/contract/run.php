@@ -90,7 +90,7 @@ $customImageResult = ( new HtmlTransformer() )->transform('<wow-image id="hero" 
 $assert(
     'core/image' === ($customImageResult['blocks'][0]['blockName'] ?? null)
         && 'hero.jpg' === ($customImageResult['blocks'][0]['attrs']['url'] ?? null)
-        && 'media-frame photo' === ($customImageResult['blocks'][0]['attrs']['className'] ?? null)
+        && str_contains((string) ($customImageResult['blocks'][0]['attrs']['className'] ?? ''), 'media-frame photo')
         && 'hero' === ($customImageResult['blocks'][0]['attrs']['anchor'] ?? null)
         && 0 === substr_count((string) ($customImageResult['serialized_blocks'] ?? ''), '<!-- wp:html')
         && array() === ($customImageResult['fallbacks'] ?? array()),
@@ -882,10 +882,11 @@ $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
 )->toArray();
 $cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover"'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
+$cssSizedInlineSvgArtworkCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedInlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && ! str_contains($cssSizedInlineSvgArtworkMarkup, 'be-inline-geometry-'), 'explicit block SVG core/image keeps collapsed line-box geometry');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image keeps collapsed line-box geometry and source display and dimensions on the materialized image');
 
 $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     array(
@@ -1424,7 +1425,7 @@ $directQuote = $quoteMarginResult['blocks'][0] ?? array();
 $sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
 $quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
 $quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
-$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"content":"Direct quote.","className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
 $assert(str_contains($quoteMarginCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
 $assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');
@@ -1597,9 +1598,13 @@ $coffeeSerialized = (string) ($coffeeResult['serialized_blocks'] ?? '');
 $coffeeStylesheets = array_values(array_filter($coffeeResult['assets'] ?? array(), static fn (array $asset): bool => 'stylesheet' === ($asset['role'] ?? '') && 'text/css' === ($asset['mime_type'] ?? '')));
 $coffeeStylesheetCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $coffeeStylesheets));
 $coffeeRiskCount = 0;
-if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
+if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)(?: (\{.*?\}))? -->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
     foreach ( $coffeeBlocks as $coffeeBlock ) {
-        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[2]) ) {
+        $coffeeAttrs = json_decode($coffeeBlock[2] ?? '', true);
+        if ( str_contains((string) ($coffeeAttrs['className'] ?? ''), 'blocks-engine-inline-layout-carrier') ) {
+            continue;
+        }
+        if ( preg_match('/<span\b[^>]*(?:class|style)=|<a\b[^>]*style=|<svg\b/i', $coffeeBlock[3]) ) {
             ++$coffeeRiskCount;
         }
     }
@@ -1701,7 +1706,7 @@ $coverHero = ( new HtmlTransformer() )->transform(
     '<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;min-height:480px"><h1>Build</h1><p>Ship faster with blocks.</p></section>'
 )->toArray();
 $coverHeroSerialized = (string) ($coverHero['serialized_blocks'] ?? '');
-$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"content":"Build","level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph {"content":"Ship faster with blocks."} --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
+$expectedCoverHeroSerialized = '<!-- wp:cover {"className":"hero","url":"https://example.com/hero.jpg","alt":"","dimRatio":0,"minHeight":480} --><div class="wp-block-cover hero" style="min-height:480px"><img class="wp-block-cover__image-background" alt="" src="https://example.com/hero.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim-0 has-background-dim"></span><div class="wp-block-cover__inner-container"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">Build</h1><!-- /wp:heading --><!-- wp:paragraph --><p>Ship faster with blocks.</p><!-- /wp:paragraph --></div></div><!-- /wp:cover -->';
 $assert($expectedCoverHeroSerialized === $coverHeroSerialized, 'gated hero serializes to the exact canonical core/cover golden', $coverHeroSerialized);
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($coverHero['blocks'] ?? array()), 'canonical hero cover passes save-shape validation');
 
@@ -1725,7 +1730,7 @@ $repeatingTexture = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/texture.png);background-repeat:repeat"><h2>Pricing</h2><p>Plans</p></div>'
 )->toArray();
 $repeatingTextureSerialized = (string) ($repeatingTexture['serialized_blocks'] ?? '');
-$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"content":"Pricing","level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph {"content":"Plans"} --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
+$expectedRepeatingTextureSerialized = '<!-- wp:group {"className":"be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"} --><div class="wp-block-group be-inline-geometry-f4d07b1703db9de9dac1e6c7827e053199fb87461a7cc50a0228652699ebb807"><!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Pricing</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Plans</p><!-- /wp:paragraph --></div><!-- /wp:group -->';
 $assert($expectedRepeatingTextureSerialized === $repeatingTextureSerialized, 'repeating texture preserves byte-identical trunk core/group serialization', $repeatingTextureSerialized);
 $assert('core/group' === ($repeatingTexture['blocks'][0]['blockName'] ?? null) && ! str_contains($repeatingTextureSerialized, '<!-- wp:cover'), 'repeating texture is rejected from core/cover');
 
@@ -1744,9 +1749,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"url":"https://example.com/decor.png","className":"blocks-engine-background-image","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // Slice 4 L6: support-derived color and spacing declarations retain canonical
 // wrapper attribute order before the cover-owned min-height declaration.
@@ -1915,8 +1920,8 @@ $assert('Mastodon' === ($footerNavigationMenus[2]['items'][0]['label'] ?? ''), '
 $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'icon-only social links use title as navigation label');
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
-$assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"content":"Product","level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
-$assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title","content":"Company"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:heading {"level":3}') && str_contains($footerNavigationSerialized, '>Product</h3>'), 'labeled footer navigation preserves its heading as native content');
+$assert(str_contains($footerNavigationSerialized, '<!-- wp:paragraph {"className":"nav-title"}') && str_contains($footerNavigationSerialized, '>Company</p>'), 'paragraph-labeled footer navigation preserves its descriptive title');
 $assert(2 === substr_count($footerNavigationSerialized, '"orientation":"vertical"'), 'labeled footer navigation retains vertical column flow without changing unlabeled social navigation');
 
 $complexHeaderNavigation = ( new HtmlTransformer() )->transform(
@@ -1939,6 +1944,18 @@ $visibleVariantSerialized = (string) ($visibleVariantNavigation['serialized_bloc
 $assert(1 === substr_count($visibleVariantSerialized, '<!-- wp:navigation {'), 'equivalent sibling navigation variants retain only the visible source variant');
 $assert(str_contains($visibleVariantSerialized, 'primary') && ! str_contains($visibleVariantSerialized, 'placeholder') && ! str_contains($visibleVariantSerialized, 'collapsed-nav'), 'navigation deduplication prefers the visible source variant over hidden placeholder and collapsed variants');
 $assert(! str_contains($visibleVariantSerialized, '>menu<') && ! str_contains($visibleVariantSerialized, '>close<'), 'input-free label hamburger chrome is superseded by native navigation controls');
+
+$splitResponsiveSubmenu = ( new HtmlTransformer() )->transform(
+    '<header><div class="desktop"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio"><a>Portfolio</a></li><li id="about"><a href="/about">About</a></li></ul></div>'
+    . '<div class="mobile" style="display:none"><ul class="menu"><li id="home"><a href="/">Home</a></li><li id="portfolio" class="has-submenu"><a>Portfolio</a><div class="menu-wrap"><ul><li><a href="/portraits">Portraits</a></li><li><a href="/families">Families</a></li></ul></div></li><li id="about"><a href="/about">About</a></li></ul></div></header>'
+)->toArray();
+$splitResponsiveSubmenuSerialized = (string) ($splitResponsiveSubmenu['serialized_blocks'] ?? '');
+$splitResponsiveSubmenuMenus = $splitResponsiveSubmenu['source_reports']['semantic_parity']['navigation_menus']['blocks'] ?? array();
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation {'), 'split responsive menu variants reconcile into one canonical navigation block');
+$assert(1 === substr_count($splitResponsiveSubmenuSerialized, '<!-- wp:navigation-submenu '), 'visible shallow navigation item adopts the duplicate responsive submenu');
+$assert(str_contains($splitResponsiveSubmenuSerialized, '"label":"Portfolio"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Portraits","url":"/portraits"') && str_contains($splitResponsiveSubmenuSerialized, '"label":"Families","url":"/families"'), 'reconciled submenu preserves the parent label and ordered child destinations');
+$assert(5 === ($splitResponsiveSubmenuMenus[0]['item_count'] ?? null), 'reconciled responsive navigation reports every parent and submenu item');
+$assert('pass' === ($splitResponsiveSubmenu['source_reports']['wp_block_validity']['status'] ?? ''), 'reconciled responsive submenu remains WordPress block-valid');
 
 $bodyStateProjection = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><body class="fixed-shell no-header-page"><div class="wrapper"><div class="main-wrap"><p>Content</p></div></div></body></html>',
@@ -1978,13 +1995,15 @@ $assert('Work' === ($brandedHeaderBlockMenu['items'][0]['label'] ?? ''), 'brande
 $assert(3 === ($brandedHeaderParity['navigation_menus']['source'][0]['item_count'] ?? null), 'branded header source parity counts the same signaled menu subset as generated navigation');
 
 $dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
-    '<header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
+    '<style>.dropdown{background:#181818;color:#f2f2f2}</style><header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
 )->toArray();
+$dropdownHeaderSerialized = (string) ($dropdownHeaderNavigation['serialized_blocks'] ?? '');
 $dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
 $dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
 $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
+$assert(str_contains($dropdownHeaderSerialized, '"color":{"background":"#181818"}'), 'dropdown header navigation carries authored submenu background into the native submenu container');
 
 $nestedNavMenu = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Main"><ul><li><a href="/coffee">Coffee</a><nav id="nav-links" class="wp-block-navigation nav-links" style="display:none;align-items:flex-start;gap:1.4rem;background:var(--cream);flex-direction:column;padding:1.8rem var(--gutter) 2rem;box-shadow:0 10px 20px rgba(0,0,0,.2)"><a href="#espresso">Espresso</a><a href="#latte">Latte</a></nav></li><li><a href="/visit">Visit</a></li></ul></nav>'
@@ -2728,7 +2747,7 @@ $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(str_contains($artifactNavStructureCompatCss, '.desktop-nav.wp-block-navigation .wp-block-navigation__container .wp-block-navigation-item { float:left }'), 'artifact navigation projection maps classed navigation ancestor item selectors onto core navigation structure', $artifactNavStructureCompatCss);
-$assert(str_contains($artifactNavStructureAssetCss, '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}'), 'list navigation keeps the core responsive host visible when source mobile CSS hides its legacy menu container', $artifactNavStructureAssetCss);
+$assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
 
@@ -2743,6 +2762,20 @@ $artifactMobileNavOverlay = $compiler->compile(
 )->toArray();
 $artifactMobileNavOverlayAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactMobileNavOverlay['assets'] ?? array()));
 $assert(str_contains($artifactMobileNavOverlayAssetCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}'), 'deduplicated mobile navigation projects its authored background authoritatively over the core overlay default', $artifactMobileNavOverlayAssetCss);
+$assert(str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), 'blocks-engine-native-responsive-navigation') && str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), '"overlayMenu":"mobile"'), 'equivalent authored desktop/mobile navigations retain one native responsive overlay');
+
+$artifactToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><button aria-controls="menu" aria-expanded="false"><span></span><span></span></button><nav id="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialized_blocks'] ?? '');
+$artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
+$assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
@@ -3283,7 +3316,7 @@ foreach ( $legacyFrontPageSite['source_reports']['materialization_plan']['pages'
 }
 $legacyBlockMarkup = (string) ($legacyPlanPage['block_markup'] ?? '');
 $assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
-$assert(str_contains($legacyBlockMarkup, 'About Hank\'s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
+$assert(str_contains($legacyBlockMarkup, 'About Hank&#039;s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
 $assert(str_contains($legacyBlockMarkup, '<!-- wp:table'), 'legacy HTML 4 layout tables convert to table block markup instead of empty fallback metadata');
 
 $legacyInline = ( new HtmlTransformer() )->transform('<CENTER><FONT FACE="Arial" SIZE="2">Visible legacy inline copy</FONT></CENTER>')->toArray();
@@ -3813,6 +3846,8 @@ $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
 $assert('blocks-engine/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
 $assert('blocks-engine/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
 $assert(array( 'blocks-engine/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
@@ -4078,7 +4113,7 @@ assertSame(0, $result['metrics']['fallback_count'], 'HTML metrics should not cou
 assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
-if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
+if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
     exit(1);
 }
@@ -4290,6 +4325,19 @@ $assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must
 $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
 $assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
 
+$editorStaticStateResult = (new HtmlTransformer())->transform(
+    '<main><section id="process"><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',
+    array('static_css' => '#process{background:#111;padding:4rem}@media(max-width:600px){#process{padding:2rem}}.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
+)->toArray();
+$editorStaticStateAsset = current(array_filter(
+    $editorStaticStateResult['assets'] ?? array(),
+    static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')
+));
+$assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
+$editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
+$assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
+$assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
+
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'
     . '<div id="runtime-panel" style="display:none"></div>'
@@ -4303,6 +4351,27 @@ $hiddenEmptyResult = (new HtmlTransformer())->transform(
 $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'inert hidden empty elements are pruned instead of becoming empty groups');
 $assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
 $assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
+
+$emptyFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header><div class="empty-search-shell"><div class="container"><span></span></div></div>'
+    . '<div class="mini-cart"></div><div class="real-search-shell"><input type="search" aria-label="Search"></div>'
+    . '<div class="cart-status">2 items</div><div id="runtime-cart" class="cart"></div></header>',
+    array('runtime_dom_selectors' => array('#runtime-cart'))
+)->toArray();
+$emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
+$assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
+$assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
+$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label="Search"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
+$assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
+
+$layoutFeatureShellResult = (new HtmlTransformer())->transform(
+    '<header class="toolbar"><div class="empty-search-shell"></div><nav><a href="/">Home</a></nav><div class="mini-cart"></div></header>',
+    array('static_css' => '.toolbar{display:flex;justify-content:space-between}.mini-cart{display:inline-block;vertical-align:middle}')
+)->toArray();
+$layoutFeatureShellSerialized = (string) ($layoutFeatureShellResult['serialized_blocks'] ?? '');
+$assert(str_contains($layoutFeatureShellSerialized, 'empty-search-shell'), 'empty feature chrome participating in author-owned layout remains available to preserve sibling placement');
+$assert(str_contains($layoutFeatureShellSerialized, 'mini-cart'), 'empty inline feature chrome with explicit vertical alignment remains available to preserve the inline baseline');
 
 $runtimeGeometryResult = (new HtmlTransformer())->transform(
     '<main><div id="runtime-geometry" style="width:290px !important;height:62px !important"></div></main>',
@@ -4351,10 +4420,12 @@ $htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')
 assertSame('success', $htmlToBlocksResult['status'], 'Format bridge result conversion should succeed for public default adapters.');
 assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schema'], 'Format bridge result conversion should use the shared result envelope.');
 assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Format bridge result conversion should expose block arrays.');
-assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
+assertStringContains('<!-- wp:heading {"level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
 assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
 $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</style><a class="logo" href="/"><span class="logo-mark"></span><span>Logo</span></a>', 'html', 'blocks')->toArray();
-assertStringContains('> :where(.wp-block-button__link){display:inline-flex}', (string) ($htmlAssetResult['assets'][0]['content'] ?? ''), 'HTML format conversion should preserve generated author stylesheet assets.');
+$htmlAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $htmlAssetResult['assets'] ?? array()));
+assertSame('core/paragraph', $htmlAssetResult['blocks'][0]['blockName'] ?? '', 'HTML format conversion should keep a classed-span text logo on the paragraph path.');
+assertStringContains('.logo{display:inline-flex}', $htmlAssetCss, 'HTML format conversion should preserve generated author stylesheet assets.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',
@@ -4511,6 +4582,7 @@ $descriptionListBlocks = $descriptionListPayload['blocks'] ?? array();
 $assert(1 === count($descriptionListBlocks), 'multi-page description lists project one deduplicated companion definition');
 $assert('blocks-engine/description-list' === ($descriptionListBlocks[0]['block_json']['name'] ?? null), 'companion payload projects the generated description-list block metadata');
 $assert(str_contains((string) ($descriptionListBlocks[0]['assets']['index.js'] ?? ''), 'registerBlockType'), 'companion payload projects the installable editor asset');
+$assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($descriptionListBlocks[0]['script_dependencies'] ?? null), 'description-list companion dependency metadata survives payload compilation');
 $assert('semantic-description-list' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'multi-page artifacts aggregate the Gutenberg gap once');
 $assert('https://github.com/WordPress/gutenberg/pull/20760' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['references'][1] ?? null), 'gap diagnostic records the stalled Gutenberg implementation context');
 

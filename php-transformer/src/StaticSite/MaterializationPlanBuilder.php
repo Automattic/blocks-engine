@@ -283,6 +283,7 @@ final class MaterializationPlanBuilder
                 'kind'             => (string) ($asset['kind'] ?? ''),
                 'role'             => (string) ($asset['role'] ?? ''),
                 'stylesheet_placement' => (string) ($asset['stylesheet_placement'] ?? ''),
+                'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['stylesheet_target'] ?? 'both') : '',
                 'intent'           => (string) ($asset['intent'] ?? ''),
                 'media_type'       => (string) ($asset['media_type'] ?? $asset['mime_type'] ?? ''),
                 'media'            => (string) ($asset['media'] ?? ''),

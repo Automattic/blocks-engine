@@ -71,6 +71,13 @@ $synthetic = ( new HtmlTransformer() )->transform(
     '<style>p{margin:0}.site-header{display:flex;align-items:center}.brand{font-size:18px;font-weight:700}</style>'
         . '<header class="site-header"><a class="brand" href="/">Verified Artifact</a></header><footer><span>Portable input.</span></footer><p>Source paragraph.</p>'
 )->toArray();
+$colouredSyntheticLink = ( new HtmlTransformer() )->transform(
+    '<style>a{color:#ffd400}.site-header{display:flex}.brand{color:#f7f2ff}</style>'
+        . '<header class="site-header"><a class="brand" href="/">Super <span>Coaching</span></a></header>'
+)->toArray();
+$uncolouredSyntheticLink = ( new HtmlTransformer() )->transform(
+    '<header><a href="/">Theme-owned link</a></header>'
+)->toArray();
 $inlineLayout = ( new HtmlTransformer() )->transform(
     '<style>.artifact-card{display:grid;grid-template-columns:1fr auto}.artifact-card > strong{display:block;margin:12px 0 4.8px}.artifact-card .card-label{display:block;grid-column:1 / -1;color:#6040cc;margin:2px 0}</style>'
         . '<div class="artifact-card"><span class="card-label">Input</span><strong>index.html</strong><span class="card-label">styles.css</span></div>'
@@ -105,6 +112,9 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
     '<style>.btn{display:inline-flex;align-items:center;padding:1rem;background:#123456}.btn--full{width:100%}</style>'
         . '<main><section><a class="btn btn--full selector-submit" href="/submit">Submit</a></section></main>'
 )->toArray();
+$syntheticImageFigure = ( new HtmlTransformer() )->transform(
+    '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
+)->toArray();
 
 $results = array(
     $authorOrder,
@@ -119,6 +129,9 @@ $results = array(
     $nativeButton,
     $directFlexButton,
     $fullWidthButton,
+    $colouredSyntheticLink,
+    $uncolouredSyntheticLink,
+    $syntheticImageFigure,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -134,18 +147,20 @@ $beforeFamilies = array(
     'richtext-marker reset' => ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}',
     'synthetic-paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
     'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
+    'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
     'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
     'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
-    'css-owned-layout-item' => ':root :where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}',
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
+$assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
+$assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
-    'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}',
+    'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
     'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',
@@ -155,6 +170,14 @@ foreach ( $beforeFamilies as $family => $needle ) {
     $assert(str_contains($beforeCss, $needle), 'G3: ' . $family . ' lives in before-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
 }
+$assert(
+    str_contains($beforeCss, ':root :where(p.blocks-engine-synthetic-paragraph.has-text-color)>a{color:inherit}'),
+    'G3: a synthetic paragraph with native text colour carries that colour through its direct anchor'
+);
+$assert(
+    ! str_contains((string) ($uncolouredSyntheticLink['serialized_blocks'] ?? ''), 'has-text-color'),
+    'G3: an uncoloured synthetic paragraph leaves its anchor under theme link colour ownership'
+);
 foreach ( $afterFamilies as $family => $needle ) {
     $assert(str_contains($afterCss, $needle), 'G3: ' . $family . ' lives in after-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');

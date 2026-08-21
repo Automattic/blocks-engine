@@ -151,7 +151,10 @@ final class WordPressSitePlan
             if ( ! is_array($asset) || ! self::safePath($asset['source_path'] ?? null) || ! self::safePath($asset['target_path'] ?? null) || !is_string($asset['source'] ?? null) || !is_string($asset['role'] ?? null) || !is_string($asset['mime_type'] ?? null) || !is_int($asset['bytes'] ?? null) || $asset['bytes'] < 0 || !is_string($asset['token'] ?? null) || !self::hash($asset['reconciliation_identity'] ?? null) || !self::hash($asset['content_hash'] ?? null) || (!is_string($assetContent) && !self::payloadReference($reference)) || $asset['reconciliation_identity'] !== self::identity('asset', $asset['source_path'], $asset['target_path']) || (is_string($assetContent) && $asset['content_hash'] !== self::contentHash($assetContent)) || (is_string($asset['content_base64'] ?? null) && ($asset['transport_sha256'] ?? null) !== $asset['content_hash']) || (is_array($reference) && (!self::referenceBackedBinaryAsset($asset) || isset($asset['content'], $asset['content_base64'], $asset['transport_sha256']) || $asset['content_hash'] !== $reference['sha256'] || ($asset['raw_sha256'] ?? null) !== $reference['sha256']) ) ) {
                 throw new InvalidArgumentException('WordPress site plan asset is structurally invalid.');
             }
-            if ('css' === $asset['kind']) self::assertAssetScopes($asset['scopes'] ?? null);
+            if ('css' === $asset['kind']) {
+                self::assertAssetScopes($asset['scopes'] ?? null);
+                if (!in_array($asset['stylesheet_target'] ?? 'both', array('both', 'frontend', 'editor'), true)) throw new InvalidArgumentException('Stylesheet assets must declare a supported target.');
+            }
             elseif (isset($asset['scopes'])) throw new InvalidArgumentException('Only stylesheet assets may declare runtime scopes.');
             self::unique($assetTargets, $asset['target_path'], 'asset target');
             self::unique($assetIdentities, $asset['reconciliation_identity'], 'asset reconciliation identity');
@@ -275,14 +278,14 @@ final class WordPressSitePlan
                 $row['content_decision'] = $document['content_decision'];
                 if (is_string($document['publication_timestamp'] ?? null)) $row['publication_timestamp'] = $document['publication_timestamp'];
             }
-            if ( ! $part ) $row['shell_candidates'] = $this->shellCandidates($document, $references, $routes);
+            if ( ! $part ) $row['shell_candidates'] = $this->shellCandidates($document, $references, $routes, $canonical);
             $rows[] = $row;
         }
         return $rows;
     }
 
     /** @param array<string,mixed> $document @return array<int,array<string,mixed>> */
-    private function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes): array
+    private function shellCandidates(array $document, AssetReferenceCanonicalizer $references, array $routes, string $canonical): array
     {
         $candidates = array();
         foreach ($document['shell_artifacts'] ?? array() as $candidate) {
@@ -294,7 +297,37 @@ final class WordPressSitePlan
             $templatePartMarkup = is_string($candidate['template_part_block_markup'] ?? null) ? $this->routeLinks($references->content($candidate['template_part_block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes) : $innerMarkup;
             $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'classes' => $classes, 'source_path' => self::value($document, 'source_path'), 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
         }
-        return $candidates;
+        return array_merge($candidates, $this->nestedChromeCandidates($canonical, self::value($document, 'source_path')));
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function nestedChromeCandidates(string $markup, string $sourcePath): array
+    {
+        $topLevel = self::topLevelBlockRanges($markup);
+        foreach ($topLevel as $index => $wrapperRange) {
+            $wrapper = substr($markup, $wrapperRange['offset'], $wrapperRange['length']);
+            $preceding = $topLevel[$index - 1] ?? null;
+            $toggle = is_array($preceding) ? substr($markup, $preceding['offset'], $preceding['length']) : '';
+            // The responsive core/navigation overlay supersedes the only allowed
+            // sibling: its legacy authored checkbox toggle.
+            if (count($topLevel) !== $index + 1 || (0 < $index && (1 !== $index || !self::isCheckboxBlock($toggle)))) continue;
+            $children = self::directChildBlockRanges($wrapper);
+            if (2 !== count($children) || !self::isGroupBlock($wrapper)) continue;
+            $navigationChildren = array_values(array_filter($children, static fn(array $range): bool => str_contains(substr($wrapper, $range['offset'], $range['length']), '<!-- wp:navigation ')));
+            if (1 !== count($navigationChildren)) continue;
+            $chromeRange = $navigationChildren[0];
+            $contentRange = current(array_filter($children, static fn(array $range): bool => $range !== $chromeRange));
+            if (!is_array($contentRange) || !self::isGroupBlock(substr($wrapper, $contentRange['offset'], $contentRange['length']))) continue;
+            $chrome = substr($wrapper, $chromeRange['offset'], $chromeRange['length']);
+            $content = substr($wrapper, $contentRange['offset'], $contentRange['length']);
+            $opening = self::blockOpeningMarkup($wrapper);
+            if (null === $opening) continue;
+            $contentOffset = $wrapperRange['offset'] + $contentRange['offset'];
+            $identity = self::normalizeNestedChromeMarkup($chrome);
+            if ('' === $identity) continue;
+            return array(array('area' => 'header', 'markup' => $chrome, 'inner_markup' => $chrome, 'template_part_markup' => self::withoutCurrentNavigationState($chrome), 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $chrome), 'legacy_container_opening' => $opening, 'legacy_container_closing' => '<!-- /wp:group -->', 'legacy_content_markup' => $content, 'legacy_content_range' => array('offset' => $contentOffset, 'length' => $contentRange['length']), 'legacy_page_markup' => $markup));
+        }
+        return array();
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
@@ -315,7 +348,7 @@ final class WordPressSitePlan
                 $rows = $candidates[$index] ?? array();
                 if (1 !== count($rows)) { $excluded[$index] = count($rows) > 1 ? 'multiple' : 'missing'; continue; }
                 $candidate = $rows[0];
-                $candidateIdentity = hash('sha256', $area . "\0" . json_encode($candidate['classes']) . "\0" . $candidate['markup']);
+                $candidateIdentity = hash('sha256', $area . "\0" . json_encode($candidate['classes']) . "\0" . ($candidate['identity_markup'] ?? $candidate['markup']));
                 $clusters[$candidateIdentity]['candidate'] = $candidate;
                 $clusters[$candidateIdentity]['indexes'][] = $index;
             }
@@ -350,17 +383,28 @@ final class WordPressSitePlan
             $retainedForRuntimeBinding = false;
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
-                $withoutShell = $this->withoutTopLevelShell($page['canonical_block_markup'], $area);
+                $candidate = $candidates[$index][0];
+                $withoutShell = isset($candidate['legacy_content_markup'])
+                    ? (($candidate['legacy_page_markup'] ?? null) === $page['canonical_block_markup'] ? $candidate['legacy_content_markup'] : null)
+                    : $this->withoutTopLevelShell($page['canonical_block_markup'], $area, $candidate['markup']);
                 if (null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
+                    continue 2;
+                }
+                if ( '' === trim($withoutShell) ) {
+                    $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_only_content', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because removing it would leave the page empty.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'only_content', $candidates));
                     continue 2;
                 }
                 $withoutShells[$index] = $withoutShell;
             }
             foreach ($cluster['indexes'] as $index) {
                 $page = $pages[$index];
-                $range = $this->topLevelShellRange($page['canonical_block_markup'], $area);
-                $containsBinding = is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']);
+                $candidate = $candidates[$index][0];
+                $legacyContentRange = $candidate['legacy_content_range'] ?? null;
+                $range = $this->topLevelShellRange($page['canonical_block_markup'], $area, $candidate['markup']);
+                $containsBinding = is_array($legacyContentRange)
+                    ? $this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length'])
+                    : (is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']));
                 if ($containsBinding) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
                     $retainedForRuntimeBinding = true;
@@ -379,7 +423,8 @@ final class WordPressSitePlan
             $placement = $singlePage ? 'entry_shell' : 'shared_shell';
             if ($singlePage) $templateSlugs = array('front-page');
             $partMarkup = $first['template_part_markup'];
-            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs), static fn(mixed $value): bool => array() !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
+            $container = isset($first['legacy_container_opening']) ? array('opening' => $first['legacy_container_opening'], 'closing' => $first['legacy_container_closing']) : null;
+            $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $area, 'title' => ucfirst($area), 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'placement' => array_filter(array('kind' => $placement, 'source_path' => $sourcePath, 'template_slugs' => $templateSlugs, 'excluded_template_slugs' => $excludedTemplateSlugs, 'container' => $container), static fn(mixed $value): bool => array() !== $value && null !== $value), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => ucfirst($area), 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'canonical', $candidates, $identity), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $area . '.html'), 'content_hash' => self::contentHash($partMarkup));
             $diagnostics[] = array('code' => $singlePage ? 'wordpress_site_plan_shell_entry_extracted' : 'wordpress_site_plan_shell_extracted', 'severity' => 'info', 'message' => $singlePage ? "Extracted the entry {$area} shell for the front-page template." : "Extracted the dominant semantically equivalent {$area} shell cluster.", 'area' => $area, 'page_count' => count($cluster['indexes']), 'applicable_page_count' => count($applicable), 'exclusions' => array_map(static fn(int $index, string $reason): array => array('source_path' => $pages[$index]['source_path'], 'reason' => $reason), array_keys($excluded), $excluded));
         }
         foreach ($pages as &$page) unset($page['shell_candidates']); unset($page);
@@ -396,6 +441,19 @@ final class WordPressSitePlan
             if (!is_string($search) || !self::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
             $indexedRange = self::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
             if (is_array($indexedRange) && $indexedRange['offset'] >= $offset && $indexedRange['offset'] + $indexedRange['length'] <= $offset + $length) return true;
+        }
+        return false;
+    }
+
+    private function shellContainsRuntimeBindingOutsideRange(array $declarations, array $page, int $offset, int $length): bool
+    {
+        foreach ($declarations as $declaration) foreach ($declaration['payload']['entities'] ?? array() as $entity) foreach (is_array($entity) ? ($entity['bindings'] ?? array()) : array() as $binding) {
+            $position = $binding['position'] ?? null;
+            if (($binding['source_path'] ?? null) !== ($page['source_path'] ?? null)) continue;
+            $search = $binding['search_block_markup'] ?? null;
+            if (!is_string($search) || !self::bindingPosition($position, $page['canonical_block_markup'], $search)) continue;
+            $range = self::blockRanges($page['canonical_block_markup'])[$position['block_index']] ?? null;
+            if (is_array($range) && ($range['offset'] < $offset || $range['offset'] + $range['length'] > $offset + $length)) return true;
         }
         return false;
     }
@@ -446,20 +504,26 @@ final class WordPressSitePlan
         return array_filter(array('schema' => 'blocks-engine/shell-extraction/v1', 'area' => $area, 'decision' => $decision, 'reason' => $reason, 'sources' => $sources, 'shell_identity' => $identity), static fn(mixed $value): bool => null !== $value);
     }
 
-    private function withoutTopLevelShell(string $markup, string $area): ?string
+    private function withoutTopLevelShell(string $markup, string $area, string $candidateMarkup = ''): ?string
     {
-        return $this->replaceTopLevelShell($markup, $area, '');
+        return $this->replaceTopLevelShell($markup, $area, '', $candidateMarkup);
     }
 
-    private function replaceTopLevelShell(string $markup, string $area, string $replacement): ?string
+    private function replaceTopLevelShell(string $markup, string $area, string $replacement, string $candidateMarkup = ''): ?string
     {
-        $range = $this->topLevelShellRange($markup, $area);
+        $range = $this->topLevelShellRange($markup, $area, $candidateMarkup);
         return is_array($range) ? substr($markup, 0, $range['offset']) . $replacement . substr($markup, $range['offset'] + $range['length']) : null;
     }
 
     /** @return array{offset:int,length:int}|null */
-    private function topLevelShellRange(string $markup, string $area): ?array
+    private function topLevelShellRange(string $markup, string $area, string $candidateMarkup = ''): ?array
     {
+        if ('' !== $candidateMarkup) {
+            $matches = array();
+            foreach (self::topLevelBlockRanges($markup) as $range) if ($candidateMarkup === substr($markup, $range['offset'], $range['length'])) $matches[] = $range;
+            if (1 === count($matches)) return $matches[0];
+            if (1 < count($matches)) return null;
+        }
         if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return null;
         $depth = 0; $candidate = null;
         foreach ($matches[0] as $index => $comment) {
@@ -480,6 +544,76 @@ final class WordPressSitePlan
         return array('offset' => $candidate['start'], 'length' => $candidate['end'] - $candidate['start']);
     }
 
+    /** @return array<int,array{offset:int,length:int}> */
+    private static function topLevelBlockRanges(string $markup): array
+    {
+        $ranges = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        foreach ($matches[0] as $index => $match) {
+            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = str_ends_with(rtrim($token), '/-->');
+            if ($closing) {
+                $open = array_pop($stack);
+                if (is_array($open) && 0 === count($stack)) $ranges[] = array('offset' => $open['offset'], 'length' => $offset + strlen($token) - $open['offset']);
+            } elseif ($selfClosing) {
+                if (array() === $stack) $ranges[] = array('offset' => $offset, 'length' => strlen($token));
+            } else {
+                $stack[] = array('offset' => $offset);
+            }
+        }
+        return $ranges;
+    }
+
+    /** @return array<int,array{offset:int,length:int}> */
+    private static function directChildBlockRanges(string $markup): array
+    {
+        $ranges = self::topLevelBlockRanges($markup);
+        if (1 !== count($ranges)) return array();
+        $children = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $children;
+        foreach ($matches[0] as $index => $match) {
+            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = str_ends_with(rtrim($token), '/-->');
+            if ($closing) {
+                $open = array_pop($stack);
+                if (is_array($open) && 1 === count($stack)) $children[] = array('offset' => $open['offset'], 'length' => $offset + strlen($token) - $open['offset']);
+            } elseif (!$selfClosing) {
+                $stack[] = array('offset' => $offset);
+            } elseif (1 === count($stack)) {
+                $children[] = array('offset' => $offset, 'length' => strlen($token));
+            }
+        }
+        return $children;
+    }
+
+    private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
+
+    private static function isCheckboxBlock(string $markup): bool { return preg_match('/^<!--\s*wp:blocks-engine\/authored-input\s+\{[^}]*"type":"checkbox"/', $markup) === 1; }
+
+    private static function blockOpeningMarkup(string $markup): ?string
+    {
+        if (!preg_match('/^(<!--\s*wp:group(?:\s+[^>]*?)?-->)(<div\b[^>]*>)/s', $markup, $match)) return null;
+        return $match[1] . $match[2];
+    }
+
+    private static function normalizeNestedChromeMarkup(string $markup): string
+    {
+        $markup = self::withoutCurrentNavigationState($markup);
+        return preg_replace('/\s*blocks-engine-source-[a-z0-9_-]+-[a-f0-9]{6,}-[0-9]+/', '', $markup) ?? $markup;
+    }
+
+    private static function withoutCurrentNavigationState(string $markup): string
+    {
+        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+            $attrs = json_decode($match[2], true);
+            if (!is_array($attrs)) return $match[0];
+            $class = (string) ($attrs['className'] ?? '');
+            if (!str_contains($class, 'blocks-engine-current-navigation-item')) return $match[0];
+            $attrs['className'] = trim(str_replace(array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), '', $class));
+            if ('' === $attrs['className']) unset($attrs['className']);
+            unset($attrs['anchor'], $attrs['anchorClassName'], $attrs['color'], $attrs['style'], $attrs['typography']);
+            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . ($match[3] ? '/' : '') . '-->';
+        }, $markup) ?? $markup;
+    }
+
     /** @param mixed $assets @return array<int,array<string,mixed>> */
     private function assets(mixed $assets): array
     {
@@ -498,7 +632,7 @@ final class WordPressSitePlan
             $reference = self::payloadReference($asset['payload_reference'] ?? null);
             if (null !== $reference && !self::referenceBackedBinaryAsset($asset)) throw new InvalidArgumentException('WordPress site plan payload references are limited to non-SVG binary assets.');
             $transportHash = is_string($asset['content_base64'] ?? null) ? self::contentHash($asset['content_base64']) : null;
-            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
+            $rows[] = array_filter(array('source_path' => $asset['path'], 'target_path' => $target, 'token' => 'asset-' . substr(hash('sha256', $target), 0, 16), 'source' => self::value($asset, 'source'), 'kind' => self::value($asset, 'kind'), 'role' => self::value($asset, 'role'), 'stylesheet_placement' => self::value($asset, 'stylesheet_placement'), 'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? (self::value($asset, 'stylesheet_target') ?? 'both') : null, 'intent' => self::value($asset, 'intent'), 'mime_type' => self::value($asset, 'mime_type'), 'media' => self::value($asset, 'media'), 'bytes' => (int) ($asset['bytes'] ?? 0), 'hash' => self::value($asset, 'hash'), 'content' => $asset['content'] ?? null, 'content_base64' => $asset['content_base64'] ?? null, 'payload_reference' => $reference, 'raw_sha256' => $reference['sha256'] ?? ($asset['raw_sha256'] ?? null), 'transport_sha256' => $transportHash, 'binary' => ! empty($asset['binary']), 'compilation' => is_array($asset['compilation'] ?? null) ? $asset['compilation'] : null, 'reconciliation_identity' => self::identity('asset', $asset['path'], $target), 'content_hash' => $reference['sha256'] ?? self::contentHash($payload)), static fn(mixed $value): bool => null !== $value);
         }
         return $rows;
     }
@@ -730,10 +864,13 @@ final class WordPressSitePlan
         });
         $markup = static function (string $templateSlug) use ($bound): string {
             $before = ''; $after = '';
+            $container = null;
             foreach ($bound as $part) if (in_array($templateSlug, $part['placement']['template_slugs'] ?? array(), true) || (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $templateSlug) && !in_array($templateSlug, $part['placement']['excluded_template_slugs'] ?? array(), true))) {
+                if (is_array($part['placement']['container'] ?? null)) $container = $part['placement']['container'];
                 $reference = '<!-- wp:template-part {"slug":"' . $part['slug'] . '","area":"' . $part['area'] . '","tagName":"' . $part['area'] . '"} /-->' . "\n";
                 if ('footer' === $part['area']) $after .= $reference; else $before .= $reference;
             }
+            if (is_array($container) && is_string($container['opening'] ?? null) && is_string($container['closing'] ?? null)) return $container['opening'] . $before . '<!-- wp:post-content /-->' . "\n" . $container['closing'] . $after;
             return $before . '<!-- wp:post-content /-->' . "\n" . $after;
         };
         $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
@@ -837,7 +974,7 @@ final class WordPressSitePlan
     private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', "{\"version\":3,\"settings\":{},\"styles\":{}}\n"));
-        if ( self::needsBootstrap($assets, $scripts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts));
+        if ( self::needsBootstrap($assets, $scripts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
@@ -846,10 +983,11 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $assets */
     private static function needsBootstrap(array $assets, array $scripts = array()): bool { foreach ($assets as $asset) if (in_array($asset['kind'], array('css', 'js'), true)) return true; return array() !== $scripts; }
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets, array $scripts = array()): string
+    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array()): string
     {
         $lines = array("<?php", "add_action( 'wp_enqueue_scripts', static function (): void {");
         foreach ($assets as $asset) {
+            if ('editor' === ($asset['stylesheet_target'] ?? 'both')) continue;
             $handle = 'blocks-engine-' . substr(hash('sha256', $asset['target_path']), 0, 12);
             if ('css' === $asset['kind']) foreach ($asset['scopes'] as $scope) {
                 $condition = self::bootstrapScopeCondition($scope);
@@ -869,13 +1007,23 @@ final class WordPressSitePlan
         }
         $lines[] = "}, 1 );";
         $editorStyles = array();
-        foreach ($assets as $asset) if ('css' === $asset['kind']) $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'media' => $asset['media'] ?? null), static fn(mixed $value): bool => null !== $value);
+        $partSlugsBySource = array();
+        foreach ($parts as $part) {
+            $sourcePath = (string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? '')));
+            if ('' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
+        }
+        foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
+            $partSlugs = array();
+            foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null), static fn(mixed $value): bool => null !== $value);
+        }
         if (array() !== $editorStyles) {
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
-            $lines[] = "    \$post = \$context->post ?? null; if ( ! \$post instanceof WP_Post ) return \$settings;";
+            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
             $lines[] = '    $styles = ' . var_export($editorStyles, true) . ';';
             $lines[] = "    foreach ( \$styles as \$style ) {";
-            $lines[] = "        \$matches = false; foreach ( \$style['scopes'] as \$scope ) {";
+            $lines[] = "        \$matches = \$site_editor; if ( ! \$matches ) foreach ( \$style['scopes'] as \$scope ) {";
+            $lines[] = "            if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "            if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
             $lines[] = "            if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
             $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
@@ -1086,7 +1234,7 @@ final class WordPressSitePlan
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
         if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
-            if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+            if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
     }
     /** @param array<int,mixed> $declarations @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writes */

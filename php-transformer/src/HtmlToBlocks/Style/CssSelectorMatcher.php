@@ -78,7 +78,7 @@ final class CssSelectorMatcher
      * @param array<string, mixed> $selector Result of parse().
      * @return array{supported: bool, matches: bool}
      */
-    public static function matches(DOMElement $element, array $selector, bool $accountForPseudoStateSuffix = false): array
+    public static function matches(DOMElement $element, array $selector, bool $accountForPseudoStateSuffix = false, ?CssSelectorMatchCache $cache = null): array
     {
         if ( ! ($selector['supported'] ?? false) ) {
             return array( 'supported' => false, 'matches' => false );
@@ -92,7 +92,7 @@ final class CssSelectorMatcher
 
         return array(
             'supported' => true,
-            'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1),
+            'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1, $cache),
         );
     }
 
@@ -425,9 +425,9 @@ final class CssSelectorMatcher
     }
 
     /** @param list<array<string, mixed>> $compounds @param list<string> $combinators */
-    private static function matchesAt(DOMElement $element, array $compounds, array $combinators, int $index): bool
+    private static function matchesAt(DOMElement $element, array $compounds, array $combinators, int $index, ?CssSelectorMatchCache $cache): bool
     {
-        if ( ! self::matchesCompound($element, $compounds[ $index ]) ) {
+        if ( ! self::matchesCompound($element, $compounds[ $index ], $cache) ) {
             return false;
         }
         if ( 0 === $index ) {
@@ -436,15 +436,15 @@ final class CssSelectorMatcher
 
         $combinator = $combinators[ $index - 1 ];
         if ( '>' === $combinator ) {
-            return $element->parentNode instanceof DOMElement && self::matchesAt($element->parentNode, $compounds, $combinators, $index - 1);
+            return $element->parentNode instanceof DOMElement && self::matchesAt($element->parentNode, $compounds, $combinators, $index - 1, $cache);
         }
         if ( '+' === $combinator ) {
             $previous = self::previousElementSibling($element);
-            return null !== $previous && self::matchesAt($previous, $compounds, $combinators, $index - 1);
+            return null !== $previous && self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache);
         }
         if ( '~' === $combinator ) {
             for ( $previous = self::previousElementSibling($element); null !== $previous; $previous = self::previousElementSibling($previous) ) {
-                if ( self::matchesAt($previous, $compounds, $combinators, $index - 1) ) {
+                if ( self::matchesAt($previous, $compounds, $combinators, $index - 1, $cache) ) {
                     return true;
                 }
             }
@@ -452,7 +452,7 @@ final class CssSelectorMatcher
         }
 
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( self::matchesAt($parent, $compounds, $combinators, $index - 1) ) {
+            if ( self::matchesAt($parent, $compounds, $combinators, $index - 1, $cache) ) {
                 return true;
             }
         }
@@ -460,29 +460,30 @@ final class CssSelectorMatcher
     }
 
     /** @param array<string, mixed> $compound */
-    private static function matchesCompound(DOMElement $element, array $compound): bool
+    private static function matchesCompound(DOMElement $element, array $compound, ?CssSelectorMatchCache $cache): bool
     {
         if ( null !== $compound['type'] && 0 !== strcasecmp($element->tagName, $compound['type']) ) {
             return false;
         }
         foreach ( $compound['ids'] as $id ) {
-            if ( $element->getAttribute('id') !== $id ) {
+            $actualId = null !== $cache ? ($cache->attribute($element, 'id') ?? '') : $element->getAttribute('id');
+            if ( $actualId !== $id ) {
                 return false;
             }
         }
-        $classes = preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array();
+        $classes = $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
         foreach ( $compound['classes'] as $class ) {
             if ( ! in_array($class, $classes, true) ) {
                 return false;
             }
         }
         foreach ( $compound['attributes'] as $attribute ) {
-            if ( ! self::matchesAttribute($element, $attribute) ) {
+            if ( ! self::matchesAttribute($element, $attribute, $cache) ) {
                 return false;
             }
         }
         foreach ( $compound['not'] as $negated ) {
-            if ( self::matchesCompound($element, $negated) ) {
+            if ( self::matchesCompound($element, $negated, $cache) ) {
                 return false;
             }
         }
@@ -516,16 +517,22 @@ final class CssSelectorMatcher
     }
 
     /** @param array{name: string, operator: string|null, value: string|null, flag: string|null} $attribute */
-    private static function matchesAttribute(DOMElement $element, array $attribute): bool
+    private static function matchesAttribute(DOMElement $element, array $attribute, ?CssSelectorMatchCache $cache): bool
     {
-        if ( ! $element->hasAttribute($attribute['name']) ) {
+        if ( null !== $cache ) {
+            $actual = $cache->attribute($element, $attribute['name']);
+            if ( null === $actual ) {
+                return false;
+            }
+        } elseif ( ! $element->hasAttribute($attribute['name']) ) {
             return false;
+        } else {
+            $actual = $element->getAttribute($attribute['name']);
         }
         if ( null === $attribute['operator'] ) {
             return true;
         }
 
-        $actual = $element->getAttribute($attribute['name']);
         $expected = (string) $attribute['value'];
         if ( 'i' === $attribute['flag'] ) {
             $actual = strtolower($actual);

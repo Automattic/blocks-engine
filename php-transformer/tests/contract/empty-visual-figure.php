@@ -51,4 +51,10 @@ $assert(2 === substr_count($inlineMarkup, 'wp-block-group photo') && str_contain
 $assert(! str_contains($inlineMarkup, '--tone:') && str_contains($inlineCssAssets, '--tone:#315b74 !important') && 'pass' === ($inlineValidity['status'] ?? ''), 'Fixture87 card custom paint survives in a generated carrier class without diverging from core style serialization.');
 $assert(! str_contains($inlineMarkup, 'class="wp-block-group empty'), 'Final native blocks retain the pseudo paint contract while nonvisual empty figures remain pruned.');
 
+$fullBleedCss = '.hero{display:flex;position:relative}.hero-grid{position:absolute;inset:0;background-image:linear-gradient(#fff 1px,transparent 1px);background-size:64px 64px}';
+$fullBleedHtml = '<header class="hero"><div class="hero-grid" aria-hidden="true"></div><p>Content</p></header>';
+$fullBleed = ( new HtmlTransformer() )->transform('<style>' . $fullBleedCss . '</style>' . $fullBleedHtml)->toArray();
+$fullBleedMarkup = (string) ($fullBleed['serialized_blocks'] ?? '');
+$assert(str_contains($fullBleedMarkup, 'wp-block-group hero-grid') && ! str_contains($fullBleedMarkup, 'hero-grid blocks-engine-empty-flex-item'), 'Out-of-flow decorative layers remain full-bleed instead of receiving in-flow empty flex-item sizing.');
+
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");

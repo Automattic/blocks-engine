@@ -3474,6 +3474,7 @@ final class ArtifactCompiler
                     'kind'             => $asset['kind'] ?? '',
                     'role'             => $asset['role'] ?? '',
                     'stylesheet_placement' => $asset['stylesheet_placement'] ?? '',
+                    'stylesheet_target' => 'css' === ($asset['kind'] ?? '') ? ($asset['stylesheet_target'] ?? 'both') : '',
                     'intent'           => $asset['intent'] ?? '',
                     'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
                     'media'            => $asset['media'] ?? '',

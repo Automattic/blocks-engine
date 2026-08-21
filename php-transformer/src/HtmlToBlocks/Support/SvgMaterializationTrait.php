@@ -146,16 +146,17 @@ trait SvgMaterializationTrait
             return array_filter($attrs, static fn ($value): bool => null !== $value && '' !== $value);
         }
         $preserveInlineGeometry = ! $isFlexOrGridItem && ( '' === $sourceDisplay || in_array($sourceDisplay, array( 'inline', 'inline-block' ), true) );
+        $preserveBlockDisplay = ! $richTextImage && 'block' === $sourceDisplay;
         $geometryClass = '';
-        if ( $preserveInlineGeometry ) {
-            $imageDisplay = '' === $sourceDisplay ? 'inline' : $sourceDisplay;
+        if ( $preserveInlineGeometry || $preserveBlockDisplay ) {
+            $imageDisplay = $preserveBlockDisplay ? 'block' : ('' === $sourceDisplay ? 'inline' : $sourceDisplay);
             $mediaBox = '';
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $property ) {
                 if ( isset($presentation[$property]) && '' !== trim((string) $presentation[$property]) ) {
                     $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
                 }
             }
-            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ';vertical-align:baseline' . $mediaBox . '}';
+            $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
             $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
             $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
         }

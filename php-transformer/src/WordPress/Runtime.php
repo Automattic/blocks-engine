@@ -58,6 +58,9 @@ final class Runtime
     /** @var array<string, array<string, mixed>>|null */
     private ?array $fallbackCoreBlockSupports = null;
 
+    /** @var array<string, array<string, array<string, mixed>>>|null */
+    private ?array $fallbackCoreBlockAttributes = null;
+
     public function hasWordPress(): bool
     {
         return $this->canParseBlocks()
@@ -203,16 +206,20 @@ final class Runtime
      */
     private function registeredBlockSupports(string $blockName): ?array
     {
+        $blockType = $this->registeredBlockType($blockName);
+        return is_object($blockType) ? (is_array($blockType->supports ?? null) ? $blockType->supports : array()) : null;
+    }
+
+    private function registeredBlockType(string $blockName): ?object
+    {
         foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
             $name = is_string($key) ? $key : '';
             if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
                 $name = $blockType->name;
             }
-            if ( $blockName !== $name || ! is_object($blockType) ) {
-                continue;
+            if ( $blockName === $name && is_object($blockType) ) {
+                return $blockType;
             }
-
-            return is_array($blockType->supports ?? null) ? $blockType->supports : array();
         }
 
         return null;
@@ -220,21 +227,46 @@ final class Runtime
 
     /**
      * Standalone transforms have no WP_Block_Type_Registry. Load the generated
-     * WordPress 6.6 declaration snapshot so the same block.json support check is
-     * still available. Live registered declarations always take precedence.
+     * latest WordPress declaration snapshot so the same block.json support check
+     * is still available. Live registered declarations always take precedence.
      *
      * @return array<string, mixed>|null
      */
     private function fallbackBlockSupports(string $blockName): ?array
     {
         if ( null === $this->fallbackCoreBlockSupports ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-6.6-core-block-supports.json';
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-supports.json';
             $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
             $this->fallbackCoreBlockSupports = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
         }
 
         $supports = $this->fallbackCoreBlockSupports[ $blockName ] ?? null;
         return is_array($supports) ? $supports : null;
+    }
+
+    /**
+     * Resolve attributes from a live registered declaration first, then from
+     * the generated core snapshot for standalone transforms. A registered
+     * declaration without attributes is authoritative and deliberately does
+     * not fall back to a possibly stale snapshot.
+     *
+     * @return array<string, array<string, mixed>>|null
+     */
+    private function blockAttributes(string $blockName): ?array
+    {
+        $blockType = $this->registeredBlockType($blockName);
+        if ( is_object($blockType) ) {
+            return is_array($blockType->attributes ?? null) ? $blockType->attributes : array();
+        }
+
+        if ( null === $this->fallbackCoreBlockAttributes ) {
+            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-attributes.json';
+            $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+            $this->fallbackCoreBlockAttributes = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
+        }
+
+        $attributes = $this->fallbackCoreBlockAttributes[ $blockName ] ?? null;
+        return is_array($attributes) ? $attributes : null;
     }
 
     /**
@@ -280,6 +312,7 @@ final class Runtime
     public function serializeBlocks(array $blocks): string
     {
         $this->diagnostics = array();
+        $blocks = $this->canonicalRuntimeBlocks($blocks);
 
         if ( $this->canSerializeBlocks() ) {
             return serialize_blocks($blocks);
@@ -301,6 +334,7 @@ final class Runtime
     public function renderBlock(array $block): string
     {
         $this->diagnostics = array();
+        $block = $this->canonicalRuntimeBlocks(array( $block ))[0];
 
         if ( $this->canRenderBlock() ) {
             return render_block($block);
@@ -317,6 +351,7 @@ final class Runtime
     public function renderBlocks(array $blocks): string
     {
         $this->diagnostics = array();
+        $blocks = $this->canonicalRuntimeBlocks($blocks);
 
         $html = '';
         foreach ( $blocks as $block ) {
@@ -333,6 +368,37 @@ final class Runtime
         }
 
         return $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalRuntimeBlocks(array $blocks): array
+    {
+        $canonical = array();
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            $attributes = $this->blockAttributes($name);
+            if ( is_array($attributes) && is_array($block['attrs'] ?? null) ) {
+                foreach ( $attributes as $attribute => $schema ) {
+                    if ( is_array($schema) && ( array_key_exists('source', $schema) || 'local' === ($schema['role'] ?? null) ) ) {
+                        unset($block['attrs'][ $attribute ]);
+                    }
+                }
+            }
+
+            if ( is_array($block['innerBlocks'] ?? null) ) {
+                $block['innerBlocks'] = $this->canonicalRuntimeBlocks($block['innerBlocks']);
+            }
+            $canonical[] = $block;
+        }
+
+        return $canonical;
     }
 
     /**

@@ -269,8 +269,12 @@ final class StaticCssCascade
     private function matchesSimpleSelector(DOMElement $element, string $selector): bool
     {
         $selector = trim(preg_replace('/:(hover|focus|active|visited|before|after)\b.*/', '', $selector) ?? $selector);
-        if ( '' === $selector || str_contains($selector, '>') || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
+        if ( '' === $selector || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
             return false;
+        }
+
+        if ( str_contains($selector, '>') ) {
+            return $this->matchesChildSelector($element, $selector);
         }
 
         if ( str_contains($selector, ' ') ) {
@@ -310,6 +314,24 @@ final class StaticCssCascade
         }
 
         return strtolower($selector) === strtolower($element->tagName);
+    }
+
+    private function matchesChildSelector(DOMElement $element, string $selector): bool
+    {
+        $parts = array_values(array_filter(array_map('trim', preg_split('/\s*>\s*/', trim($selector)) ?: array())));
+        if ( count($parts) < 2 || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
+            return false;
+        }
+
+        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
+            if ( ! $current instanceof DOMElement || ! $this->matchesSimpleSelector($current, $parts[$index]) ) {
+                return false;
+            }
+            $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null;
+        }
+
+        return true;
     }
 
     private function matchesDescendantSelector(DOMElement $element, string $selector): bool

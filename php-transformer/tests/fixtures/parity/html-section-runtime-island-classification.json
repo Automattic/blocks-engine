@@ -38,6 +38,6 @@
     { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "runtime_app_shell" },
     { "path": "source_reports.runtime_islands.0.runtime_requirement", "assert": "equals", "value": "client_script_execution" },
     { "path": "source_reports.runtime_islands.0.target_count", "assert": "equals", "value": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html {\"content\":\"<section id=\\\"stage\\\"" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html --><section id=\"stage\"" }
   ]
 }
