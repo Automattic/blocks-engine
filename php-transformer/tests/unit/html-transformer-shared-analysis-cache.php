@@ -74,4 +74,20 @@ $assert(8 === $selectorCache->authorSelectorClassTokenHits, 'Author selector mat
 $assert(6 === $selectorCache->authorSelectorAttributeReads, 'Author selector matching records cached common-attribute reads deterministically.');
 $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache->authorSelectorMatchResultHits >= 12, 'Author selector result lists are built once and reused by later discovery passes.');
 
+$sourceSelectorCache = new HtmlTransformerAnalysisCache();
+$sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
+(new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml);
+$assert(9 === $sourceSelectorCache->sourceSelectorMatchExecutions && 15 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 9 matcher calls and reuses 15 repeated element-selector results.');
+$assert(8 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 9 === $sourceSelectorCache->sourceSelectorClassTokenHits && 15 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+
+$candidateCache = new HtmlTransformerAnalysisCache();
+$noiseRules = array();
+for ( $index = 0; $index < 100; ++$index ) {
+    $noiseRules[] = '.noise-' . $index . '{color:#111}';
+}
+$candidateHtml = '<style>' . implode('', array_merge($noiseRules, array( '.target{color:red}', 'article{padding:1px}', '.target{color:blue}' ) )) . '</style><section class="target">Indexed target</section>';
+$candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transform($candidateHtml)->toArray();
+$assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
+$assert(4 === $candidateCache->sourceStyleCandidateRuleChecks && 305 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection walks check four relevant rule candidates while deterministically skipping 305 irrelevant candidates.');
+
 fwrite(STDOUT, "HTML transformer shared analysis cache passed\n");

@@ -799,6 +799,9 @@ final class HtmlTransformer
         $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        // Author-selector preparation marks source nodes for later projection.
+        // General style matching begins only after those source mutations settle.
+        $this->invalidateSourceSelectorMatchCache();
         $this->collectEditorHiddenStateFindings($body);
 
         $fallbacks   = array();
@@ -870,6 +873,7 @@ final class HtmlTransformer
             );
         }
 
+        $this->recordSourceSelectorMatchWork();
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $sourceReports = array(
@@ -4024,6 +4028,9 @@ final class HtmlTransformer
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
+        // Conversion helpers may rewrite source markup. Do not reuse selector
+        // results or cached inputs across independently converted elements.
+        $this->invalidateSourceSelectorMatchCache();
         $tagName = strtolower($element->tagName);
 
         // A direct phrasing child participates in its parent's flex or grid

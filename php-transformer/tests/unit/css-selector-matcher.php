@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 
 $failures = 0;
 $passes = 0;
@@ -85,6 +86,26 @@ $invalidUtf8 = ".\xff";
 $assert(! CssSelectorMatcher::parse($invalidUtf8)['supported'], 'rejects malformed UTF-8');
 $parsed = CssSelectorMatcher::parse('/*x*/ div > .final:hover');
 $assert($parsed['supported'] && array( 'start' => 12, 'end' => 24 ) === $parsed['rightmost_compound_span'] && array( 'start' => 18, 'end' => 24 ) === $parsed['pseudo_state_suffix_span'], 'preserves original source spans around comments and whitespace');
+
+$candidateCache = new CssSelectorMatchCache();
+$candidateIndex = array(
+    'universal' => array(
+        array( 'order' => 0, 'rule' => array( 'selector' => '[data-value]' ) ),
+        array( 'order' => 4, 'rule' => array( 'selector' => ':not(.excluded)' ) ),
+    ),
+    'ids' => array( 'target' => array( array( 'order' => 1, 'rule' => array( 'selector' => '#target' ) ) ) ),
+    'classes' => array( 'final' => array( array( 'order' => 2, 'rule' => array( 'selector' => '.final' ) ) ) ),
+    'tags' => array( 'span' => array( array( 'order' => 3, 'rule' => array( 'selector' => 'span' ) ) ) ),
+    'total' => 5,
+);
+$candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
+$assert(array( '[data-value]', '#target', '.final', 'span', ':not(.excluded)' ) === $candidateSelectors, 'candidate index merges universal, id, class, and tag rules in source order');
+$assert($candidateCache->matches($byId('target'), '.final', CssSelectorMatcher::parse('.final'))['matches'], 'selector result cache matches the initial class');
+$byId('target')->setAttribute('class', 'changed');
+$candidateCache->clear();
+$assert(! $candidateCache->matches($byId('target'), '.final', CssSelectorMatcher::parse('.final'))['matches'], 'clearing the immutable revision cache observes class mutations');
+$candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
+$assert(array( '[data-value]', '#target', 'span', ':not(.excluded)' ) === $candidateSelectors, 'clearing the immutable revision cache rebuilds class candidates after mutation');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");

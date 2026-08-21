@@ -62,6 +62,12 @@ trait StyleResolutionTrait
 
     private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
 
+    /** Source-selector cache remains valid only between source-DOM mutations. */
+    private ?CssSelectorMatchCache $sourceSelectorMatchCache = null;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $styleRuleCandidateIndexes = array();
+
     /**
      * Author-declared values for the properties an element's inline style could
      * be overriding, keyed by element plus the queried property set. Resolving
@@ -182,6 +188,8 @@ trait StyleResolutionTrait
         $this->generatedGeometryRules = array();
         $this->geometryCarrierClassAllocator = null;
         $this->authorDeclaredPropertyValuesCache = array();
+        $this->sourceSelectorMatchCache = new CssSelectorMatchCache();
+        $this->styleRuleCandidateIndexes = array();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -290,7 +298,7 @@ trait StyleResolutionTrait
         }
 
         $conditionalFamilies = array();
-        foreach ($this->conditionalStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -380,7 +388,7 @@ trait StyleResolutionTrait
 
     private function hasConditionalStyleFamily(DOMElement $element, string $family): bool
     {
-        foreach ($this->conditionalStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -577,7 +585,7 @@ trait StyleResolutionTrait
             return true;
         }
 
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -605,7 +613,7 @@ trait StyleResolutionTrait
             return false;
         }
 
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -771,7 +779,7 @@ trait StyleResolutionTrait
 
         $wanted = array_fill_keys($properties, true);
         $declared = array();
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -967,7 +975,7 @@ trait StyleResolutionTrait
             }
         }
 
-        foreach ( $this->conditionalStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($image, 'conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($image, $rule['selector']) ) {
                 continue;
             }
@@ -1051,7 +1059,7 @@ trait StyleResolutionTrait
     private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element): array
     {
         $consumed = array();
-        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules) as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional-pseudo') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -1179,7 +1187,7 @@ trait StyleResolutionTrait
     private function structuralPresentationDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
@@ -1199,7 +1207,7 @@ trait StyleResolutionTrait
     {
         $cascade = array();
         $sequence = 0;
-        foreach ($this->staticStyleRules as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -1685,7 +1693,7 @@ trait StyleResolutionTrait
         }
 
         $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
@@ -1714,7 +1722,7 @@ trait StyleResolutionTrait
     {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -1806,7 +1814,7 @@ trait StyleResolutionTrait
     {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
                 continue;
             }
@@ -1934,7 +1942,7 @@ trait StyleResolutionTrait
             return false;
         }
 
-        foreach (array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule) {
+        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
@@ -2566,8 +2574,71 @@ trait StyleResolutionTrait
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $match = CssSelectorMatcher::matches($element, $this->parsedCssSelector($selector));
+        $match = ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
+    }
+
+    private function invalidateSourceSelectorMatchCache(): void
+    {
+        $this->sourceSelectorMatchCache?->clear();
+    }
+
+    private function recordSourceSelectorMatchWork(): void
+    {
+        if ( ! $this->sourceSelectorMatchCache instanceof CssSelectorMatchCache ) {
+            return;
+        }
+        $this->analysisCache->sourceSelectorMatchExecutions += $this->sourceSelectorMatchCache->matchExecutions;
+        $this->analysisCache->sourceSelectorMatchHits += $this->sourceSelectorMatchCache->matchHits;
+        $this->analysisCache->sourceSelectorClassTokenBuilds += $this->sourceSelectorMatchCache->classTokenBuilds;
+        $this->analysisCache->sourceSelectorClassTokenHits += $this->sourceSelectorMatchCache->classTokenHits;
+        $this->analysisCache->sourceSelectorAttributeReads += $this->sourceSelectorMatchCache->attributeReads;
+        $this->analysisCache->sourceStyleCandidateRuleChecks += $this->sourceSelectorMatchCache->candidateRuleChecks;
+        $this->analysisCache->sourceStyleCandidateRulesSkipped += $this->sourceSelectorMatchCache->candidateRulesSkipped;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function styleRuleCandidates(DOMElement $element, string $collection): array
+    {
+        $index = $this->styleRuleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
+        return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
+    }
+
+    /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
+    private function styleRuleCandidateIndex(string $collection): array
+    {
+        $rules = match ($collection) {
+            'static' => $this->staticStyleRules,
+            'conditional' => $this->conditionalStyleRules,
+            'static-conditional' => array_merge($this->staticStyleRules, $this->conditionalStyleRules),
+            'static-conditional-pseudo' => array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules),
+        };
+        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'total' => count($rules));
+        foreach ( $rules as $order => $rule ) {
+            $parsed = $this->parsedCssSelector((string) ($rule['selector'] ?? ''));
+            $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'] ?? array())] ?? null;
+            $target = 'universal';
+            $key = '';
+            if ( $parsed['supported'] && null === ($parsed['pseudo_state_suffix_span'] ?? null) && is_array($rightmost) ) {
+                if ( array() !== ($rightmost['ids'] ?? array()) ) {
+                    $target = 'ids';
+                    $key = (string) $rightmost['ids'][0];
+                } elseif ( array() !== ($rightmost['classes'] ?? array()) ) {
+                    $target = 'classes';
+                    $key = (string) $rightmost['classes'][0];
+                } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
+                    $target = 'tags';
+                    $key = strtolower((string) $rightmost['type']);
+                }
+            }
+            $entry = array('order' => (int) $order, 'rule' => $rule);
+            if ( 'universal' === $target ) {
+                $index['universal'][] = $entry;
+            } else {
+                $index[$target][$key][] = $entry;
+            }
+        }
+        return $index;
     }
 
     /**
