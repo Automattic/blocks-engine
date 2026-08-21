@@ -899,7 +899,7 @@ $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     )
 )->toArray();
 $artifactInlineSvgMarkup = (string) ($artifactInlineSvg['serialized_blocks'] ?? '');
-$assert(str_contains($artifactInlineSvgMarkup, '<!-- wp:paragraph') && str_contains($artifactInlineSvgMarkup, 'website/assets/materialized-svg/'), 'source-relative materialized SVG remains a native RichText image object');
+$assert(str_contains($artifactInlineSvgMarkup, '<!-- wp:paragraph') && str_contains($artifactInlineSvgMarkup, 'assets/materialized-svg/'), 'source-relative materialized SVG remains a native RichText image object');
 $assert(! str_contains($artifactInlineSvgMarkup, '<!-- wp:html'), 'source-relative materialized SVG does not fall back to core/html');
 
 $largeCssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(

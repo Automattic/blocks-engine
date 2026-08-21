@@ -44,6 +44,8 @@ final class ArtifactCompiler
 
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
+    private string $generatedAssetRoot = '';
+
     /** @var array<string, array<string, mixed>> */
     private array $filesByPath = array();
 
@@ -190,6 +192,7 @@ final class ArtifactCompiler
         }
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
+        $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
@@ -230,6 +233,7 @@ final class ArtifactCompiler
         if ( null !== $wordpressCompatAsset ) {
             $assets[] = $wordpressCompatAsset;
         }
+        $assets = $this->deduplicateVisualAssets($assets);
         $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -237,6 +241,7 @@ final class ArtifactCompiler
         }
         $sourceReports = array(
             'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence),
+            'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
             'artifact' => array(
                 'schema'          => self::INPUT_SCHEMA,
                 'original_schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
@@ -455,7 +460,7 @@ final class ArtifactCompiler
                 if ( 'css' === ($asset['kind'] ?? null) ) {
                     $asset['compilation'] ??= $ownership;
                 }
-                $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+                $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
                 $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload);
                 if ( ! isset($assetIndexes[$identity]) ) {
                     $assetIndexes[$identity] = count($assets);
@@ -463,6 +468,22 @@ final class ArtifactCompiler
                     continue;
                 }
                 $index = $assetIndexes[$identity];
+                if (is_string($asset['visual_payload'] ?? null)) {
+                    $assets[$index]['content'] = $asset['visual_payload'];
+                    $assets[$index]['bytes'] = strlen($asset['visual_payload']);
+                    $assets[$index]['hash'] = hash('sha256', $asset['visual_payload']);
+                    $assets[$index]['source_hash'] = $assets[$index]['hash'];
+                    $assets[$index]['visual_payload'] = $asset['visual_payload'];
+                }
+                $occurrences = is_array($assets[$index]['component_occurrences'] ?? null) ? $assets[$index]['component_occurrences'] : array();
+                foreach (is_array($asset['component_occurrences'] ?? null) ? $asset['component_occurrences'] : array() as $occurrence) {
+                    if (count($occurrences) < 8 && !in_array($occurrence, $occurrences, true)) $occurrences[] = $occurrence;
+                }
+                if (array() !== $occurrences) $assets[$index]['component_occurrences'] = $occurrences;
+                $counts = is_array($assets[$index]['component_occurrence_counts'] ?? null) ? $assets[$index]['component_occurrence_counts'] : array();
+                foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $counts[$fingerprint] = (int) ($counts[$fingerprint] ?? 0) + $count;
+                if (array() !== $counts) $assets[$index]['component_occurrence_counts'] = $counts;
+                $assets[$index]['component_occurrences_omitted'] = max(0, array_sum($counts) - count($occurrences));
                 if ( 'css' !== ($asset['kind'] ?? null) ) {
                     continue;
                 }
@@ -479,15 +500,92 @@ final class ArtifactCompiler
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $file = $filesByPath[$sourcePath] ?? array('path' => $sourcePath, 'kind' => 'html');
             $append(
-                array_values(array_filter(
-                    is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array(),
-                    static fn (array $asset): bool => 'css' === ($asset['kind'] ?? null)
-                )),
+                is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array(),
                 $this->fileOwnership($file)
             );
         }
 
         return $assets;
+    }
+
+    /** @param array<int, array<string, mixed>> $assets @return array<int, array<string, mixed>> */
+    private function deduplicateVisualAssets(array $assets): array
+    {
+        $deduplicated = array();
+        $indexes = array();
+        foreach ($assets as $asset) {
+            $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : null;
+            $canonicalPayload = $payload ?? (string) ($asset['content'] ?? '');
+            if ('inline-svg' === ($asset['source'] ?? null)) {
+                // The content-addressed filename is already the visual payload
+                // identity. Some later projections retain only the public asset
+                // fields, so use that stable path at this final boundary too.
+                $payload = '';
+            }
+            if (null === $payload) {
+                $deduplicated[] = $asset;
+                continue;
+            }
+            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . $payload);
+            if (!isset($indexes[$identity])) {
+                $indexes[$identity] = count($deduplicated);
+                $deduplicated[] = $asset;
+                continue;
+            }
+            $index = $indexes[$identity];
+            $deduplicated[$index]['content'] = $canonicalPayload;
+            $deduplicated[$index]['bytes'] = strlen($canonicalPayload);
+            $deduplicated[$index]['hash'] = hash('sha256', $canonicalPayload);
+            $deduplicated[$index]['source_hash'] = $deduplicated[$index]['hash'];
+            $rows = is_array($deduplicated[$index]['component_occurrences'] ?? null) ? $deduplicated[$index]['component_occurrences'] : array();
+            $incomingRows = is_array($asset['component_occurrences'] ?? null) ? $asset['component_occurrences'] : array();
+            $alreadyIncluded = array() !== $incomingRows;
+            foreach ($incomingRows as $row) {
+                if (!in_array($row, $rows, true)) $alreadyIncluded = false;
+                if (count($rows) < 8 && !in_array($row, $rows, true)) $rows[] = $row;
+            }
+            $deduplicated[$index]['component_occurrences'] = $rows;
+            if (!$alreadyIncluded) foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $deduplicated[$index]['component_occurrence_counts'][$fingerprint] = (int) ($deduplicated[$index]['component_occurrence_counts'][$fingerprint] ?? 0) + $count;
+            $deduplicated[$index]['component_occurrences_omitted'] = max(0, array_sum(is_array($deduplicated[$index]['component_occurrence_counts'] ?? null) ? $deduplicated[$index]['component_occurrence_counts'] : array()) - count($rows));
+        }
+        return $deduplicated;
+    }
+
+    /** @param array<string, mixed> $entryEvidence @param array<string, array<string, mixed>> $documents @param array<int, array<string, mixed>> $assets */
+    private function reusableComponentEvidence(string $entryPath, array $entryEvidence, array $documents, array $assets): array
+    {
+        $candidates = array();
+        $append = static function (string $sourcePath, array $evidence) use (&$candidates): void {
+            foreach (is_array($evidence['candidates'] ?? null) ? $evidence['candidates'] : array() as $candidate) {
+                if (is_array($candidate) && is_string($candidate['fingerprint'] ?? null) && is_string($candidate['path'] ?? null) && is_string($candidate['tag'] ?? null)) $candidates[$candidate['fingerprint']][] = array('source_path' => $sourcePath, 'path' => $candidate['path'], 'tag' => $candidate['tag']);
+            }
+        };
+        $append($entryPath, $entryEvidence);
+        foreach ($documents as $sourcePath => $document) $append((string) $sourcePath, is_array($document['reusable_components'] ?? null) ? $document['reusable_components'] : array());
+        $mapped = array();
+        foreach ($assets as $asset) foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $mapped[$fingerprint] = (int) ($mapped[$fingerprint] ?? 0) + $count;
+        $components = array();
+        foreach ($candidates as $fingerprint => $occurrences) {
+            if (count($occurrences) < 2) continue;
+            $tag = $occurrences[0]['tag'];
+            $mappedCount = (int) ($mapped[$fingerprint] ?? 0);
+            $retained = min(count($occurrences), 8);
+            $omitted = count($occurrences) - $retained;
+            $components[] = array('fingerprint' => $fingerprint, 'tag' => $tag, 'occurrence_count' => count($occurrences), 'mapping' => 'svg' === $tag && $mappedCount === count($occurrences) ? 'shared_core_image_asset' : ('svg' === $tag ? 'capability_gap:svg_instances_not_all_core_image_assets' : 'capability_gap:no_safe_reusable_block_mapping'), 'mapped_asset_occurrence_count' => $mappedCount, 'occurrence_limit' => 8, 'retained_occurrence_count' => $retained, 'omitted_occurrence_count' => $omitted, 'truncated' => 0 < $omitted, 'truncation_reason' => 0 < $omitted ? 'max_occurrences' : '', 'incomplete' => 0 < $omitted, 'occurrences' => array_slice($occurrences, 0, 8));
+        }
+        usort($components, static fn(array $a, array $b): int => $b['occurrence_count'] <=> $a['occurrence_count'] ?: strcmp($a['fingerprint'], $b['fingerprint']));
+        $documentScans = array();
+        $scan = static function (string $sourcePath, array $evidence) use (&$documentScans): void { $documentScans[] = array('source_path' => $sourcePath, 'scanned_node_count' => (int) ($evidence['scanned_node_count'] ?? 0), 'candidate_count' => (int) ($evidence['candidate_count'] ?? 0), 'omitted_candidate_count' => (int) ($evidence['omitted_candidate_count'] ?? 0), 'truncated' => array_values(is_array($evidence['truncated'] ?? null) ? $evidence['truncated'] : array())); };
+        $scan($entryPath, $entryEvidence);
+        foreach ($documents as $sourcePath => $document) $scan((string) $sourcePath, is_array($document['reusable_components'] ?? null) ? $document['reusable_components'] : array());
+        $truncated = array_values(array_unique(array_merge(...array_map(static fn(array $scan): array => $scan['truncated'], $documentScans))));
+        $componentOmitted = max(0, count($components) - 32);
+        $documentOmitted = max(0, count($documentScans) - 64);
+        if (0 < $componentOmitted) $truncated[] = 'max_components';
+        if (0 < $documentOmitted) $truncated[] = 'max_documents';
+        if (array_filter($components, static fn(array $component): bool => !empty($component['incomplete']))) $truncated[] = 'max_occurrences';
+        $truncated = array_values(array_unique($truncated));
+        return array('schema' => 'blocks-engine/reusable-component-recognition/v1', 'limits' => array('max_components' => 32, 'max_documents' => 64), 'retained_component_count' => min(count($components), 32), 'omitted_component_count' => $componentOmitted, 'components' => array_slice($components, 0, 32), 'scanned_node_count' => array_sum(array_column($documentScans, 'scanned_node_count')), 'candidate_count' => array_sum(array_column($documentScans, 'candidate_count')), 'omitted_candidate_count' => array_sum(array_column($documentScans, 'omitted_candidate_count')), 'retained_document_count' => min(count($documentScans), 64), 'omitted_document_count' => $documentOmitted, 'truncated' => $truncated, 'incomplete' => array() !== $truncated, 'documents' => array_slice($documentScans, 0, 64));
     }
 
     /**
@@ -921,6 +1019,7 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
             'shell_artifacts' => $result['shell_artifacts'],
             'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
+            'reusable_components' => $result['reusable_components'],
         );
     }
 
@@ -945,6 +1044,7 @@ final class ArtifactCompiler
                 'author_stylesheet_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+                'reusable_components' => array(),
             );
         }
 
@@ -963,6 +1063,7 @@ final class ArtifactCompiler
                 'author_stylesheet_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+                'reusable_components' => array(),
             );
         }
 
@@ -978,6 +1079,7 @@ final class ArtifactCompiler
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
+            'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
         ))->toArray();
 
@@ -987,6 +1089,7 @@ final class ArtifactCompiler
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+            'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
                 is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
@@ -3002,7 +3105,7 @@ final class ArtifactCompiler
         $assetPayloadsByPath = array();
         foreach ( $assets as $asset ) {
             $path = (string) ($asset['path'] ?? '');
-            $payload = is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? '');
+            $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
         foreach ( $artifact['files'] as $file ) {
@@ -3023,7 +3126,7 @@ final class ArtifactCompiler
                         $generatedAsset['compilation'] = array('scope' => 'page', 'id' => $path);
                     }
                     $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
-                    $payload = is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? '');
+                    $payload = is_string($generatedAsset['visual_payload'] ?? null) ? $generatedAsset['visual_payload'] : (is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? ''));
                     $payloadHash = hash('sha256', $payload);
                     if ( isset($assetPayloadsByPath[$generatedAssetPath][$payloadHash]) ) {
                         continue;

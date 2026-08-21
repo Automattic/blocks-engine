@@ -78,27 +78,61 @@ trait SvgMaterializationTrait
         }
 
         $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
-        $path = $this->materializedInlineSvgPath($element, $html);
-        $this->generatedAssets[$path] = array(
+        $assetHtml = $html;
+        $visualPayload = $this->svgImageAssetIdentity($html);
+        $path = $this->materializedInlineSvgPath($element, $visualPayload);
+        $url = $this->sourceRelativeMaterializedSvgPath($path);
+        $occurrence = array_filter(array(
+            'source_path' => $this->transformSourcePath(),
+            'selector' => $this->elementSelector($element),
+            'fingerprint' => $this->reusableComponentFingerprintFor($element),
+        ), static fn (mixed $value): bool => is_string($value) && '' !== $value);
+        $asset = array(
             'source'      => 'inline-svg',
             'source_path' => $this->transformSourcePath(),
             'selector'    => $this->elementSelector($element),
             'path'        => $path,
             'target_path' => $path,
+            'source_url'  => $url,
             'kind'        => 'svg',
             'role'        => 'image',
             'mime_type'   => 'image/svg+xml',
             'media_type'  => 'image/svg+xml',
-            'content'     => $html . "\n",
-            'bytes'       => strlen($html) + 1,
+            'content'     => $assetHtml . "\n",
+            'bytes'       => strlen($assetHtml) + 1,
             'encoding'    => 'utf-8',
             'binary'      => false,
             'source_role' => 'importer_owned',
             'keep_source' => false,
-            'hash'        => hash('sha256', $html),
-            'source_hash' => hash('sha256', $html),
+            'hash'        => hash('sha256', $assetHtml),
+            'source_hash' => hash('sha256', $assetHtml),
             'pipeline_sanitized' => true,
+            'visual_payload' => $visualPayload . "\n",
         );
+        if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
+        if (isset($this->generatedAssets[$path])) {
+            $existing = $this->generatedAssets[$path];
+            // A shared path represents visual identity. Once more than one
+            // instance uses it, discard instance accessibility metadata from
+            // the payload; core/image owns that metadata per block via alt.
+            $existing['content'] = (string) ($existing['visual_payload'] ?? $visualPayload . "\n");
+            $existing['bytes'] = strlen($existing['content']);
+            $existing['hash'] = hash('sha256', $existing['content']);
+            $existing['source_hash'] = $existing['hash'];
+            $occurrences = is_array($existing['component_occurrences'] ?? null) ? $existing['component_occurrences'] : array();
+            $counts = is_array($existing['component_occurrence_counts'] ?? null) ? $existing['component_occurrence_counts'] : array();
+            if (is_string($occurrence['fingerprint'] ?? null)) $counts[$occurrence['fingerprint']] = (int) ($counts[$occurrence['fingerprint']] ?? 0) + 1;
+            if (count($occurrences) < 8 && !in_array($occurrence, $occurrences, true)) $occurrences[] = $occurrence;
+            elseif (!in_array($occurrence, $occurrences, true)) $existing['component_occurrences_omitted'] = (int) ($existing['component_occurrences_omitted'] ?? 0) + 1;
+            $existing['component_occurrences'] = $occurrences;
+            $existing['component_occurrence_counts'] = $counts;
+            $existing['selector'] = $occurrences[0]['selector'] ?? $existing['selector'];
+            $this->generatedAssets[$path] = $existing;
+        } else {
+            if (is_string($occurrence['fingerprint'] ?? null)) $asset['component_occurrence_counts'] = array($occurrence['fingerprint'] => 1);
+            $asset['component_occurrences_omitted'] = 0;
+            $this->generatedAssets[$path] = $asset;
+        }
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->presentationDeclarations($element);
@@ -133,7 +167,7 @@ trait SvgMaterializationTrait
             $fillClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
             $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule;
             $attrs = array(
-                'url'       => $path,
+                'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
                 'className'  => $this->mergePresentationClassNames($this->attr($element, 'class'), $fillClass),
                 'style'      => array(
@@ -161,7 +195,7 @@ trait SvgMaterializationTrait
             $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
         }
         $attrs = array_filter(array_merge(array(
-            'url'          => $path,
+            'url'          => $url,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
             'style'        => $preserveInlineGeometry ? null : array(
@@ -339,6 +373,16 @@ trait SvgMaterializationTrait
         return trim($html);
     }
 
+    private function svgImageAssetIdentity(string $html): string
+    {
+        // core/image owns the accessible name through its per-instance alt
+        // attribute. Accessibility metadata therefore does not participate in
+        // visual asset identity, while the first materialized payload retains
+        // its original metadata for compatibility with direct SVG consumers.
+        $html = preg_replace('/\s(?:aria-[a-z-]+|title)\s*=\s*(["\']).*?\1/i', '', $html) ?? $html;
+        return preg_replace('/<(?:title|desc)\b[^>]*>.*?<\/(?:title|desc)>/is', '', $html) ?? $html;
+    }
+
     private function ensureSvgImageNamespace(string $html): string
     {
         if ( preg_match('/<svg\b[^>]*\sxmlns\s*=/i', $html) ) {
@@ -462,21 +506,23 @@ trait SvgMaterializationTrait
 
     private function materializedInlineSvgPath(DOMElement $element, string $html): string
     {
-        $sourcePath = $this->transformSourcePath();
-        $sourceDir = '' !== $sourcePath ? dirname($sourcePath) : '';
-        if ( '.' === $sourceDir ) {
-            $sourceDir = '';
-        }
+        unset($element);
+        // The asset is the sanitized vector payload, not its generated source
+        // selector. A content address lets every compatible instance share one
+        // core/image asset while retaining its own alt text and presentation.
+        $filename = 'inline-svg-' . substr(hash('sha256', $html), 0, 16) . '.svg';
+        return ('' !== $this->generatedAssetRoot ? $this->generatedAssetRoot . '/' : '') . 'assets/materialized-svg/' . $filename;
+    }
 
-        $label = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
-        $label = trim(preg_replace('/[^a-z0-9]+/', '-', $label) ?? '', '-');
-        if ( '' === $label ) {
-            $label = 'inline-svg';
+    private function sourceRelativeMaterializedSvgPath(string $path): string
+    {
+        $from = array_values(array_filter(explode('/', trim(dirname($this->transformSourcePath()), '/')), static fn(string $segment): bool => '' !== $segment && '.' !== $segment));
+        $to = array_values(array_filter(explode('/', trim($path, '/')), static fn(string $segment): bool => '' !== $segment && '.' !== $segment));
+        while (array() !== $from && array() !== $to && $from[0] === $to[0]) {
+            array_shift($from);
+            array_shift($to);
         }
-        $filename = substr($label, 0, 48) . '-' . substr(hash('sha256', $html), 0, 16) . '.svg';
-        $path = ( '' !== $sourceDir ? trim($sourceDir, '/') . '/' : '' ) . 'assets/materialized-svg/' . $filename;
-
-        return preg_replace('#/+#', '/', $path) ?? $path;
+        return str_repeat('../', count($from)) . implode('/', $to);
     }
 
     private function transformSourcePath(): string
@@ -789,7 +835,7 @@ trait SvgMaterializationTrait
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
             'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'text-anchor', 'transform',
             'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xmlns', 'y', 'y1', 'y2',
-            'in',
+            'in', 'title',
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
