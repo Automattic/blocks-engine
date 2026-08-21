@@ -135,6 +135,7 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 
 $runtime = new Runtime();
 
@@ -188,6 +189,7 @@ assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/d
 assertSame('stub html <tag>', $runtime->escapeHtml('<tag>'), 'Runtime should delegate HTML escaping to esc_html().');
 assertSame('stub attr "value"', $runtime->escapeAttribute('"value"'), 'Runtime should delegate attribute escaping to esc_attr().');
 assertSame(array('core/accordion', 'core/group', 'core/heading', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
+(new CoreBlockCapabilityMatrix())->assertClassifiesAvailableBlocks($runtime->availableCoreBlockNames());
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Runtime should resolve border width from the registered Group declaration.');
 assertSame(false, $runtime->blockSupportsBorder('core/group', 'style'), 'Registered Group metadata should override the standalone snapshot component by component.');
 assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'A registered Quote declaration without border support should fail closed.');

@@ -3,11 +3,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
-/** Observes block-tree complexity without changing or grading compiler output. */
+/** Measures bounded editability risks independently of visual-parity evidence. */
 final class EditabilityReport
 {
-    public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v1';
+    public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v2';
     private const MAX_REPORTED_SIGNALS = 100;
+    private const THRESHOLDS = array(
+        'empty_wrapper_count' => 10,
+        'structural_rich_text_attribute_count' => 0,
+        'max_nesting_depth' => 20,
+        'wrapper_to_content_ratio' => 4.0,
+    );
     private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u');
     private const RICH_TEXT_ATTRIBUTES = array(
         'core/heading' => array('content'),
@@ -43,10 +49,8 @@ final class EditabilityReport
             : round($metrics['wrapper_block_count'] / $metrics['content_block_count'], 4);
 
         $signalCount = count($signals);
-        return array(
+        return $this->withEnforcement(array(
             'schema' => self::SCHEMA,
-            'status' => 'observed',
-            'enforcement' => 'report_only',
             'scope' => array_filter(array('source_path' => $sourcePath), static fn(string $value): bool => '' !== $value),
             'metrics' => $metrics,
             'block_types' => $blockTypes,
@@ -57,7 +61,7 @@ final class EditabilityReport
                 'omitted' => max(0, $signalCount - self::MAX_REPORTED_SIGNALS),
                 'truncated' => $signalCount > self::MAX_REPORTED_SIGNALS,
             ),
-        );
+        ));
     }
 
     /** @param array<string,array<string,mixed>> $documents @return array<string,mixed> */
@@ -102,10 +106,8 @@ final class EditabilityReport
             : round($totals['wrapper_block_count'] / $totals['content_block_count'], 4);
         ksort($blockTypes, SORT_STRING);
 
-        return array(
+        return $this->withEnforcement(array(
             'schema' => self::SCHEMA,
-            'status' => 'observed',
-            'enforcement' => 'report_only',
             'metrics' => $totals,
             'block_types' => $blockTypes,
             'documents' => $reports,
@@ -116,7 +118,22 @@ final class EditabilityReport
                 'omitted' => max(0, $signalCount - self::MAX_REPORTED_SIGNALS),
                 'truncated' => $signalCount > self::MAX_REPORTED_SIGNALS,
             ),
-        );
+        ));
+    }
+
+    /** @param array<string,mixed> $report @return array<string,mixed> */
+    private function withEnforcement(array $report): array
+    {
+        $failures = array();
+        foreach (self::THRESHOLDS as $metric => $maximum) {
+            $actual = $report['metrics'][$metric] ?? 0;
+            if ($actual > $maximum) $failures[] = array('metric' => $metric, 'actual' => $actual, 'maximum' => $maximum, 'message' => sprintf('%s is %s; meaningful editability allows at most %s.', $metric, $actual, $maximum));
+        }
+        $report['status'] = array() === $failures ? 'passed' : 'failed';
+        $report['enforcement'] = 'thresholds_v1';
+        $report['thresholds'] = self::THRESHOLDS;
+        $report['threshold_failures'] = $failures;
+        return $report;
     }
 
     /** @param array<string,mixed> $report @param array<int,array<string,mixed>> $templates @return array<string,mixed> */

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -136,42 +137,6 @@ final class HtmlTransformer
         'core/heading',
         'core/paragraph',
         'core/list-item',
-    );
-
-    /**
-     * @var array<int, string>
-     */
-    private const SUPPORTED_BLOCKS = array(
-        'core/audio',
-        'core/button',
-        'core/buttons',
-        'core/code',
-        'core/column',
-        'core/columns',
-        'core/details',
-        'core/embed',
-        'core/file',
-        'core/gallery',
-        'core/group',
-        'core/heading',
-        'core/icon',
-        'core/image',
-        'core/list',
-        'core/list-item',
-        'core/math',
-        'core/navigation',
-        'core/navigation-link',
-        'core/paragraph',
-        'core/preformatted',
-        'core/pullquote',
-        'core/quote',
-        'core/separator',
-        'core/shortcode',
-        'core/spacer',
-        'core/navigation-submenu',
-        'core/table',
-        'core/video',
-        'core/search',
     );
 
     private readonly BlockFactory $blockFactory;
@@ -904,9 +869,12 @@ final class HtmlTransformer
         $this->recordSourceSelectorMatchWork();
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
+        $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
+        $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $sourceReports = array(
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
+            'core_block_capabilities' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeIslands,
             'generated_blocks' => $this->generatedBlocks,
@@ -957,9 +925,9 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks'      => self::SUPPORTED_BLOCKS,
-                    'native_target_blocks'  => $nativeTargetBlocks,
-                    'available_core_blocks' => $nativeTargetBlocks,
+                    'supported_blocks'      => $supportedBlocks,
+                    'runtime_available_blocks' => $nativeTargetBlocks,
+                    'capability_matrix'     => $capabilityMatrix,
                     'block_count'           => count($blocks),
                     'fallback_count'        => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
