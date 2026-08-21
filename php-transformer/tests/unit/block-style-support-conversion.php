@@ -536,12 +536,10 @@ $assert(
 );
 
 $assert(
-    ! isset($amberQuoteAttrs['style']['border'])
-        && str_contains((string) ($amberQuoteAttrs['className'] ?? ''), 'be-inline-geometry-')
-        && str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important')
-        && str_contains($amberQuoteCss, 'border-left-style:solid !important')
-        && str_contains($amberQuoteCss, 'border-left-width:2px !important'),
-    'N4: a Quote without declared border support uses the carrier and emits no ignored native border attribute',
+    array( 'width' => '2px', 'style' => 'solid', 'color' => 'var(--secondary)' ) === $amberQuoteLeftBorder
+        && ! str_contains((string) ($amberQuoteAttrs['className'] ?? ''), 'be-inline-geometry-')
+        && ! str_contains($amberQuoteCss, 'border-left-color:var(--secondary) !important'),
+    'N4: WordPress 7.1 Quote border support uses the native attribute without a duplicate carrier',
     json_encode(array( 'attrs' => $amberQuoteAttrs, 'css' => $amberQuoteCss ))
 );
 

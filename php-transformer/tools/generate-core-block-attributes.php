@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Generate source-derived core attribute declarations for standalone runtime
+ * Generate non-comment core attribute declarations for standalone runtime
  * canonicalization. Live WP_Block_Type declarations always take precedence.
  *
  * Usage:
@@ -31,8 +31,13 @@ foreach ( (array) glob($blocksDirectory . '/*/block.json') as $blockJsonPath ) {
 
     $attributes = array();
     foreach ( is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : array() as $name => $schema ) {
-        if ( is_string($name) && is_array($schema) && array_key_exists('source', $schema) ) {
+        if ( ! is_string($name) || ! is_array($schema) ) {
+            continue;
+        }
+        if ( array_key_exists('source', $schema) ) {
             $attributes[ $name ] = array( 'source' => $schema['source'] );
+        } elseif ( 'local' === ($schema['role'] ?? null) ) {
+            $attributes[ $name ] = array( 'role' => 'local' );
         }
     }
     $blocks[ $metadata['name'] ] = $attributes;

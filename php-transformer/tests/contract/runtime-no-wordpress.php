@@ -15,7 +15,7 @@ assertSame(true, in_array('core/math', $availableCoreBlocks, true), 'Fallback na
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Standalone support resolution should load Group width support from the generated WordPress declaration snapshot.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'style'), 'Standalone support resolution should load Group style support from the generated WordPress declaration snapshot.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'color'), 'Standalone support resolution should load Group color support from the generated WordPress declaration snapshot.');
-assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'Standalone support resolution should treat WordPress 6.6 Quote as lacking border support.');
+assertSame(true, $runtime->blockSupportsBorder('core/quote', 'width'), 'Standalone support resolution should load Quote width support from the WordPress 7.1 declaration snapshot.');
 assertSame(true, $runtime->blockSupportsBorder('core/image', 'width'), 'Standalone support resolution should load Image width support from its declaration.');
 assertSame(false, $runtime->blockSupportsBorder('core/image', 'style'), 'Standalone support resolution should honor Image declarations that omit border style support.');
 
@@ -38,6 +38,18 @@ assertSame(
     '<!-- wp:image {"id":42,"unknown":"preserved"} --><figure><img src="/image.jpg" alt="Image"><figcaption>Caption</figcaption></figure><!-- /wp:image -->',
     $runtime->serializeBlocks(array($image)),
     'Standalone canonicalization should omit generated rich-text and attribute-derived Image attrs while retaining unsourced and unknown attrs.'
+);
+$html = array(
+    'blockName'    => 'core/html',
+    'attrs'        => array('content' => '<div>Local preview</div>'),
+    'innerBlocks'  => array(),
+    'innerHTML'    => '<div>Local preview</div>',
+    'innerContent' => array('<div>Local preview</div>'),
+);
+assertSame(
+    '<!-- wp:html --><div>Local preview</div><!-- /wp:html -->',
+    $runtime->serializeBlocks(array($html)),
+    'Standalone canonicalization should omit WordPress 7.1 local-role attributes from block comments.'
 );
 
 $customPropertyMarkup = $runtime->serializeBlocks(array(array(

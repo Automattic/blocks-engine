@@ -103,6 +103,7 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
                     'attributes' => array(
                         'title' => array('source' => 'rich-text'),
                         'imageUrl' => array('source' => 'attribute'),
+                        'previewState' => array('type' => 'string', 'role' => 'local'),
                         'layout' => array('type' => 'string'),
                     ),
                 ),
@@ -164,12 +165,12 @@ assertSame(
 );
 $runtime->serializeBlocks(array(array(
     'blockName' => 'plugin/card',
-    'attrs' => array('title' => 'Card title', 'imageUrl' => '/card.jpg', 'layout' => 'feature', 'unknown' => 'preserved'),
+    'attrs' => array('title' => 'Card title', 'imageUrl' => '/card.jpg', 'previewState' => 'selected', 'layout' => 'feature', 'unknown' => 'preserved'),
 )));
 assertSame(
     array('layout' => 'feature', 'unknown' => 'preserved'),
     $GLOBALS['blocks_engine_serialized_blocks_stub'][0]['attrs'] ?? null,
-    'Runtime should use registered custom block schemas to omit every source kind and retain unsourced and unknown attrs.'
+    'Runtime should use registered custom block schemas to omit sourced and local attrs while retaining persisted and unknown attrs.'
 );
 $runtime->renderBlock(array(
     'blockName'   => 'core/heading',

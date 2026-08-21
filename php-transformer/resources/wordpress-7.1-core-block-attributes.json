@@ -1,10 +1,21 @@
 {
     "schema": "blocks-engine/php-transformer/core-block-attributes/v1",
-    "source": "WordPress/wordpress-develop@6.6",
-    "block_count": 93,
+    "source": "WordPress/wordpress-develop@7.1",
+    "block_count": 115,
     "blocks": {
+        "core/accordion": [],
+        "core/accordion-heading": {
+            "title": {
+                "source": "rich-text"
+            }
+        },
+        "core/accordion-item": [],
+        "core/accordion-panel": [],
         "core/archives": [],
         "core/audio": {
+            "blob": {
+                "role": "local"
+            },
             "src": {
                 "source": "attribute"
             },
@@ -23,6 +34,7 @@
         },
         "core/avatar": [],
         "core/block": [],
+        "core/breadcrumbs": [],
         "core/button": {
             "url": {
                 "source": "attribute"
@@ -62,10 +74,17 @@
         "core/comments-pagination-numbers": [],
         "core/comments-pagination-previous": [],
         "core/comments-title": [],
-        "core/cover": [],
+        "core/cover": {
+            "poster": {
+                "source": "attribute"
+            }
+        },
         "core/details": {
             "summary": {
                 "source": "rich-text"
+            },
+            "name": {
+                "source": "attribute"
             }
         },
         "core/embed": {
@@ -74,6 +93,9 @@
             }
         },
         "core/file": {
+            "blob": {
+                "role": "local"
+            },
             "fileId": {
                 "source": "attribute"
             },
@@ -113,10 +135,14 @@
         "core/home-link": [],
         "core/html": {
             "content": {
-                "source": "raw"
+                "role": "local"
             }
         },
+        "core/icon": [],
         "core/image": {
+            "blob": {
+                "role": "local"
+            },
             "url": {
                 "source": "attribute"
             },
@@ -156,6 +182,11 @@
             }
         },
         "core/loginout": [],
+        "core/math": {
+            "mathML": {
+                "source": "html"
+            }
+        },
         "core/media-text": {
             "mediaAlt": {
                 "source": "attribute"
@@ -184,6 +215,7 @@
         "core/more": [],
         "core/navigation": [],
         "core/navigation-link": [],
+        "core/navigation-overlay-close": [],
         "core/navigation-submenu": [],
         "core/nextpage": [],
         "core/page-list": [],
@@ -194,10 +226,18 @@
             }
         },
         "core/pattern": [],
+        "core/playlist": [],
+        "core/playlist-track": {
+            "blob": {
+                "role": "local"
+            }
+        },
         "core/post-author": [],
         "core/post-author-biography": [],
         "core/post-author-name": [],
+        "core/post-comments-count": [],
         "core/post-comments-form": [],
+        "core/post-comments-link": [],
         "core/post-content": [],
         "core/post-date": [],
         "core/post-excerpt": [],
@@ -205,6 +245,7 @@
         "core/post-navigation-link": [],
         "core/post-template": [],
         "core/post-terms": [],
+        "core/post-time-to-read": [],
         "core/post-title": [],
         "core/preformatted": {
             "content": {
@@ -226,6 +267,7 @@
         "core/query-pagination-numbers": [],
         "core/query-pagination-previous": [],
         "core/query-title": [],
+        "core/query-total": [],
         "core/quote": {
             "value": {
                 "source": "html"
@@ -249,6 +291,13 @@
         "core/social-link": [],
         "core/social-links": [],
         "core/spacer": [],
+        "core/tab-list": {
+            "tabs": {
+                "source": "query"
+            }
+        },
+        "core/tab-panel": [],
+        "core/tab-panels": [],
         "core/table": {
             "caption": {
                 "source": "rich-text"
@@ -263,9 +312,18 @@
                 "source": "query"
             }
         },
+        "core/tabs": {
+            "editorActiveTabIndex": {
+                "role": "local"
+            }
+        },
         "core/tag-cloud": [],
         "core/template-part": [],
+        "core/term-count": [],
         "core/term-description": [],
+        "core/term-name": [],
+        "core/term-template": [],
+        "core/terms-query": [],
         "core/text-columns": {
             "content": {
                 "source": "query"
@@ -297,6 +355,9 @@
             },
             "preload": {
                 "source": "attribute"
+            },
+            "blob": {
+                "role": "local"
             },
             "src": {
                 "source": "attribute"
