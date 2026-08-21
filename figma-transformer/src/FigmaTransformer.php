@@ -757,7 +757,7 @@ final class FigmaTransformer
                     'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
                     'source_frame_identity'   => $sourceFrameIdentity,
                 );
-                if ( in_array($pageType, array('single', 'archive', '404'), true) && (! $emitTemplateAliases || $canonicalTemplatePath === $path) ) {
+                if ( in_array($pageType, array('single', 'archive', '404'), true) ) {
                     $files[array_key_last($files)]['metadata'] = array(
                         'template_surface' => array(
                             'schema' => 'blocks-engine/template-surface/v1',
