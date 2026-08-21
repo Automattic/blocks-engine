@@ -283,9 +283,8 @@ $assert(
 
 // --- sunny-ember: a CTA styled through the ANCHOR, inside the menu list.
 //
-// `render_block_core_navigation_link()` hard-codes the anchor's class, which is
-// why `anchorClassName` is deliberately discarded downstream. The authored class
-// therefore lands on the <li>, and an anchor-scoped rule like
+// `render_block_core_navigation_link()` hard-codes the anchor's class, so the
+// authored class lands on the <li>. An anchor-scoped rule like
 // `.navlinks a.nav-cta{...}` selects nothing — sunny-ember's yellow pill
 // rendered as plain text. A compat rule re-points that authored selector at the
 // element core actually gives the class-bearing item.

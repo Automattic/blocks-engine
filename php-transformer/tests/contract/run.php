@@ -2014,12 +2014,17 @@ $nestedNavMenu = ( new HtmlTransformer() )->transform(
 $nestedNavMenuSerialized = (string) ($nestedNavMenu['serialized_blocks'] ?? '');
 $nestedNavMenuParity = $nestedNavMenu['source_reports']['semantic_parity'] ?? array();
 $nestedNavMenuBlock = $nestedNavMenuParity['navigation_menus']['blocks'][0] ?? array();
+$nestedNavMenuSubmenuSource = array_values(array_filter(
+    $nestedNavMenu['source_reports']['html']['source_provenance'] ?? array(),
+    static fn (array $entry): bool => str_contains((string) ($entry['navigation_source_ownership']['submenu']['class_name'] ?? ''), 'nav-links')
+));
 $assert('pass' === ($nestedNavMenu['source_reports']['wp_block_validity']['status'] ?? ''), 'nested nav/menu serializes to valid WordPress navigation blocks');
 $assert(str_contains($nestedNavMenuSerialized, '<!-- wp:navigation-submenu'), 'nested nav/menu emits a canonical navigation-submenu block');
 $assert(! str_contains($nestedNavMenuSerialized, '<nav id="nav-links"'), 'nested nav/menu does not embed a raw nav wrapper inside core/navigation content');
 $assert(! str_contains($nestedNavMenuSerialized, 'style="display:none'), 'nested nav/menu does not freeze hidden raw inline nav styles into serialized block markup');
 $assert(! str_contains($nestedNavMenuSerialized, 'wp-block-navigation nav-links'), 'nested nav/menu strips core wrapper classes while preserving custom nav classes');
-$assert(str_contains($nestedNavMenuSerialized, 'nav-links'), 'nested nav/menu preserves the custom submenu class for styling');
+$assert(str_contains((string) ($nestedNavMenuSubmenuSource[0]['navigation_source_ownership']['submenu']['class_name'] ?? ''), 'nav-links'), 'nested nav/menu preserves custom submenu ownership in the stable source report');
+$assert(! str_contains($nestedNavMenuSerialized, 'anchorClassName') && ! str_contains($nestedNavMenuSerialized, 'submenuClassName'), 'nested nav/menu serializes no unregistered navigation source attributes');
 $assert(4 === ($nestedNavMenuBlock['item_count'] ?? null), 'nested nav/menu preserves parent, submenu, and sibling link items');
 $assert('Latte' === ($nestedNavMenuBlock['items'][2]['label'] ?? ''), 'nested nav/menu preserves submenu item labels');
 

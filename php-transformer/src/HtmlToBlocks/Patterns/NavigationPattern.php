@@ -139,8 +139,8 @@ final class NavigationPattern implements PatternRecognizerInterface
      * authors THREE elements — the landmark, the brand, and the menu — each with
      * its own CSS rule. Folding all three into one core/navigation makes the
      * brand a menu item: the landmark's own box rules then compete with the
-     * menu list's rules on a single element, and the brand emits
-     * `anchorClassName`, which core/navigation-link does not register.
+     * menu list's rules on a single element, and would require a source-only
+     * attribute that core/navigation-link does not register.
      *
      * Emit the landmark as a carrier group instead, holding the brand block and
      * a core/navigation built from the link cluster alone. Structural position
@@ -919,13 +919,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
         }
 
-        // The anchor/submenu CSS rides on the preserved classNames + companion CSS;
-        // a raw inline `style` string on the navigation-link/submenu inner markup
-        // would diverge from the block save() output, so it is not emitted (#261).
-        return array_filter(array_replace_recursive($itemAttrs, $baseAttrs, array(
-            'anchorClassName'  => $anchorAttrs['className'] ?? '',
-            'submenuClassName' => $submenuAttrs['className'] ?? '',
-        )), static fn ($value): bool => '' !== $value);
+        // Source ownership is retained in the transformer provenance report.
+        // Core does not register either attribute, so serializing them would make
+        // an editor parse/save discard CSS projection input.
+        return array_filter(array_replace_recursive($itemAttrs, $baseAttrs), static fn ($value): bool => '' !== $value);
     }
 
     private function navigationTextColorFromStyle(string $style): string

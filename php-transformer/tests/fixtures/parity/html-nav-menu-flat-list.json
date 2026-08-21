@@ -20,8 +20,8 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "nav-inner" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo blocks-engine-synthetic-paragraph" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-menu blocks-engine-list-navigation blocks-engine-native-responsive-navigation" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "nav-link" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.4", "name": "core/navigation-link", "attrs": { "label": "Join Us", "url": "membership.html", "kind": "custom", "anchorClassName": "nav-cta" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "index.html", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.4", "name": "core/navigation-link", "attrs": { "label": "Join Us", "url": "membership.html", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
   "expect": [

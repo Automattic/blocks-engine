@@ -95,6 +95,7 @@
       "php tests/unit/navigation-brand-cue-carrier.php",
       "php tests/unit/navigation-direct-cluster-parity.php",
       "php tests/unit/navigation-inline-margin-carry.php",
+      "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/button-style-resolver.php",

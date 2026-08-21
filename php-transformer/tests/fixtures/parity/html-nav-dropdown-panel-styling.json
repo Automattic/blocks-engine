@@ -17,13 +17,15 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav blocks-engine-list-navigation" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-submenu", "attrs": { "label": "Services", "url": "/services", "kind": "custom", "className": "menu-item has-dropdown", "style": { "color": { "background": "#fff" } }, "submenuClassName": "dropdown-panel shadow-lg surface be-inline-geometry-014c224e7fece21c5ce5360da34d3c2e67a3d53488c6a46c3bd81a8fca94ae8e" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-submenu", "attrs": { "label": "Services", "url": "/services", "kind": "custom", "className": "menu-item has-dropdown", "style": { "color": { "background": "#fff" } } } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-submenu {\"className\":\"menu-item has-dropdown\",\"style\":{\"color\":{\"background\":\"#fff\"}},\"label\":\"Services\",\"url\":\"/services\",\"kind\":\"custom\",\"submenuClassName\":\"dropdown-panel shadow-lg surface be-inline-geometry-014c224e7fece21c5ce5360da34d3c2e67a3d53488c6a46c3bd81a8fca94ae8e\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-submenu {\"className\":\"menu-item has-dropdown\",\"style\":{\"color\":{\"background\":\"#fff\"}},\"label\":\"Services\",\"url\":\"/services\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "anchorClassName" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "submenuClassName" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "style=\"background:#fff;box-shadow:0 16px 40px rgba(0,0,0,.18);border-radius:18px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-navigation__submenu-container" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
