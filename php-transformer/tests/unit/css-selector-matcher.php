@@ -96,7 +96,7 @@ $candidateIndex = array(
     'classes' => array( 'final' => array( array( 'order' => 2, 'rule' => array( 'selector' => '.final' ) ) ) ),
     'tags' => array( 'span' => array( array( 'order' => 3, 'rule' => array( 'selector' => 'span' ) ), array( 'order' => 5, 'rule' => array( 'selector' => 'span[data-value]' ) ) ) ),
     'attributes' => array( 'data-value' => array( array( 'order' => 0, 'rule' => array( 'selector' => '[data-value]' ) ) ) ),
-    'total' => 5,
+    'total' => 6,
 );
 $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
 $assert(array( '#target', '.final', 'span', ':not(.excluded)', 'span[data-value]' ) === $candidateSelectors, 'candidate index merges id, class, tag, and universal rules in source order while type wins over direct attributes');
