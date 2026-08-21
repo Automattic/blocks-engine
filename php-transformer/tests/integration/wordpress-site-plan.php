@@ -41,6 +41,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'assets/async.js' => 'window.asyncAsset=true;',
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
+    'parts/sidebar.html' => '<aside class="site-sidebar"><p>Integration Sidebar</p></aside>',
     'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
     'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.about-owned{color:#654321}</style><script src="assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
     'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
@@ -63,6 +64,13 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
+$sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
+$sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
+$sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data'] ?? ''));
+$sidebarBlocks = array_values(array_filter($sidebarTemplateBlocks, static fn(array $block): bool => 'core/template-part' === ($block['blockName'] ?? null) && 'sidebar' === ($block['attrs']['slug'] ?? null)));
+$sidebarReference = isset($sidebarBlocks[0]) ? serialize_block($sidebarBlocks[0]) : '';
+$sidebarRendered = do_blocks($sidebarReference);
+$assert('uncategorized' === ($sidebarPart['area'] ?? null) && 'aside' === ($sidebarPart['tag_name'] ?? null) && 1 === count($sidebarBlocks) && 'uncategorized' === ($sidebarBlocks[0]['attrs']['area'] ?? null) && 'aside' === ($sidebarBlocks[0]['attrs']['tagName'] ?? null) && str_contains($sidebarRendered, '<aside ') && str_contains($sidebarRendered, 'Integration Sidebar') && !str_contains($sidebarRendered, '<sidebar'), 'WordPress parses and renders the sidebar reference emitted by the generated front-page template with a core-supported area and semantic aside wrapper.');
 $positionedSvg = (new HtmlTransformer())->transform('<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>')->toArray();
 $positionedSvgMarkup = (string) ($positionedSvg['serialized_blocks'] ?? '');
 $positionedSvgCss = implode("\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $positionedSvg['assets'] ?? array()));

@@ -36,6 +36,10 @@ $assert(ShellLandmarkPolicy::isInlineContentWrapperTag('footer'), 'footer can st
 
 $assert('header' === ShellLandmarkPolicy::templatePartArea('parts/header.html', ''), 'header template part area comes from path');
 $assert('footer' === ShellLandmarkPolicy::templatePartArea('parts/site-shell.html', 'template-part footer'), 'footer template part area comes from role');
+$assert('uncategorized' === ShellLandmarkPolicy::templatePartArea('parts/sidebar.html', ''), 'sidebar template parts use WordPress core uncategorized area');
+$assert('aside' === ShellLandmarkPolicy::templatePartTagName('parts/sidebar.html', ''), 'sidebar template parts preserve an aside landmark');
+$assert('div' === ShellLandmarkPolicy::templatePartTagName('parts/navigation.html', ''), 'navigation overlays use the core-supported div wrapper');
+$assert('header' === ShellLandmarkPolicy::templatePartAreaTagName('header') && 'footer' === ShellLandmarkPolicy::templatePartAreaTagName('footer') && 'div' === ShellLandmarkPolicy::templatePartAreaTagName('uncategorized'), 'core template part area tags are centralized');
 $assert('uncategorized' === ShellLandmarkPolicy::templatePartArea('pages/main.html', ''), 'main-named content is not promoted to a template part area');
 
 if ( $failures > 0 ) {
