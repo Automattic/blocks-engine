@@ -78,8 +78,8 @@ $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache-
 $sourceSelectorCache = new HtmlTransformerAnalysisCache();
 $sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
 (new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml);
-$assert(9 === $sourceSelectorCache->sourceSelectorMatchExecutions && 15 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 9 matcher calls and reuses 15 repeated element-selector results.');
-$assert(8 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 11 === $sourceSelectorCache->sourceSelectorClassTokenHits && 15 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+$assert(12 === $sourceSelectorCache->sourceSelectorMatchExecutions && 18 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 12 matcher calls and reuses 18 repeated element-selector results.');
+$assert(9 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 14 === $sourceSelectorCache->sourceSelectorClassTokenHits && 18 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();

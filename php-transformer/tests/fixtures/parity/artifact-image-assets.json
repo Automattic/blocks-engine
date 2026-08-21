@@ -36,7 +36,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120", "height": "80", "caption": "Brand", "className": "hero-logo rounded is-resized", "id": 42, "sizeSlug": "medium" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/logo.svg", "alt": "Logo", "width": "120px", "height": "80px", "caption": "Brand", "className": "hero-logo rounded is-resized", "id": 42, "sizeSlug": "medium" } }
   ],
   "expected_fallbacks": [],
   "expect": [

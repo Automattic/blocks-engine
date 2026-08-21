@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/table", "attrs": { "caption": "Inventory" } },
-    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "https://example.com/image.jpg", "alt": "Example", "width": "640", "height": "480", "caption": "Caption" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "https://example.com/image.jpg", "alt": "Example", "width": "640px", "height": "480px", "caption": "Caption" } },
     { "path": "blocks.2", "name": "core/buttons" },
     { "path": "blocks.2.innerBlocks.0", "name": "core/button", "attrs": { "text": "Start", "url": "https://example.com/start" } },
     { "path": "blocks.2.innerBlocks.1", "name": "core/button", "attrs": { "text": "More", "url": "https://example.com/more" } },

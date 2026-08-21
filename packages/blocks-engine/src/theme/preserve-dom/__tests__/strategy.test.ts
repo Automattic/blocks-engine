@@ -177,6 +177,36 @@ describe('preserveDomStrategy', () => {
     expect(aggregate.sections[0]?.coverage.lost).toBe(false);
   });
 
+  it('lowers responsive custom-element image wrappers without losing CSS identity', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 8,
+          images: [{
+            url: '/hero-large.jpg',
+            sourceUrl: '/hero-large.jpg',
+            alt: 'Studio',
+            kind: 'img',
+            width: 680,
+            height: 420,
+          }],
+          sectionHtml:
+            '<section><div><wow-image id="hero" class="media-frame"><picture><source srcset="/hero-small.jpg 340w, /hero-large.jpg 680w"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="/hero-large.jpg" srcset="/hero-small.jpg 340w, /hero-large.jpg 680w" sizes="(max-width: 680px) 100vw, 680px" alt="Studio" width="680" height="420"></picture></wow-image></div></section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    const markup = aggregate.sectionMarkup[0] ?? '';
+    expect(markup).toContain('<!-- wp:image {"anchor":"hero","className":"media-frame photo"} -->');
+    expect(markup).toContain('<figure id="hero" class="wp-block-image media-frame photo">');
+    expect(markup).toContain('src="/hero-large.jpg"');
+    expect(markup).toContain('srcset="/hero-small.jpg 340w, /hero-large.jpg 680w"');
+    expect(markup).toContain('sizes="(max-width: 680px) 100vw, 680px" width="680" height="420"');
+    expect(markup).not.toContain('<!-- wp:html');
+    expect((markup.match(/<!-- wp:group/g) ?? []).length).toBe(1);
+  });
+
   it('keeps ambiguous unlabeled inline SVGs as html fallback islands', () => {
     const aggregate = reconstructNativeAggregate(
       [

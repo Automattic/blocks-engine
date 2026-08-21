@@ -1257,13 +1257,21 @@ final class ArtifactCompiler
     private function withoutMaterializedScriptTags(string $html, string $entryPath, array $files): string
     {
         $scriptIndex = 0;
-        return preg_replace_callback('/<script\b([^>]*)>(.*?)<\/script>/is', function (array $matches) use ($entryPath, $files, &$scriptIndex): string {
+        $hasDeclaredScriptFiles = false;
+        foreach ( $files as $file ) {
+            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
+                $hasDeclaredScriptFiles = true;
+                break;
+            }
+        }
+
+        return preg_replace_callback('/<script\b([^>]*)>(.*?)<\/script>/is', function (array $matches) use ($entryPath, $files, $hasDeclaredScriptFiles, &$scriptIndex): string {
             ++$scriptIndex;
             $src = $this->htmlAttribute((string) $matches[1], 'src');
             if ( '' !== $src ) {
                 $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
                 if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
-                    return (string) $matches[0];
+                    return $hasDeclaredScriptFiles ? (string) $matches[0] : '';
                 }
 
                 return '';
@@ -1271,7 +1279,7 @@ final class ArtifactCompiler
 
             $asset = $this->findInlineScriptAsset($entryPath, $scriptIndex, $files);
             if ( ! is_array($asset) ) {
-                return (string) $matches[0];
+                return $hasDeclaredScriptFiles ? (string) $matches[0] : '';
             }
 
             return '';
@@ -2307,6 +2315,17 @@ final class ArtifactCompiler
      */
     private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
     {
+        $hasDeclaredScriptFiles = false;
+        foreach ( $files as $file ) {
+            if ( is_array($file) && 'inline-script' !== ($file['source'] ?? '') && $this->isMaterializedScriptAsset($file) ) {
+                $hasDeclaredScriptFiles = true;
+                break;
+            }
+        }
+        if ( ! $hasDeclaredScriptFiles ) {
+            return array();
+        }
+
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);

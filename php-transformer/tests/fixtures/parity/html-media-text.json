@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-media-text",
-  "description": "Converts video/text layouts to native core/media-text while preserving responsive picture image/text layouts through valid HTML fallback markup.",
+  "description": "Converts video/text layouts to native core/media-text while preserving responsive picture image/text layouts through a generated companion block.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-media-text.json",
-    "notes": "Covers a linked picture-backed image on the left and a video on the right; responsive source selection remains intact through core/html while the representable video layout remains native."
+    "notes": "Covers a linked picture-backed image on the left and a video on the right; responsive source selection remains intact through a generated block while the representable video layout remains native."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,25 +17,23 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/gallery-41250ed5d7b7a590b897aa57c935cd89495845d74357932f2003e3a6badf659f" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Image feature", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Linked media stays beside readable copy." } },
     { "path": "blocks.1", "name": "core/media-text", "attrs": { "className": "video-split", "mediaPosition": "right", "mediaType": "video", "mediaUrl": "https://example.com/feature.mp4", "mediaWidth": 35, "verticalAlignment": "center" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Video feature", "level": 3 } },
     { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Video renders on the right." } }
   ],
-  "expected_fallbacks": [
-    { "diagnostic_code": "html_responsive_image_fallback", "tag": "figure", "reason": "responsive_image_fallback" }
-  ],
+  "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 1 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=\"https://example.com/feature.webp\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "https://example.com/feature.webp" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:media-text" }
   ]
 }

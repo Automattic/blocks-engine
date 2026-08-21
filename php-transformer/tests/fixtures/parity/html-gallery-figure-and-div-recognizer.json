@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "https://example.com/b.jpg", "alt": "B" } },
     { "path": "blocks.1", "name": "core/gallery", "attrs": { "className": "media-grid" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/c.jpg", "alt": "C" } },
-    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized", "url": "https://example.com/d.jpg", "alt": "D", "width": "400", "height": "300", "caption": "D caption" } }
+    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized", "url": "https://example.com/d.jpg", "alt": "D", "width": "400px", "height": "300px", "caption": "D caption" } }
   ],
   "expected_fallbacks": [],
   "expect": [

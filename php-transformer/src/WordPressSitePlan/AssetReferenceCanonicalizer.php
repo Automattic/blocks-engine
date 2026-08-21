@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use InvalidArgumentException;
 
 /** Maps browser-visible asset URLs to declared plan tokens. */
@@ -152,10 +153,7 @@ final class AssetReferenceCanonicalizer
     /** @param callable(string):string $replace */
     private static function srcset(string $value, callable $replace): string
     {
-        return implode(',', array_map(static function (string $candidate) use ($replace): string {
-            if (!preg_match('/^(\s*)(\S+)(.*)$/s', $candidate, $parts)) return $candidate;
-            return $parts[1] . $replace($parts[2]) . $parts[3];
-        }, explode(',', $value)));
+        return SrcsetParser::rewrite($value, $replace);
     }
 
     private static function relativeIdentity(string $reference, string $origin): string

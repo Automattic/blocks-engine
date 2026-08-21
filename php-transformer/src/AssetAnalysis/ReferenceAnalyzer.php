@@ -271,15 +271,7 @@ final class ReferenceAnalyzer
             return array(trim($value));
         }
 
-        $urls = array();
-        foreach ( explode(',', $value) as $candidate ) {
-            $parts = preg_split('/\s+/', trim($candidate));
-            if ( is_array($parts) && '' !== ($parts[0] ?? '') ) {
-                $urls[] = $parts[0];
-            }
-        }
-
-        return $urls;
+        return SrcsetParser::urls($value);
     }
 
     private function cssRuleContext(string $css, int $offset): string

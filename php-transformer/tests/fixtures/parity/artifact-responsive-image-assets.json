@@ -36,13 +36,11 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/html" }
+    { "path": "blocks.0", "name": "core/image" }
   ],
-  "expected_fallbacks": [
-    { "diagnostic_code": "html_responsive_image_fallback", "tag": "figure", "reason": "responsive_image_fallback" }
-  ],
+  "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "failed" },
+    { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },
@@ -51,10 +49,10 @@
     { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 2 },
     { "path": "source_reports.materialization_plan.assets.0.path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.materialization_plan.assets.1.path", "assert": "equals", "value": "assets/images/hero-small.png" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"../../assets/images/hero.png\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "srcset=" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "sizes=" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "../../missing/ghost.png" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"assets/images/hero.png\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "srcset=" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "sizes=" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "../../missing/ghost.png" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }
   ]
 }

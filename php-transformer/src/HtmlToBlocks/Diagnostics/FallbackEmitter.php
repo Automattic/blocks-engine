@@ -138,9 +138,10 @@ final class FallbackEmitter
      * existing fallback behavior whenever the conservative gate is not met.
      *
      * @param array<int, array<string, mixed>> $generatedBlocks Accumulator of generated block-type definitions.
+     * @param bool                             $preserveRoot    Include the source root when it carries required semantics or styling.
      * @return array{blockName: string, attrs: array<string, mixed>}|null
      */
-    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace): ?array
+    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace, bool $preserveRoot = false): ?array
     {
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
@@ -152,7 +153,7 @@ final class FallbackEmitter
 
         // Sanitize the subtree markup that becomes the editable, server-rendered
         // content. Nothing to carry => keep the existing fallback behavior.
-        $content = $this->sanitizeHtmlString($this->innerHtml($element));
+        $content = $this->sanitizeHtmlString($preserveRoot ? $this->outerHtml($element) : $this->innerHtml($element));
         if ( '' === trim($content) ) {
             return null;
         }

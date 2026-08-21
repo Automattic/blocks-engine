@@ -68,8 +68,12 @@ foreach ( array( 'p:first-child' => 'one', 'p:nth-child(2)' => 'two', 'span:last
 }
 $assert(! $match('p:nth-child(1)', $byId('two'))['matches'], 'rejects a non-matching structural child index');
 $assert($match('section > p:not(.a)', $byId('two'))['matches'] && ! $match('section > p:not(.a)', $byId('one'))['matches'], 'matches simple negated compounds through direct-child selectors');
+$assert($match(':is(#root) [data-value]', $byId('one'))['matches'], 'matches a single-simple-selector is() ancestry compound');
+$assert($match(':is(p.item)[data-value]', $byId('one'))['matches'], 'matches a single-simple-selector is() rightmost compound');
+$assert($match(':where(#root) [data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() ancestry compound');
+$assert($match(':where(p.item)[data-value]', $byId('one'))['matches'], 'matches a single-simple-selector where() rightmost compound');
 
-foreach ( array( ':disabled', ':is(.x)', ':where(.x)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
+foreach ( array( ':disabled', ':is(.x,.y)', ':where(.x,.y)', ':has(.x)', ':nth-child(0)', ':nth-child(2n+1)', ':nth-child()', 'p::before', 'svg|a', '.a||.b', '.a, .b', '.a[', '.a >', '-', '.-', '#-', '.10', '\\', ".a\\\n", ".a\\\r", ".a\\\r\n", "[data-value=\"a\nb\"]", "[data-value=\"a\\\nb\"]", "[data-value=\"a\\\r\nb\"]", "[data-value=\"a\\\"]" ) as $selector ) {
     $assert(! CssSelectorMatcher::parse($selector)['supported'], "rejects unsupported or malformed {$selector}");
 }
 

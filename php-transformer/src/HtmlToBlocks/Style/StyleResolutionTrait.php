@@ -1492,12 +1492,14 @@ trait StyleResolutionTrait
         $classes = 0;
         $elements = 0;
         foreach ($parsed['compounds'] as $compound) {
-            $ids += count($compound['ids'] ?? array());
-            $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array());
+            $zeroSpecificity = $compound['zero_specificity'] ?? array();
+            $ids += count($compound['ids'] ?? array()) - (int) ($zeroSpecificity['ids'] ?? 0);
+            $classes += count($compound['classes'] ?? array()) + count($compound['attributes'] ?? array())
+                - (int) ($zeroSpecificity['classes'] ?? 0) - (int) ($zeroSpecificity['attributes'] ?? 0);
             if (null !== ($compound['nth_child'] ?? null) || ($compound['first_child'] ?? false) || ($compound['last_child'] ?? false)) {
                 ++$classes;
             }
-            if (null !== ($compound['type'] ?? null)) {
+            if (null !== ($compound['type'] ?? null) && 0 === (int) ($zeroSpecificity['types'] ?? 0)) {
                 ++$elements;
             }
         }

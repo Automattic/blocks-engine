@@ -80,11 +80,54 @@ $assert(
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
-    'core/html' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
-        && str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'srcset="hero.jpg 1x, hero-2x.jpg 2x"')
-        && str_contains($responsiveImageResult['blocks'][0]['innerHTML'] ?? '', 'sizes="100vw"')
-        && 'html_responsive_image_fallback' === ($responsiveImageResult['fallbacks'][0]['diagnostic_code'] ?? null),
-    'responsive image sources should use the valid core/html fallback instead of lossy core/image markup'
+    'core/image' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)
+        && ! isset($responsiveImageResult['blocks'][0]['attrs']['srcset'], $responsiveImageResult['blocks'][0]['attrs']['sizes'])
+        && ! str_contains($responsiveImageResult['serialized_blocks'] ?? '', 'srcset=')
+        && array() === ($responsiveImageResult['fallbacks'] ?? array()),
+    'responsive img sources use their captured primary candidate in valid editable core/image markup'
+);
+$customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
+$assert(
+    'core/image' === ($customImageResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg' === ($customImageResult['blocks'][0]['attrs']['url'] ?? null)
+        && str_contains((string) ($customImageResult['blocks'][0]['attrs']['className'] ?? ''), 'media-frame photo')
+        && 'hero' === ($customImageResult['blocks'][0]['attrs']['anchor'] ?? null)
+        && 0 === substr_count((string) ($customImageResult['serialized_blocks'] ?? ''), '<!-- wp:html')
+        && array() === ($customImageResult['fallbacks'] ?? array()),
+    'image-only custom elements should lower to core/image while retaining lazy image and CSS identity'
+);
+$dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<media-image><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></media-image>')->toArray();
+$assert(
+    str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'style="object-fit:cover;width:320px;height:281px"')
+        && ! str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'width:1951px'),
+    'explicit display dimensions override intrinsic HTML dimensions and serialize as valid CSS lengths'
+);
+$linkedDimensionedImageResult = ( new HtmlTransformer() )->transform('<a href="/profile"><img src="avatar.jpg" style="width:44px;height:44px" width="44" height="44" alt="Profile"></a>')->toArray();
+$assert(
+    str_contains((string) ($linkedDimensionedImageResult['serialized_blocks'] ?? ''), 'style="width:44;height:44"'),
+    'linked core image dimensions match the unitless WordPress canonical save shape'
+);
+$visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
+$visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
+$assert(
+    str_contains((string) ($visualLayerImageResult['serialized_blocks'] ?? ''), '<!-- wp:group')
+        && str_contains($visualLayerImageCss, 'min-height:281px')
+        && str_contains($visualLayerImageCss, 'position:relative'),
+    'a media-only container retains intrinsic height when its visual layer is out of flow'
+);
+$stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><media-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
+$stickyVisualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stickyVisualLayerImageResult['assets'] ?? array()));
+$assert(
+    ! str_contains($stickyVisualLayerImageCss, 'min-height:281px'),
+    'an absolute visual layer does not impose its image height when normal-flow content already establishes the section height'
+);
+$customPictureResult = ( new HtmlTransformer() )->transform('<media-image><picture><source media="(min-width: 800px)" srcset="hero-large.jpg 1200w"><img src="hero.jpg" alt="Hero"></picture></media-image>')->toArray();
+$assert(
+    str_starts_with((string) ($customPictureResult['blocks'][0]['blockName'] ?? ''), 'custom/')
+        && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', '<media-image><picture>')
+        && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', 'media="(min-width: 800px)" srcset="hero-large.jpg 1200w"')
+        && array() === ($customPictureResult['fallbacks'] ?? array()),
+    'custom image wrappers should preserve picture source selection in a generated editable block'
 );
 $responsiveSrcsetSanitization = ( new HtmlTransformer() )->transform('<picture><source srcset="javascript:alert(1) 1x, safe.webp 2x"><img src="hero.jpg" srcset="data:image/png;base64,aGVsbG8= 1x, blob:https://example.com/id 2x, hero-2x.jpg 3x"></picture>')->toArray();
 $responsiveSrcsetMarkup = (string) ($responsiveSrcsetSanitization['serialized_blocks'] ?? '');
@@ -98,11 +141,12 @@ $assert(
 );
 $responsiveGallery = ( new HtmlTransformer() )->transform('<div class="gallery"><figure><img src="one.jpg" srcset="one-2x.jpg 2x"></figure><figure><img src="two.jpg"></figure></div>')->toArray();
 $assert(
-    'core/html' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
-        && 1 === count($responsiveGallery['fallbacks'] ?? array())
-        && 'div' === ($responsiveGallery['fallbacks'][0]['tag'] ?? null)
+    str_starts_with((string) ($responsiveGallery['blocks'][0]['blockName'] ?? ''), 'custom/')
+        && 1 === count($responsiveGallery['source_reports']['generated_blocks'] ?? array())
+        && array() === ($responsiveGallery['fallbacks'] ?? array())
+        && str_contains($responsiveGallery['source_reports']['generated_blocks'][0]['render'] ?? '', '<div class="gallery">')
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
-    'responsive gallery media is preserved as one fallback instead of a gallery with core/html children'
+    'responsive gallery media is preserved as one generated editable block instead of a gallery with unsupported children'
 );
 
 $referenceAnalyzer = new ReferenceAnalyzer();
@@ -542,6 +586,7 @@ $runtimeAppShell = ( new HtmlTransformer() )->transform(
     array(
         'runtime_canvas_selectors' => array('#scene'),
         'runtime_dom_selectors'    => array('#scene', '#run', '#log'),
+        'runtime_script_metadata'  => array(array('path' => 'app.js')),
     )
 )->toArray();
 $runtimeAppShellIsland = $runtimeAppShell['source_reports']['runtime_islands'][0] ?? array();
@@ -554,7 +599,7 @@ $assert(str_contains((string) ($runtimeAppShell['serialized_blocks'] ?? ''), '<m
 
 $inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
     '<span class="qty-display" aria-live="polite">1</span>',
-    array('runtime_dom_selectors' => array('.qty-display'))
+    array('runtime_dom_selectors' => array('.qty-display'), 'runtime_script_metadata' => array(array('path' => 'app.js')))
 )->toArray();
 $inlineSemanticIsland = $inlineSemanticRuntime['source_reports']['runtime_islands'][0] ?? array();
 $assert('core/html' === ($inlineSemanticRuntime['blocks'][0]['blockName'] ?? null), 'runtime-targeted inline semantic HTML remains a bounded core/html island to preserve attributes');
@@ -565,7 +610,7 @@ $assert('preserved_runtime_island' === ($inlineSemanticIsland['reason_code'] ?? 
 
 $runtimeSvgRoot = ( new HtmlTransformer() )->transform(
     '<main><svg id="graph" viewBox="0 0 640 360"></svg></main>',
-    array('runtime_dom_selectors' => array('#graph'))
+    array('runtime_dom_selectors' => array('#graph'), 'runtime_script_metadata' => array(array('path' => 'app.js')))
 )->toArray();
 $runtimeSvgMarkup = (string) ($runtimeSvgRoot['serialized_blocks'] ?? '');
 $runtimeSvgIsland = $runtimeSvgRoot['source_reports']['runtime_islands'][0] ?? array();
@@ -749,6 +794,20 @@ foreach ( $safeLinkProtocols as $protocol ) $assert($protocol . ':value' === Lin
 foreach ( array( '/relative/path', '../relative', '//example.test/path', '#fragment', '?query=value' ) as $relativeUrl ) $assert($relativeUrl === LinkUrlSanitizer::sanitize($relativeUrl), 'link sanitization preserves relative, protocol-relative, fragment, and query URLs');
 foreach ( array( 'data:text/plain,unsafe', 'vbscript:msgbox(1)', 'javascript:alert(1)', 'unknown:value', "java\nscript:alert(1)" ) as $unsafeUrl ) $assert('' === LinkUrlSanitizer::sanitize($unsafeUrl), 'link sanitization rejects unsafe or unknown explicit schemes and scheme obfuscation');
 
+$numericImageDimensions = ( new HtmlTransformer() )->transform(
+    '<main><img src="photo.jpg" alt="Photo" width="181" height="217" style="object-fit:cover;width:181;height:217"></main>'
+)->toArray();
+$numericImageAttrs = $numericImageDimensions['blocks'][0]['attrs'] ?? array();
+$numericImageMarkup = (string) ($numericImageDimensions['serialized_blocks'] ?? '');
+$assert('181px' === ($numericImageAttrs['width'] ?? null) && '217px' === ($numericImageAttrs['height'] ?? null) && str_contains($numericImageMarkup, 'style="object-fit:cover;width:181px;height:217px"'), 'numeric image display dimensions use canonical CSS lengths in both block attributes and saved markup');
+
+$numericLinkedImageDimensions = ( new HtmlTransformer() )->transform(
+    '<main><a href="https://example.com"><img src="photo.jpg" alt="Photo" width="44" height="44" style="object-fit:cover;width:44;height:44"></a></main>'
+)->toArray();
+$numericLinkedImageAttrs = $numericLinkedImageDimensions['blocks'][0]['attrs'] ?? array();
+$numericLinkedImageMarkup = (string) ($numericLinkedImageDimensions['serialized_blocks'] ?? '');
+$assert('44' === ($numericLinkedImageAttrs['width'] ?? null) && '44' === ($numericLinkedImageAttrs['height'] ?? null) && str_contains($numericLinkedImageMarkup, 'style="object-fit:cover;width:44;height:44"'), 'numeric linked-image dimensions retain Gutenberg linked-image save semantics in block attributes and markup');
+
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
 )->toArray();
@@ -881,7 +940,7 @@ $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
 )->toArray();
 $styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
-$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group footer-wrap"'), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*footer-wrap[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
 $assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
@@ -1037,6 +1096,25 @@ $assert(str_contains((string) ($externalDeclarativeCounter['serialized_blocks'] 
 $unlinkedWrappedImage = ( new HtmlTransformer() )->transform('<div class="image"><a><img src="testimonial.jpg" alt="Clients"></a><div class="caption"></div></div>')->toArray();
 $unlinkedWrappedImageMarkup = (string) ($unlinkedWrappedImage['serialized_blocks'] ?? '');
 $assert(str_contains($unlinkedWrappedImageMarkup, '<!-- wp:image') && str_contains($unlinkedWrappedImageMarkup, 'src="testimonial.jpg"'), 'image-only anchors without href preserve their image as a native block');
+
+$imageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><div class="gallery-frame"><media-image class="source-image"><img src="product.jpg" alt="Product"></media-image></div><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></button></main>')->toArray();
+$imageCarrierButtonMarkup = (string) ($imageCarrierButton['serialized_blocks'] ?? '');
+$assert(str_contains($imageCarrierButtonMarkup, '<!-- wp:image') && str_contains($imageCarrierButtonMarkup, 'src="product.jpg"'), 'an unlabeled image carrier control preserves its nested image as a native block');
+$assert(! str_contains($imageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled image carrier control does not route media through core/button RichText');
+$multiImageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><media-image><img src="one.jpg" alt="Product"></media-image><media-image><img src="two.jpg" alt="Product"></media-image></button></main>')->toArray();
+$multiImageCarrierButtonMarkup = (string) ($multiImageCarrierButton['serialized_blocks'] ?? '');
+$assert(2 === substr_count($multiImageCarrierButtonMarkup, '<!-- wp:image') && str_contains($multiImageCarrierButtonMarkup, 'src="one.jpg"') && str_contains($multiImageCarrierButtonMarkup, 'src="two.jpg"'), 'an unlabeled multi-image gallery control preserves every nested image as native blocks');
+$assert(! str_contains($multiImageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled multi-image gallery control does not flatten image alternatives into button RichText');
+
+$dataAncestryLayout = ( new HtmlTransformer() )->transform('<style>[data-layout="grid"]{display:grid;grid-template-rows:100px}[data-layout="grid"] > [id="hero"]{position:relative;grid-area:2 / 1 / 3 / 2}</style><main><div data-layout="grid"><section id="hero"><p>Hero</p></section></div></main>')->toArray();
+$dataAncestryCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAncestryLayout['assets'] ?? array()));
+$assert(str_contains($dataAncestryCss, ':where(#hero)') && str_contains($dataAncestryCss, 'position:relative'), 'source-proven data-attribute ancestry projects onto a surviving matched element ID');
+$assert(str_contains($dataAncestryCss, ':where(.blocks-engine-attribute-') && ! str_contains($dataAncestryCss, '[data-layout="grid"]{') && str_contains((string) ($dataAncestryLayout['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'direct data-attribute layout selectors project through deterministic structural marker classes');
+
+$emptyDataLayoutCarrier = ( new HtmlTransformer() )->transform('<style>[data-mesh-id="header"]{height:auto;min-height:83px}</style><header id="site-header"><div><div data-mesh-id="header"></div></div></header>')->toArray();
+$emptyDataLayoutCarrierCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyDataLayoutCarrier['assets'] ?? array()));
+$assert(str_contains((string) ($emptyDataLayoutCarrier['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'empty data-addressed layout carriers survive as editable structural groups');
+$assert(str_contains($emptyDataLayoutCarrierCss, ':where(.blocks-engine-attribute-') && str_contains($emptyDataLayoutCarrierCss, 'min-height:83px'), 'empty data-addressed layout carriers retain projected box geometry');
 
 $roundedOutlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;border-radius:12px;background:transparent;color:#eee" href="/tickets">Tickets</a></main>'
@@ -2306,6 +2384,15 @@ $assert('https://www.youtube.com/watch?v=dQw4w9WgXcQ' === ($safeProviderBlock['a
 $assert('youtube' === ($safeProviderBlock['attrs']['providerNameSlug'] ?? ''), 'safe provider iframe records provider slug');
 $assert(array() === ($safeProviderIframe['fallbacks'] ?? array()), 'safe provider iframe does not emit fallback metadata');
 
+$facebookProviderIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe title="Facebook video" src="https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Fexample%2Fvideos%2F123&amp;autoplay=true" width="637" height="358"></iframe></main>'
+)->toArray();
+$facebookProviderBlock = $facebookProviderIframe['blocks'][0] ?? array();
+$assert('core/embed' === ($facebookProviderBlock['blockName'] ?? ''), 'Facebook plugin iframe converts to core/embed');
+$assert('https://www.facebook.com/example/videos/123' === ($facebookProviderBlock['attrs']['url'] ?? ''), 'Facebook plugin iframe extracts its canonical video URL');
+$assert('facebook' === ($facebookProviderBlock['attrs']['providerNameSlug'] ?? ''), 'Facebook plugin iframe records provider slug');
+$assert(array() === ($facebookProviderIframe['fallbacks'] ?? array()), 'Facebook plugin iframe does not emit fallback metadata');
+
 $unknownIframe = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
 )->toArray();
@@ -2537,10 +2624,19 @@ $handlerLossDiagnostic = array_values(array_filter($handlerControl['diagnostics'
 $assert(1 === count($handlerLossDiagnostic), 'behavior-loss finding is projected into the diagnostics stream');
 
 $ariaToggleNoNav = ( new HtmlTransformer() )->transform('<main><header><button aria-controls="missing" aria-expanded="false"><span></span></button></header></main>')->toArray();
-$assert(1 === count($behaviorLossCollect($ariaToggleNoNav)), 'an aria-controls toggle with no associated navigation that becomes a dead core/button emits a behavior-loss finding');
+$assert(array() === $behaviorLossCollect($ariaToggleNoNav), 'ARIA state without a handler or available script remains a static native control without a behavior-loss finding');
 
 $roleButtonControl = ( new HtmlTransformer() )->transform('<main><div role="button" data-action="open">Open</div></main>')->toArray();
 $assert(1 === count($behaviorLossCollect($roleButtonControl)), 'a non-button element with role=button plus a declarative handler emits a behavior-loss finding');
+
+$inertPopupControl = ( new HtmlTransformer() )->transform('<main><a role="button" aria-haspopup="dialog" data-popupid="x">Contact</a><div role="button" aria-label="Enlarge"><span>Enlarge</span></div></main>')->toArray();
+$assert(array() === $behaviorLossCollect($inertPopupControl), 'static controls with inert popup metadata retain native content without inferred runtime fallbacks');
+
+$stylesheetInContent = ( new HtmlTransformer() )->transform('<main><link rel="stylesheet" href="theme.css"><p>Visible copy</p></main>')->toArray();
+$assert(array() === ($stylesheetInContent['fallbacks'] ?? array()) && str_contains((string) ($stylesheetInContent['serialized_blocks'] ?? ''), 'Visible copy') && ! str_contains((string) ($stylesheetInContent['serialized_blocks'] ?? ''), '<link'), 'document resource links do not become page-content fallbacks');
+
+$inertSvgStorage = ( new HtmlTransformer() )->transform('<main><svg aria-hidden="true" style="display:none"><defs id="store"></defs></svg><p>Visible copy</p></main>')->toArray();
+$assert(! str_contains((string) ($inertSvgStorage['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($inertSvgStorage['serialized_blocks'] ?? ''), 'Visible copy'), 'hidden SVG storage without drawable or accessible content does not become a page-content island');
 
 // Negatives: ordinary content must stay silent.
 $plainButton = ( new HtmlTransformer() )->transform('<main><button type="submit">Sign Up</button></main>')->toArray();
@@ -3829,6 +3925,10 @@ foreach ( $runtimeIslandFixture['cases'] as $runtimeIslandCase ) {
     $caseName = (string) ($runtimeIslandCase['name'] ?? '');
     $compiled = $compiler->compile($runtimeIslandCase['artifact'])->toArray();
     $package = $compiled['source_reports']['runtime_island_package'] ?? array();
+    if ( true === ($runtimeIslandCase['expect_no_package'] ?? false) ) {
+        $assert(array() === $package, 'runtime-island package is omitted for unavailable-script case ' . $caseName);
+        continue;
+    }
     $assert(is_array($package) && array() !== $package, 'runtime-island package is produced for fixture case ' . $caseName);
     $assert('blocks-engine/php-transformer/runtime-island-package/v1' === ($package['schema'] ?? ''), 'runtime-island package stamps the generic schema for case ' . $caseName);
 
