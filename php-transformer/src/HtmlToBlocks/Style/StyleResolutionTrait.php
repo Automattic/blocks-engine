@@ -255,6 +255,7 @@ trait StyleResolutionTrait
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
+                $this->editorAnchorClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -1560,11 +1561,83 @@ trait StyleResolutionTrait
             $this->frozenHiddenStateFindings[] = array(
                 'tag'          => strtolower($element->tagName),
                 'selector'     => $this->elementSelector($element),
+                'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $stripped,
             );
         }
 
         return $declarations;
+    }
+
+    private function collectEditorHiddenStateFindings(DOMElement $body): void
+    {
+        $hiddenRules = $this->hiddenStateStyleRules();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+            $declarations = array();
+            foreach ( $hiddenRules as $rule ) {
+                if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                    $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+                }
+            }
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+            $this->stripFrozenHiddenState($element, $declarations);
+        }
+    }
+
+    /** @return array<int, array{selector:string,declarations:array<string,string>}> */
+    private function hiddenStateStyleRules(): array
+    {
+        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
+        $css = $this->topLevelCssRules($css);
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $declarations = array_intersect_key(
+                $this->cssDeclarations((string) $match[2]),
+                array('display' => true, 'opacity' => true, 'visibility' => true)
+            );
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
+                    $rules[] = array('selector' => $selector, 'declarations' => $declarations);
+                }
+            }
+        }
+
+        return $rules;
+    }
+
+    private function editorStaticStateSelector(DOMElement $element): string
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
+            return '#' . $id;
+        }
+
+        $classes = array_values(array_filter(
+            preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(),
+            static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class)
+        ));
+
+        return array() === $classes ? '' : '.' . implode('.', $classes);
+    }
+
+    private function editorAnchorClassName(DOMElement $element): string
+    {
+        if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+            return '';
+        }
+        $anchor = $this->safeAnchor($this->attr($element, 'id'));
+        return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
     }
 
     /**

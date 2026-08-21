@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-autofit-grid-inline-leaf-items",
-  "description": "An auto-fit grid whose direct children are standalone inline text leaves keeps the author rule as the owner of its tracks and gap, because core's grid layout support cannot express auto-fit. Each leaf still rides its own display:contents carrier paragraph, so the item count matches the source children and the spans themselves become the grid items. Locks the standalone-inline-leaf routing branch, which bypasses cssOwnedGroupAttributes.",
+  "description": "An auto-fit grid whose direct children are standalone inline text leaves keeps the author rule as the owner of its tracks and gap, because core's grid layout support cannot express auto-fit. Each leaf still rides its own display:contents carrier paragraph, so the item count matches the source children and the spans themselves become the grid items. The parent retains the generic CSS-owned grid carrier.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-autofit-grid-inline-leaf-items.json",
@@ -19,7 +19,7 @@
     {
       "path": "blocks.0",
       "name": "core/group",
-      "attrs": { "layout": null, "className": "client-strip blocks-engine-css-owned-layout blocks-engine-css-owned-flow" }
+      "attrs": { "layout": null, "className": "client-strip blocks-engine-css-owned-layout blocks-engine-css-owned-grid" }
     },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
     { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph" }

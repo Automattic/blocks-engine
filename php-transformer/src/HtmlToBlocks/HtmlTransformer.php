@@ -431,6 +431,8 @@ final class HtmlTransformer
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
 
+    private const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
     private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
@@ -792,6 +794,7 @@ final class HtmlTransformer
         $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        $this->collectEditorHiddenStateFindings($body);
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
@@ -814,6 +817,7 @@ final class HtmlTransformer
             $serializedBlocks,
             $sourceProvenance
         );
+        $this->materializeEditorStaticStateStylesheet();
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
@@ -1105,6 +1109,9 @@ final class HtmlTransformer
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
+        if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
+            $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
+        }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
@@ -1159,10 +1166,12 @@ final class HtmlTransformer
             $authorCssParts[] = $authorCss;
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            // The source mobile menu hides its desktop list container. Core
-            // navigation owns that responsive swap now, so keep the block host
-            // visible and let core hide only its responsive inner container.
-            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}';
+            // Keep only source-responsive navigation hosts visible. Ordinary
+            // link rows retain authored mobile display rules without core's
+            // overlay control replacing them.
+            if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
+                $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
+            }
             // Size a carried menu to its content when it sits inside a brand
             // carrier. The carrier renders <nav> and core/navigation renders
             // another <nav> inside it, so an authored `header nav` rule matches
@@ -1263,7 +1272,7 @@ final class HtmlTransformer
     }
 
     /** @param array<int, string> $cssParts */
-    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix): void
+    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
     {
         $css = trim(implode("\n\n", $cssParts));
         if ( '' === $css ) {
@@ -1282,6 +1291,7 @@ final class HtmlTransformer
             'kind'        => 'css',
             'role'        => 'stylesheet',
             'stylesheet_placement' => $placement,
+            'stylesheet_target' => $target,
             'mime_type'   => 'text/css',
             'media_type'  => 'text/css',
             'content'     => $content,
@@ -1291,6 +1301,81 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    private function materializeEditorStaticStateStylesheet(): void
+    {
+        $rules = array();
+        $anchorProjectionCss = $this->editorAnchorProjectionCss();
+        if ( '' !== $anchorProjectionCss ) {
+            $rules[] = $anchorProjectionCss;
+        }
+        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+        }
+
+        $repairs = array();
+        foreach ( $this->frozenHiddenStateFindings as $finding ) {
+            $selector = (string) ($finding['editor_selector'] ?? '');
+            if ( '' === $selector ) {
+                continue;
+            }
+            foreach ( (array) ($finding['declarations'] ?? array()) as $declaration ) {
+                if ( 'display:none' === $declaration ) {
+                    $repairs[$selector]['display'] = 'revert!important';
+                } elseif ( 'visibility:hidden' === $declaration ) {
+                    $repairs[$selector]['visibility'] = 'visible!important';
+                } elseif ( 'opacity:0' === $declaration ) {
+                    $repairs[$selector]['opacity'] = '1!important';
+                    $repairs[$selector]['transform'] = 'none!important';
+                }
+            }
+        }
+        ksort($repairs, SORT_STRING);
+        foreach ( $repairs as $selector => $declarations ) {
+            ksort($declarations, SORT_STRING);
+            $body = '';
+            foreach ( $declarations as $property => $value ) {
+                $body .= $property . ':' . $value . ';';
+            }
+            $rules[] = ':root ' . $selector . '{' . rtrim($body, ';') . '}';
+        }
+
+        $this->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+    }
+
+    private function editorAnchorProjectionCss(): string
+    {
+        $ids = array_fill_keys(array_filter(
+            array_keys($this->authorStyleSourceElementsById),
+            fn (string $id): bool => '' !== $this->safeAnchor($id)
+        ), true);
+        if ( array() === $ids ) {
+            return '';
+        }
+
+        return trim(( new CssStylesheetTransformer() )->transform(
+            $this->combinedAuthorCss,
+            static function (string $prelude, string $body) use ($ids): array {
+                $projected = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $replacement = preg_replace_callback(
+                        '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+                        static fn (array $match): string => isset($ids[$match[2]])
+                            ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
+                            : $match[0],
+                        $selector
+                    );
+                    if ( is_string($replacement) && $replacement !== $selector ) {
+                        $projected[] = $replacement;
+                    }
+                }
+
+                return array() === $projected
+                    ? array()
+                    : array(array('prelude' => implode(',', $projected), 'body' => $body));
+            }
+        ));
     }
 
     /**
@@ -3854,7 +3939,8 @@ final class HtmlTransformer
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement)
+            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
         );
     }
 
@@ -4564,11 +4650,6 @@ final class HtmlTransformer
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
             ) {
-                if ( $this->hasStandaloneInlineLayoutLeaf($element) ) {
-                    $attrs = $this->presentationAttributes($element);
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_CLASS, self::CSS_OWNED_FLOW_CLASS);
-                    return $this->createBlock('core/group', $attrs, $this->convertChildren($element, $fallbacks, true), $element);
-                }
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
@@ -4975,6 +5056,9 @@ final class HtmlTransformer
 
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
+            if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            }
             if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
                 if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
@@ -5749,18 +5833,14 @@ final class HtmlTransformer
             }
         }
 
-        return false;
-    }
-
-    private function hasStandaloneInlineLayoutLeaf(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
-                return true;
-            }
+        if ( $this->ancestorElement($element, 'li') instanceof DOMElement ) {
+            return false;
         }
 
-        return false;
+        // Selector-addressed phrasing children still need an independent box,
+        // but a valid RichText paragraph carrier can host that box directly.
+        // Avoid wrapping the paragraph in an otherwise redundant core/group.
+        return $this->hasAuthorSemanticMarker($element);
     }
 
     /** @return array<string, mixed>|null */
@@ -6038,7 +6118,10 @@ final class HtmlTransformer
         $presentationAttrs = $this->presentationAttributes($element);
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
+            'className' => $this->sourceProjectionClassName($element, $this->mergePresentationClassNames(
+                (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class'))),
+                $this->editorAnchorClassName($element)
+            )),
             'content' => $content,
             'contentMode' => 'rich-text',
             'sourceAttributes' => array_filter(array_merge(
@@ -7148,6 +7231,10 @@ final class HtmlTransformer
         }
 
         $declarations = $this->presentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return $attrs;
+        }
         foreach ( array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' ) as $property ) {
             if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
                 return $attrs;
@@ -12931,11 +13018,12 @@ final class HtmlTransformer
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        // Declare responsive-overlay intent explicitly (see NavigationPattern):
-        // `overlayMenu` => `mobile` matches the core default so WP renders the
-        // responsive overlay and enqueues the navigation view module instead of
-        // depending on the render-time default being applied.
-        $blocks[] = $this->createBlock('core/navigation', array( 'overlayMenu' => 'mobile' ), $links, $element);
+        $overlayMenu = $this->navigationOverlayMenu($element);
+        $navigationAttrs = array( 'overlayMenu' => $overlayMenu );
+        if ( 'mobile' === $overlayMenu ) {
+            $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
+        }
+        $blocks[] = $this->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
     }

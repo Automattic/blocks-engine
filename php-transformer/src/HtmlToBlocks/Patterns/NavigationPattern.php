@@ -38,6 +38,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationUnderlineColor = $context->navigationUnderlineColorCallback();
         $resolvedStyle = $context->resolvedStyleCallback();
         $navigationColorInteractionStates = $context->navigationColorInteractionStatesCallback();
+        $navigationOverlayMenu = $context->navigationOverlayMenuCallback();
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
@@ -68,7 +69,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // current page in, and destinations left as inner-HTML hrefs rather than
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
-        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates);
+        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates, $navigationOverlayMenu);
         if ( null !== $hoisted ) {
             return $hoisted;
         }
@@ -87,7 +88,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($element, $presentationAttributes);
-        $navigationAttrs['overlayMenu'] = 'mobile';
+        $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($element) : 'never';
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+        }
         if ( $label instanceof DOMElement ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
         }
@@ -163,7 +167,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      *
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): ?array
+    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null, ?callable $navigationOverlayMenu = null): ?array
     {
         if ( null === $convertElement ) {
             return null;
@@ -294,7 +298,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         }
-        $navigationAttrs['overlayMenu'] = 'mobile';
+        $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($cluster) : 'never';
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+        }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
         $isDirectDivCascadeCollision = $isDirectDivCluster
             && null !== $resolvedStyle
@@ -871,12 +878,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
-
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
         if ( null !== $resolvedStyle ) {
             $resolvedTextColor = $this->navigationTextColorFromStyle($resolvedStyle($anchor));
             if ( '' !== $resolvedTextColor ) {
                 $itemAttrs['style']['color']['text'] = $resolvedTextColor;
+            }
+            if ( $submenuContainer instanceof DOMElement ) {
+                $resolvedBackgroundColor = $this->navigationBackgroundColorFromStyle($resolvedStyle($submenuContainer));
+                if ( '' !== $resolvedBackgroundColor ) {
+                    $itemAttrs['style']['color']['background'] = $resolvedBackgroundColor;
+                }
             }
         }
 
@@ -923,6 +935,22 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+    }
+
+    private function navigationBackgroundColorFromStyle(string $style): string
+    {
+        foreach ( array( 'background-color', 'background' ) as $property ) {
+            if ( 1 !== preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)/i', $style, $match) ) {
+                continue;
+            }
+
+            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $match[1]) ?? $match[1]);
+            if ( preg_match('/^(?:#[0-9a-f]{3,8}|rgba?\([^;]+\)|hsla?\([^;]+\)|var\([^;]+\)|[a-z]+)$/i', $value) ) {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     private function navigationColorStateMask(DOMElement $anchor, ?callable $navigationColorInteractionStates): int

@@ -825,10 +825,11 @@ $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
 )->toArray();
 $cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover"'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
+$cssSizedInlineSvgArtworkCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedInlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && ! str_contains($cssSizedInlineSvgArtworkMarkup, 'be-inline-geometry-'), 'explicit block SVG core/image keeps collapsed line-box geometry');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image keeps collapsed line-box geometry and source display and dimensions on the materialized image');
 
 $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     array(
@@ -1672,9 +1673,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // Slice 4 L6: support-derived color and spacing declarations retain canonical
 // wrapper attribute order before the cover-owned min-height declaration.
@@ -1918,13 +1919,15 @@ $assert('Work' === ($brandedHeaderBlockMenu['items'][0]['label'] ?? ''), 'brande
 $assert(3 === ($brandedHeaderParity['navigation_menus']['source'][0]['item_count'] ?? null), 'branded header source parity counts the same signaled menu subset as generated navigation');
 
 $dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
-    '<header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
+    '<style>.dropdown{background:#181818;color:#f2f2f2}</style><header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
 )->toArray();
+$dropdownHeaderSerialized = (string) ($dropdownHeaderNavigation['serialized_blocks'] ?? '');
 $dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
 $dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
 $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
+$assert(str_contains($dropdownHeaderSerialized, '"color":{"background":"#181818"}'), 'dropdown header navigation carries authored submenu background into the native submenu container');
 
 $nestedNavMenu = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Main"><ul><li><a href="/coffee">Coffee</a><nav id="nav-links" class="wp-block-navigation nav-links" style="display:none;align-items:flex-start;gap:1.4rem;background:var(--cream);flex-direction:column;padding:1.8rem var(--gutter) 2rem;box-shadow:0 10px 20px rgba(0,0,0,.2)"><a href="#espresso">Espresso</a><a href="#latte">Latte</a></nav></li><li><a href="/visit">Visit</a></li></ul></nav>'
@@ -2650,7 +2653,7 @@ $artifactNavStructureCompatCss = false === $artifactNavStructureCompatOffset ? '
 $artifactNavStructureAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNavStructureCss['assets'] ?? array()));
 $assert(str_contains($artifactNavStructureStaticCss, '.wp-block-navigation__container>.wp-block-navigation-item') && ! str_contains($artifactNavStructureCompatCss, 'blocks-engine-source-li-'), 'artifact navigation projection replaces non-serialized source list markers with core navigation item selectors');
 $assert(str_contains($artifactNavStructureCompatCss, '.desktop-nav.wp-block-navigation .wp-block-navigation__container .wp-block-navigation-item { float:left }'), 'artifact navigation projection maps classed navigation ancestor item selectors onto core navigation structure', $artifactNavStructureCompatCss);
-$assert(str_contains($artifactNavStructureAssetCss, '.wp-block-navigation.blocks-engine-list-navigation{display:flex!important}'), 'list navigation keeps the core responsive host visible when source mobile CSS hides its legacy menu container', $artifactNavStructureAssetCss);
+$assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! str_contains($artifactNavStructureAssetCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'list navigation without an authored responsive control preserves its mobile visibility contract', $artifactNavStructureAssetCss);
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
 
@@ -2665,6 +2668,20 @@ $artifactMobileNavOverlay = $compiler->compile(
 )->toArray();
 $artifactMobileNavOverlayAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactMobileNavOverlay['assets'] ?? array()));
 $assert(str_contains($artifactMobileNavOverlayAssetCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}'), 'deduplicated mobile navigation projects its authored background authoritatively over the core overlay default', $artifactMobileNavOverlayAssetCss);
+$assert(str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), 'blocks-engine-native-responsive-navigation') && str_contains((string) ($artifactMobileNavOverlay['serialized_blocks'] ?? ''), '"overlayMenu":"mobile"'), 'equivalent authored desktop/mobile navigations retain one native responsive overlay');
+
+$artifactToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><button aria-controls="menu" aria-expanded="false"><span></span><span></span></button><nav id="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialized_blocks'] ?? '');
+$artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
+$assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
@@ -4209,6 +4226,19 @@ $navStyle = $nav['attrs']['style'] ?? array();
 $assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must not freeze display:none');
 $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
 $assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
+
+$editorStaticStateResult = (new HtmlTransformer())->transform(
+    '<main><section id="process"><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',
+    array('static_css' => '#process{background:#111;padding:4rem}@media(max-width:600px){#process{padding:2rem}}.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
+)->toArray();
+$editorStaticStateAsset = current(array_filter(
+    $editorStaticStateResult['assets'] ?? array(),
+    static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')
+));
+$assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
+$editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
+$assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
+$assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'

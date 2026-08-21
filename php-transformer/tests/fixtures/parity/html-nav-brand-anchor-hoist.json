@@ -35,7 +35,7 @@
       "name": "core/navigation",
       "attrs": {
         "className": "navlinks blocks-engine-list-navigation",
-        "overlayMenu": "mobile",
+        "overlayMenu": "never",
         "customTextColor": "#DDE3EB"
       }
     },

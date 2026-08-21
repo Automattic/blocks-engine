@@ -264,7 +264,7 @@ $assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 't
 $inlineLeaves = $transform('<style>.meta{display:flex;gap:10px}.eyebrow{display:flex;gap:10px}.meta span{font:10px monospace;border:1px solid #999;padding:2px 8px}.eyebrow span{font-size:11px;letter-spacing:.1em}</style><div class="eyebrow"><span>Beta</span></div><div class="meta"><span>One</span><span>Two</span></div>');
 $inlineMarkup = (string) ($inlineLeaves['serialized_blocks'] ?? '');
 $inlineCss = $css($inlineLeaves);
-$assert(! str_contains($inlineMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineMarkup, 'blocks-engine-semantic-') && str_contains($inlineCss, ':where(.blocks-engine-semantic-') && str_contains($inlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Beta</span></p>') && str_contains($inlineCss, '.eyebrow p.blocks-engine-inline-layout-carrier > span{font-size:11px;letter-spacing:.1em}') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'typography-only direct structural spans retain selector paths through standalone carriers without a companion block');
+$assert(! str_contains($inlineMarkup, 'wp-block-blocks-engine-author-layout') && ! str_contains($inlineMarkup, 'blocks-engine-semantic-') && 3 === substr_count($inlineMarkup, '<p class="blocks-engine-inline-layout-carrier">') && str_contains($inlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Beta</span></p>') && str_contains($inlineCss, '.eyebrow p.blocks-engine-inline-layout-carrier > span{font-size:11px;letter-spacing:.1em}') && 'pass' === ($inlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'typography-only direct structural spans retain selector paths through standalone carriers without a companion block');
 
 $listInlineLeaves = $transform('<style>.maintenance-loop li{display:grid;grid-template-columns:42px 1fr}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#c9f27b}</style><ol class="maintenance-loop"><li><span>1</span><div><strong>Observe</strong><p>Copy</p></div></li><li><span>2</span><div><strong>Replay</strong></div><ul><li><span>N</span><div>Nested</div></li></ul></li></ol>');
 $listInlineMarkup = (string) ($listInlineLeaves['serialized_blocks'] ?? '');
@@ -313,8 +313,7 @@ $assert(3 === substr_count($listInlineMarkup, '--blocks-engine-richtext-marker:'
 $repeatedParents = $transform('<style>.row{display:flex}.row .pill{padding:2px 8px;border:1px solid #999}.other .pill{color:red}</style><div class="row"><span class="pill">First</span></div><div class="row"><span class="pill">Second</span></div><div class="other"><span class="pill">Third</span></div>');
 $repeatedMarkup = (string) ($repeatedParents['serialized_blocks'] ?? '');
 $repeatedCss = $css($repeatedParents);
-preg_match_all('/blocks-engine-semantic-[a-f0-9]+-\d+/', $repeatedMarkup . "\n" . $repeatedCss, $repeatedMarkers);
-$assert(2 === count(array_unique($repeatedMarkers[0] ?? array())) && 2 === substr_count($repeatedCss, ':where(.blocks-engine-semantic-') && str_contains($repeatedMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($repeatedCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-'), 'repeated structural parents allocate unique source-path markers without leaking their box styles into an unrelated inline sibling');
+$assert(2 === substr_count($repeatedMarkup, '<p class="blocks-engine-inline-layout-carrier">') && str_contains($repeatedCss, '.row p.blocks-engine-inline-layout-carrier > .pill{padding:2px 8px;border:1px solid #999}') && str_contains($repeatedMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($repeatedCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-'), 'repeated structural leaves share selector projection without leaking their box styles into an unrelated inline sibling');
 
 $richTextPill = $transform('<style>p .pill{padding:2px 8px;border:1px solid #999}</style><p>Read <span class="pill">more</span>.</p>');
 $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
@@ -423,12 +422,27 @@ $nestedGridItemCss = $css($nestedGridItem);
 $assert(
     'core/group' === ($nestedGridItemBlock['blockName'] ?? '')
     && 2 === count($nestedGridItemChildren)
-    && 'core/group' === ($nestedGridItemChildren[0]['blockName'] ?? '')
-    && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout-item')
-    && 'core/paragraph' === ($nestedGridItemChildren[0]['innerBlocks'][0]['blockName'] ?? '')
-    && str_contains($nestedGridItemCss, ':root :where(.wp-block-group.blocks-engine-css-owned-layout-item)>*{margin-block-start:0;margin-block-end:0}')
+    && 'core/paragraph' === ($nestedGridItemChildren[0]['blockName'] ?? '')
+    && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-inline-layout-carrier')
+    && str_contains($nestedGridItemCss, '.card > p.blocks-engine-inline-layout-carrier > span{grid-column:2}')
+    && ! str_contains((string) ($nestedGridItem['serialized_blocks'] ?? ''), 'blocks-engine-css-owned-layout-item')
     && 'pass' === ($nestedGridItem['source_reports']['wp_block_validity']['status'] ?? ''),
-    'semantic Group layout items neutralize only their generated paragraph children while retaining valid native blocks'
+    'selector-addressed text layout items use one valid paragraph carrier instead of a redundant Group wrapper'
+);
+
+$boxedLayoutLeaves = $transform('<style>.marquee{display:flex}.marquee > span{display:inline-flex;align-items:center;padding:0 3rem;color:#68625a}.tags{display:flex}.tags > span{padding:.4rem .9rem;border:1px solid #6a5628;background:#0c0b09;color:#c4a35a}</style><div class="marquee"><span>Vessel Beauty</span><span>Nomad Hotels</span></div><div class="tags"><span>Brand Systems</span><span>Editorial</span></div>');
+$boxedLayoutMarkup = (string) ($boxedLayoutLeaves['serialized_blocks'] ?? '');
+$boxedLayoutCss = $css($boxedLayoutLeaves);
+$boxedLayoutMetrics = $boxedLayoutLeaves['source_reports']['editability_report']['metrics'] ?? array();
+$assert(
+    2 === ($boxedLayoutMetrics['wrapper_block_count'] ?? -1)
+    && 4 === substr_count($boxedLayoutMarkup, '<!-- wp:paragraph')
+    && 4 === substr_count($boxedLayoutMarkup, 'blocks-engine-inline-layout-carrier') / 2
+    && ! str_contains($boxedLayoutMarkup, 'blocks-engine-css-owned-layout-item')
+    && str_contains($boxedLayoutCss, '.marquee > p.blocks-engine-inline-layout-carrier > span{display:inline-flex;align-items:center;padding:0 3rem;color:#68625a}')
+    && str_contains($boxedLayoutCss, '.tags > p.blocks-engine-inline-layout-carrier > span{padding:.4rem .9rem;border:1px solid #6a5628;background:#0c0b09;color:#c4a35a}')
+    && 'pass' === ($boxedLayoutLeaves['source_reports']['wp_block_validity']['status'] ?? ''),
+    'boxed direct flex text leaves retain author CSS and editor validity without one Group per leaf'
 );
 
 $textOnlyLayoutItems = $transform('<style>.grid{display:grid;grid-template-columns:repeat(2,1fr)}</style><div class="grid"><div>One</div><div>Two</div></div>');
