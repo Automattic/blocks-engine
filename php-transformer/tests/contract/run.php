@@ -489,6 +489,9 @@ $assert('core/accordion-panel' === ($accordionItems[0]['innerBlocks'][1]['blockN
 $assert('Assessment and treatment planning.' === ($accordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'accordion conversion preserves panel text');
 $assert(str_contains((string) ($accordionResult['serialized_blocks'] ?? ''), '<!-- wp:accordion '), 'accordion conversion serializes native accordion block comments');
 
+$decorativeAccordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="answer-a"><svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is covered?</button><div id="answer-a"><p>Assessment and treatment planning.</p></div></div><div class="faq-item"><button aria-controls="answer-b">How long is a visit?</button><div id="answer-b"><p>Most visits take 45 minutes.</p></div></div></section>')->toArray();
+$assert('What is covered?' === ($decorativeAccordionResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['title'] ?? null), 'accordion labels omit decorative SVG and hidden text');
+
 $complexAccordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">Question A</button><div id="a"><script src="accordion.js"></script><p>Answer A</p></div></div><div class="faq-item"><button aria-controls="b">Question B</button><div id="b"><p>Answer B</p></div></div></section>')->toArray();
 $assert('core/accordion' !== (($complexAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'runtime-heavy accordion markup is not forced into native accordion');
 
@@ -527,6 +530,9 @@ $assert('core/details' === ($disclosureBlock['blockName'] ?? null), 'a single ar
 $assert('What is your refund policy?' === ($disclosureBlock['attrs']['summary'] ?? null), 'disclosure toggle text maps to the details summary');
 $assert('Full refund within 30 days.' === ($disclosureBlock['innerBlocks'][0]['attrs']['content'] ?? null), 'disclosure panel content is preserved inside core/details');
 $assert(str_contains((string) ($disclosureResult['serialized_blocks'] ?? ''), '<!-- wp:details'), 'disclosure conversion serializes a native details block comment');
+
+$decorativeDisclosureResult = ( new HtmlTransformer() )->transform('<div><button aria-expanded="false" aria-controls="answer-2"><svg aria-hidden="true"></svg><span aria-hidden="true">Question:</span> What is your refund policy?</button><div id="answer-2"><p>Full refund within 30 days.</p></div></div>')->toArray();
+$assert('What is your refund policy?' === ($decorativeDisclosureResult['blocks'][0]['attrs']['summary'] ?? null), 'disclosure labels omit decorative SVG and hidden text');
 
 // A heading-wrapped toggle (button nested inside the header) is recognized by
 // the same structural signal.

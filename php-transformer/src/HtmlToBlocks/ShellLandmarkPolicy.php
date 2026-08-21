@@ -47,6 +47,11 @@ final class ShellLandmarkPolicy
         return in_array(strtolower($tagName), self::WRAPPER_PRESERVING_TAGS, true);
     }
 
+    public static function isColumnsWrapperTag(string $tagName): bool
+    {
+        return in_array(strtolower($tagName), self::WRAPPER_PRESERVING_TAGS, true);
+    }
+
     public static function isInlineTokenContainerTag(string $tagName): bool
     {
         return in_array(strtolower($tagName), self::INLINE_TOKEN_CONTAINER_TAGS, true);

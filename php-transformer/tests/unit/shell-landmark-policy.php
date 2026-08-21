@@ -33,6 +33,9 @@ $assert('main' === ShellLandmarkPolicy::landmarkKind('main'), 'main maps to main
 $assert(ShellLandmarkPolicy::isSemanticGroupTag('main'), 'main can remain a semantic core/group tag');
 $assert(ShellLandmarkPolicy::isWrapperPreservingTag('main'), 'main wrapper can preserve source style/structure');
 $assert(ShellLandmarkPolicy::isInlineContentWrapperTag('footer'), 'footer can still be content-local phrasing wrapper');
+$assert(ShellLandmarkPolicy::isColumnsWrapperTag('section'), 'section remains an eligible Columns wrapper');
+$assert(! ShellLandmarkPolicy::isColumnsWrapperTag('body'), 'body remains ineligible as a Columns wrapper');
+$assert(! ShellLandmarkPolicy::isColumnsWrapperTag('center'), 'center remains ineligible as a Columns wrapper');
 
 $assert('header' === ShellLandmarkPolicy::templatePartArea('parts/header.html', ''), 'header template part area comes from path');
 $assert('footer' === ShellLandmarkPolicy::templatePartArea('parts/site-shell.html', 'template-part footer'), 'footer template part area comes from role');

@@ -7,6 +7,8 @@ use DOMElement;
 
 final class AccordionPattern implements PatternRecognizerInterface
 {
+    use PatternDomHelpersTrait;
+
     /**
      * @return array<string, mixed>|null
      */
@@ -54,7 +56,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $titleHtml = $this->titleHtml($title, $innerHtml);
+        $titleHtml = $this->disclosureLabelHtml($title, $innerHtml);
         if ( '' === trim(strip_tags($titleHtml)) ) {
             return null;
         }
@@ -80,13 +82,13 @@ final class AccordionPattern implements PatternRecognizerInterface
     private function hasAccordionSignal(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        $class = strtolower($this->attr($element, 'class'));
-        $role = strtolower($this->attr($element, 'role'));
+        $class = strtolower($this->trimmedAttribute($element, 'class'));
+        $role = strtolower($this->trimmedAttribute($element, 'role'));
 
         return str_contains($class, 'accordion')
             || str_contains($class, 'faq')
             || 'accordion' === $role
-            || in_array($tagName, array( 'section', 'div', 'ul', 'ol' ), true) && str_contains(strtolower($this->attr($element, 'aria-label')), 'faq');
+            || in_array($tagName, array( 'section', 'div', 'ul', 'ol' ), true) && str_contains(strtolower($this->trimmedAttribute($element, 'aria-label')), 'faq');
     }
 
     private function isAccordionItemElement(DOMElement $element): bool
@@ -95,7 +97,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $class = strtolower($this->attr($element, 'class'));
+        $class = strtolower($this->trimmedAttribute($element, 'class'));
         return str_contains($class, 'item')
             || str_contains($class, 'accordion')
             || str_contains($class, 'faq')
@@ -110,7 +112,7 @@ final class AccordionPattern implements PatternRecognizerInterface
                 return $child;
             }
 
-            $class = strtolower($this->attr($child, 'class'));
+            $class = strtolower($this->trimmedAttribute($child, 'class'));
             if ( str_contains($class, 'title') || str_contains($class, 'heading') || str_contains($class, 'question') || str_contains($class, 'trigger') ) {
                 return $child;
             }
@@ -121,7 +123,7 @@ final class AccordionPattern implements PatternRecognizerInterface
 
     private function panelElement(DOMElement $item, DOMElement $title): ?DOMElement
     {
-        $controlledId = trim($this->attr($title, 'aria-controls'));
+        $controlledId = $this->trimmedAttribute($title, 'aria-controls');
         if ( '' !== $controlledId ) {
             foreach ( $item->getElementsByTagName('*') as $candidate ) {
                 if ( $candidate instanceof DOMElement && $candidate->getAttribute('id') === $controlledId ) {
@@ -135,23 +137,14 @@ final class AccordionPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            $class = strtolower($this->attr($child, 'class'));
-            $role = strtolower($this->attr($child, 'role'));
+            $class = strtolower($this->trimmedAttribute($child, 'class'));
+            $role = strtolower($this->trimmedAttribute($child, 'role'));
             if ( 'region' === $role || str_contains($class, 'panel') || str_contains($class, 'content') || str_contains($class, 'body') || str_contains($class, 'answer') ) {
                 return $child;
             }
         }
 
         return null;
-    }
-
-    private function titleHtml(DOMElement $title, callable $innerHtml): string
-    {
-        $html = $innerHtml($title);
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
-
-        return trim($html);
     }
 
     private function headingLevel(DOMElement $title): int
@@ -161,12 +154,12 @@ final class AccordionPattern implements PatternRecognizerInterface
 
     private function isOpen(DOMElement $item, DOMElement $title, ?DOMElement $panel): bool
     {
-        if ( $item->hasAttribute('open') || 'true' === strtolower($this->attr($title, 'aria-expanded')) ) {
+        if ( $item->hasAttribute('open') || 'true' === strtolower($this->trimmedAttribute($title, 'aria-expanded')) ) {
             return true;
         }
 
         foreach ( array_filter(array( $item, $title, $panel )) as $element ) {
-            if ( $element instanceof DOMElement && preg_match('/(?:^|\s)(?:active|open|is-active|is-open|expanded)(?:\s|$)/i', $this->attr($element, 'class')) ) {
+            if ( $element instanceof DOMElement && preg_match('/(?:^|\s)(?:active|open|is-active|is-open|expanded)(?:\s|$)/i', $this->trimmedAttribute($element, 'class')) ) {
                 return true;
             }
         }
@@ -174,42 +167,4 @@ final class AccordionPattern implements PatternRecognizerInterface
         return false;
     }
 
-    private function hasRuntimeHeavyDescendant(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( in_array(strtolower($candidate->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function directChildElements(DOMElement $element): array
-    {
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
-                return array();
-            }
-
-            if ( $child instanceof DOMElement ) {
-                $children[] = $child;
-            }
-        }
-
-        return $children;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? trim($element->getAttribute($name)) : '';
-    }
 }

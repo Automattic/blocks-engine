@@ -4547,15 +4547,6 @@ final class HtmlTransformer
             );
         }
 
-        if ( 'address' === $tagName ) {
-            $content = $this->innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-        }
-
         if ( 'figure' === $tagName ) {
             $gallery = $this->mediaGalleryBlockFromElement($element);
             if ( null !== $gallery ) {

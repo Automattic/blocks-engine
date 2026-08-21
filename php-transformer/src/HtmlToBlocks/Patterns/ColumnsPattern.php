@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 
 /**
  * Recognizes column / split-layout / documentation-sidebar containers and
@@ -107,7 +108,7 @@ final class ColumnsPattern
 
     private function isColumnWrapperElement(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
+        return ShellLandmarkPolicy::isColumnsWrapperTag($element->tagName);
     }
 
     private function looksLikeColumnsContainer(DOMElement $element, string $resolvedStyle): bool
