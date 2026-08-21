@@ -106,6 +106,36 @@ $candidateCache->clear();
 $assert(! $candidateCache->matches($byId('target'), '.final', CssSelectorMatcher::parse('.final'))['matches'], 'clearing the immutable revision cache observes class mutations');
 $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
 $assert(array( '[data-value]', '#target', 'span', ':not(.excluded)' ) === $candidateSelectors, 'clearing the immutable revision cache rebuilds class candidates after mutation');
+$assert(4 === $candidateCache->candidateRulesRetained, 'candidate cache accounts for retained rule references');
+$largeUniversalRules = array();
+for ( $index = 0; $index < 2048; ++$index ) {
+    $largeUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
+}
+$largeCandidateIndex = array(
+    'universal' => $largeUniversalRules,
+    'ids' => array(),
+    'classes' => array(),
+    'tags' => array(),
+    'total' => count($largeUniversalRules),
+);
+$candidateCache->styleRuleCandidates($byId('one'), 'large', $largeCandidateIndex);
+$candidateCache->styleRuleCandidates($byId('two'), 'large', $largeCandidateIndex);
+$candidateCache->styleRuleCandidates($byId('target'), 'large', $largeCandidateIndex);
+$assert(2048 === $candidateCache->candidateRulesRetained, 'candidate cache evicts prior element lists before retained rule references exceed the bound');
+$oversizedUniversalRules = array();
+for ( $index = 0; $index < 4097; ++$index ) {
+    $oversizedUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
+}
+$candidateCache->styleRuleCandidates($byId('control'), 'oversized', array(
+    'universal' => $oversizedUniversalRules,
+    'ids' => array(),
+    'classes' => array(),
+    'tags' => array(),
+    'total' => count($oversizedUniversalRules),
+));
+$assert(2048 === $candidateCache->candidateRulesRetained, 'a single oversized candidate list is returned without retention');
+$candidateCache->clear();
+$assert(0 === $candidateCache->candidateRulesRetained, 'clearing the immutable revision cache resets retained candidate accounting');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");

@@ -10,6 +10,8 @@ final class CssSelectorMatchCache
 {
     private const MAX_MATCHES = 4096;
 
+    private const MAX_CANDIDATE_RULES = 4096;
+
     /** @var array<string, list<string>> */
     private array $classTokens = array();
 
@@ -35,6 +37,8 @@ final class CssSelectorMatchCache
     public int $candidateRuleChecks = 0;
 
     public int $candidateRulesSkipped = 0;
+
+    public int $candidateRulesRetained = 0;
 
     /** @return list<string> */
     public function classTokens(DOMElement $element): array
@@ -108,6 +112,15 @@ final class CssSelectorMatchCache
         $this->candidateRuleChecks += count($rules);
         $this->candidateRulesSkipped += $index['total'] - count($rules);
 
+        $ruleCount = count($rules);
+        if ( $ruleCount > self::MAX_CANDIDATE_RULES ) {
+            return $rules;
+        }
+        if ( $this->candidateRulesRetained + $ruleCount > self::MAX_CANDIDATE_RULES ) {
+            $this->ruleCandidates = array();
+            $this->candidateRulesRetained = 0;
+        }
+        $this->candidateRulesRetained += $ruleCount;
         return $this->ruleCandidates[$key] = $rules;
     }
 
@@ -118,6 +131,7 @@ final class CssSelectorMatchCache
         $this->attributes = array();
         $this->matches = array();
         $this->ruleCandidates = array();
+        $this->candidateRulesRetained = 0;
     }
 
     private function elementKey(DOMElement $element): string
