@@ -79,6 +79,7 @@
       "php tests/unit/media-text-pattern.php",
       "php tests/unit/cover-style-resolver.php",
       "php tests/unit/css-stylesheet-transformer.php",
+      "php tests/unit/css-rule-analyzer.php",
       "php tests/unit/css-selector-matcher.php",
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/engine-support-css-asset.php",
