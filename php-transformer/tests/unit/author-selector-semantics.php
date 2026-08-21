@@ -519,6 +519,13 @@ $assert(2 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? 
 $geometryEdgeGroup = $transform('<style>.content{margin:10px}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
 $assert(2 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when the child geometry depends on its containing block');
 
+$neutralSameSourceGroupChain = $transform('<div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
+$neutralSameSourceGroupChainMarkup = (string) ($neutralSameSourceGroupChain['serialized_blocks'] ?? '');
+$assert(1 === substr_count($neutralSameSourceGroupChainMarkup, '<!-- wp:group') && str_contains($neutralSameSourceGroupChainMarkup, 'outer middle content'), 'neutral same-source Group chains coalesce to their source-provenance leaf');
+
+$sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
+$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

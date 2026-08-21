@@ -6966,26 +6966,10 @@ final class HtmlTransformer
             return null;
         }
 
-        $sourceChild = null;
-        foreach ( $element->childNodes as $node ) {
-            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $node instanceof DOMElement || null !== $sourceChild ) {
-                return null;
-            }
-            $sourceChild = $node;
-        }
-        if ( ! $sourceChild instanceof DOMElement ) {
-            return null;
-        }
-        if ( $this->hasMotionStructureToken($sourceChild) ) {
-            return null;
-        }
-
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
-        if ( ! is_int($provenanceId)
-            || hash('sha256', $this->safeFallbackHtml($sourceChild)) !== ($this->sourceProvenance[$provenanceId]['source_digest'] ?? null)
+        $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->sourceProvenance[$provenanceId]['source_digest'] ?? '')) : null;
+        if ( ! $sourceChild instanceof DOMElement
+            || $this->hasMotionStructureToken($sourceChild)
             || $this->hasBoxAffectingAuthorDeclarations($element)
             || $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)
             || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild)
@@ -6998,6 +6982,60 @@ final class HtmlTransformer
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
 
         return $this->createBlock('core/group', $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    private function sameSourceGroupChainLeaf(DOMElement $element, string $sourceDigest): ?DOMElement
+    {
+        if ( '' === $sourceDigest ) {
+            return null;
+        }
+
+        $child = $this->soleElementChild($element);
+        while ( $child instanceof DOMElement && hash('sha256', $this->safeFallbackHtml($child)) !== $sourceDigest ) {
+            if ( ! $this->isNeutralGroupChainWrapper($child) ) {
+                return null;
+            }
+            $child = $this->soleElementChild($child);
+        }
+
+        return $child;
+    }
+
+    private function isNeutralGroupChainWrapper(DOMElement $element): bool
+    {
+        if ( 'div' !== strtolower($element->tagName)
+            || $this->isRuntimeDomTarget($element)
+            || $this->isDirectChildOfStructuralLayout($element)
+            || '' !== trim($this->attr($element, 'id'))
+            || '' !== trim($this->attr($element, 'role'))
+            || '' !== trim($this->attr($element, 'style'))
+            || array() !== $this->interactiveAttributes($element)
+            || array() !== $this->safeDataAttributes($element)
+            || array() !== $this->structureSignals($element, array())
+            || $this->hasMotionStructureToken($element)
+            || $this->hasBoxAffectingAuthorDeclarations($element)
+        ) {
+            return false;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        return ! array_diff(array_keys($attrs), array( 'className' )) && $this->soleElementChild($element) instanceof DOMElement;
+    }
+
+    private function soleElementChild(DOMElement $element): ?DOMElement
+    {
+        $child = null;
+        foreach ( $element->childNodes as $node ) {
+            if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
+                return null;
+            }
+            $child = $node;
+        }
+
+        return $child;
     }
 
     private function hasMotionStructureToken(DOMElement $element): bool
@@ -7052,18 +7090,32 @@ final class HtmlTransformer
             return false;
         }
 
+        $chain = array();
+        for ( $node = $child; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            $chain[] = $node;
+            if ( $node === $element ) {
+                break;
+            }
+        }
+        if ( $element !== end($chain) ) {
+            return false;
+        }
+
         $matchesBefore = array();
         foreach ( $this->authorSelectors as $index => $authorSelector ) {
-            $matchesBefore[$index] = $authorSelector['parsed']['supported']
-                && CssSelectorMatcher::matches($child, $authorSelector['parsed'], true)['matches'];
+            $matchesBefore[$index] = $authorSelector['parsed']['supported'] && (bool) array_filter(
+                $chain,
+                static fn (DOMElement $node): bool => CssSelectorMatcher::matches($node, $authorSelector['parsed'], true)['matches']
+            );
         }
 
         $childClass = $this->attr($child, 'class');
+        $chainClasses = array_map(fn (DOMElement $node): string => $this->attr($node, 'class'), $chain);
+        $childParent = $child->parentNode;
         $childNextSibling = $child->nextSibling;
-        $element->removeChild($child);
         $parent->insertBefore($child, $element);
         $parent->removeChild($element);
-        $child->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $childClass));
+        $child->setAttribute('class', $this->mergeClassNames(...$chainClasses));
 
         $survives = true;
         foreach ( $this->authorSelectors as $index => $authorSelector ) {
@@ -7077,7 +7129,9 @@ final class HtmlTransformer
 
         $parent->insertBefore($element, $child);
         $parent->removeChild($child);
-        $element->insertBefore($child, $childNextSibling);
+        if ( $childParent instanceof DOMNode ) {
+            $childParent->insertBefore($child, $childNextSibling);
+        }
         if ( '' === $childClass ) {
             $child->removeAttribute('class');
         } else {
