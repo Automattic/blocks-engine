@@ -1013,10 +1013,10 @@ final class WordPressSitePlan
         }
         if (array() !== $editorStyles) {
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
-            $lines[] = "    \$post = \$context->post ?? null; if ( ! \$post instanceof WP_Post ) return \$settings;";
+            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
             $lines[] = '    $styles = ' . var_export($editorStyles, true) . ';';
             $lines[] = "    foreach ( \$styles as \$style ) {";
-            $lines[] = "        \$matches = false; foreach ( \$style['scopes'] as \$scope ) {";
+            $lines[] = "        \$matches = \$site_editor; if ( ! \$matches ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "            if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "            if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
             $lines[] = "            if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
