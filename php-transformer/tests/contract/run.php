@@ -825,10 +825,11 @@ $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.album-cover{width:100%;max-width:380px;aspect-ratio:1;display:block;box-shadow:0 40px 80px rgba(0,0,0,.6)}</style><main><div class="album-card"><svg class="album-cover" viewBox="0 0 500 500" role="img" aria-label="Album cover"><rect width="500" height="500" fill="#111"/></svg></div></main>'
 )->toArray();
 $cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover blocks-engine-synthetic-image-figure"'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
+$cssSizedInlineSvgArtworkCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedInlineSvgArtwork['assets'] ?? array()));
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && ! str_contains($cssSizedInlineSvgArtworkMarkup, 'be-inline-geometry-'), 'explicit block SVG core/image keeps collapsed line-box geometry');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image keeps collapsed line-box geometry and source display and dimensions on the materialized image');
 
 $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     array(

@@ -7150,6 +7150,10 @@ final class HtmlTransformer
         }
 
         $declarations = $this->presentationDeclarations($element);
+        $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
+            return $attrs;
+        }
         foreach ( array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' ) as $property ) {
             if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
                 return $attrs;
