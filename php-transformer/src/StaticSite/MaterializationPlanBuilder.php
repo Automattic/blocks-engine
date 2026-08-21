@@ -35,6 +35,8 @@ final class MaterializationPlanBuilder
     public function fromCompiledSite(array $compiledSite): array
     {
         $pages = $this->pages((array) ($compiledSite['pages'] ?? array()));
+        $templateSurfaces = $this->templateSurfaces($pages);
+        $pages = array_values(array_filter($pages, static fn(array $page): bool => !isset($page['metadata']['template_surface'])));
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
         $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
@@ -49,6 +51,7 @@ final class MaterializationPlanBuilder
             'source_hash'    => (string) ($compiledSite['source_hash'] ?? ''),
             'entry_path'     => (string) ($compiledSite['entry_path'] ?? ''),
             'pages'          => $pages,
+            'template_surfaces' => $templateSurfaces,
             'routes'         => $routes,
             'navigation_links' => $navigationLinks,
             'menus'          => $menus,
@@ -61,6 +64,7 @@ final class MaterializationPlanBuilder
             'rewrite_candidates' => $assetRewriteCandidates,
             'totals'         => array(
                 'pages'          => count($pages),
+                'template_surfaces' => count($templateSurfaces),
                 'routes'         => count($routes),
                 'navigation_links' => count($navigationLinks),
                 'menus'          => count($menus),
@@ -80,6 +84,7 @@ final class MaterializationPlanBuilder
         return array(
             'schema' => self::SCHEMA,
             'pages' => array(),
+            'template_surfaces' => array(),
             'routes' => array(),
             'navigation_links' => array(),
             'menus' => array(),
@@ -89,7 +94,7 @@ final class MaterializationPlanBuilder
             'theme' => array(),
             'asset_rewrite_candidates' => array(),
             'rewrite_candidates' => array(),
-            'totals' => array('pages' => 0, 'routes' => 0, 'navigation_links' => 0, 'menus' => 0, 'template_parts' => 0, 'assets' => 0),
+            'totals' => array('pages' => 0, 'template_surfaces' => 0, 'routes' => 0, 'navigation_links' => 0, 'menus' => 0, 'template_parts' => 0, 'assets' => 0),
         );
     }
 
@@ -113,9 +118,26 @@ final class MaterializationPlanBuilder
                 'block_markup' => (string) ($page['block_markup'] ?? ''),
                 'entrypoint'  => ! empty($page['entrypoint']),
                 'metadata'    => is_array($page['metadata'] ?? null) ? $page['metadata'] : array(),
+                'provenance'  => is_array($page['provenance'] ?? null) ? $page['provenance'] : array(),
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
+    }
+
+    /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
+    private function templateSurfaces(array $pages): array
+    {
+        $surfaces = array();
+        foreach ($pages as $page) {
+            if (!is_array($page['metadata']['template_surface'] ?? null)) continue;
+            $surfaces[] = array_filter(array(
+                'source_path' => (string) ($page['source_path'] ?? ''),
+                'block_markup' => (string) ($page['block_markup'] ?? ''),
+                'template_surface' => $page['metadata']['template_surface'],
+                'provenance' => $page['provenance'] ?? array(),
+            ), static fn(mixed $value): bool => '' !== $value && array() !== $value);
+        }
+        return $surfaces;
     }
 
     /**

@@ -165,12 +165,27 @@ final class ArtifactNormalizer
                 if ( is_string($file['metadata']['post_type'] ?? null) && in_array(strtolower($file['metadata']['post_type']), array('page', 'post'), true) ) {
                     $metadata['post_type'] = strtolower($file['metadata']['post_type']);
                 }
+                if ( is_array($file['metadata']['template_surface'] ?? null) ) {
+                    $metadata['template_surface'] = $file['metadata']['template_surface'];
+                }
                 if ( is_array($file['metadata']['compilation'] ?? null) ) {
                     $metadata['compilation'] = $file['metadata']['compilation'];
                 }
                 if ( array() !== $metadata ) {
                     $normalized['metadata'] = $metadata;
                 }
+            }
+            if ( ! isset($normalized['metadata']['template_surface']) && 'html' === $kind ) {
+                $surface = $this->htmlTemplateSurfaceDeclaration($payload['content']);
+                if ( null !== $surface ) {
+                    $normalized['metadata']['template_surface'] = $surface;
+                }
+            }
+            if ( isset($normalized['metadata']['template_surface']) ) {
+                $normalized['metadata']['template_surface'] = $this->canonicalTemplateSurfaceDeclaration(
+                    $normalized['metadata']['template_surface'],
+                    $path
+                );
             }
             foreach ( array('placement', 'type', 'media', 'source_path', 'selector', 'stylesheet_index', 'superseded_by') as $field ) {
                 if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
@@ -851,6 +866,41 @@ final class ArtifactNormalizer
     private function sanitizeKey(string $key): string
     {
         return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
+    }
+
+    /** @return array<string,string>|null */
+    private function htmlTemplateSurfaceDeclaration(string $html): ?array
+    {
+        if ( ! preg_match('/<main\b([^>]*)>/i', $html, $match) ) {
+            return null;
+        }
+        $role = $this->htmlAttribute((string) $match[1], 'data-template-type');
+        $slug = $this->htmlAttribute((string) $match[1], 'data-template-slug');
+        if ( '' === $role || '' === $slug || ! $this->isTemplateSurfaceRole($role) ) {
+            return null;
+        }
+        return array('schema' => 'blocks-engine/template-surface/v1', 'role' => $role, 'slug' => $slug, 'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'html_attributes'));
+    }
+
+    private function isTemplateSurfaceRole(string $role): bool
+    {
+        return in_array(strtolower($role), array('404', 'archive', 'attachment', 'author', 'category', 'date', 'home', 'search', 'single', 'tag', 'taxonomy'), true);
+    }
+
+    /** @param array<string,mixed> $surface @return array<string,mixed> */
+    private function canonicalTemplateSurfaceDeclaration(array $surface, string $sourcePath): array
+    {
+        $role = is_string($surface['role'] ?? null) ? strtolower(trim($surface['role'])) : '';
+        $slug = is_string($surface['slug'] ?? null) ? strtolower(trim($surface['slug'])) : '';
+        $surface['logical_surface_id'] ??= $role . ':' . $slug;
+        $surface['responsive_variant_id'] ??= $sourcePath;
+        $provenance = is_array($surface['declaration_provenance'] ?? null) ? $surface['declaration_provenance'] : array();
+        $provenance['schema'] ??= 'blocks-engine/template-surface-provenance/v1';
+        $provenance['kind'] ??= 'artifact_metadata';
+        $provenance['source_path'] ??= $sourcePath;
+        $surface['declaration_provenance'] = $provenance;
+        unset($surface['provenance']);
+        return $surface;
     }
 
     /**

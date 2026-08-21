@@ -269,11 +269,16 @@ final class ArtifactCompiler
             ),
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks']));
+        $fileMetadata = array_column($normalized['files'], null, 'path');
+        $entryFile = $fileMetadata[$entryPath] ?? array();
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
+            $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
                 'blocks' => is_array($compiledHtmlDocument['blocks'] ?? null) ? $compiledHtmlDocument['blocks'] : array(),
                 'serialized_blocks' => is_string($compiledHtmlDocument['serialized_blocks'] ?? null) ? $compiledHtmlDocument['serialized_blocks'] : '',
+                'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
+                'provenance' => $sourceFile['provenance'] ?? null,
             );
         }
         $sourceReports['editability_report'] = (new EditabilityReport())->fromDocuments($editabilityDocuments);
@@ -333,6 +338,7 @@ final class ArtifactCompiler
                     'context' => array(),
                     'metrics' => $metrics,
                 ));
+                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $sourceReports['wordpress_site_plan']['templates']);
             } catch (\InvalidArgumentException $exception) {
                 $diagnostics[] = $exception instanceof ValidationException
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
@@ -3039,7 +3045,7 @@ final class ArtifactCompiler
                     'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
                     'slug'           => $slug,
                     'title'          => $title,
-                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array()),
+                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
                     'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,

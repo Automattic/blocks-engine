@@ -151,6 +151,9 @@ final class TransformerResult
                     throw new InvalidArgumentException(sprintf('Canonical artifact result materialization plan %s must be an array.', $key));
                 }
             }
+            if ( isset($materializationPlan['template_surfaces']) && !is_array($materializationPlan['template_surfaces']) ) {
+                throw new InvalidArgumentException('Canonical artifact result materialization plan template_surfaces must be an array when present.');
+            }
 
             $wordpressSitePlan = $sourceReports['wordpress_site_plan'] ?? null;
             if ( null !== $wordpressSitePlan ) {

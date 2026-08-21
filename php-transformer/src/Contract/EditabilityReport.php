@@ -82,6 +82,9 @@ final class EditabilityReport
                 'signals' => $report['signals'],
                 'signal_totals' => $report['signal_totals'],
             );
+            $index = array_key_last($reports);
+            if (is_array($document['template_surface'] ?? null)) $reports[$index]['template_surface_declaration'] = $document['template_surface'];
+            if (is_array($document['provenance'] ?? null)) $reports[$index]['provenance'] = $document['provenance'];
             foreach ($report['metrics'] as $key => $value) {
                 if ('max_nesting_depth' === $key) {
                     $totals[$key] = max((int) ($totals[$key] ?? 0), (int) $value);
@@ -114,6 +117,21 @@ final class EditabilityReport
                 'truncated' => $signalCount > self::MAX_REPORTED_SIGNALS,
             ),
         );
+    }
+
+    /** @param array<string,mixed> $report @param array<int,array<string,mixed>> $templates @return array<string,mixed> */
+    public function withTemplateSurfaceSelection(array $report, array $templates): array
+    {
+        $selected = array();
+        foreach ($templates as $template) if (is_array($template['template_surface'] ?? null) && is_string($template['source_path'] ?? null)) $selected[$template['source_path']] = $template;
+        if (!is_array($report['documents'] ?? null)) return $report;
+        foreach ($report['documents'] as &$document) {
+            $template = $selected[$document['source_path'] ?? ''] ?? null;
+            if (!is_array($template)) continue;
+            $document['template_surface_selection'] = array('schema' => 'blocks-engine/template-surface-selection/v1', 'role' => $template['template_surface']['role'], 'slug' => $template['template_surface']['slug'], 'selected_source_path' => $template['source_path'], 'source_variants' => $template['template_surface']['source_variants'], 'declaration_provenance' => $template['template_surface']['declaration_provenance'], 'source_provenance' => $template['template_surface']['source_provenance']);
+        }
+        unset($document);
+        return $report;
     }
 
     /**
