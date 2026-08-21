@@ -794,6 +794,7 @@ final class HtmlTransformer
         $this->hydrateDuplicateNavigationSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        $this->collectEditorHiddenStateFindings($body);
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
@@ -816,6 +817,7 @@ final class HtmlTransformer
             $serializedBlocks,
             $sourceProvenance
         );
+        $this->materializeEditorStaticStateStylesheet();
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
@@ -1270,7 +1272,7 @@ final class HtmlTransformer
     }
 
     /** @param array<int, string> $cssParts */
-    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix): void
+    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
     {
         $css = trim(implode("\n\n", $cssParts));
         if ( '' === $css ) {
@@ -1289,6 +1291,7 @@ final class HtmlTransformer
             'kind'        => 'css',
             'role'        => 'stylesheet',
             'stylesheet_placement' => $placement,
+            'stylesheet_target' => $target,
             'mime_type'   => 'text/css',
             'media_type'  => 'text/css',
             'content'     => $content,
@@ -1298,6 +1301,43 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         );
+    }
+
+    private function materializeEditorStaticStateStylesheet(): void
+    {
+        $rules = array();
+        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+        }
+
+        $repairs = array();
+        foreach ( $this->frozenHiddenStateFindings as $finding ) {
+            $selector = (string) ($finding['editor_selector'] ?? '');
+            if ( '' === $selector ) {
+                continue;
+            }
+            foreach ( (array) ($finding['declarations'] ?? array()) as $declaration ) {
+                if ( 'display:none' === $declaration ) {
+                    $repairs[$selector]['display'] = 'revert!important';
+                } elseif ( 'visibility:hidden' === $declaration ) {
+                    $repairs[$selector]['visibility'] = 'visible!important';
+                } elseif ( 'opacity:0' === $declaration ) {
+                    $repairs[$selector]['opacity'] = '1!important';
+                    $repairs[$selector]['transform'] = 'none!important';
+                }
+            }
+        }
+        ksort($repairs, SORT_STRING);
+        foreach ( $repairs as $selector => $declarations ) {
+            ksort($declarations, SORT_STRING);
+            $body = '';
+            foreach ( $declarations as $property => $value ) {
+                $body .= $property . ':' . $value . ';';
+            }
+            $rules[] = ':root ' . $selector . '{' . rtrim($body, ';') . '}';
+        }
+
+        $this->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
     }
 
     /**
