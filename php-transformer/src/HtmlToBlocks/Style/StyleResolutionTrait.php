@@ -255,6 +255,7 @@ trait StyleResolutionTrait
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
+                $this->editorAnchorClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -1628,6 +1629,15 @@ trait StyleResolutionTrait
         ));
 
         return array() === $classes ? '' : '.' . implode('.', $classes);
+    }
+
+    private function editorAnchorClassName(DOMElement $element): string
+    {
+        if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
+            return '';
+        }
+        $anchor = $this->safeAnchor($this->attr($element, 'id'));
+        return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
     }
 
     /**

@@ -16,20 +16,20 @@
     "content": "<header id=\"site-header\" class=\"site-header js js-site-header jsHeader\"><nav id=\"mobile-nav\" class=\"site-nav js-site-nav js_nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/services\">Services</a></li></ul></nav></header><section id=\"feature-section\" class=\"feature-section reveal js-reveal\"><h2>Featured</h2><p>Stable source selectors remain available.</p></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "site-header", "className": "site-header", "tagName": "header" } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "site-header", "className": "site-header blocks-engine-editor-anchor-site-header", "tagName": "header" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation", "attrs": { "anchor": "mobile-nav", "className": "site-nav blocks-engine-list-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "never" } },
-    { "path": "blocks.1", "name": "core/group", "attrs": { "anchor": "feature-section", "className": "feature-section reveal", "tagName": "section" } }
+    { "path": "blocks.1", "name": "core/group", "attrs": { "anchor": "feature-section", "className": "feature-section reveal blocks-engine-editor-anchor-feature-section", "tagName": "section" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"site-header\",\"className\":\"site-header\",\"tagName\":\"header\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<header id=\"site-header\" class=\"wp-block-group site-header\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"site-header\",\"className\":\"site-header blocks-engine-editor-anchor-site-header\",\"tagName\":\"header\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<header id=\"site-header\" class=\"wp-block-group site-header blocks-engine-editor-anchor-site-header\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"anchor\":\"mobile-nav\",\"className\":\"site-nav blocks-engine-list-navigation\",\"style\":{\"spacing\":{\"blockGap\":\"0px\"}},\"overlayMenu\":\"never\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"feature-section\",\"className\":\"feature-section reveal\",\"tagName\":\"section\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<section id=\"feature-section\" class=\"wp-block-group feature-section reveal\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"feature-section\",\"className\":\"feature-section reveal blocks-engine-editor-anchor-feature-section\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section id=\"feature-section\" class=\"wp-block-group feature-section reveal blocks-engine-editor-anchor-feature-section\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "js-site-header" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "jsHeader" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "js-site-nav" },

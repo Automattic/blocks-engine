@@ -1306,6 +1306,10 @@ final class HtmlTransformer
     private function materializeEditorStaticStateStylesheet(): void
     {
         $rules = array();
+        $anchorProjectionCss = $this->editorAnchorProjectionCss();
+        if ( '' !== $anchorProjectionCss ) {
+            $rules[] = $anchorProjectionCss;
+        }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
         }
@@ -1338,6 +1342,40 @@ final class HtmlTransformer
         }
 
         $this->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+    }
+
+    private function editorAnchorProjectionCss(): string
+    {
+        $ids = array_fill_keys(array_filter(
+            array_keys($this->authorStyleSourceElementsById),
+            fn (string $id): bool => '' !== $this->safeAnchor($id)
+        ), true);
+        if ( array() === $ids ) {
+            return '';
+        }
+
+        return trim(( new CssStylesheetTransformer() )->transform(
+            $this->combinedAuthorCss,
+            static function (string $prelude, string $body) use ($ids): array {
+                $projected = array();
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $replacement = preg_replace_callback(
+                        '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+                        static fn (array $match): string => isset($ids[$match[2]])
+                            ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
+                            : $match[0],
+                        $selector
+                    );
+                    if ( is_string($replacement) && $replacement !== $selector ) {
+                        $projected[] = $replacement;
+                    }
+                }
+
+                return array() === $projected
+                    ? array()
+                    : array(array('prelude' => implode(',', $projected), 'body' => $body));
+            }
+        ));
     }
 
     /**
@@ -6080,7 +6118,10 @@ final class HtmlTransformer
         $presentationAttrs = $this->presentationAttributes($element);
         $attrs = array_filter(array(
             'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->sourceProjectionClassName($element, (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class')))),
+            'className' => $this->sourceProjectionClassName($element, $this->mergePresentationClassNames(
+                (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class'))),
+                $this->editorAnchorClassName($element)
+            )),
             'content' => $content,
             'contentMode' => 'rich-text',
             'sourceAttributes' => array_filter(array_merge(

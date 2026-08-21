@@ -4224,8 +4224,8 @@ $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state']
 $assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
 
 $editorStaticStateResult = (new HtmlTransformer())->transform(
-    '<main><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></main>',
-    array('static_css' => '.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
+    '<main><section id="process"><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',
+    array('static_css' => '#process{background:#111;padding:4rem}@media(max-width:600px){#process{padding:2rem}}.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
 )->toArray();
 $editorStaticStateAsset = current(array_filter(
     $editorStaticStateResult['assets'] ?? array(),
@@ -4234,6 +4234,7 @@ $editorStaticStateAsset = current(array_filter(
 $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAsset['stylesheet_target'] ?? null), 'editor static-state repair is an explicit editor-only stylesheet asset');
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
+$assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'
