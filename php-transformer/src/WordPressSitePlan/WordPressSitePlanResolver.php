@@ -14,6 +14,9 @@ final class WordPressSitePlanResolver
     public function resolve(array $plan, array $context): array
     {
         WordPressSitePlan::assertValid($plan);
+        if (isset($context['approved_plan_hash'])) {
+            if (!is_string($context['approved_plan_hash']) || !preg_match('/^[a-f0-9]{64}$/', $context['approved_plan_hash']) || !hash_equals($context['approved_plan_hash'], WordPressSitePlan::canonicalHash($plan))) throw new InvalidArgumentException('WordPress site plan does not match the externally approved canonical plan hash.');
+        }
         if (isset($plan['resolution'])) throw new InvalidArgumentException('WordPress site plan is already a resolved projection.');
         if (true === ($context['require_proven_dynamic_client_assets'] ?? false) && 'not_proven' === ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null)) throw new InvalidArgumentException('WordPress site plan cannot prove dynamic client asset references.');
         $capabilities = self::normalizeRuntimeCapabilities($context['runtime_capabilities'] ?? array());

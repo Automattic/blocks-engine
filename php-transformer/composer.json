@@ -53,6 +53,7 @@
       "php tests/contract/run.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/template-surfaces.php",
       "php tests/contract/staged-artifact-compilation.php",
       "php tests/contract/shared-shell-plan.php",
       "php tests/contract/empty-visual-figure.php",

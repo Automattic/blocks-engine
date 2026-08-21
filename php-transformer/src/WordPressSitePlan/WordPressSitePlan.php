@@ -14,6 +14,19 @@ final class WordPressSitePlan
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
 
+    /**
+     * Stable canonical bytes for an approval system to bind externally.
+     * This is an integrity comparison input, not a signature or authentication proof.
+     *
+     * @param array<string,mixed> $plan
+     */
+    public static function canonicalHash(array $plan): string
+    {
+        $canonical = $plan;
+        unset($canonical['resolution']);
+        return RuntimeDeclarations::hash($canonical);
+    }
+
     /** @return array<string,mixed> */
     public function fromResult(TransformerResult|array $result): array
     {
@@ -30,6 +43,8 @@ final class WordPressSitePlan
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
         $documents = $this->decideDocuments($compiled['pages'] ?? null);
+        $surfaces = $this->templateSurfaces($documents);
+        $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
         $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents));
         $pages = $this->documents($documents, false, $tokens, $references, $routeMap);
@@ -62,13 +77,13 @@ final class WordPressSitePlan
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
         self::assertEntityBindingsRemainPageOwned($runtimeDeclarations, $pages, $assets);
-        $templates = $this->templates($pages, $parts);
+        $templates = $this->templates($pages, $parts, $surfaces, $tokens, $references, $routeMap);
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts']), $this->assetWrites($assets, $references));
         $plan = array(
             'schema' => self::SCHEMA,
-            'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance']),
+            'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
             'pages' => $pages,
             'templates' => $templates,
             'template_parts' => $parts,
@@ -85,7 +100,7 @@ final class WordPressSitePlan
             'runtime_declarations' => $runtimeDeclarations,
             'diagnostics' => array_merge($data['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array()),
-            'reporting' => $this->reporting($pages, $data, array_merge($shells['diagnostics'], $scriptLoading['diagnostics'])),
+            'reporting' => $this->reporting($pages, $data, array_merge($shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
         self::assertValid($plan);
         return $plan;
@@ -134,6 +149,7 @@ final class WordPressSitePlan
             }
         }
         self::assertSource($plan['source']);
+        $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
         RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
         self::assertEntityBindingsRemainPageOwned($plan['runtime_declarations'], $plan['pages'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
@@ -194,13 +210,15 @@ final class WordPressSitePlan
         }
         $routeSources = array(); foreach ($plan['routes'] as $route) { self::unique($routeSources, $route['source_path'], 'route source'); $page = $pagesBySource[$route['source_path']] ?? null; if (!is_array($page) || $route['target_path'] !== $page['route']['path'] || $route['target_slug'] !== $page['slug']) throw new InvalidArgumentException('WordPress site plan routes do not match canonical page routes.'); }
         if (count($routeSources) !== count($pagePaths)) throw new InvalidArgumentException('WordPress site plan must export every canonical page route.');
-        self::assertReporting($plan['reporting'], $pagePaths, $tokens, $plan['diagnostics']);
+        self::assertReporting($plan['reporting'], array_merge($pagePaths, array_fill_keys(array_filter(array_column($plan['templates'], 'source_path'), 'is_string'), true)), $tokens, $plan['diagnostics']);
         self::assertOperations($plan['operations'], $plan['pages']);
         $templateTargets = array();
         foreach ( $plan['templates'] as $template ) {
-            if ( ! is_array($template) || ! is_string($template['slug'] ?? null) || ! self::safePath($template['target_path'] ?? null) || ! is_string($template['canonical_block_markup'] ?? null) || '' === trim($template['canonical_block_markup']) || !self::hash($template['reconciliation_identity'] ?? null) || !self::hash($template['content_hash'] ?? null) || $template['reconciliation_identity'] !== self::identity('template', 'wordpress-site-plan/' . $template['target_path'], $template['target_path']) || $template['content_hash'] !== self::contentHash($template['canonical_block_markup']) ) {
+            $sourcePath = is_array($template) && is_string($template['source_path'] ?? null) ? $template['source_path'] : 'wordpress-site-plan/' . ($template['target_path'] ?? '');
+            if ( ! is_array($template) || ! is_string($template['slug'] ?? null) || ! self::safePath($template['target_path'] ?? null) || ! is_string($template['canonical_block_markup'] ?? null) || '' === trim($template['canonical_block_markup']) || !self::hash($template['reconciliation_identity'] ?? null) || !self::hash($template['content_hash'] ?? null) || $template['reconciliation_identity'] !== self::identity('template', $sourcePath, $template['target_path']) || $template['content_hash'] !== self::contentHash($template['canonical_block_markup']) ) {
                 throw new InvalidArgumentException('WordPress site plan template is structurally invalid.');
             }
+            if (isset($template['template_surface']) && (!is_array($template['template_surface']) || !self::validTemplateSurface($template['template_surface'], $template['source_path'] ?? null, $sourceCatalog) || $template['slug'] !== $template['template_surface']['slug'] || !is_string($template['source_path'] ?? null) || !is_array($template['provenance'] ?? null))) throw new InvalidArgumentException('WordPress site plan declared template surface is structurally invalid.');
             self::unique($templateTargets, $template['target_path'], 'template target');
             self::assertTokens($template['canonical_block_markup'], $tokens);
             self::assertNoLocalBrowserReferences($template['canonical_block_markup']);
@@ -787,6 +805,11 @@ final class WordPressSitePlan
             if (null === $explicit && 'metadata:post_type' === ($metadata['post_type_declaration'] ?? null) && is_string($metadata['post_type'] ?? null) && in_array(strtolower($metadata['post_type']), array('page', 'post'), true)) { $explicit = strtolower($metadata['post_type']); $provenance = 'metadata:post_type'; }
             $evidence = $this->publicationEvidence($document);
             $postType = $explicit ?? ((!empty($document['entrypoint']) || array() === $evidence) ? 'page' : 'post');
+            $surface = $this->templateSurface($metadata['template_surface'] ?? null, (string) ($document['source_path'] ?? ''));
+            if (null !== $surface) {
+                $document['template_surface'] = $surface;
+                $metadata['template_surface'] = $surface;
+            }
             $metadata['post_type'] = $postType;
             $document['metadata'] = $metadata;
             $document['content_decision'] = array_filter(array('schema' => 'blocks-engine/content-decision/v1', 'state' => null !== $explicit ? 'declared' : (array() === $evidence ? 'defaulted' : 'inferred'), 'post_type' => $postType, 'provenance' => $provenance, 'evidence' => $evidence), static fn(mixed $value): bool => null !== $value);
@@ -794,6 +817,86 @@ final class WordPressSitePlan
         }
         unset($document);
         return $documents;
+    }
+    /** @return array<string,mixed>|null */
+    private function templateSurface(mixed $surface, string $sourcePath): ?array
+    {
+        if (null === $surface) return null;
+        if (!is_array($surface) || !self::validTemplateSurfaceDeclaration($surface, $sourcePath)) throw new ValidationException('A declared template surface must have coherent versioned identity and declaration provenance.', array('source_path' => $sourcePath, 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'invalid_template_surface'));
+        return $surface;
+    }
+    /** @param array<int,array<string,mixed>> $documents @return array<int,array<string,mixed>> */
+    private function templateSurfaces(array $documents): array
+    {
+        $groups = array();
+        foreach ($documents as $document) if (is_array($document['template_surface'] ?? null)) $groups[$document['template_surface']['role'] . "\0" . $document['template_surface']['slug']][] = $document;
+        $surfaces = array();
+        foreach ($groups as $key => $candidates) {
+            usort($candidates, static fn(array $a, array $b): int => strcmp((string) $a['source_path'], (string) $b['source_path']));
+            $hashes = array_unique(array_map(static fn(array $document): string => hash('sha256', (string) ($document['block_markup'] ?? '')), $candidates));
+            if (count($hashes) > 1) throw new ValidationException('Declared template surface variants have different block markup.', array('source_path' => (string) $candidates[0]['source_path'], 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'template_surface_ambiguous', 'fields' => array('surface' => str_replace("\0", ':', $key), 'candidate_count' => count($candidates))));
+            $selected = $candidates[0];
+            $provenance = $selected['provenance'] ?? null;
+            if (!self::validTemplateSourceProvenance($provenance, (string) $selected['source_path'])) throw new ValidationException('A declared template surface source provenance is detached from its selected source.', array('source_path' => (string) $selected['source_path'], 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'invalid_template_surface_provenance'));
+            $variants = array();
+            foreach ($candidates as $candidate) {
+                $candidateProvenance = $candidate['provenance'] ?? null;
+                if (!self::validTemplateSourceProvenance($candidateProvenance, (string) $candidate['source_path'])) throw new ValidationException('A declared template surface variant provenance is detached from its source.', array('source_path' => (string) $candidate['source_path'], 'document_kind' => 'template_surface', 'declaration_kind' => 'template_surface', 'reason' => 'invalid_template_surface_variant'));
+                $variants[] = array('source_path' => $candidate['source_path'], 'source_hash' => $candidateProvenance['hash'], 'source_provenance' => $candidateProvenance);
+            }
+            $selected['template_surface']['source_variants'] = $variants;
+            $selected['template_surface']['selected_source_path'] = $selected['source_path'];
+            $selected['template_surface']['selected_source_hash'] = $provenance['hash'];
+            $selected['template_surface']['source_provenance'] = $provenance;
+            $surfaces[] = $selected;
+        }
+        return $surfaces;
+    }
+    /** @param mixed $documents @return array<int,array<string,mixed>> */
+    private function sourceDocumentCatalog(mixed $documents): array
+    {
+        if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.');
+        $catalog = array();
+        foreach ($documents as $document) {
+            $sourcePath = is_array($document) && is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            $provenance = is_array($document) ? ($document['provenance'] ?? null) : null;
+            if (!self::safePath($sourcePath) || !self::validTemplateSourceProvenance($provenance, $sourcePath)) throw new InvalidArgumentException('Compiled site source document catalog entry is invalid.');
+            $catalog[] = array('source_path' => $sourcePath, 'source_hash' => $provenance['hash'], 'source_provenance' => $provenance);
+        }
+        usort($catalog, static fn(array $left, array $right): int => strcmp($left['source_path'], $right['source_path']));
+        return $catalog;
+    }
+    /** @param array<string,mixed> $surface */
+    private static function validTemplateSurfaceDeclaration(array $surface, string $sourcePath): bool
+    {
+        $identifier = static fn(mixed $value): bool => is_string($value) && 0 < strlen($value) && strlen($value) <= 128 && 1 === preg_match('/^[a-z0-9][a-z0-9._:-]*$/', $value);
+        $provenance = $surface['declaration_provenance'] ?? null;
+        return 'blocks-engine/template-surface/v1' === ($surface['schema'] ?? null) && in_array($surface['role'] ?? null, array('404', 'archive', 'attachment', 'author', 'category', 'date', 'home', 'search', 'single', 'tag', 'taxonomy'), true) && $identifier($surface['slug'] ?? null) && ($surface['logical_surface_id'] ?? null) === $surface['role'] . ':' . $surface['slug'] && $identifier($surface['responsive_variant_id'] ?? null) && is_array($provenance) && 'blocks-engine/template-surface-provenance/v1' === ($provenance['schema'] ?? null) && in_array($provenance['kind'] ?? null, array('artifact_metadata', 'html_attributes'), true) && $sourcePath === ($provenance['source_path'] ?? null);
+    }
+    /** @param array<string,mixed> $surface */
+    private static function validTemplateSurface(array $surface, mixed $sourcePath, array $sourceCatalog): bool
+    {
+        if (!is_string($sourcePath) || !self::validTemplateSurfaceDeclaration($surface, $sourcePath) || !is_array($surface['source_provenance'] ?? null) || !self::validTemplateSourceProvenance($surface['source_provenance'], $sourcePath) || !is_array($surface['source_variants'] ?? null) || !array_is_list($surface['source_variants']) || array() === $surface['source_variants'] || !is_string($surface['selected_source_path'] ?? null) || $sourcePath !== $surface['selected_source_path'] || !is_string($surface['selected_source_hash'] ?? null) || $surface['selected_source_hash'] !== $surface['source_provenance']['hash']) return false;
+        $paths = array(); $selected = null; foreach ($surface['source_variants'] as $variant) { if (!is_array($variant) || !is_string($variant['source_path'] ?? null) || !self::safePath($variant['source_path']) || isset($paths[$variant['source_path']]) || !self::hash($variant['source_hash'] ?? null) || !self::validTemplateSourceProvenance($variant['source_provenance'] ?? null, $variant['source_path']) || $variant['source_hash'] !== $variant['source_provenance']['hash'] || !isset($sourceCatalog[$variant['source_path']]) || RuntimeDeclarations::canonicalJson($sourceCatalog[$variant['source_path']]) !== RuntimeDeclarations::canonicalJson($variant)) return false; $paths[$variant['source_path']] = true; if ($sourcePath === $variant['source_path']) $selected = $variant; }
+        $ordered = array_keys($paths); $sorted = $ordered; sort($sorted, SORT_STRING);
+        return is_array($selected) && $selected['source_hash'] === $surface['selected_source_hash'] && RuntimeDeclarations::canonicalJson($selected['source_provenance']) === RuntimeDeclarations::canonicalJson($surface['source_provenance']) && $ordered === $sorted;
+    }
+    /** @param array<string,mixed>|mixed $provenance */
+    private static function validTemplateSourceProvenance(mixed $provenance, string $sourcePath): bool
+    {
+        return is_array($provenance) && $sourcePath === ($provenance['source_path'] ?? null) && is_string($provenance['source'] ?? null) && '' !== $provenance['source'] && self::hash($provenance['hash'] ?? null);
+    }
+    /** @param array<string,mixed> $source @return array<string,array<string,mixed>> */
+    private static function sourceDocumentCatalogFromSource(array $source): array
+    {
+        if (!isset($source['source_documents'])) return array();
+        $catalog = array();
+        foreach ($source['source_documents'] as $row) {
+            if (!is_array($row) || !is_string($row['source_path'] ?? null) || !self::safePath($row['source_path']) || isset($catalog[$row['source_path']]) || !self::hash($row['source_hash'] ?? null) || !self::validTemplateSourceProvenance($row['source_provenance'] ?? null, $row['source_path']) || $row['source_hash'] !== $row['source_provenance']['hash']) throw new InvalidArgumentException('WordPress site plan source document catalog is invalid.');
+            $catalog[$row['source_path']] = $row;
+        }
+        $paths = array_keys($catalog); $sorted = $paths; sort($sorted, SORT_STRING); if ($paths !== $sorted) throw new InvalidArgumentException('WordPress site plan source document catalog must be sorted.');
+        return $catalog;
     }
     /** @param array<string,mixed> $document @return array<int,array<string,string>> */
     private function publicationEvidence(array $document): array
@@ -817,7 +920,7 @@ final class WordPressSitePlan
         return $rows;
     }
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @return array<string,mixed> */
-    private function reporting(array $pages, array $data, array $scriptDiagnostics = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
+    private function reporting(array $pages, array $data, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
     /** @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>> */
     private function canonicalRoutes(mixed $documents, array $legacyRoutes): array { if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.'); $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route; $entryRoot = self::entryRootFromDocuments($documents); $routes = array(); $paths = array(); foreach ($documents as $order => $document) { if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.'); $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array(); $explicitRoute = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path']; if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/') && !$explicitRoute) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.'); $path = $explicitRoute ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot); if (isset($paths[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.'); $paths[$path] = true; $previous = $legacy[$document['source_path']] ?? array(); $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order); } return $routes; }
@@ -854,7 +957,7 @@ final class WordPressSitePlan
     private function routesForPages(array $pages): array { $routes = array(); foreach ($pages as $page) $routes[] = array('kind' => 'route', 'source_path' => $page['source_path'], 'target_path' => $page['route']['path'], 'target_slug' => $page['slug'], 'title' => $page['title'], 'parent_source_path' => $page['parent_source_path'], 'source_relation' => !empty($page['synthetic']) ? 'synthetic_parent' : (!empty($page['entrypoint']) ? 'entrypoint' : 'document'), 'order' => count($routes)); return $routes; }
 
     /** @param array<int,array<string,mixed>> $pages @return array<int,array<string,string>> */
-    private function templates(array $pages, array $parts): array
+    private function templates(array $pages, array $parts, array $surfaces = array(), array $tokens = array(), ?AssetReferenceCanonicalizer $references = null, array $routes = array()): array
     {
         $bound = array_values(array_filter($parts, static fn(array $part): bool => in_array($part['placement']['kind'] ?? '', array('entry_shell', 'shared_shell'), true)));
         usort($bound, static function (array $left, array $right): int {
@@ -879,6 +982,12 @@ final class WordPressSitePlan
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
         foreach (array_keys($overrides) as $slug) $templates[] = $make($slug, 'templates/' . $slug . '.html', $markup($slug));
+        foreach ($surfaces as $surface) {
+            $declaration = $surface['template_surface']; $slug = $declaration['slug']; $target = 'templates/' . $slug . '.html';
+            if (array_filter($templates, static fn(array $template): bool => $template['slug'] === $slug)) throw new InvalidArgumentException('A declared template surface collides with a generated template.');
+            $content = is_null($references) ? (string) $surface['block_markup'] : $this->routeLinks($references->content((string) $surface['block_markup'], (string) $surface['source_path']), (string) $surface['source_path'], $routes);
+            $templates[] = array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'source_path' => $surface['source_path'], 'template_surface' => $declaration, 'provenance' => $surface['provenance'] ?? array(), 'reconciliation_identity' => self::identity('template', $surface['source_path'], $target), 'content_hash' => self::contentHash($content));
+        }
         return $templates;
     }
 
@@ -1475,7 +1584,7 @@ final class WordPressSitePlan
         throw new ValidationException("WordPress site plan {$label} is invalid: {$reason}.", $context);
     }
     /** @param array<string,mixed> $reporting @param array<string,bool> $pagePaths @param array<string,bool> $tokens */
-    private static function assertReporting(array $reporting, array $pagePaths, array $tokens, array $diagnostics): void { if(!is_array($reporting['source_documents']??null)||!is_array($reporting['metrics']??null)||!is_array($reporting['core_html_fallback_evidence']??null)||!is_array($reporting['diagnostic_codes']??null))throw new InvalidArgumentException('WordPress site plan reporting summary is invalid.');$sources=array();foreach($reporting['source_documents'] as $document){if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['kind']??null)||!is_string($document['body_format']??null)||!is_bool($document['block_document']??null)||!is_array($document['provenance']??null))throw new InvalidArgumentException('WordPress site plan source document summary is invalid.');self::unique($sources,$document['source_path'],'source document');}if(count($sources)!==count($pagePaths)||array_keys($sources)!==array_keys($pagePaths))throw new InvalidArgumentException('WordPress site plan source document summaries do not match pages.');foreach(array('source_document_count','block_document_count','native_block_count','fallback_count') as $key)if(!is_int($reporting['metrics'][$key]??null))throw new InvalidArgumentException('WordPress site plan reporting metric is invalid.');$linked=array_fill_keys($reporting['diagnostic_codes'],true);foreach($reporting['diagnostic_codes'] as $code)if(!is_string($code)||''===$code)throw new InvalidArgumentException('WordPress site plan diagnostic linkage is invalid.');foreach($diagnostics as $diagnostic)if(is_array($diagnostic)&&is_string($diagnostic['code']??null)&&!isset($linked[$diagnostic['code']]))throw new InvalidArgumentException('WordPress site plan diagnostics are not linked to reporting.');}
+    private static function assertReporting(array $reporting, array $sourcePaths, array $tokens, array $diagnostics): void { if(!is_array($reporting['source_documents']??null)||!is_array($reporting['metrics']??null)||!is_array($reporting['core_html_fallback_evidence']??null)||!is_array($reporting['diagnostic_codes']??null))throw new InvalidArgumentException('WordPress site plan reporting summary is invalid.');$sources=array();foreach($reporting['source_documents'] as $document){if(!is_array($document)||!self::safePath($document['source_path']??null)||!is_string($document['kind']??null)||!is_string($document['body_format']??null)||!is_bool($document['block_document']??null)||!is_array($document['provenance']??null))throw new InvalidArgumentException('WordPress site plan source document summary is invalid.');self::unique($sources,$document['source_path'],'source document');}if(count($sources)!==count($sourcePaths)||array_keys($sources)!==array_keys($sourcePaths))throw new InvalidArgumentException('WordPress site plan source document summaries do not match materialized documents.');foreach(array('source_document_count','block_document_count','native_block_count','fallback_count') as $key)if(!is_int($reporting['metrics'][$key]??null))throw new InvalidArgumentException('WordPress site plan reporting metric is invalid.');$linked=array_fill_keys($reporting['diagnostic_codes'],true);foreach($reporting['diagnostic_codes'] as $code)if(!is_string($code)||''===$code)throw new InvalidArgumentException('WordPress site plan diagnostic linkage is invalid.');foreach($diagnostics as $diagnostic)if(is_array($diagnostic)&&is_string($diagnostic['code']??null)&&!isset($linked[$diagnostic['code']]))throw new InvalidArgumentException('WordPress site plan diagnostics are not linked to reporting.');}
     /** @param array<string,string> $tokens */
     private static function assertWrite(mixed $write, array $tokens, bool $browserReferences): void { if (!is_array($write) || !is_string($write['kind'] ?? null) || !self::safePath($write['source_path'] ?? null) || !self::safePath($write['target_path'] ?? null) || !self::hash($write['reconciliation_identity'] ?? null) || !self::hash($write['payload_hash'] ?? null) || !is_array($write['payload'] ?? null) || !in_array($write['payload']['encoding'] ?? null, array('utf8','base64','reference'), true) || $write['reconciliation_identity'] !== self::identity('write', $write['source_path'], $write['target_path'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('reference' === $write['payload']['encoding']) { $reference = self::payloadReference($write['payload']['reference'] ?? null); if (!is_array($reference) || ($write['raw_sha256'] ?? null) !== $reference['sha256'] || $write['payload_hash'] !== self::contentHash(RuntimeDeclarations::canonicalJson($reference))) throw new InvalidArgumentException('WordPress site plan write has an invalid payload reference.'); return; } if (!is_string($write['payload']['data'] ?? null) || $write['payload_hash'] !== self::contentHash($write['payload']['data'])) throw new InvalidArgumentException('WordPress site plan write has a stale payload hash or invalid structure.'); if ('base64' === $write['payload']['encoding'] && false === base64_decode($write['payload']['data'], true)) throw new InvalidArgumentException('WordPress site plan write has invalid base64 payload.'); if ('utf8' === $write['payload']['encoding']) { self::assertTokens($write['payload']['data'], $tokens); if ($browserReferences) self::assertNoLocalBrowserReferences(str_ends_with(strtolower($write['target_path']), '.css') ? '<style>' . $write['payload']['data'] . '</style>' : $write['payload']['data'], $write['source_path'], 'write'); } }
     /** @return array{schema:string,id:string,bytes:int,sha256:string}|null */
@@ -1490,7 +1599,7 @@ final class WordPressSitePlan
     /** @param array<int,mixed> $declarations */
     private static function assertRuntimeDeclarations(array $declarations): void { $identities=array(); $keys=array(); foreach($declarations as $declaration){if(!is_array($declaration)||!is_string($declaration['kind']??null)||(!is_string($declaration['type']??null)&&!is_string($declaration['capability']??null))||(isset($declaration['type'])&&isset($declaration['capability']))||!self::safePath($declaration['source_path']??null)||!self::hash($declaration['reconciliation_identity']??null))throw new InvalidArgumentException('WordPress site plan runtime declaration is invalid.');$name=$declaration['type']??$declaration['capability'];$key=$declaration['kind'].':'.$name;if($declaration['reconciliation_identity']!==hash('sha256',"wordpress-site-plan/runtime-declaration/v1\n{$declaration['source_path']}\n{$key}"))throw new InvalidArgumentException('WordPress site plan runtime declaration identity is invalid.');self::unique($identities,$declaration['reconciliation_identity'],'runtime declaration reconciliation identity');self::unique($keys,$key,'runtime declaration key');if(isset($declaration['payload'])&&(!is_array($declaration['payload'])||!is_string($declaration['payload']['schema']??null)))throw new InvalidArgumentException('WordPress site plan runtime declaration payload is invalid.');if('entity_collection'===$declaration['kind']&&(!isset($declaration['type'],$declaration['payload']['entities'])||!is_array($declaration['payload']['entities'])))throw new InvalidArgumentException('WordPress site plan entity collection declaration is invalid.');}foreach($declarations as $declaration)foreach($declaration['required_for']??array() as $required)if(!is_string($required)||!isset($keys[strtolower($required)]))throw new InvalidArgumentException('WordPress site plan runtime declaration required_for is unresolved.'); }
     /** @param array<string,mixed> $source */
-    private static function assertSource(array $source): void { if ('blocks-engine/php-transformer/compiled-site/v1' !== ($source['schema'] ?? null) || !is_string($source['source_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $source['source_hash']) || !is_string($source['entry_path'] ?? null) || !is_array($source['provenance'] ?? null)) throw new InvalidArgumentException('WordPress site plan source identity is invalid.'); }
+    private static function assertSource(array $source): void { if ('blocks-engine/php-transformer/compiled-site/v1' !== ($source['schema'] ?? null) || !is_string($source['source_hash'] ?? null) || !preg_match('/^[a-f0-9]{64}$/', $source['source_hash']) || !is_string($source['entry_path'] ?? null) || !is_array($source['provenance'] ?? null) || (isset($source['source_documents']) && (!is_array($source['source_documents']) || !array_is_list($source['source_documents']) || count($source['source_documents']) > 5000))) throw new InvalidArgumentException('WordPress site plan source identity is invalid.'); }
     /** @param array<int,mixed> $rows @param array<int,string> $fields @param array<int,string> $optional */
     private static function assertRows(array $rows, string $kind, array $fields, array $optional = array()): void { foreach ($rows as $row) { if (!is_array($row)) throw new InvalidArgumentException("WordPress site plan {$kind} must be an array."); foreach ($fields as $field) if (!array_key_exists($field, $row) || (!is_string($row[$field]) && !is_int($row[$field]))) throw new InvalidArgumentException("WordPress site plan {$kind} lacks {$field}."); foreach ($optional as $field) if (array_key_exists($field, $row) && !is_string($row[$field])) throw new InvalidArgumentException("WordPress site plan {$kind} has invalid {$field}."); } }
     /** @param array<string,mixed> $data */

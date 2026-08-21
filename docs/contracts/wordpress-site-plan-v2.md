@@ -83,7 +83,11 @@ and `WordPressSitePlanResolver::resolve()`.
 - `reference_tokens` is the only allowed token-to-artifact mapping. Each token maps
   to exactly one declared asset target. Validation rejects unsafe paths, missing
   scaffold writes, duplicate targets, missing asset writes, undeclared tokens, and
-  template or part writes that do not match their declarations.
+   template or part writes that do not match their declarations.
+- `source.source_documents` is additive source evidence. Each row records a
+  compiled document path, payload hash, and producer provenance. Template-surface
+  variants must exactly match a catalog row. This evidence supports structural
+  validation; it is not an authentication mechanism for a wholly forged plan.
 - Every page has a canonical `route`: root `index.*` is `/`, `about.*` is `/about`,
   `nested/index.*` is `/nested`, and nested documents retain every directory segment.
   A declared lowercase `metadata.route_path` with the same safe shape is preserved as
@@ -138,6 +142,7 @@ The compiler cannot infer a deployed theme URL. Pass it explicitly:
 ```php
 $resolved = (new WordPressSitePlanResolver())->resolve($plan, array(
     'theme_uri' => 'https://example.test/wp-content/themes/generated-site',
+    'approved_plan_hash' => WordPressSitePlan::canonicalHash($plan),
 ));
 ```
 
@@ -154,6 +159,10 @@ resolved payload and hash must equal the canonical token replacement for that co
 Resolved page, template, and part markup follows the same rule. A plan without this
 projection retains canonical tokenized writes, and an arbitrary `resolution` field
 cannot alter those invariants.
+Approval and materialization systems retain `approved_plan_hash` outside the plan
+and pass it at resolution. The resolver rejects a canonical plan that differs from
+that approved identity. This hash is an external integrity comparison, not a
+signature or standalone authentication proof.
 Consumers requiring proven dynamic client assets pass
 `require_proven_dynamic_client_assets => true` and receive a deterministic rejection.
 

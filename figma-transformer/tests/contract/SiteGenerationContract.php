@@ -95,6 +95,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     }
     $assert('single' === ($singleHtmlFile['page_type'] ?? null), 'single-template-html-file-carries-page-type');
     $assert('single' === ($singleHtmlFile['template_slug'] ?? null), 'single-template-html-file-carries-template-slug');
+    $singleSurface = $singleHtmlFile['metadata']['template_surface'] ?? array();
+    $assert('blocks-engine/template-surface/v1' === ($singleSurface['schema'] ?? null) && 'single:single' === ($singleSurface['logical_surface_id'] ?? null) && 'template:single' === ($singleSurface['responsive_variant_id'] ?? null) && 'artifact_metadata' === ($singleSurface['declaration_provenance']['kind'] ?? null) && 'single.html' === ($singleSurface['declaration_provenance']['source_path'] ?? null), 'single-template-html-file-carries-versioned-template-surface-declaration');
     $assert('single.html' === ($singleHtmlFile['canonical_template_path'] ?? null), 'single-template-html-file-carries-canonical-template-path');
     $assert('template:single' === ($singleHtmlFile['source_frame_identity']['primary_frame_id'] ?? null), 'single-template-html-file-carries-source-frame-identity');
     $reportedTemplatePaths = array();
