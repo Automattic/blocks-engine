@@ -2616,7 +2616,8 @@ trait StyleResolutionTrait
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
             $parsed = $this->parsedCssSelector((string) ($rule['selector'] ?? ''));
-            $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'] ?? array())] ?? null;
+            $compounds = $parsed['compounds'] ?? array();
+            $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
             $target = 'universal';
             $key = '';
             if ( $parsed['supported'] && null === ($parsed['pseudo_state_suffix_span'] ?? null) && is_array($rightmost) ) {

@@ -101,10 +101,10 @@ final class CssSelectorMatchCache
 
         $ordered = array();
         foreach ( $candidates as $candidate ) {
-            $ordered[$candidate['order']] = $candidate['rule'];
+            $ordered[(string) ($candidate['key'] ?? $candidate['order'])] = $candidate;
         }
-        ksort($ordered, SORT_NUMERIC);
-        $rules = array_values($ordered);
+        uasort($ordered, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
+        $rules = array_column($ordered, 'rule');
         $this->candidateRuleChecks += count($rules);
         $this->candidateRulesSkipped += $index['total'] - count($rules);
 

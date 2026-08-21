@@ -19,7 +19,7 @@ final class HtmlTransformerAnalysisCache
 
     public int $styleHits = 0;
 
-    /** @var array<string, array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>}> */
+    /** @var array<string, array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>}>} */
     public array $authorSelectorAnalyses = array();
 
     public int $authorSelectorBuilds = 0;
@@ -35,6 +35,8 @@ final class HtmlTransformerAnalysisCache
     public int $authorSelectorMatchResultBuilds = 0;
 
     public int $authorSelectorMatchResultHits = 0;
+
+    public int $authorStyleRuleBuilds = 0;
 
     public int $sourceSelectorMatchExecutions = 0;
 
@@ -59,7 +61,7 @@ final class HtmlTransformerAnalysisCache
         $this->styles[$key] = $analysis;
     }
 
-    /** @param array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>} $analysis */
+    /** @param array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} $analysis */
     public function rememberAuthorSelectors(string $key, array $analysis): void
     {
         if ( count($this->authorSelectorAnalyses) >= self::MAX_ENTRIES ) {

@@ -564,6 +564,12 @@ final class HtmlTransformer
     /** @var list<array{selector:string,parsed:array<string,mixed>}> */
     private array $authorSelectors = array();
 
+    /** @var list<array{order: int, declarations: array<string, string>, selectors: list<array{selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>}>}> */
+    private array $authorStyleRules = array();
+
+    /** @var array<string, array<string, mixed>> */
+    private array $authorStyleRuleCandidateIndexes = array();
+
     private string $authorMarkerSeed = '';
 
     private int $authorMarkerCounter = 0;
@@ -685,6 +691,8 @@ final class HtmlTransformer
         $this->parsedCssSelectors = array();
         $this->authorSelectorMatchCache = null;
         $this->authorSelectors = array();
+        $this->authorStyleRules = array();
+        $this->authorStyleRuleCandidateIndexes = array();
         $this->authorMarkerSeed = '';
         $this->authorMarkerCounter = 0;
         $this->authorMarkerCollisionText = '';
@@ -2607,14 +2615,19 @@ final class HtmlTransformer
             $authorAnalysis = $this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey];
             $sourceTagSelectorNames = $authorAnalysis['source_tags'];
             $authorSelectors = $authorAnalysis['selectors'];
+            $authorStyleRules = $authorAnalysis['rules'];
         } else {
 			++$this->analysisCache->authorSelectorBuilds;
 			$sourceTagSelectorNames = array();
 			$authorSelectors = array();
-			( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use (&$sourceTagSelectorNames, &$authorSelectors): string {
+			$authorStyleRules = array();
+			( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use (&$sourceTagSelectorNames, &$authorSelectors, &$authorStyleRules): string {
+				$ruleSelectors = array();
 				foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
 					$parsed = $this->parsedCssSelector($selector);
 					$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
+					$directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
+					$ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => $this->parsedCssSelector($directSelector));
 					foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
 						$tagName = strtolower($typeSpan['name']);
 						if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
@@ -2622,11 +2635,16 @@ final class HtmlTransformer
 						}
 					}
 				}
+				if ( array() !== $ruleSelectors ) {
+					$authorStyleRules[] = array('order' => count($authorStyleRules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors);
+				}
 				return $prelude;
 			});
+			++$this->analysisCache->authorStyleRuleBuilds;
             $this->analysisCache->rememberAuthorSelectors($authorAnalysisKey, array(
                 'source_tags' => $sourceTagSelectorNames,
                 'selectors' => $authorSelectors,
+				'rules' => $authorStyleRules,
             ));
         }
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
@@ -2634,6 +2652,7 @@ final class HtmlTransformer
         }
 		$this->discoverAuthorControlPaths($authorSelectors);
 		$this->authorSelectors = $authorSelectors;
+		$this->authorStyleRules = $authorStyleRules;
 		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
 		$this->discoverAuthorRootChildPaths($authorSelectors);
 		$this->discoverAuthorTablePaths($authorSelectors);
@@ -5620,33 +5639,18 @@ final class HtmlTransformer
             return false;
         }
 
-        $matches = false;
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude) use ($element, $directChildren, &$matches): string {
-            if ( $matches ) {
-                return $prelude;
-            }
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                // Pseudo-elements describe paint on the direct child rather than
-                // a DOM node of their own. Match their owning element to retain
-                // the source parent/child topology for rules such as
-                // `.overlay > strong::before`.
-                $matchSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
-                $parsed = $this->parsedCssSelector($matchSelector);
+        foreach ( $directChildren as $child ) {
+            foreach ( $this->authorStyleRuleCandidates($child) as $selector ) {
+                $parsed = $selector['direct_child_parsed'];
                 $last = count($parsed['compounds'] ?? array()) - 1;
-                if ( ! $parsed['supported'] || $last < 1 || '>' !== ($parsed['combinators'][$last - 1] ?? '') ) {
-                    continue;
-                }
-                foreach ( $directChildren as $child ) {
-                    if ( CssSelectorMatcher::matches($child, $parsed, true)['matches'] ) {
-                        $matches = true;
-                        return $prelude;
-                    }
+                if ( $parsed['supported'] && $last >= 1 && '>' === ($parsed['combinators'][$last - 1] ?? '')
+                    && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
+                    return true;
                 }
             }
-            return $prelude;
-        });
+        }
 
-        return $matches;
+        return false;
     }
 
     /**
@@ -5729,7 +5733,7 @@ final class HtmlTransformer
             return true;
         }
 
-        foreach ( $this->conditionalStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) && in_array(strtolower(trim((string) ($rule['declarations']['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
                 return true;
             }
@@ -6222,9 +6226,8 @@ final class HtmlTransformer
     private function authorSemanticDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
-            $parsed = $this->parsedCssSelector($rule['selector']);
-            if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = array_merge($declarations, $rule['declarations']);
             }
         }
@@ -6441,7 +6444,7 @@ final class HtmlTransformer
             return true;
         }
 
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
             }
@@ -7052,17 +7055,66 @@ final class HtmlTransformer
     private function matchingAuthorDeclarations(DOMElement $element): array
     {
         $declarations = $this->presentationDeclarations($element);
-        ( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use ($element, &$declarations): string {
-            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                $parsed = $this->parsedCssSelector($selector);
-                if ( $parsed['supported'] && CssSelectorMatcher::matches($element, $parsed, true)['matches'] ) {
-                    $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($body));
-                    break;
-                }
+        $matchedRules = array();
+        foreach ( $this->authorStyleRuleCandidates($element) as $selector ) {
+            $ruleOrder = $selector['rule_order'];
+            if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
+                continue;
             }
-            return $prelude;
-        });
+            if ( ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
+                $matchedRules[$ruleOrder] = true;
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $selector['declarations']);
+            }
+        }
         return $declarations;
+    }
+
+    /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
+    private function authorStyleRuleCandidates(DOMElement $element): array
+    {
+        $index = $this->authorStyleRuleCandidateIndexes['rules'] ??= $this->authorStyleRuleCandidateIndex();
+        return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
+    }
+
+    /** @return array{universal: list<array<string, mixed>>, ids: array<string, list<array<string, mixed>>>, classes: array<string, list<array<string, mixed>>>, tags: array<string, list<array<string, mixed>>>, total: int} */
+    private function authorStyleRuleCandidateIndex(): array
+    {
+        $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'total' => 0);
+        $sequence = 0;
+        foreach ( $this->authorStyleRules as $rule ) {
+            foreach ( $rule['selectors'] as $selectorIndex => $selector ) {
+                $parsed = $selector['parsed'];
+                $compounds = $parsed['compounds'] ?? array();
+                $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
+                $target = 'universal';
+                $key = '';
+                if ( $parsed['supported'] && is_array($rightmost) ) {
+                    if ( array() !== ($rightmost['ids'] ?? array()) ) {
+                        $target = 'ids';
+                        $key = (string) $rightmost['ids'][0];
+                    } elseif ( array() !== ($rightmost['classes'] ?? array()) ) {
+                        $target = 'classes';
+                        $key = (string) $rightmost['classes'][0];
+                    } elseif ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
+                        $target = 'tags';
+                        $key = strtolower((string) $rightmost['type']);
+                    }
+                }
+                $entry = array(
+                    'order' => $rule['order'],
+                    'sequence' => $sequence++,
+                    'key' => $rule['order'] . ':' . $selectorIndex,
+                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex)),
+                );
+                if ( 'universal' === $target ) {
+                    $index['universal'][] = $entry;
+                } else {
+                    $index[$target][$key][] = $entry;
+                }
+                ++$index['total'];
+            }
+        }
+        return $index;
     }
 
     private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child): bool
@@ -7072,10 +7124,11 @@ final class HtmlTransformer
             return false;
         }
 
+        $beforeCandidates = $this->authorStyleRuleCandidates($child);
         $matchesBefore = array();
-        foreach ( $this->authorSelectors as $index => $authorSelector ) {
-            $matchesBefore[$index] = $authorSelector['parsed']['supported']
-                && CssSelectorMatcher::matches($child, $authorSelector['parsed'], true)['matches'];
+        foreach ( $beforeCandidates as $selector ) {
+            $matchesBefore[$selector['key']] = $selector['parsed']['supported']
+                && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
         }
 
         $childClass = $this->attr($child, 'class');
@@ -7084,12 +7137,18 @@ final class HtmlTransformer
         $parent->insertBefore($child, $element);
         $parent->removeChild($element);
         $child->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $childClass));
+        $this->invalidateSourceSelectorMatchCache();
 
         $survives = true;
-        foreach ( $this->authorSelectors as $index => $authorSelector ) {
-            $matchesAfter = $authorSelector['parsed']['supported']
-                && CssSelectorMatcher::matches($child, $authorSelector['parsed'], true)['matches'];
-            if ( $matchesBefore[$index] !== $matchesAfter ) {
+        $afterCandidates = $this->authorStyleRuleCandidates($child);
+        $candidates = array();
+        foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
+            $candidates[$selector['key']] = $selector;
+        }
+        foreach ( $candidates as $key => $selector ) {
+            $matchesAfter = $selector['parsed']['supported']
+                && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
+            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter ) {
                 $survives = false;
                 break;
             }
@@ -7103,6 +7162,7 @@ final class HtmlTransformer
         } else {
             $child->setAttribute('class', $childClass);
         }
+        $this->invalidateSourceSelectorMatchCache();
 
         return $survives;
     }
@@ -7384,7 +7444,7 @@ final class HtmlTransformer
     private function authoredDisplay(DOMElement $element): string
     {
         $display = '';
-        foreach ( $this->staticStyleRules as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( isset($rule['declarations']['display']) && $this->matchesCssSelector($element, $rule['selector']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
