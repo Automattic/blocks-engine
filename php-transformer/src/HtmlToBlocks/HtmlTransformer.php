@@ -4834,14 +4834,10 @@ final class HtmlTransformer
                 // silently erased every shape — service icons collapsed to empty
                 // blocks and pipe/boiler diagrams to whitespace + comments.
                 //
-                // The exception is genuine decorative chrome the materialized
-                // source CSS recreates: a positioned visual layer (an absolutely
-                // positioned full-bleed background) or a stretched-to-fit band
-                // (preserveAspectRatio="none", which distorts geometry and so is
-                // never used for meaningful icons/diagrams). Those still collapse
-                // to a styleable group / are dropped below.
-                $isDecorativeChrome = $this->isVisualLayerElement($element)
-                    || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
+                // A proven positioned visual layer can collapse to its CSS-owned
+                // carrier. Stretching alone is not evidence that artwork is
+                // recreated elsewhere; preserve drawable stretched SVGs.
+                $isDecorativeChrome = $this->isVisualLayerElement($element);
                 if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
                     if ( $this->svgNeedsPhrasingHost($element) ) {
                         $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);

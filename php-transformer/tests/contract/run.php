@@ -1825,6 +1825,12 @@ $assert(str_contains($safeInlineSvgAssetUrl, 'assets/materialized-svg/'), 'safe 
 $assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its correct-case viewBox in the materialized SVG source');
 $assert(1 === count(array_filter($safeInlineSvgAsset['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'safe accessible inline SVG icon generates one image asset');
 
+$exportedSvgMetadata = ( new HtmlTransformer() )->transform('<svg preserveAspectRatio="none" data-bbox="0 0 200 200" data-type="color" viewBox="0 0 200 200" role="presentation" aria-hidden="true"><g><path data-color="1" d="M200 100c0 55-45 100-100 100S0 155 0 100 45 0 100 0s100 45 100 100z"></path></g></svg>')->toArray();
+$assert('core/image' === ($exportedSvgMetadata['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgMetadata['fallbacks'] ?? array()), 'passive exported SVG metadata and stretched artwork remain native image compatible');
+
+$exportedSvgFilter = ( new HtmlTransformer() )->transform('<svg viewBox="0 0 40 40" focusable="false"><defs><filter id="shadow"><feGaussianBlur stdDeviation="2" result="blur"></feGaussianBlur><feOffset in="blur" x="1" y="1" result="offset"></feOffset><feColorMatrix in="offset" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 .5 0"></feColorMatrix></filter></defs><rect data-testid="shape" width="40" height="40" filter="url(#shadow)"></rect></svg>')->toArray();
+$assert('core/image' === ($exportedSvgFilter['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgFilter['fallbacks'] ?? array()), 'passive exported SVG filter primitives materialize without raw HTML fallback');
+
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
