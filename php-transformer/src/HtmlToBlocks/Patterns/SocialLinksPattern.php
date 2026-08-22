@@ -24,8 +24,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         'x.com' => 'x', 'youtube.com' => 'youtube', 'youtu.be' => 'youtube',
     );
 
-    /** @return array<string,mixed>|null */
-    public function match(DOMElement $element, PatternContext $context): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         // A source navigation landmark carries menu semantics that core/social-links
         // cannot retain; NavigationPattern owns that dynamic landmark contract.
@@ -65,7 +64,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
         }
-        return $context->createBlockCallback()('core/social-links', $attrs, $links, $element);
+        return new PatternRecognitionResult(
+            $context->createBlockCallback()('core/social-links', $attrs, $links, $element)
+        );
     }
 
     /** @param array<int,DOMElement> $anchors */
