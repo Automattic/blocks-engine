@@ -85,14 +85,40 @@ $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
     if (!is_array($value)) return $value;
-    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count']);
+    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
     foreach ($value as $key => $item) $value[$key] = $canonical($item);
     return $value;
 };
 $assert(0 === ($manyStaged['metrics']['html_document_transform_count'] ?? null), 'Terminal aggregation performs no HTML document transformations after independently serialized page receipts are complete.');
-$assert(0 === ($manyStaged['metrics']['normalization_count'] ?? null) && 0 === ($manyStaged['metrics']['analysis_count'] ?? null) && 0 === ($serializedReceipts[0]['work']['normalization_count'] ?? null), 'Serialized page workers and terminal aggregation expose bounded normalization and analysis work, not only HTML transform counts.');
+$assert(0 === ($manyStaged['metrics']['normalization_count'] ?? null) && 0 === ($manyStaged['metrics']['analysis_count'] ?? null) && 0 === ($serializedReceipts[0]['work']['normalization_count'] ?? null) && 3 === ($serializedReceipts[0]['work']['analysis_count'] ?? null), 'Prepared pages are not normalized again by receipt workers, and terminal aggregation performs no normalization or raw analysis.');
 $assert(50 === ($manyInline['metrics']['html_document_transform_count'] ?? null), 'Inline compilation performs bounded work once per page document.');
 $assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($manyStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($manyInline['diagnostics'] ?? array()) === $canonical($manyStaged['diagnostics'] ?? array()), 'Fifty-page arbitrary-order resume preserves canonical WordPress plans and diagnostics after observational fields are excluded.');
+$assert($canonical($manyInline) === $canonical($manyStaged), 'Fifty-page arbitrary-order resume preserves the complete canonical transformer result after observational fields are excluded.');
+$manyPageComponent = current(array_filter($manyStaged['components'], static fn(array $component): bool => 'page' === ($component['name'] ?? null)));
+$assert(50 === ($manyPageComponent['occurrences'] ?? null), 'A class occurring once per page is qualified from the globally summed uncapped component facts.');
+$componentArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main class="distributed-widget"><h1>Home</h1></main>'),
+    array('path' => 'second.html', 'content' => '<main class="distributed-widget"><h1>Second</h1></main>'),
+));
+$componentShared = $compiler->prepareShared($componentArtifact);
+$componentReceipts = array();
+foreach ($componentShared['analysis']['page_ids'] as $pageId) $componentReceipts[] = $compiler->compilePage($componentArtifact, $componentShared, $pageId);
+$componentInline = $compiler->compile($componentArtifact)->toArray();
+$componentStaged = $compiler->compose($componentShared, array_reverse($componentReceipts))->toArray();
+$qualified = current(array_filter($componentStaged['components'], static fn(array $component): bool => 'distributed-widget' === ($component['name'] ?? null)));
+$assert(2 === ($qualified['occurrences'] ?? null) && $canonical($componentInline) === $canonical($componentStaged), 'Uncapped page component statistics qualify, order, and cap only after their global occurrence counts are summed.');
+$sourceArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main><h1>Home</h1></main>'),
+    array('path' => 'notes.md', 'content' => "---\ntitle: Notes\n---\n\n# Notes\n\nMarkdown body."),
+    array('path' => 'guide.mdx', 'content' => "import Callout from './Callout'\n\n# Guide\n\n<Callout>MDX body.</Callout>"),
+));
+$sourceShared = $compiler->prepareShared($sourceArtifact);
+$assert(array('guide.mdx', 'index.html', 'notes.md') === ($sourceShared['analysis']['page_ids'] ?? null), 'Shared preparation declares HTML, Markdown, and MDX page ownership without reading page content.');
+$sourceReceipts = array();
+foreach ($sourceShared['analysis']['page_ids'] as $pageId) $sourceReceipts[] = $compiler->compilePage($sourceArtifact, $sourceShared, $pageId);
+$sourceInline = $compiler->compile($sourceArtifact)->toArray();
+$sourceStaged = $compiler->compose($sourceShared, array_reverse($sourceReceipts))->toArray();
+$assert($canonical($sourceInline) === $canonical($sourceStaged), 'Compiled receipts exactly cover HTML, Markdown, and MDX sources and preserve their complete canonical result.');
 $throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
@@ -123,8 +149,34 @@ $throws(static fn() => $compiler->compose($shared, $wrongBinding), 'Composition 
 $corruptCompiledPage = $compiledPages['about.html'];
 $corruptCompiledPage['compiled_documents']['about.html']['serialized_blocks'] = 'corrupt';
 $throws(static fn() => $compiler->compose($shared, array($compiledPages['index.html'], $corruptCompiledPage, $compiledPages['contact.html'])), 'Composition rejects compiled page receipts that no longer match their page-plan digest.');
+$incompleteReceipt = $compiledPages['about.html'];
+unset($incompleteReceipt['terminal_reduction']['source_documents']);
+$throws(static fn() => $compiler->compose($shared, array($compiledPages['index.html'], $incompleteReceipt, $compiledPages['contact.html'])), 'Composition rejects incomplete compiled reductions.');
+$optionMismatch = $compiledPages['about.html'];
+$optionMismatch['compiler_options']['compiled_page_schema'] = 'incompatible';
+$throws(static fn() => $compiler->compose($shared, array($compiledPages['index.html'], $optionMismatch, $compiledPages['contact.html'])), 'Composition rejects option-mismatched receipts.');
+$schemaMismatch = $compiledPages['about.html'];
+$schemaMismatch['output_schema'] = 'incompatible';
+$throws(static fn() => $compiler->compose($shared, array($compiledPages['index.html'], $schemaMismatch, $compiledPages['contact.html'])), 'Composition rejects output-schema-mismatched receipts.');
+$reductionMismatch = $shared;
+$reductionMismatch['shared_reduction']['component_facts']['classes']['corrupt'] = 1;
+$throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composition rejects a shared reduction whose immutable digest no longer matches.');
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
+
+$legacyShared = $shared;
+unset($legacyShared['shared_reduction'], $legacyShared['shared_reduction_digest']);
+$legacyShared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
+$legacyShared['digest'] = RuntimeDeclarations::hash(array('artifact' => $legacyShared['artifact'], 'analysis' => $legacyShared['analysis'], 'compiler_options' => $legacyShared['compiler_options']));
+$legacyReceipts = array();
+foreach ($pageIds as $pageId) {
+    $legacyPage = $compiler->preparePage($artifact, $legacyShared, $pageId);
+    $legacyPage['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
+    $legacyPage['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $legacyPage['shared_digest'], 'page_id' => $legacyPage['page_id'], 'artifact' => $legacyPage['artifact'], 'compiler_options' => $legacyPage['compiler_options'], 'output_schema' => $legacyPage['output_schema']));
+    $legacyReceipts[] = $compiler->compilePreparedPage($legacyShared, $legacyPage);
+}
+$legacyResult = $compiler->compose($legacyShared, array_reverse($legacyReceipts))->toArray();
+$assert($whole['blocks'] === $legacyResult['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($legacyResult['source_reports']['wordpress_site_plan'] ?? array()), 'Serialized v1 shared plans, page plans, and compiled receipts retain legacy envelope composition behavior.');
 
 // A validly digested page plan prepared from a divergent artifact must not
 // silently collide with (and get dedupe-renamed against) the shared files.
@@ -185,7 +237,7 @@ $referencedReceipts = array();
 foreach ($referencedPages as $referencedPage) $referencedReceipts[] = (new ArtifactCompiler())->compilePreparedPage($referencedShared, $referencedPage, $reader);
 $pagePayloadsRemoved = new class implements PayloadReader { public array $reads = array(); public function read(array $reference): string { $this->reads[] = $reference['id']; throw new InvalidArgumentException('page payload access is forbidden at terminal assembly'); } };
 $receiptResult = (new ArtifactCompiler())->compose($referencedShared, array_reverse($referencedReceipts), $pagePayloadsRemoved)->toArray();
-$assert(array() === $pagePayloadsRemoved->reads && ($referencedResult['blocks'] ?? array()) === ($receiptResult['blocks'] ?? array()) && ($referencedResult['serialized_blocks'] ?? '') === ($receiptResult['serialized_blocks'] ?? ''), 'Compiled receipts retain hydrated shared and page reductions, so terminal composition reads no page payloads.');
+$assert(array() === $pagePayloadsRemoved->reads && $canonical($referencedResult) === $canonical($receiptResult), 'Compiled receipts compose with a reader that rejects every payload access and preserve the complete canonical result.');
 $assert($referencedShared['digest'] === $compiler->prepareShared($referencedArtifact, new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return $this->payloads[$reference['id']]; } } )['digest'], 'Reference-backed shared plan digests are deterministic.');
 $pageOnlyArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'payload_reference' => $referencedArtifact['files'][4]['payload_reference'])));
 $pageOnlyShared = $compiler->prepareShared($pageOnlyArtifact, $reader);
