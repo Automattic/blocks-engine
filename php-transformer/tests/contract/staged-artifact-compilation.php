@@ -44,6 +44,10 @@ $pages = array();
 foreach ($pageIds as $pageId) $pages[$pageId] = $compiler->preparePage($artifact, $shared, $pageId);
 $assert(array('index.html', 'about.html', 'contact.html') === array_keys($pages), 'Three independent page plans are addressable by canonical page ownership ids.');
 
+$compiledPages = array();
+foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($artifact, $shared, $pageId);
+$assert(1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+
 // Simulate interruption/resume and arbitrary parallel completion order.
 $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $resumedPages = json_decode(json_encode(array($pages['contact.html'], $pages['index.html'], $pages['about.html']), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
@@ -51,6 +55,8 @@ $staged = $compiler->compose($resumedShared, $resumedPages)->toArray();
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
+$compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
+$assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
 $siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
@@ -77,6 +83,9 @@ $throws(static fn() => $compiler->compose($differentShared, $resumedPages), 'Com
 $wrongBinding = $resumedPages;
 $wrongBinding[0]['shared_digest'] = str_repeat('0', 64);
 $throws(static fn() => $compiler->compose($shared, $wrongBinding), 'Composition rejects a page plan bound to another shared digest.');
+$corruptCompiledPage = $compiledPages['about.html'];
+$corruptCompiledPage['compiled_documents']['about.html']['serialized_blocks'] = 'corrupt';
+$throws(static fn() => $compiler->compose($shared, array($compiledPages['index.html'], $corruptCompiledPage, $compiledPages['contact.html'])), 'Composition rejects compiled page receipts that no longer match their page-plan digest.');
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
 
