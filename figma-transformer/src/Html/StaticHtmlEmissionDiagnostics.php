@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
+use DOMDocument;
+use DOMElement;
+
 /**
  * Builds diagnostics derived from emitted static HTML artifacts.
  */
 final class StaticHtmlEmissionDiagnostics
 {
+    private const FIXED_WIDTH_COVERAGE_CONTEXT_BUDGET = 20000;
+    private const FIXED_WIDTH_COVERAGE_OPERATION_BUDGET = 100000;
+
     /**
      * @param array<string, mixed> $coverage
      * @param array<string, string> $implicitRouteTargets
@@ -179,7 +185,7 @@ final class StaticHtmlEmissionDiagnostics
         $breakpointLeaks = $this->breakpointOverrideLeaks($css);
         $absoluteToFlowConversions = $this->absoluteToFlowConversions($css);
         $mediaQueryCount = preg_match_all('/@media\s*\(max-width:[^)]+\)/i', $css) ?: 0;
-        $fixedWidthCoverage = $this->fixedWidthCoverage($css);
+        $fixedWidthCoverage = $this->fixedWidthCoverage($html, $css);
         $fixedWidthOverDesktopCount = (int) $fixedWidthCoverage['fixed_width_over_desktop_count'];
         $largeFixedSections = $this->largeFixedSections($css);
         $largeOverflowRules = $this->largeOverflowRules($css);
@@ -213,6 +219,7 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_over_desktop_uncovered_count' => (int) $fixedWidthCoverage['fixed_width_over_desktop_uncovered_count'],
             'fixed_width_over_desktop_covered_classes' => array_slice($fixedWidthCoverage['fixed_width_over_desktop_covered_classes'], 0, 25),
             'fixed_width_over_desktop_uncovered_classes' => array_slice($fixedWidthCoverage['fixed_width_over_desktop_uncovered_classes'], 0, 25),
+            'fixed_width_coverage_analysis' => $fixedWidthCoverage['analysis'],
             'large_fixed_canvas_height' => $largeFixedCanvasHeight,
             'desktop_canvas_without_responsive_breakpoints' => 0 === $mediaQueryCount && $largeFixedCanvasHeight && $structuralElementCount >= 80,
             'giant_fixed_section_count' => (int) $largeFixedSections['giant_fixed_section_count'],
@@ -233,24 +240,23 @@ final class StaticHtmlEmissionDiagnostics
     }
 
     /**
-     * @return array{fixed_width_declaration_count: int, fixed_width_over_desktop_count: int, fixed_width_with_responsive_override_count: int, fixed_width_without_responsive_override_count: int, effective_responsive_coverage_ratio: float, fixed_width_samples: array<int, array<string, mixed>>, fixed_width_over_desktop_class_count: int, fixed_width_over_desktop_covered_count: int, fixed_width_over_desktop_uncovered_count: int, fixed_width_over_desktop_covered_classes: array<int, string>, fixed_width_over_desktop_uncovered_classes: array<int, string>}
+     * @return array<string, mixed>
      */
-    private function fixedWidthCoverage(string $css): array
+    private function fixedWidthCoverage(string $html, string $css): array
     {
         $rules = $this->cssRuleDeclarations($css);
         $base = array();
         $responsive = array();
-        $overDesktop = array();
         $samples = array();
         $fixedWidthOverDesktopCount = 0;
+        $declarationIndex = 0;
 
         foreach ( $rules as $rule ) {
             $selector = (string) ($rule['selector'] ?? '');
             $declarations = (string) ($rule['declarations'] ?? '');
-            $classes = $this->selectorClassNames($selector);
             if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*(?:width|max-width)\s*:/i', $declarations) ) {
-                foreach ( $classes as $class ) {
-                    $responsive[$class] = true;
+                foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+                    $responsive[] = $selectorPart;
                 }
                 continue;
             }
@@ -263,44 +269,367 @@ final class StaticHtmlEmissionDiagnostics
                 continue;
             }
 
-            foreach ( $classes as $class ) {
-                $base[$class] = true;
+            foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+                $classes = $this->selectorClassNames($selectorPart);
+                if ( empty($classes) ) {
+                    continue;
+                }
+                $base[] = array(
+                    'class' => $classes[0],
+                    'selector' => $selectorPart,
+                    'declaration' => $declarationIndex,
+                    'over_desktop' => $width > 1440.0,
+                );
                 if ( $this->hasResponsiveWidthConstraint($declarations) ) {
-                    $responsive[$class] = true;
+                    $responsive[] = $selectorPart;
                 }
                 if ( $width > 1440.0 ) {
                     ++$fixedWidthOverDesktopCount;
-                    $overDesktop[$class] = true;
                 }
                 if ( count($samples) < 25 ) {
                     $samples[] = array(
-                        'class' => $class,
+                        'class' => $classes[0],
                         'width' => $width,
-                        'selector' => $selector,
+                        'selector' => $selectorPart,
                     );
                 }
             }
+            ++$declarationIndex;
         }
 
-        $baseClasses = array_keys($base);
-        $coveredCount = count(array_filter($baseClasses, static fn (string $class): bool => isset($responsive[$class])));
-        $totalCount = count($baseClasses);
-        $overDesktopCoveredClasses = array_values(array_filter(array_keys($overDesktop), static fn (string $class): bool => isset($responsive[$class])));
-        $overDesktopUncoveredClasses = array_values(array_diff(array_keys($overDesktop), $overDesktopCoveredClasses));
+        $elements = $this->htmlElements($html);
+        $indexes = $this->elementIndexes($elements);
+        $operations = 0;
+        $contexts = 0;
+        $incomplete = false;
+        $responsiveCandidates = array();
+        foreach ($responsive as $responsiveIndex => $selector) {
+            $candidates = $this->selectorCandidateElements($selector, $indexes);
+            $contexts += count($candidates);
+            if ($contexts > self::FIXED_WIDTH_COVERAGE_CONTEXT_BUDGET) {
+                $incomplete = true;
+                break;
+            }
+            foreach ($candidates as $element) {
+                $responsiveCandidates[spl_object_id($element)][$responsiveIndex] = $selector;
+            }
+        }
+        $totalCount = 0;
+        $coveredCount = 0;
+        $overDesktopCoveredClasses = array();
+        $overDesktopUncoveredClasses = array();
+        $evaluatedDeclarations = array();
+        foreach ( $base as $baseContext ) {
+            $class = (string) $baseContext['class'];
+            $baseCandidates = $this->selectorCandidateElements((string) $baseContext['selector'], $indexes);
+            $contexts += count($baseCandidates);
+            if ($contexts > self::FIXED_WIDTH_COVERAGE_CONTEXT_BUDGET) {
+                $incomplete = true;
+                break;
+            }
+            foreach ( $baseCandidates as $element ) {
+                $elementId = spl_object_id($element);
+                $declaration = (int) $baseContext['declaration'];
+                if ( isset($evaluatedDeclarations[$declaration][$elementId]) ) {
+                    continue;
+                }
+                if (++$operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
+                    $incomplete = true;
+                    break 2;
+                }
+                if ( ! $this->selectorMatchesElement((string) $baseContext['selector'], $element, $operations) ) {
+                    if ($operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
+                        $incomplete = true;
+                        break 2;
+                    }
+                    continue;
+                }
+                $evaluatedDeclarations[$declaration][$elementId] = true;
+                ++$totalCount;
+                $covered = false;
+                foreach ($responsiveCandidates[spl_object_id($element)] ?? array() as $selector) {
+                    if (++$operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
+                        $incomplete = true;
+                        break 3;
+                    }
+                    if ( $this->selectorMatchesElement($selector, $element, $operations) ) {
+                        $covered = true;
+                        break;
+                    }
+                    if ($operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
+                        $incomplete = true;
+                        break 3;
+                    }
+                }
+                if ( $covered ) {
+                    ++$coveredCount;
+                }
+                if ( ! $baseContext['over_desktop'] ) {
+                    continue;
+                }
+                if ( $covered ) {
+                    $overDesktopCoveredClasses[] = $class;
+                } else {
+                    $overDesktopUncoveredClasses[] = $class;
+                }
+            }
+        }
 
         return array(
             'fixed_width_declaration_count' => $totalCount,
             'fixed_width_over_desktop_count' => $fixedWidthOverDesktopCount,
             'fixed_width_with_responsive_override_count' => $coveredCount,
             'fixed_width_without_responsive_override_count' => max(0, $totalCount - $coveredCount),
-            'effective_responsive_coverage_ratio' => $totalCount > 0 ? round($coveredCount / $totalCount, 3) : 1.0,
+            // A partial analysis must never be reported as a passing coverage result.
+            'effective_responsive_coverage_ratio' => $incomplete ? 0.0 : ($totalCount > 0 ? round($coveredCount / $totalCount, 3) : 1.0),
             'fixed_width_samples' => $samples,
-            'fixed_width_over_desktop_class_count' => count($overDesktop),
+            'fixed_width_over_desktop_class_count' => count($overDesktopCoveredClasses) + count($overDesktopUncoveredClasses),
             'fixed_width_over_desktop_covered_count' => count($overDesktopCoveredClasses),
             'fixed_width_over_desktop_uncovered_count' => count($overDesktopUncoveredClasses),
             'fixed_width_over_desktop_covered_classes' => $overDesktopCoveredClasses,
             'fixed_width_over_desktop_uncovered_classes' => $overDesktopUncoveredClasses,
+            'analysis' => array(
+                'status' => $incomplete ? 'incomplete' : 'complete',
+                'diagnostic' => $incomplete ? 'fixed_width_coverage_budget_exceeded' : null,
+                'contexts_evaluated' => min($contexts, self::FIXED_WIDTH_COVERAGE_CONTEXT_BUDGET),
+                'context_budget' => self::FIXED_WIDTH_COVERAGE_CONTEXT_BUDGET,
+                'operations_evaluated' => min($operations, self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET),
+                'operation_budget' => self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET,
+            ),
         );
+    }
+
+    /**
+     * @param array<int, DOMElement> $elements
+     * @return array<string, array<string, array<int, DOMElement>>>
+     */
+    private function elementIndexes(array $elements): array
+    {
+        $indexes = array('all' => array('all' => $elements), 'class' => array(), 'id' => array(), 'tag' => array());
+        foreach ($elements as $element) {
+            $indexes['tag'][strtolower($element->tagName)][] = $element;
+            $id = $element->getAttribute('id');
+            if ('' !== $id) {
+                $indexes['id'][$id][] = $element;
+            }
+            foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+                if ('' !== $class) {
+                    $indexes['class'][$class][] = $element;
+                }
+            }
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * Returns an indexed superset; selectorMatchesElement retains exact semantics.
+     *
+     * @param array<string, array<string, array<int, DOMElement>>> $indexes
+     * @return array<int, DOMElement>
+     */
+    private function selectorCandidateElements(string $selector, array $indexes): array
+    {
+        $candidates = array();
+        foreach ($this->splitSelectorList($selector) as $selectorPart) {
+            $parts = $this->selectorParts($selectorPart);
+            $compound = $parts[count($parts) - 1]['compound'] ?? '';
+            $buckets = array();
+            if (preg_match('/#([a-zA-Z0-9_-]+)/', $compound, $id)) {
+                $buckets[] = $indexes['id'][$id[1]] ?? array();
+            }
+            if (preg_match_all('/\.([a-zA-Z0-9_-]+)/', $compound, $classes)) {
+                foreach ($classes[1] as $class) {
+                    $buckets[] = $indexes['class'][$class] ?? array();
+                }
+            }
+            if (preg_match('/^[a-z][a-z0-9:-]*/i', $compound, $tag)) {
+                $buckets[] = $indexes['tag'][strtolower($tag[0])] ?? array();
+            }
+            if (empty($buckets)) {
+                $buckets[] = $indexes['all']['all'];
+            }
+            usort($buckets, static fn (array $left, array $right): int => count($left) <=> count($right));
+            foreach ($buckets[0] as $element) {
+                // The smallest rightmost bucket bounds candidate work; exact matching
+                // below verifies every remaining compound and combinator constraint.
+                $candidates[spl_object_id($element)] = $element;
+            }
+        }
+
+        return array_values($candidates);
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function htmlElements(string $html): array
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        $elements = array();
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && 'html' !== $element->tagName && 'body' !== $element->tagName ) {
+                $elements[] = $element;
+            }
+        }
+
+        return $elements;
+    }
+
+    private function selectorMatchesElement(string $selector, DOMElement $element, int &$operations): bool
+    {
+        foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+            $parts = $this->selectorParts($selectorPart);
+            if ( ! empty($parts) && $this->selectorPartMatchesElement($parts, count($parts) - 1, $element, $operations) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitSelectorList(string $selector): array
+    {
+        $selectors = array();
+        $start = 0;
+        $depth = 0;
+        for ( $index = 0, $length = strlen($selector); $index < $length; ++$index ) {
+            if ( '(' === $selector[$index] || '[' === $selector[$index] ) {
+                ++$depth;
+            } elseif ( ')' === $selector[$index] || ']' === $selector[$index] ) {
+                --$depth;
+            } elseif ( ',' === $selector[$index] && 0 === $depth ) {
+                $selectors[] = trim(substr($selector, $start, $index - $start));
+                $start = $index + 1;
+            }
+        }
+        $selectors[] = trim(substr($selector, $start));
+
+        return array_values(array_filter($selectors));
+    }
+
+    /**
+     * @return array<int, array{compound: string, combinator: string}>
+     */
+    private function selectorParts(string $selector): array
+    {
+        $parts = array();
+        $compound = '';
+        $combinator = '';
+        $depth = 0;
+        $flush = static function () use (&$parts, &$compound, &$combinator): void {
+            $compound = trim($compound);
+            if ( '' !== $compound ) {
+                $parts[] = array('compound' => $compound, 'combinator' => $combinator);
+                $compound = '';
+                $combinator = ' ';
+            }
+        };
+        for ( $index = 0, $length = strlen($selector); $index < $length; ++$index ) {
+            $character = $selector[$index];
+            if ( '(' === $character || '[' === $character ) {
+                ++$depth;
+            } elseif ( ')' === $character || ']' === $character ) {
+                --$depth;
+            }
+            if ( 0 === $depth && ( '>' === $character || '+' === $character || '~' === $character ) ) {
+                $flush();
+                $combinator = $character;
+                continue;
+            }
+            if ( 0 === $depth && ctype_space($character) ) {
+                $flush();
+                continue;
+            }
+            $compound .= $character;
+        }
+        $flush();
+
+        return $parts;
+    }
+
+    /**
+     * @param array<int, array{compound: string, combinator: string}> $parts
+     */
+    private function selectorPartMatchesElement(array $parts, int $index, DOMElement $element, int &$operations): bool
+    {
+        if (++$operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
+            return false;
+        }
+        if ( ! $this->compoundMatchesElement($parts[$index]['compound'], $element) ) {
+            return false;
+        }
+        if ( 0 === $index ) {
+            return true;
+        }
+
+        $combinator = $parts[$index]['combinator'];
+        if ( '>' === $combinator ) {
+            return $element->parentNode instanceof DOMElement && $this->selectorPartMatchesElement($parts, $index - 1, $element->parentNode, $operations);
+        }
+        $sibling = $element->previousSibling;
+        if ( '+' === $combinator || '~' === $combinator ) {
+            while ( null !== $sibling && ! $sibling instanceof DOMElement ) {
+                $sibling = $sibling->previousSibling;
+            }
+            if ( ! $sibling instanceof DOMElement ) {
+                return false;
+            }
+            if ( '+' === $combinator ) {
+                return $this->selectorPartMatchesElement($parts, $index - 1, $sibling, $operations);
+            }
+            while ( $sibling instanceof DOMElement ) {
+                if ( $this->selectorPartMatchesElement($parts, $index - 1, $sibling, $operations) ) {
+                    return true;
+                }
+                $sibling = $sibling->previousSibling;
+                while ( null !== $sibling && ! $sibling instanceof DOMElement ) {
+                    $sibling = $sibling->previousSibling;
+                }
+            }
+            return false;
+        }
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $this->selectorPartMatchesElement($parts, $index - 1, $ancestor, $operations) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function compoundMatchesElement(string $compound, DOMElement $element): bool
+    {
+        if ( 1 === preg_match('/^[a-z][a-z0-9:-]*/i', $compound, $tag) && strtolower($tag[0]) !== strtolower($element->tagName) ) {
+            return false;
+        }
+        if ( str_contains($compound, ':') || str_contains($compound, '[') ) {
+            return false;
+        }
+        if ( preg_match_all('/\.([a-zA-Z0-9_-]+)/', $compound, $classes) ) {
+            $elementClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+            foreach ( $classes[1] as $class ) {
+                if ( ! in_array($class, $elementClasses, true) ) {
+                    return false;
+                }
+            }
+        }
+        if ( 1 === preg_match('/#([a-zA-Z0-9_-]+)/', $compound, $id) && $id[1] !== $element->getAttribute('id') ) {
+            return false;
+        }
+
+        return true;
     }
 
     private function hasResponsiveWidthConstraint(string $declarations): bool
@@ -378,7 +707,7 @@ final class StaticHtmlEmissionDiagnostics
     {
         $sections = array();
         foreach ( $this->cssRuleDeclarations($css) as $rule ) {
-            $height = $this->cssNumericDeclaration((string) $rule['declarations'], 'height') ?? $this->cssNumericDeclaration((string) $rule['declarations'], 'min-height');
+            $height = $this->cssNumericDeclaration((string) $rule['declarations'], 'height');
             $width = $this->cssNumericDeclaration((string) $rule['declarations'], 'width');
             if ( null === $height || $height < 1800.0 || (null !== $width && $width < 960.0) || '' !== (string) $rule['media'] ) {
                 continue;

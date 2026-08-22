@@ -1316,6 +1316,9 @@ final class HtmlTransformer
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
+        }
         foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
             $afterAuthorCssParts[] = $itemAnchorRule;
         }
@@ -2409,6 +2412,7 @@ final class HtmlTransformer
 
         $rules = array();
         $currentColors = array();
+        $defaultColors = array();
         foreach ( $matches as $match ) {
             $attrs = json_decode($match[1], true);
             if ( ! is_array($attrs) ) {
@@ -2442,6 +2446,7 @@ final class HtmlTransformer
                 $selector = '.wp-block-navigation .wp-block-navigation-item.' . $expectedClass
                     . '>.wp-block-navigation-item__content' . $restingSuffix;
                 $rules[$expectedClass] = $selector . '{color:' . $color . '}';
+                $defaultColors[$expectedClass] = $color;
             }
 
             if ( in_array('blocks-engine-current-navigation-item', $classes, true) ) {
@@ -2452,7 +2457,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( array() !== $currentColors
+        if ( (array() !== $currentColors || array() !== $defaultColors)
             && preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $navigationMatches, PREG_SET_ORDER)
         ) {
             foreach ( $navigationMatches as $navigationMatch ) {
@@ -2463,6 +2468,11 @@ final class HtmlTransformer
 
                 $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
                 foreach ( $classes as $className ) {
+                    if ( isset($defaultColors[$className]) && in_array('blocks-engine-native-responsive-navigation', $classes, true) ) {
+                        $selector = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $className;
+                        $rules['responsive:' . $className] = $selector . '>.wp-block-navigation__responsive-container-open,'
+                            . $selector . ' .wp-block-navigation__responsive-container-close{color:' . $defaultColors[$className] . '}';
+                    }
                     if ( ! isset($currentColors[$className]) ) {
                         continue;
                     }

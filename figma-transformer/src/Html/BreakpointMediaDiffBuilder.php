@@ -715,7 +715,7 @@ final class BreakpointMediaDiffBuilder
                     }
                     continue;
                 }
-                $responsiveWidthDeclarations = 'width' === $property
+                $responsiveWidthDeclarations = 'width' === $property && ! $this->nodeHasMaxWidthConstraint($baseNode) && ! $this->nodeHasMaxWidthConstraint($variantNode)
                     ? $this->breakpointDimensionPolicy->breakpointWidthDeclarations($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode)
                     : null;
                 if ( null !== $responsiveWidthDeclarations ) {
@@ -800,6 +800,12 @@ final class BreakpointMediaDiffBuilder
             $variantNode = '' !== $pathKey && is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : null;
             $decision = $this->responsiveBreakpointSafetyPolicy->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode, $variantNode);
             $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
+            if ( $this->nodeHasMaxWidthConstraint($node) || (is_array($variantNode) && $this->nodeHasMaxWidthConstraint($variantNode)) ) {
+                $declarations = array_values(array_filter(
+                    $declarations,
+                    static fn (string $declaration): bool => ! str_starts_with($declaration, 'width:') && ! str_starts_with($declaration, 'max-width:')
+                ));
+            }
             if ( empty($declarations) ) {
                 continue;
             }
@@ -827,7 +833,59 @@ final class BreakpointMediaDiffBuilder
             }
         }
 
+        if ( $viewportWidth <= 480.0 ) {
+            $rules = array_merge($rules, $this->fixedWidthBoundaryRules($baseStyles, $variantStyles));
+        }
+
         return array_values(array_unique($rules));
+    }
+
+    /**
+     * A mobile variant can intentionally retain a fixed intrinsic width that
+     * fits its source canvas. Cap it at its containing width so later parent
+     * layout changes cannot make that otherwise valid geometry overflow.
+     *
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @param array<string, array<string, mixed>> $variantStyles
+     * @return array<int, string>
+     */
+    private function fixedWidthBoundaryRules(array $baseStyles, array $variantStyles): array
+    {
+        $rules = array();
+        foreach ( $baseStyles as $pathKey => $base ) {
+            $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            $width = $this->cssPixelValue($baseMap['width'] ?? '');
+            if (
+                '' === $class
+                || null === $width
+                || $width < 320.0
+                || 'absolute' === ($baseMap['position'] ?? null)
+                || $this->usesFullBleedViewportBreakout($baseMap)
+                || $this->hasResponsiveWidthConstraint($baseMap)
+                || $this->nodeHasMaxWidthConstraint($base['node'] ?? array())
+                || $this->nodeHasMaxWidthConstraint(is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : array())
+            ) {
+                continue;
+            }
+
+            $rules[] = '.' . $class . '{max-width:100%;box-sizing:border-box}';
+        }
+
+        return array_values(array_unique($rules));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasResponsiveWidthConstraint(array $declarations): bool
+    {
+        return isset($declarations['max-width']);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeHasMaxWidthConstraint(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return isset($layout['max_width']) && is_numeric($layout['max_width']);
     }
 
     /**

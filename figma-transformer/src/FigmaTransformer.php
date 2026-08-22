@@ -1588,6 +1588,15 @@ final class FigmaTransformer
             'fixed_width_without_responsive_override_count' => 0,
             'effective_responsive_coverage_ratio' => 1.0,
             'fixed_width_samples' => array(),
+            'fixed_width_coverage_analysis' => array(
+                'status' => 'complete',
+                'diagnostic' => null,
+                'page_count' => 0,
+                'incomplete_page_count' => 0,
+                'contexts_evaluated' => 0,
+                'operations_evaluated' => 0,
+                'incomplete_pages' => array(),
+            ),
             'large_fixed_canvas_height' => false,
             'desktop_canvas_without_responsive_breakpoints' => false,
             'giant_fixed_section_count' => 0,
@@ -1665,6 +1674,19 @@ final class FigmaTransformer
             DiagnosticAggregation::appendContextSamples($htmlArtifact, 'giant_fixed_sections', $pageHtmlArtifact, 'giant_fixed_sections', $pageContext);
             DiagnosticAggregation::appendContextSamples($htmlArtifact, 'large_overflow_risks', $pageHtmlArtifact, 'large_overflow_risks', $pageContext);
             DiagnosticAggregation::appendContextSamples($htmlArtifact, 'semantic_role_samples', $pageHtmlArtifact, 'semantic_role_samples', $pageContext);
+            $pageCoverageAnalysis = is_array($pageHtmlArtifact['fixed_width_coverage_analysis'] ?? null) ? $pageHtmlArtifact['fixed_width_coverage_analysis'] : array();
+            ++$htmlArtifact['fixed_width_coverage_analysis']['page_count'];
+            $htmlArtifact['fixed_width_coverage_analysis']['contexts_evaluated'] += (int) ($pageCoverageAnalysis['contexts_evaluated'] ?? 0);
+            $htmlArtifact['fixed_width_coverage_analysis']['operations_evaluated'] += (int) ($pageCoverageAnalysis['operations_evaluated'] ?? 0);
+            if ( 'incomplete' === ($pageCoverageAnalysis['status'] ?? null) ) {
+                $htmlArtifact['fixed_width_coverage_analysis']['status'] = 'incomplete';
+                $htmlArtifact['fixed_width_coverage_analysis']['diagnostic'] = 'fixed_width_coverage_budget_exceeded';
+                ++$htmlArtifact['fixed_width_coverage_analysis']['incomplete_page_count'];
+                $htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'][] = array_merge($pageContext, array(
+                    'contexts_evaluated' => (int) ($pageCoverageAnalysis['contexts_evaluated'] ?? 0),
+                    'operations_evaluated' => (int) ($pageCoverageAnalysis['operations_evaluated'] ?? 0),
+                ));
+            }
             $htmlArtifact['large_fixed_canvas_height'] = ! empty($htmlArtifact['large_fixed_canvas_height']) || ! empty($pageHtmlArtifact['large_fixed_canvas_height']);
             $htmlArtifact['desktop_canvas_without_responsive_breakpoints'] = ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) || ! empty($pageHtmlArtifact['desktop_canvas_without_responsive_breakpoints']);
             $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
@@ -1779,10 +1801,13 @@ final class FigmaTransformer
         $htmlArtifact['giant_fixed_sections'] = array_slice(array_values($htmlArtifact['giant_fixed_sections']), 0, 25);
         $htmlArtifact['large_overflow_risks'] = array_slice(array_values($htmlArtifact['large_overflow_risks']), 0, 25);
         $htmlArtifact['semantic_role_samples'] = array_slice(array_values($htmlArtifact['semantic_role_samples']), 0, 25);
+        $htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'] = array_slice($htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'], 0, 25);
         $fixedWidthDeclarationCount = (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0);
-        $htmlArtifact['effective_responsive_coverage_ratio'] = $fixedWidthDeclarationCount > 0
+        $htmlArtifact['effective_responsive_coverage_ratio'] = 'incomplete' === ($htmlArtifact['fixed_width_coverage_analysis']['status'] ?? null)
+            ? 0.0
+            : ($fixedWidthDeclarationCount > 0
             ? round((int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0) / $fixedWidthDeclarationCount, 3)
-            : 1.0;
+            : 1.0);
         ksort($positionalParity['root_stacking_reason_counts']);
         $positionalParity['fixed_over_root_width_underlays'] = array_slice(array_values($positionalParity['fixed_over_root_width_underlays']), 0, 25);
         $positionalParity['chrome_overflow_nodes'] = array_slice(array_values($positionalParity['chrome_overflow_nodes']), 0, 25);
@@ -1971,6 +1996,14 @@ final class FigmaTransformer
                 'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
             );
         }
+        if ( 'incomplete' === ($htmlArtifact['fixed_width_coverage_analysis']['status'] ?? null) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'fixed_width_coverage_analysis_incomplete',
+                'diagnostic' => (string) ($htmlArtifact['fixed_width_coverage_analysis']['diagnostic'] ?? 'fixed_width_coverage_budget_exceeded'),
+                'incomplete_page_count' => (int) ($htmlArtifact['fixed_width_coverage_analysis']['incomplete_page_count'] ?? 0),
+            );
+        }
         if ( ! empty($htmlArtifact['giant_fixed_section_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -2086,6 +2119,7 @@ final class FigmaTransformer
                 'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
                 'fixed_width_with_responsive_override_count' => (int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0),
                 'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
+                'fixed_width_coverage_analysis' => is_array($htmlArtifact['fixed_width_coverage_analysis'] ?? null) ? $htmlArtifact['fixed_width_coverage_analysis'] : array(),
                 'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
                 'giant_fixed_section_count' => (int) ($htmlArtifact['giant_fixed_section_count'] ?? 0),
                 'large_overflow_risk_count' => (int) ($htmlArtifact['large_overflow_risk_count'] ?? 0),

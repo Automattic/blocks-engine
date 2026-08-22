@@ -218,7 +218,7 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(0 === $xpath->query('//ul/*[not(self::li)]')->length, 'html-validity-ul-direct-children-are-li');
 
     $artifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
-        '<main><section class="hero"><div>Hero</div></section><ul><a href="#">Bad direct link</a><li>Good</li></ul><form><input type="email"><svg><path d="M0 0H10V10Z"></path></svg></form></main>',
+        '<main><section class="hero"><div class="card">Hero</div><div class="media"></div><div class="tile-a"></div><div class="tile-b"></div><div class="tile-c"></div><div class="tile-d"></div><div class="tile-e"></div></section><ul><a href="#">Bad direct link</a><li>Good</li></ul><form><input type="email"><svg><path d="M0 0H10V10Z"></path></svg></form></main>',
         '.hero{width:1600px;height:2400px;overflow:hidden}.card{width:640px}.media{width:480px}.tile-a{width:360px}.tile-b{width:360px}.tile-c{width:360px}.tile-d{width:360px}.tile-e{width:360px}@media (max-width: 767px){.media{width:100%}}'
     );
     $assert(8 === ($artifactDiagnostics['fixed_width_declaration_count'] ?? null), 'html-validity-artifact-diagnostics-counts-fixed-width-declarations');
@@ -232,6 +232,20 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(1 === ($artifactDiagnostics['fallback_prone_input_island_count'] ?? null), 'html-validity-artifact-diagnostics-counts-input-islands');
     $assert(1 === ($artifactDiagnostics['invalid_list_child_count'] ?? null), 'html-validity-artifact-diagnostics-detects-invalid-list-children');
     $assert(2 === ($artifactDiagnostics['missing_semantic_role_count'] ?? null), 'html-validity-artifact-diagnostics-detects-missing-semantic-role');
+
+    $elasticHeightArtifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><section class="elastic"></section><section class="fixed"></section></main>',
+        '.elastic{width:1200px;min-height:2400px}.fixed{width:1200px;height:2400px}'
+    );
+    $assert(1 === ($elasticHeightArtifactDiagnostics['giant_fixed_section_count'] ?? null), 'html-validity-artifact-diagnostics-flags-only-fixed-giant-height');
+    $assert('.fixed' === ($elasticHeightArtifactDiagnostics['giant_fixed_sections'][0]['selector'] ?? null), 'html-validity-artifact-diagnostics-excludes-elastic-min-height');
+
+    $sharedResponsiveArtifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><div class="shared-card figma-node-card-a">First card</div><div class="shared-card figma-node-card-b">Second card</div></main>',
+        '.shared-card{width:640px}@media (max-width:390px){.figma-node-card-a{max-width:100%}}'
+    );
+    $assert(1 === ($sharedResponsiveArtifactDiagnostics['fixed_width_with_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-attributes-node-override-to-shared-style-class');
+    $assert(1 === ($sharedResponsiveArtifactDiagnostics['fixed_width_without_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-keeps-unoverridden-shared-style-instance-uncovered');
 
     $artifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array('missing_assets' => array(), 'image_block_count' => 0, 'total_node_count' => 0),
