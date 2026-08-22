@@ -240,16 +240,31 @@ $assert(1 === ($vectorPlaceholderSignal['count'] ?? null), 'missing-emission-vec
 
 $cliOutputRoot = sys_get_temp_dir() . '/figma-transformer-cli-output-' . getmypid() . '-' . bin2hex(random_bytes(4));
 $cliScenegraphPath = $cliOutputRoot . '/scenegraph.json';
+$cliBinaryContent = "\x89PNG\r\n\x1a\n\x00\xff\xfe\x80binary";
+$cliSvgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>';
 $cliScenegraph = array(
     'name'   => 'CLI Output Fixture',
     'assets' => array(
+        'cli-binary' => array(
+            'name'           => 'CLI Binary',
+            'mime_type'      => 'image/png',
+            'content_base64' => base64_encode($cliBinaryContent),
+        ),
         'cli-image' => array(
             'name'      => 'CLI Image',
             'mime_type' => 'image/svg+xml',
-            'content'   => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>',
+            'content'   => $cliSvgContent,
         ),
     ),
     'nodes'  => array(
+        array(
+            'id'       => 'cli:binary',
+            'type'     => 'RECTANGLE',
+            'name'     => 'CLI Binary Card',
+            'width'    => 40,
+            'height'   => 20,
+            'asset_id' => 'cli-binary',
+        ),
         array(
             'id'       => 'cli:1',
             'type'     => 'RECTANGLE',
@@ -262,10 +277,21 @@ $cliScenegraph = array(
 );
 mkdir($cliOutputRoot, 0777, true);
 file_put_contents($cliScenegraphPath, json_encode($cliScenegraph, JSON_UNESCAPED_SLASHES));
-$cliCommand = escapeshellarg(PHP_BINARY)
+$cliCommandBase = escapeshellarg(PHP_BINARY)
     . ' ' . escapeshellarg(__DIR__ . '/../../bin/figma-transformer')
-    . ' ' . escapeshellarg($cliScenegraphPath)
-    . ' --output-dir=' . escapeshellarg($cliOutputRoot . '/artifact');
+    . ' ' . escapeshellarg($cliScenegraphPath);
+$cliJsonTransport = shell_exec($cliCommandBase);
+$cliTransportResult = is_string($cliJsonTransport) ? json_decode($cliJsonTransport, true) : null;
+$cliTransportFiles = is_array($cliTransportResult) ? array_column($cliTransportResult['files'] ?? array(), null, 'path') : array();
+$cliBinaryTransportFile = $cliTransportFiles['assets/cli-binary.png'] ?? array();
+$cliSvgTransportFile = $cliTransportFiles['assets/cli-image.svg'] ?? array();
+$assert(is_array($cliTransportResult), 'cli-json-transport-parses');
+$assert(! array_key_exists('content', $cliBinaryTransportFile), 'cli-json-transport-omits-raw-binary-content');
+$assert($cliBinaryContent === base64_decode((string) ($cliBinaryTransportFile['content_base64'] ?? ''), true), 'cli-json-transport-base64-is-byte-identical');
+$assert($cliSvgContent === ($cliSvgTransportFile['content'] ?? null), 'cli-json-transport-preserves-textual-svg-content');
+$assert(! isset($cliSvgTransportFile['content_base64']), 'cli-json-transport-does-not-base64-textual-svg');
+
+$cliCommand = $cliCommandBase . ' --output-dir=' . escapeshellarg($cliOutputRoot . '/artifact');
 $cliJson = shell_exec($cliCommand);
 $cliResult = is_string($cliJson) ? json_decode($cliJson, true) : null;
 $assert(is_array($cliResult), 'cli-output-dir-json-result');
@@ -274,7 +300,8 @@ $assert($cliOutputRoot . '/artifact' === ($cliResult['output']['directory'] ?? n
 $assert(! isset($cliResult['files'][0]['content']), 'cli-output-dir-omits-file-content-from-json');
 $assert(is_file($cliOutputRoot . '/artifact/index.html'), 'cli-output-dir-writes-index');
 $assert(is_file($cliOutputRoot . '/artifact/style.css'), 'cli-output-dir-writes-style');
-$assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === file_get_contents($cliOutputRoot . '/artifact/assets/cli-image.svg'), 'cli-output-dir-preserves-asset-content');
+$assert($cliBinaryContent === file_get_contents($cliOutputRoot . '/artifact/assets/cli-binary.png'), 'cli-output-dir-preserves-binary-asset-content');
+$assert($cliSvgContent === file_get_contents($cliOutputRoot . '/artifact/assets/cli-image.svg'), 'cli-output-dir-preserves-asset-content');
 $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
