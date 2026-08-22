@@ -64,6 +64,55 @@ final class HtmlTransformer
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     /**
+     * Core blocks this transformer can produce, keyed by the contract that
+     * verifies that producer. Runtime registration is intentionally not part of
+     * this declaration: a runtime may expose blocks the HTML producer does not
+     * recognize (for example, the dynamic core/icon block).
+     *
+     * @return array<string,string>
+     */
+    public static function emittedCoreBlockContracts(): array
+    {
+        return array(
+            'core/accordion' => 'html_transformer_contract',
+            'core/accordion-heading' => 'html_transformer_contract',
+            'core/accordion-item' => 'html_transformer_contract',
+            'core/accordion-panel' => 'html_transformer_contract',
+            'core/audio' => 'html_transformer_contract',
+            'core/button' => 'html_transformer_contract',
+            'core/buttons' => 'html_transformer_contract',
+            'core/code' => 'html_transformer_contract',
+            'core/column' => 'html_transformer_contract',
+            'core/columns' => 'html_transformer_contract',
+            'core/cover' => 'html_transformer_contract',
+            'core/details' => 'html_transformer_contract',
+            'core/embed' => 'html_transformer_contract',
+            'core/file' => 'html_transformer_contract',
+            'core/gallery' => 'html_transformer_contract',
+            'core/group' => 'html_transformer_contract',
+            'core/heading' => 'html_transformer_contract',
+            'core/image' => 'html_transformer_contract',
+            'core/list' => 'html_transformer_contract',
+            'core/list-item' => 'html_transformer_contract',
+            'core/math' => 'html_transformer_contract',
+            'core/media-text' => 'html_transformer_contract',
+            'core/navigation' => 'html_transformer_contract',
+            'core/navigation-link' => 'html_transformer_contract',
+            'core/navigation-submenu' => 'html_transformer_contract',
+            'core/paragraph' => 'html_transformer_contract',
+            'core/preformatted' => 'html_transformer_contract',
+            'core/pullquote' => 'html_transformer_contract',
+            'core/quote' => 'html_transformer_contract',
+            'core/search' => 'html_transformer_contract',
+            'core/separator' => 'html_transformer_contract',
+            'core/shortcode' => 'html_transformer_contract',
+            'core/spacer' => 'html_transformer_contract',
+            'core/table' => 'html_transformer_contract',
+            'core/video' => 'html_transformer_contract',
+        );
+    }
+
+    /**
      * Reference viewport width (px) for resolving responsive image constraints
      * (aspect-ratio/object-fit) to the single value WordPress' core/image carries.
      * min-width @media overrides at or below this width may win over the base rule.
