@@ -1082,6 +1082,18 @@ final class HtmlTransformer
         if (preg_match('/<\s*(?:script|style|iframe|canvas|svg|form|input|select|textarea)\b/i', $html)) {
             return null;
         }
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<!doctype html><html><body>' . $html . '</body></html>');
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ($loaded) {
+            foreach ($document->getElementsByTagName('*') as $element) {
+                if ($element instanceof DOMElement && $this->isRuntimeDomTarget($element)) {
+                    return null;
+                }
+            }
+        }
 
         $result = (new self($this->runtime, $this->analysisCache))->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
         $data = $result->toArray();
