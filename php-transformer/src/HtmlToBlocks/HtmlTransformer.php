@@ -1294,6 +1294,14 @@ final class HtmlTransformer
             if ( '' !== $mobileOverlayBackground ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
+            if ( str_contains($serializedBlocks, 'wp:navigation-submenu') ) {
+                // Source shell containers commonly clip their original, in-flow
+                // menu. Core's generated desktop submenu extends outside that
+                // box, so release only converted Group ancestors that contain it.
+                // Zero specificity lets an authored !important overflow remain
+                // authoritative, and leaves Core's mobile overlay untouched.
+                $afterAuthorCssParts[] = ':where(.wp-block-group:has(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-submenu)){overflow:visible!important}';
+            }
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
