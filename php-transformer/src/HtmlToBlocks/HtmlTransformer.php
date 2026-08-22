@@ -7540,13 +7540,15 @@ final class HtmlTransformer
     /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         if ( 'div' !== strtolower($element->tagName)
             || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
+            || ($fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null))
             || $this->isRuntimeDomTarget($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
+            || (! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element))
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
@@ -7566,9 +7568,10 @@ final class HtmlTransformer
         if ( ! $sourceChild instanceof DOMElement
             || ('core/image' === ($childBlock['blockName'] ?? null) && 'img' !== strtolower($sourceChild->tagName))
             || $this->hasMotionStructureToken($sourceChild)
-            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
+            || ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))
+            || ($fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
             || ('core/image' !== ($childBlock['blockName'] ?? null) && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
-            || (! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild))
+            || (! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell))
         ) {
             return null;
         }
@@ -7695,9 +7698,51 @@ final class HtmlTransformer
         return true;
     }
 
+    private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
+    {
+        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        if ( '100%' !== strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')))) ) {
+            return false;
+        }
+        unset($declarations['width']);
+        foreach ($declarations as $property => $value) {
+            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
+    {
+        $declarations = $this->matchingAuthorDeclarations($element);
+        if ( '100%' !== strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')))) ) {
+            return false;
+        }
+        unset($declarations['width']);
+        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($declarations);
+    }
+
+    private function isNormalFlowFullWidthShellChild(DOMElement $element): bool
+    {
+        if ( $this->hasContainingBlockDependentAuthorDeclarations($element) ) {
+            return false;
+        }
+        $declarations = $this->presentationDeclarations($element);
+        return ! isset($declarations['width'])
+            && ! isset($declarations['min-width'])
+            && ! isset($declarations['max-width']);
+    }
+
     private function hasOnlyRenderNeutralBoxAffectingDeclarations(DOMElement $element): bool
     {
-        foreach ($this->matchingAuthorDeclarations($element) as $property => $value) {
+        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($this->matchingAuthorDeclarations($element));
+    }
+
+    /** @param array<string,string> $declarations */
+    private function hasOnlyRenderNeutralBoxAffectingDeclarationMap(array $declarations): bool
+    {
+        foreach ($declarations as $property => $value) {
             if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
@@ -7803,7 +7848,7 @@ final class HtmlTransformer
         return $index;
     }
 
-    private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child): bool
+    private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
     {
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
@@ -7854,7 +7899,7 @@ final class HtmlTransformer
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
                 && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
-            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations']) ) {
+            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
             }
