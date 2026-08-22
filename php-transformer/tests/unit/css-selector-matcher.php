@@ -127,7 +127,7 @@ $largeCandidateIndex = array(
 $candidateCache->styleRuleCandidates($byId('one'), 'large', $largeCandidateIndex);
 $candidateCache->styleRuleCandidates($byId('two'), 'large', $largeCandidateIndex);
 $candidateCache->styleRuleCandidates($byId('target'), 'large', $largeCandidateIndex);
-$assert(2048 === $candidateCache->candidateRulesRetained, 'candidate cache evicts prior element lists before retained rule references exceed the bound');
+$assert(4096 === $candidateCache->candidateRulesRetained, 'candidate cache retains rule references up to the bound after pressure');
 $oversizedUniversalRules = array();
 for ( $index = 0; $index < 4097; ++$index ) {
     $oversizedUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
@@ -139,9 +139,39 @@ $candidateCache->styleRuleCandidates($byId('control'), 'oversized', array(
     'tags' => array(),
     'total' => count($oversizedUniversalRules),
 ));
-$assert(2048 === $candidateCache->candidateRulesRetained, 'a single oversized candidate list is returned without retention');
+$assert(4096 === $candidateCache->candidateRulesRetained, 'a single oversized candidate list is returned without retention');
 $candidateCache->clear();
 $assert(0 === $candidateCache->candidateRulesRetained, 'clearing the immutable revision cache resets retained candidate accounting');
+
+$pressureCache = new CssSelectorMatchCache();
+$hotSelector = '.cache-0';
+for ( $index = 0; $index < CssSelectorMatchCache::MAX_MATCHES; ++$index ) {
+    $selector = '.cache-' . $index;
+    $pressureCache->matches($byId('target'), $selector, CssSelectorMatcher::parse($selector));
+}
+$pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
+$pressureCache->matches($byId('target'), '.cache-overflow', CssSelectorMatcher::parse('.cache-overflow'));
+$pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
+$assert(4097 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && CssSelectorMatchCache::MAX_MATCHES === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
+
+$candidatePressureDom = new DOMDocument();
+$candidatePressureDom->loadHTML('<!doctype html><div id="candidate-pressure"></div>');
+$candidatePressureRoot = $candidatePressureDom->getElementById('candidate-pressure');
+$candidatePressureElements = array();
+for ( $index = 0; $index <= CssSelectorMatchCache::MAX_CANDIDATE_LISTS; ++$index ) {
+    $element = $candidatePressureDom->createElement('i');
+    $candidatePressureRoot->appendChild($element);
+    $candidatePressureElements[] = $element;
+}
+$candidatePressureCache = new CssSelectorMatchCache();
+$emptyCandidateIndex = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => 0);
+for ( $index = 0; $index < CssSelectorMatchCache::MAX_CANDIDATE_LISTS; ++$index ) {
+    $candidatePressureCache->styleRuleCandidates($candidatePressureElements[$index], 'pressure', $emptyCandidateIndex);
+}
+$candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
+$candidatePressureCache->styleRuleCandidates($candidatePressureElements[CssSelectorMatchCache::MAX_CANDIDATE_LISTS], 'pressure', $emptyCandidateIndex);
+$candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
+$assert(4097 === $candidatePressureCache->candidateRuleMisses && 2 === $candidatePressureCache->candidateRuleHits && 1 === $candidatePressureCache->candidateRuleEvictions && CssSelectorMatchCache::MAX_CANDIDATE_LISTS === $candidatePressureCache->candidateRulePeakEntries && 0 === $candidatePressureCache->candidateRulePeakRetained, 'zero-rule candidate lists remain bounded and hot lists survive capacity pressure');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
