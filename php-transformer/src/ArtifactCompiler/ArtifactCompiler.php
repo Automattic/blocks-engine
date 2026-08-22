@@ -4118,17 +4118,23 @@ final class ArtifactCompiler
             return null;
         }
 
-        $path = $this->resolveHtmlReferencePath($reference, $entryPath);
-        if ( '' === $path ) {
+        $paths = array_filter(array(
+            $this->resolveHtmlReferencePath($reference, $entryPath),
+            str_starts_with($reference, '/') ? $this->resolveHtmlReferencePath(ltrim($reference, '/'), $entryPath) : '',
+        ), static fn (string $path): bool => '' !== $path);
+        $paths = array_values(array_unique($paths));
+        if ( array() === $paths ) {
             return null;
         }
 
-        if ( isset($this->filesByPath[$path]) ) {
-            return $this->filesByPath[$path];
+        foreach ( $paths as $path ) {
+            if ( isset($this->filesByPath[$path]) ) {
+                return $this->filesByPath[$path];
+            }
         }
 
         foreach ( $files as $file ) {
-            if ( $path === ($file['path'] ?? '') ) {
+            if ( in_array($file['path'] ?? '', $paths, true) ) {
                 return $file;
             }
         }

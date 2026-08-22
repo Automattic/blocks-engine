@@ -439,6 +439,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    private const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
+
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
@@ -1430,6 +1432,15 @@ final class HtmlTransformer
         }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+        }
+        if ( $this->emptyRuntimeTargetGenerated ) {
+            $selector = ':root .' . self::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
+            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+                . $selector . '>*{display:none!important}'
+                . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
+        }
+        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->combinedAuthorCss) ) {
+            $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
 
         $repairs = array();
@@ -4852,6 +4863,17 @@ final class HtmlTransformer
                 }
             }
 
+            // Keep safe phrasing runs together before generic flex/grid preservation can split
+            // selector-addressed inline targets into block-level children. The recognizer rejects
+            // children with independent layout geometry, so structural inline items still fall
+            // through to the author-owned layout path below.
+            if ( $this->hasMultipleRuntimeInlineTextTargets($element) ) {
+                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $inlineContent ) {
+                    return $inlineContent;
+                }
+            }
+
             if ( 'button' !== strtolower($this->attr($element, 'role'))
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
@@ -6902,6 +6924,14 @@ final class HtmlTransformer
             $targetInline->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
         }
 
+        // Source comments are authoring metadata, not RichText. Gutenberg exposes comments inside
+        // editable content as visible text, so remove them while retaining comments elsewhere in
+        // the document where they may delimit templates or runtime payloads.
+        $xpath = new \DOMXPath($document);
+        foreach ( $xpath->query('//body//comment()') ?: array() as $comment ) {
+            $comment->parentNode?->removeChild($comment);
+        }
+
         return $this->innerHtml($body);
     }
 
@@ -7837,6 +7867,10 @@ final class HtmlTransformer
         }
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        if ( $this->isRuntimeDomTarget($element) ) {
+            $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
+            $this->emptyRuntimeTargetGenerated = true;
+        }
         return $attrs;
     }
 
@@ -8500,6 +8534,25 @@ final class HtmlTransformer
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
+    private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool
+    {
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->hasOnlyPhrasingChildren($element) ) {
+            return false;
+        }
+
+        $targets = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isRuntimeDomTarget($child) ) {
+                ++$targets;
+            }
+        }
+
+        return 1 < $targets;
     }
 
     private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array

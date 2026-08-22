@@ -1337,6 +1337,34 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeClockCss = '*{margin:0;padding:0}.site-footer{display:flex}.footer-left{display:flex;flex-direction:column}.clock-time{font-size:.75rem;font-weight:700}.clock-date{font-size:.7rem;min-height:1.2em}.blink-colon{animation:blink 1s infinite}#timezone{margin-left:.2rem;opacity:.6}';
+$runtimeClock = ( new HtmlTransformer() )->transform(
+    '<footer class="site-footer"><div id="clock-container" class="footer-left"><div id="clock-time" class="clock-time"><!-- Initial State: 00:00 --><span id="hours">12</span><span id="colon" class="blink-colon">:</span><span id="minutes">28</span><span id="ampm">PM</span><span id="timezone">(GMT -4)</span></div><div id="clock-date" class="clock-date">Saturday</div></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#clock-container', '#hours', '#colon', '#minutes', '#ampm', '#timezone', '#clock-date'),
+        'static_css' => $runtimeClockCss,
+        'author_stylesheet_assets' => array(array('path' => 'style.css', 'source_path' => 'style.css', 'content' => $runtimeClockCss, 'source_hash' => hash('sha256', $runtimeClockCss), 'media' => '', 'type' => '')),
+        'skip_author_stylesheet_materialization' => true,
+    )
+)->toArray();
+$runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
+$assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
+$assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
+$assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
+
+$emptyRuntimeText = ( new HtmlTransformer() )->transform(
+    '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#runtime-status'),
+        'static_css' => 'body{overflow:hidden;height:100dvh;width:100vw}.footer{display:flex}.runtime-status{min-height:1.2em}',
+    )
+)->toArray();
+$emptyRuntimeTextMarkup = (string) ($emptyRuntimeText['serialized_blocks'] ?? '');
+$emptyRuntimeTextEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor' === ($asset['stylesheet_target'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyRuntimeText['assets'] ?? array()));
+$assert(str_contains($emptyRuntimeTextMarkup, 'blocks-engine-empty-runtime-target'), 'empty script-owned text targets carry a dedicated editor placeholder class', $emptyRuntimeTextMarkup);
+$assert(str_contains($emptyRuntimeTextEditorCss, 'content:"Dynamic content"') && str_contains($emptyRuntimeTextEditorCss, '>*{display:none!important}'), 'empty script-owned text targets replace the Group inserter with an editor-only dynamic-content placeholder', $emptyRuntimeTextEditorCss);
+$assert(str_contains($emptyRuntimeTextEditorCss, ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}'), 'viewport-locked source documents remain scrollable inside the block editor', $emptyRuntimeTextEditorCss);
+
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
@@ -3983,6 +4011,31 @@ $assert(1 === count($scriptPayload['preserved_js'] ?? array()), 'script-only art
 $assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? ''), 'dataset.ready'), 'companion payload carries the inline script body');
 $assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
 $assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
+
+$rootedScriptCompanion = $compiler->compile(
+    array(
+        'site' => array( 'name' => 'Rooted Runtime Site', 'slug' => 'rooted-runtime-site' ),
+        'root' => 'website',
+        'entrypoint' => 'website/index.html',
+        'files' => array(
+            array( 'path' => 'website/index.html', 'content' => '<main><canvas id="canvas"></canvas></main><script src="/script.js"></script><script src="/.netlify/scripts/rum.js"></script>' ),
+            array( 'path' => 'website/script.js', 'content' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); let totalAmplitude = 0; // Scale particles based on amplitude.' ),
+            array( 'path' => 'website/.netlify/scripts/rum.js', 'content' => 'window.netlifyRum=true;' ),
+        ),
+    )
+)->toArray();
+$rootedScriptPayload = $rootedScriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$rootedPreservedJs = $rootedScriptPayload['preserved_js'] ?? array();
+$assert(1 === count($rootedPreservedJs), 'root-relative first-party script is resolved against the artifact root and carried once');
+$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'totalAmplitude'), 'application identifiers containing a telemetry vendor name remain first-party companion code');
+$rootedPlan = $rootedScriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$rootedPageMarkup = (string) ($rootedPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(str_contains($rootedPageMarkup, '<canvas id="canvas"></canvas>'), 'root-relative first-party canvas runtime preserves its script-addressable markup');
+$rootedPlanWriteSources = array_column($rootedPlan['writes'] ?? array(), 'source_path');
+$assert(!in_array('website/script.js', $rootedPlanWriteSources, true), 'companion-owned first-party script is not duplicated into the theme plan');
+$assert(!in_array('website/.netlify/scripts/rum.js', $rootedPlanWriteSources, true), 'dropped telemetry script is not written into the theme plan');
+$rootedPlanScripts = array_merge(...array_map(static fn(array $page): array => $page['document_metadata']['scripts'] ?? array(), $rootedPlan['pages'] ?? array()));
+$assert(array() === $rootedPlanScripts, 'companion-owned and dropped script declarations are absent from theme loading');
 
 $companionNoSite = $compiler->compile(
     array(
