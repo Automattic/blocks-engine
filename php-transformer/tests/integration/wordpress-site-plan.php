@@ -108,12 +108,17 @@ $pageIds['stylable-button'] = $stylableButtonId;
 $stylableButtonSaved = (string) get_post_field('post_content', $stylableButtonId);
 $stylableButtonBlocks = parse_blocks($stylableButtonSaved);
 $stylableButtonAttrs = $stylableButtonBlocks[0]['innerBlocks'][0]['attrs'] ?? array();
-$stylableButtonBlocks[0]['innerBlocks'][0]['attrs']['text'] = '<span class="wix-label"><span>Write to us</span></span><img src="assets/materialized-svg/inline.svg" alt="" />';
-$stylableButtonBlocks[0]['innerBlocks'][0]['attrs']['url'] = 'tel:+15551234567';
+// parse_blocks() retains core/button source attributes in its saved inner HTML;
+// only comment-backed attributes such as className appear in attrs.
+$stylableButtonBlocks[0]['innerBlocks'][0]['innerContent'][0] = str_replace(
+    array( 'Email us', 'mailto:hello@example.com' ),
+    array( 'Write to us', 'tel:+15551234567' ),
+    (string) ($stylableButtonBlocks[0]['innerBlocks'][0]['innerContent'][0] ?? '')
+);
 $stylableButtonEdited = serialize_blocks($stylableButtonBlocks);
 wp_update_post(array('ID' => $stylableButtonId, 'post_content' => wp_slash($stylableButtonEdited)));
 $stylableButtonReloaded = (string) get_post_field('post_content', $stylableButtonId);
-$assert('core/button' === ($stylableButtonBlocks[0]['innerBlocks'][0]['blockName'] ?? null) && 'mailto:hello@example.com' === ($stylableButtonAttrs['url'] ?? null) && '_blank' === ($stylableButtonAttrs['linkTarget'] ?? null) && 'noopener external' === ($stylableButtonAttrs['rel'] ?? null) && !isset($stylableButtonAttrs['ariaLabel']) && !str_contains($stylableButtonSaved, 'aria-label=') && str_contains($stylableButtonSaved, 'materialized-svg') && str_contains($stylableButtonReloaded, 'Write to us') && str_contains($stylableButtonReloaded, 'tel:+15551234567'), 'WordPress parses, serializes, and persists schema-supported editable label and destination updates for nested-label SVG buttons without an HTML fallback.');
+$assert('core/button' === ($stylableButtonBlocks[0]['innerBlocks'][0]['blockName'] ?? null) && str_contains((string) ($stylableButtonAttrs['className'] ?? ''), 'wix-button') && !isset($stylableButtonAttrs['ariaLabel']) && !str_contains($stylableButtonSaved, 'aria-label=') && str_contains($stylableButtonSaved, 'href="mailto:hello@example.com"') && str_contains($stylableButtonSaved, 'target="_blank"') && str_contains($stylableButtonSaved, 'rel="noopener external"') && str_contains($stylableButtonSaved, 'materialized-svg') && str_contains($stylableButtonReloaded, 'Write to us') && str_contains($stylableButtonReloaded, 'tel:+15551234567'), 'WordPress parses, serializes, and persists core/button source markup for nested-label SVG label and destination edits without an HTML fallback.');
 $fixture87Styles = '.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
 $fixture87 = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>', 'assets/site.css' => $fixture87Styles)))->toArray();
 $fixture87Saved = serialize_blocks(parse_blocks((string) ($fixture87['serialized_blocks'] ?? '')));

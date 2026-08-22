@@ -157,7 +157,7 @@ final class ButtonsPattern
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $attr($anchor, 'href'),
-            'title'      => $this->buttonTitle($anchor),
+            'title'      => $this->buttonTitleForAnchor($anchor, $text),
             'linkTarget' => $attr($anchor, 'target'),
             'rel'        => $attr($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
@@ -244,6 +244,15 @@ final class ButtonsPattern
         return html_entity_decode(trim($element->getAttribute('title')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
+    private function buttonTitleForAnchor(DOMElement $anchor, string $text): string
+    {
+        // An icon-only core/button has no visible accessible name. `title` is
+        // its supported content attribute and retains the source aria label.
+        return '' === $this->normalizedAccessibleText($this->plainText($text))
+            ? $this->buttonAccessibleTitle($anchor)
+            : $this->buttonTitle($anchor);
+    }
+
     private function buttonAccessibleTitle(DOMElement $element): string
     {
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
@@ -264,7 +273,8 @@ final class ButtonsPattern
     private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
     {
         $ariaLabel = $this->normalizedAccessibleText($anchor->getAttribute('aria-label'));
-        return '' !== $ariaLabel && $ariaLabel !== $this->normalizedAccessibleText($this->plainText($text));
+        $visibleLabel = $this->normalizedAccessibleText($this->plainText($text));
+        return '' !== $ariaLabel && '' !== $visibleLabel && $ariaLabel !== $visibleLabel;
     }
 
     private function normalizedAccessibleText(string $text): string
