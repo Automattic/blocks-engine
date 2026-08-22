@@ -116,6 +116,7 @@
       "php tests/unit/html-transformer-shared-analysis-cache.php",
       "php tests/unit/reusable-component-recognition.php",
       "php tests/unit/compile-fragment-author-stylesheet.php",
+      "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php"
     ],
     "test:parity": "php tests/parity/run.php",
