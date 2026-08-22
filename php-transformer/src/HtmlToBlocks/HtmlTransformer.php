@@ -4292,6 +4292,13 @@ final class HtmlTransformer
             }
         }
 
+        // Anchors are phrasing content, but button-like anchors must be offered
+        // to the button dispatcher before generic inline lowering splits their
+        // label and decorative SVG into separate paragraph blocks.
+        if ( 'a' === $tagName ) {
+            return $this->convertAnchorDispatchElement($element, $fallbacks);
+        }
+
         if ( $this->isInlineContentElement($tagName) ) {
             if ( $this->isRuntimeDomTarget($element) ) {
                 return $this->htmlPreservationBlock($element);

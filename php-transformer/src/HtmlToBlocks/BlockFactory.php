@@ -672,6 +672,7 @@ final class BlockFactory
             'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
             'style' => $support['style'],
             'title' => (string) ($attrs['title'] ?? ''),
+            'aria-label' => (string) ($attrs['ariaLabel'] ?? ''),
         );
 
         if ( 'button' === ($attrs['tagName'] ?? '') ) {
@@ -681,7 +682,11 @@ final class BlockFactory
         }
 
         $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
+        $linkAttrs = $this->htmlAttrs(array(
+            'target' => (string) ($attrs['linkTarget'] ?? ''),
+            'rel'    => (string) ($attrs['rel'] ?? ''),
+        ));
+        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . $linkAttrs . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
     }
 
     /**
