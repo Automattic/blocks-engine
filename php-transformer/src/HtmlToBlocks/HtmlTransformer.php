@@ -33,6 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecogniz
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
@@ -106,6 +107,8 @@ final class HtmlTransformer
             'core/search' => 'html_transformer_contract',
             'core/separator' => 'html_transformer_contract',
             'core/shortcode' => 'html_transformer_contract',
+            'core/social-link' => 'html_transformer_contract',
+            'core/social-links' => 'html_transformer_contract',
             'core/spacer' => 'html_transformer_contract',
             'core/table' => 'html_transformer_contract',
             'core/video' => 'html_transformer_contract',
@@ -581,6 +584,7 @@ final class HtmlTransformer
         $this->spacerPattern     = new SpacerPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
             new AccordionPattern(),
+            new SocialLinksPattern(),
             new NavigationPattern(),
         ));
         $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
