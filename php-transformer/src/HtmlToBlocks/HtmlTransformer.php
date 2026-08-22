@@ -424,6 +424,9 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $navigationSpacingFallbacks = array();
 
+    /** @var array<string, string> */
+    private array $buttonWrapperSpacingFallbacks = array();
+
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
 
@@ -704,6 +707,7 @@ final class HtmlTransformer
         $this->navigationLinkColorFallbacks = array();
         $this->navigationSubmenuBackgroundFallbacks = array();
         $this->navigationSpacingFallbacks = array();
+        $this->buttonWrapperSpacingFallbacks = array();
         $this->syntheticHeaderAnchorStyleRules = array();
         $this->headerRichTextStyleRules = array();
         $this->gutenbergIncompatibilities = array();
@@ -1249,6 +1253,11 @@ final class HtmlTransformer
         foreach ( $this->navigationSpacingFallbacks as $className => $declarations ) {
             if ( str_contains($serializedBlocks, $className) ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.' . $className . '{' . $declarations . '}';
+            }
+        }
+        foreach ( $this->buttonWrapperSpacingFallbacks as $className => $declarations ) {
+            if ( str_contains($serializedBlocks, $className) ) {
+                $afterAuthorCssParts[] = '.wp-block-buttons.' . $className . '{' . $declarations . '}';
             }
         }
         foreach ( $this->syntheticHeaderAnchorStyleRules as $className => $rule ) {
@@ -5552,6 +5561,15 @@ final class HtmlTransformer
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
                     $this->navigationSpacingFallbacks[ $class ] = $declarations;
+                    break;
+                }
+            }
+        }
+        if ( 'core/buttons' === $name && is_array($fallback['spacing'] ?? null) ) {
+            $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
+            foreach ( $classes as $class ) {
+                if ( '' !== $declarations && str_starts_with($class, 'blocks-engine-control-') ) {
+                    $this->buttonWrapperSpacingFallbacks[ $class ] = $declarations;
                     break;
                 }
             }

@@ -1024,7 +1024,7 @@ $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
 )->toArray();
 $flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
 $flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
-$assert(str_contains($flexAnchorAutoMarginCss, 'margin-right:auto') && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
+$assert(preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:auto\}/', $flexAnchorAutoMarginCss) && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
 $assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
@@ -1048,7 +1048,7 @@ foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
     $directFlexMarginInner = $directFlexMarginWrapper['innerBlocks'][0] ?? array();
     $directFlexMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $directFlexMarginButton['assets'] ?? array()));
     $assert(! isset($directFlexMarginInner['attrs']['style']['spacing']['margin']) && str_contains($directFlexMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}'), 'direct-flex ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
-    $assert(str_contains($directFlexMarginCss, $margin['css']) && ! str_contains($directFlexMarginCss, $margin['css'] . '!important'), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+    $assert(str_contains($directFlexMarginCss, $margin['css']) && preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:' . preg_quote($margin['expected']['right'], '/') . ';margin-left:' . preg_quote($margin['expected']['left'], '/') . '\}/', $directFlexMarginCss), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
 
     $fullWidthMarginButton = ( new HtmlTransformer() )->transform(
         '<style>.cta{display:inline-flex;padding:1rem;background:#123456;width:100%;' . $margin['source'] . '}</style><main><section><a class="cta" href="/start">Start</a></section></main>'
@@ -1057,7 +1057,7 @@ foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
     $fullWidthMarginInner = $fullWidthMarginWrapper['innerBlocks'][0] ?? array();
     $fullWidthMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthMarginButton['assets'] ?? array()));
     $assert(! isset($fullWidthMarginInner['attrs']['style']['spacing']['margin']) && str_contains($fullWidthMarginCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}'), 'full-width ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
-    $assert(str_contains($fullWidthMarginCss, $margin['css']) && ! str_contains($fullWidthMarginCss, $margin['css'] . '!important'), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+    $assert(str_contains($fullWidthMarginCss, $margin['css']) && preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:' . preg_quote($margin['expected']['right'], '/') . ';margin-left:' . preg_quote($margin['expected']['left'], '/') . '\}/', $fullWidthMarginCss), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
 }
 
 $fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
