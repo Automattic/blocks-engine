@@ -538,6 +538,7 @@ final class ArtifactCompiler
             $assets[] = $wordpressCompatAsset;
         }
         $assets = $this->deduplicateVisualAssets($assets);
+        $assets = $this->coalesceStylesheetAssets($assets);
         $diagnostics = array_merge($diagnostics, $allDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -1080,6 +1081,85 @@ final class ArtifactCompiler
             $deduplicated[$index]['component_occurrences_omitted'] = max(0, array_sum(is_array($deduplicated[$index]['component_occurrence_counts'] ?? null) ? $deduplicated[$index]['component_occurrence_counts'] : array()) - count($rows));
         }
         return $deduplicated;
+    }
+
+    /**
+     * Coalesce only adjacent stylesheet assets with the same runtime contract.
+     * Keeping the run contiguous preserves the existing cascade order while
+     * bounding bootstrap records for fragmented inline author styles.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private function coalesceStylesheetAssets(array $assets): array
+    {
+        $coalesced = array();
+        $run = array();
+        $runKey = '';
+        $flush = static function () use (&$coalesced, &$run, &$runKey): void {
+            if ( array() === $run ) {
+                return;
+            }
+            if ( 1 === count($run) ) {
+                $coalesced[] = $run[0];
+                $run = array();
+                $runKey = '';
+                return;
+            }
+            $content = implode("\n", array_map(static fn (array $asset): string => rtrim((string) $asset['content']) . "\n", $run));
+            $hash = hash('sha256', $content);
+            $pathHash = hash('sha256', $runKey . "\0" . $content);
+            $bundle = $run[0];
+            $bundle['source'] = 'stylesheet-bundle';
+            $bundle['path'] = 'assets/css/stylesheet-bundle-' . substr($pathHash, 0, 16) . '.css';
+            $bundle['target_path'] = $bundle['path'];
+            $bundle['content'] = $content;
+            $bundle['bytes'] = strlen($content);
+            $bundle['hash'] = $hash;
+            $bundle['source_hash'] = $hash;
+            $bundle['source_paths'] = array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $run));
+            $bundle['source_hashes'] = array_values(array_map(static fn (array $asset): string => (string) ($asset['hash'] ?? ''), $run));
+            $coalesced[] = $bundle;
+            $run = array();
+            $runKey = '';
+        };
+        foreach ( $assets as $asset ) {
+            if ( ! $this->isCoalescibleStylesheetAsset($asset) ) {
+                $flush();
+                $coalesced[] = $asset;
+                continue;
+            }
+            $key = $this->stylesheetBundleKey($asset);
+            if ( array() !== $run && $key !== $runKey ) {
+                $flush();
+            }
+            $run[] = $asset;
+            $runKey = $key;
+        }
+        $flush();
+        return $coalesced;
+    }
+
+    /** @param array<string,mixed> $asset */
+    private function isCoalescibleStylesheetAsset(array $asset): bool
+    {
+        return 'css' === ($asset['kind'] ?? null)
+            && 'stylesheet' === ($asset['role'] ?? null)
+            && 'inline-style' === ($asset['source'] ?? null)
+            && is_string($asset['content'] ?? null)
+            && '' !== (string) $asset['content'];
+    }
+
+    /** @param array<string,mixed> $asset */
+    private function stylesheetBundleKey(array $asset): string
+    {
+        return json_encode(array(
+            'compilation' => $asset['compilation'] ?? array('scope' => 'shared'),
+            'source' => $asset['source'] ?? '',
+            'target' => $asset['stylesheet_target'] ?? 'both',
+            'placement' => $asset['stylesheet_placement'] ?? '',
+            'media' => $asset['media'] ?? '',
+        ), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     }
 
     /** @param array<string, mixed> $entryEvidence @param array<string, array<string, mixed>> $documents @param array<int, array<string, mixed>> $assets */
