@@ -38,6 +38,7 @@
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
+    "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
     "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
