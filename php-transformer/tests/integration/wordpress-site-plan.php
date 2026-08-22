@@ -163,14 +163,14 @@ foreach (array('Query Loop First', 'Query Loop Second') as $title) {
     $pageIds['query-loop-' . $queryPostId] = $queryPostId;
 }
 $indexBlocks = parse_blocks($indexTemplate);
-$indexQuery = $indexBlocks[1]['innerBlocks'][0] ?? array();
+$indexQuery = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
 $indexPostTemplate = $indexQuery['innerBlocks'][0] ?? array();
 $previousQuery = $wp_query;
 $wp_query = new WP_Query(array('post_type' => 'post', 'post__in' => $queryPostIds, 'orderby' => 'post__in', 'posts_per_page' => 10));
 $indexRendered = do_blocks($indexTemplate);
 wp_reset_postdata();
 $wp_query = $previousQuery;
-$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback: ' . json_encode(array('query_block' => $indexQuery['blockName'] ?? null, 'per_page' => $indexQuery['attrs']['query']['perPage'] ?? null, 'inherit' => $indexQuery['attrs']['query']['inherit'] ?? null, 'post_template' => $indexPostTemplate['blockName'] ?? null, 'round_trips' => $indexTemplate === serialize_blocks($indexBlocks), 'first_post' => str_contains($indexRendered, 'Query Loop First'), 'second_post' => str_contains($indexRendered, 'Query Loop Second'), 'post_count' => substr_count($indexRendered, 'wp-block-post '), 'has_no_results' => str_contains($indexRendered, 'No posts found.'))));
+$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
