@@ -108,7 +108,7 @@ final class ResponsiveDocumentVariants
         foreach ($variants as $variant) {
             $allClasses[] = $this->variantClass($variant['id']);
         }
-        $controlCss = '.' . implode(',.', array_slice($allClasses, 1)) . '{display:none!important}';
+        $controlCss = '';
         $variantMarkup = '';
         $variantStyles = '';
         foreach ($variants as $variant) {
@@ -117,8 +117,10 @@ final class ResponsiveDocumentVariants
                 throw new \InvalidArgumentException(sprintf('Document variant "%s" must contain a body element.', $variant['path']));
             }
             $variantClass = $this->variantClass($variant['id']);
-            $hidden = array_map(static fn(string $class): string => '.' . $class, $allClasses);
-            $controlCss .= '@media ' . $variant['media'] . '{' . implode(',', $hidden) . '{display:none!important}.' . $variantClass . '{display:contents!important}}';
+            // Hide a variant only when its condition does not match. The active
+            // wrapper retains the body display and geometry authored by its source.
+            $controlCss .= '@media not all and ' . $variant['media'] . '{.' . $variantClass . '{display:none!important}}';
+            $controlCss .= '@media ' . $variant['media'] . '{.site-document-variant-default{display:none!important}}';
 
             $bodyClasses = $this->attribute($body['opening'], 'class');
             $bodyStyle = $this->attribute($body['opening'], 'style');
