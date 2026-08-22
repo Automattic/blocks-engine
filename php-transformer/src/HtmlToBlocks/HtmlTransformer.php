@@ -6821,6 +6821,14 @@ final class HtmlTransformer
             $targetInline->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
         }
 
+        // Source comments are authoring metadata, not RichText. Gutenberg exposes comments inside
+        // editable content as visible text, so remove them while retaining comments elsewhere in
+        // the document where they may delimit templates or runtime payloads.
+        $xpath = new \DOMXPath($document);
+        foreach ( $xpath->query('//body//comment()') ?: array() as $comment ) {
+            $comment->parentNode?->removeChild($comment);
+        }
+
         return $this->innerHtml($body);
     }
 
