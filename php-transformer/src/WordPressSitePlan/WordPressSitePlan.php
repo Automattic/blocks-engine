@@ -1333,11 +1333,11 @@ final class WordPressSitePlan
     private function routeLinks(string $content, string $origin, array $routes): string
     {
         $replace = fn(array $match): string => $match[1] . ($this->routeReference($match[2], $origin, $routes) ?? $match[2]) . $match[3];
-        $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*["\'])([^"\']+)(["\'])/i', $replace, $content) ?? $content;
         // Companion block attributes carry editable HTML as a JSON string, so
         // route-bearing attributes use escaped quotes rather than HTML quotes.
-        $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*\\\\")([^"\\\\]*)(\\\\")/i', $replace, $content) ?? $content;
-        $content = preg_replace_callback('/(\b(?:href|action)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\")([^"\\\\]*)(\\\\")/i', $replace, $content) ?? $content;
+        $content = preg_replace_callback('/(\b(?:href|action|data-[a-z0-9_-]*url)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)/i', $replace, $content) ?? $content;
         $jsonPattern = '/(["\'](?:url|href|action)["\']\s*:\s*["\'])([^"\']+)(["\'])/i';
         $offset = 0;
         while (preg_match($jsonPattern, $content, $match, PREG_OFFSET_CAPTURE, $offset)) {
