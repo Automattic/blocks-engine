@@ -46,6 +46,19 @@ $templatePartStylePlan = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $templatePartStyleWrites = $writeMap($templatePartStylePlan['writes'] ?? array());
 $assert(str_contains((string) ($templatePartStyleWrites['functions.php']['payload']['data'] ?? ''), "0 => 'header'"), 'Page-owned styles are admitted to an extracted template-part editor from the same source document.');
 $assert(3 === (json_decode((string) $writes['theme.json']['payload']['data'], true)['version'] ?? null), 'Theme configuration is parseable and supported.');
+$tokenArtifact = array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<style>body{color:#123456;background-color:#fefefe;font-family:Inter,sans-serif;font-size:18px;line-height:1.5;padding:24px}main{max-width:72rem}h1{color:#123456;font-size:36px}a{color:#123456}button{background-color:#123456;font-family:Inter,sans-serif}.card{color:#123456;transform:translateY(2px)}@media (max-width:600px){body{color:#abcdef}}</style><main><h1>Tokenized</h1><p class="card">Body</p></main>',
+    ),
+);
+$tokenPlan = (new ArtifactCompiler())->compile($tokenArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$tokenWrites = $writeMap($tokenPlan['writes'] ?? array());
+$tokenTheme = json_decode((string) ($tokenWrites['theme.json']['payload']['data'] ?? ''), true);
+$tokenCss = implode("\n", array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $tokenPlan['assets'] ?? array()));
+$assert('var:preset|color|color-55f98a52ca' === ($tokenTheme['styles']['color']['text'] ?? null) && 'var:preset|font-family|font-family-8176111c21' === ($tokenTheme['styles']['typography']['fontFamily'] ?? null) && 'var:preset|font-size|font-size-a0a3565c71' === ($tokenTheme['styles']['elements']['h1']['typography']['fontSize'] ?? null) && 'var:preset|spacing|spacing-2793cbc214' === ($tokenTheme['styles']['spacing']['padding'] ?? null) && '72rem' === ($tokenTheme['settings']['layout']['contentSize'] ?? null), 'Global Styles project deterministic source colors, typography, spacing, and layout presets.');
+$assert(2 === count($tokenTheme['settings']['color']['palette'] ?? array()) && str_contains($tokenCss, 'body{color:#123456') && str_contains($tokenCss, 'main{max-width:72rem}') && str_contains($tokenCss, '.card{color:#123456;transform:translateY(2px)}') && str_contains($tokenCss, '@media (max-width:600px){body{color:#abcdef}}'), 'Theme token projection preserves source CSS as the visual cascade authority.');
+$assert($tokenPlan === ((new ArtifactCompiler())->compile($tokenArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? null) && str_ends_with((string) ($tokenPlan['theme']['design_token_provenance'][0]['source_path'] ?? ''), '.inline.css') && preg_match('/^[a-f0-9]{64}$/', (string) ($tokenPlan['theme']['design_token_provenance'][0]['source_hash'] ?? null)), 'Token projection and source provenance are deterministic.');
 $frontPageTemplate = (string) $writes['templates/front-page.html']['payload']['data'];
 $assert(str_contains($frontPageTemplate, '"slug":"header"') && str_contains($frontPageTemplate, '"slug":"footer"') && strpos($frontPageTemplate, '"slug":"header"') < strpos($frontPageTemplate, 'wp:post-content') && strpos($frontPageTemplate, 'wp:post-content') < strpos($frontPageTemplate, '"slug":"footer"'), 'Front-page template wraps post content between extracted header and footer parts.');
 $assert(str_contains((string) $writes['templates/page.html']['payload']['data'], '"slug":"header"') && str_contains((string) $writes['templates/index.html']['payload']['data'], '"slug":"footer"') && str_contains((string) $writes['templates/front-page.html']['payload']['data'], '"slug":"sidebar","area":"uncategorized","tagName":"aside"'), 'Templates bind shared semantic parts with their core-supported area and wrapper tag.');
