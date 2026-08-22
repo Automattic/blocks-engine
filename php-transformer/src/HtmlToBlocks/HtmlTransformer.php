@@ -224,6 +224,8 @@ final class HtmlTransformer
 
     private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
+    private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
+
     private readonly DiagnosticsCollector $diagnosticsCollector;
 
     private readonly SemanticParityReporter $semanticParityReporter;
@@ -658,6 +660,7 @@ final class HtmlTransformer
             new NavigationPattern(),
         ));
         $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
+        $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
@@ -853,7 +856,7 @@ final class HtmlTransformer
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
-        $this->hydrateDuplicateNavigationSubmenus($body);
+        $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         // Author-selector preparation marks source nodes for later projection.
@@ -869,7 +872,7 @@ final class HtmlTransformer
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
-        $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
         $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
@@ -1027,7 +1030,7 @@ final class HtmlTransformer
             }
 
             $shellFallbacks = array();
-            $blocks = $this->deduplicateNavigationBlocks($this->convertChildren($child, $shellFallbacks, true));
+            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($child, $shellFallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
             $innerMarkup = $this->runtime->serializeBlocks($blocks);
             $wrapperAttrs = $this->hoistedStylingAttributes($child);
             $wrapperAttrs['tagName'] = $area;
@@ -3840,283 +3843,6 @@ final class HtmlTransformer
         }
 
         return $count;
-    }
-
-    /**
-     * Responsive menus sometimes keep the visible desktop items shallow while a
-     * duplicate item with the same stable id owns the complete submenu tree.
-     * Reconcile that source-authored relationship before navigation conversion so
-     * the visible variant becomes one canonical core/navigation-submenu tree.
-     */
-    private function hydrateDuplicateNavigationSubmenus(DOMElement $body): void
-    {
-        $variants = array();
-        foreach ( $body->getElementsByTagName('li') as $item ) {
-            if ( ! $item instanceof DOMElement ) {
-                continue;
-            }
-
-            $id = trim($this->attr($item, 'id'));
-            $anchor = $this->directNavigationItemAnchor($item);
-            if ( '' === $id || ! $anchor instanceof DOMElement ) {
-                continue;
-            }
-
-            $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
-            if ( '' === $label ) {
-                continue;
-            }
-
-            $variants[$id . '|' . $label][] = $item;
-        }
-
-        foreach ( $variants as $items ) {
-            if ( 2 > count($items) ) {
-                continue;
-            }
-
-            $sourceCarriers = array();
-            $sourceLinkCount = 0;
-            foreach ( $items as $item ) {
-                $carriers = $this->directNavigationSubmenuCarriers($item);
-                $linkCount = 0;
-                foreach ( $carriers as $carrier ) {
-                    $linkCount += $carrier->getElementsByTagName('a')->length;
-                }
-                if ( $linkCount > $sourceLinkCount ) {
-                    $sourceCarriers = $carriers;
-                    $sourceLinkCount = $linkCount;
-                }
-            }
-
-            if ( 0 === $sourceLinkCount ) {
-                continue;
-            }
-
-            foreach ( $items as $item ) {
-                if ( array() !== $this->directNavigationSubmenuCarriers($item) ) {
-                    continue;
-                }
-                foreach ( $sourceCarriers as $carrier ) {
-                    $item->appendChild($carrier->cloneNode(true));
-                }
-            }
-        }
-    }
-
-    private function directNavigationItemAnchor(DOMElement $item): ?DOMElement
-    {
-        foreach ( $item->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
-    /** @return array<int, DOMElement> */
-    private function directNavigationSubmenuCarriers(DOMElement $item): array
-    {
-        $carriers = array();
-        foreach ( $item->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'a' === strtolower($child->tagName) ) {
-                continue;
-            }
-            if ( 0 < $child->getElementsByTagName('a')->length
-                && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length )
-            ) {
-                $carriers[] = $child;
-            }
-        }
-
-        return $carriers;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<int, array<string, mixed>>
-     */
-    private function deduplicateNavigationBlocks(array $blocks): array
-    {
-        $seen = array();
-        return $this->deduplicateNavigationBlocksRecursive($blocks, $seen);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<string, bool> $seen
-     * @return array<int, array<string, mixed>>
-     */
-    private function deduplicateNavigationBlocksRecursive(array $blocks, array &$seen): array
-    {
-        $blocks = $this->preferVisibleSiblingNavigationBlocks($blocks);
-        $deduplicated = array();
-        foreach ( $blocks as $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $block['innerBlocks'] = $this->deduplicateNavigationBlocksRecursive($block['innerBlocks'], $seen);
-                $block = $this->reconcileInnerContentChildPlaceholders($block);
-            }
-
-            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
-                $signature = $this->navigationBlockSignature($block);
-                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateNavigationBlock($block) ) {
-                    continue;
-                }
-                if ( '' !== $signature ) {
-                    $seen[$signature] = true;
-                }
-            }
-
-            $deduplicated[] = $block;
-        }
-
-        return $deduplicated;
-    }
-
-    /**
-     * Equivalent responsive variants frequently sit beside one another. When
-     * exactly one starts hidden, retain the visible source variant before the
-     * global mobile/drawer deduplication pass runs.
-     *
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<int, array<string, mixed>>
-     */
-    private function preferVisibleSiblingNavigationBlocks(array $blocks): array
-    {
-        $preferred = array();
-        $discarded = array();
-        foreach ( $blocks as $index => $block ) {
-            if ( ! is_array($block) || 'core/navigation' !== ($block['blockName'] ?? '') ) {
-                continue;
-            }
-
-            $signature = $this->navigationBlockSignature($block);
-            if ( '' === $signature ) {
-                continue;
-            }
-
-            if ( ! isset($preferred[$signature]) ) {
-                $preferred[$signature] = $index;
-                continue;
-            }
-
-            $previousIndex = $preferred[$signature];
-            $previousHidden = $this->navigationBlockStartsHidden($blocks[$previousIndex]);
-            $currentHidden = $this->navigationBlockStartsHidden($block);
-            if ( $previousHidden === $currentHidden ) {
-                continue;
-            }
-
-            if ( $previousHidden ) {
-                $discarded[$previousIndex] = true;
-                $preferred[$signature] = $index;
-            } else {
-                $discarded[$index] = true;
-            }
-        }
-
-        return array_values(array_filter($blocks, static fn (mixed $block, int $index): bool => ! isset($discarded[$index]), ARRAY_FILTER_USE_BOTH));
-    }
-
-    /** @param array<string, mixed> $block */
-    private function navigationBlockStartsHidden(array $block): bool
-    {
-        $provenanceId = $block['_source_provenance_id'] ?? null;
-        return is_int($provenanceId) && true === ($this->sourceBaseHiddenStates[$provenanceId] ?? false);
-    }
-
-    /**
-     * @param array<string, mixed> $block
-     */
-    private function isMobileDuplicateNavigationBlock(array $block): bool
-    {
-        $provenanceId = $block['_source_provenance_id'] ?? null;
-        $source = is_int($provenanceId) ? ( $this->sourceProvenance[$provenanceId] ?? array() ) : array();
-        $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
-        $context = is_array($source['context'] ?? null) ? $source['context'] : array();
-        $classNames = is_array($context['class_names'] ?? null) ? implode(' ', $context['class_names']) : '';
-
-        $haystack = strtolower(trim(implode(' ', array(
-            (string) ($attributes['class'] ?? ''),
-            (string) ($attributes['id'] ?? ''),
-            $classNames,
-        ))));
-
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
-    }
-
-    /**
-     * @param array<string, mixed> $block
-     */
-    private function reconcileInnerContentChildPlaceholders(array $block): array
-    {
-        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
-        $innerContent = is_array($block['innerContent'] ?? null) ? array_values($block['innerContent']) : null;
-        if ( null === $innerContent ) {
-            return $block;
-        }
-
-        $placeholderCount = 0;
-        $firstPlaceholderIndex = null;
-        $lastPlaceholderIndex = null;
-        foreach ( $innerContent as $index => $part ) {
-            if ( null !== $part ) {
-                continue;
-            }
-
-            ++$placeholderCount;
-            $firstPlaceholderIndex ??= $index;
-            $lastPlaceholderIndex = $index;
-        }
-
-        if ( count($innerBlocks) === $placeholderCount ) {
-            return $block;
-        }
-
-        if ( null === $firstPlaceholderIndex || null === $lastPlaceholderIndex ) {
-            return $block;
-        }
-
-        $opening = array_slice($innerContent, 0, $firstPlaceholderIndex);
-        $closing = array_slice($innerContent, $lastPlaceholderIndex + 1);
-        $block['innerBlocks'] = $innerBlocks;
-        $block['innerContent'] = array_merge($opening, array_fill(0, count($innerBlocks), null), $closing);
-        $block['innerHTML'] = implode('', array_map(static fn ($part): string => null === $part ? '' : (string) $part, array_merge($opening, $closing)));
-
-        return $block;
-    }
-
-    /**
-     * @param array<string, mixed> $block
-     */
-    private function navigationBlockSignature(array $block): string
-    {
-        $links = array();
-        $this->collectNavigationBlockLinks($block, $links);
-        return implode('|', $links);
-    }
-
-    /**
-     * @param array<string, mixed> $block
-     * @param array<int, string> $links
-     */
-    private function collectNavigationBlockLinks(array $block, array &$links): void
-    {
-        if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-            $links[] = $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
-        }
-
-        foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {
-            if ( is_array($innerBlock) ) {
-                $this->collectNavigationBlockLinks($innerBlock, $links);
-            }
-        }
     }
 
     private function normalizeHtml5VoidElements(string $html): string
