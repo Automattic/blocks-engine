@@ -562,7 +562,7 @@ final class ArtifactCompiler
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'editability_report' => $entryBlocks['editability_report'] ?? null, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
@@ -571,6 +571,7 @@ final class ArtifactCompiler
                 'generated_carrier_css' => $this->cssAssetContent(is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array()),
                 'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'] ?? array(),
                 'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'] ?? array(),
+                'editability_report' => $compiledHtmlDocument['editability_report'] ?? null,
                 'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
                 'provenance' => $sourceFile['provenance'] ?? null,
             );
@@ -1703,6 +1704,35 @@ final class ArtifactCompiler
         ), $options));
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
+     */
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
+    {
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
+
+        return array(
+            'blocks'            => $result['blocks'],
+            'serialized_blocks' => $result['serialized_blocks'],
+            'diagnostics'       => $result['diagnostics'],
+            'fallbacks'         => $result['fallbacks'],
+            'assets'            => $result['assets'],
+            'runtime_islands'   => $result['runtime_islands'],
+            'generated_blocks'  => $result['generated_blocks'],
+            'gutenberg_gaps'    => $result['gutenberg_gaps'],
+            'interaction_candidates' => $result['interaction_candidates'],
+            'superseded_selectors' => $result['superseded_selectors'],
+            'author_stylesheet_projections' => $result['author_stylesheet_projections'],
+            'shell_artifacts' => $result['shell_artifacts'],
+            'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
+            'runtime_block_paths' => $result['runtime_block_paths'] ?? array(),
+            'visual_block_paths' => $result['visual_block_paths'] ?? array(),
+            'editability_report' => $result['editability_report'] ?? null,
+            'reusable_components' => $result['reusable_components'],
+        );
+    }
+
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
         ++$this->htmlDocumentTransformCount;
@@ -1768,6 +1798,7 @@ final class ArtifactCompiler
             'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
             'runtime_block_paths' => $this->runtimeBlockPaths($result),
             'visual_block_paths' => $this->visualBlockPaths($result),
+            'editability_report' => is_array($result['source_reports']['editability_report'] ?? null) ? $result['source_reports']['editability_report'] : null,
             'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
@@ -4730,17 +4761,23 @@ final class ArtifactCompiler
             return null;
         }
 
-        $path = $this->resolveHtmlReferencePath($reference, $entryPath);
-        if ( '' === $path ) {
+        $paths = array_filter(array(
+            $this->resolveHtmlReferencePath($reference, $entryPath),
+            str_starts_with($reference, '/') ? $this->resolveHtmlReferencePath(ltrim($reference, '/'), $entryPath) : '',
+        ), static fn (string $path): bool => '' !== $path);
+        $paths = array_values(array_unique($paths));
+        if ( array() === $paths ) {
             return null;
         }
 
-        if ( isset($this->filesByPath[$path]) ) {
-            return $this->filesByPath[$path];
+        foreach ( $paths as $path ) {
+            if ( isset($this->filesByPath[$path]) ) {
+                return $this->filesByPath[$path];
+            }
         }
 
         foreach ( $files as $file ) {
-            if ( $path === ($file['path'] ?? '') ) {
+            if ( in_array($file['path'] ?? '', $paths, true) ) {
                 return $file;
             }
         }

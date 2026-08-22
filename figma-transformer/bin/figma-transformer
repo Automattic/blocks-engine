@@ -452,6 +452,7 @@ function blocks_engine_figma_transformer_cli_diagnostic(string $code, string $me
  */
 function blocks_engine_figma_transformer_cli_json_encode(array $result): string
 {
+    $result['files'] = blocks_engine_figma_transformer_cli_json_files($result['files'] ?? array());
     $encoded = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
     if ( is_string($encoded) ) {
         return $encoded;
@@ -472,4 +473,33 @@ function blocks_engine_figma_transformer_cli_json_encode(array $result): string
         ),
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
     ) ?: '{"status":"error"}';
+}
+
+/**
+ * @param mixed $files
+ * @return array<int, mixed>
+ */
+function blocks_engine_figma_transformer_cli_json_files(mixed $files): array
+{
+    $jsonFiles = array();
+
+    foreach ( is_array($files) ? $files : array() as $file ) {
+        if ( is_array($file) && isset($file['content']) && is_scalar($file['content']) && ! blocks_engine_figma_transformer_cli_is_text_mime_type((string) ($file['mime_type'] ?? 'application/octet-stream')) ) {
+            $file['content_base64'] = base64_encode((string) $file['content']);
+            unset($file['content']);
+        }
+        $jsonFiles[] = $file;
+    }
+
+    return $jsonFiles;
+}
+
+function blocks_engine_figma_transformer_cli_is_text_mime_type(string $mimeType): bool
+{
+    $mimeType = strtolower(trim(explode(';', $mimeType, 2)[0]));
+
+    return str_starts_with($mimeType, 'text/')
+        || str_ends_with($mimeType, '+json')
+        || str_ends_with($mimeType, '+xml')
+        || in_array($mimeType, array('application/json', 'application/xml', 'application/javascript', 'image/svg+xml'), true);
 }
