@@ -15,19 +15,33 @@ use InvalidArgumentException;
 final class WordPressSitePlan
 {
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
+    public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
 
     /**
-     * Stable canonical bytes for an approval system to bind externally.
+     * Versioned canonical identity for an approval system to bind externally.
      * This is an integrity comparison input, not a signature or authentication proof.
+     *
+     * @param array<string,mixed> $plan
+     * @return array{schema:string,hash:string}
+     */
+    public static function planIdentity(array $plan): array
+    {
+        $canonical = $plan;
+        unset($canonical['resolution']);
+        // The identity describes the plan; including it would make its hash recursive.
+        unset($canonical['plan_identity']);
+        return array('schema' => self::IDENTITY_SCHEMA, 'hash' => RuntimeDeclarations::hash($canonical));
+    }
+
+    /**
+     * Compatibility alias for callers that used the pre-identity canonical hash API.
      *
      * @param array<string,mixed> $plan
      */
     public static function canonicalHash(array $plan): string
     {
-        $canonical = $plan;
-        unset($canonical['resolution']);
-        return RuntimeDeclarations::hash($canonical);
+        return self::planIdentity($plan)['hash'];
     }
 
     /** @return array<string,mixed> */
@@ -112,6 +126,7 @@ final class WordPressSitePlan
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'editability_policy' => $editabilityPolicy ?? array()),
             'reporting' => $this->reporting($pages, $data, array_merge($shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
+        $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
         return $plan;
     }
@@ -153,10 +168,13 @@ final class WordPressSitePlan
         if ( self::SCHEMA !== ($plan['schema'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan has an unsupported schema.');
         }
-        foreach ( array('source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'diagnostics', 'quality', 'reporting') as $key ) {
+        foreach ( array('plan_identity', 'source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'diagnostics', 'quality', 'reporting') as $key ) {
             if ( ! is_array($plan[$key] ?? null) ) {
                 throw new InvalidArgumentException(sprintf('WordPress site plan %s must be an array.', $key));
             }
+        }
+        if ($plan['plan_identity']['schema'] !== self::IDENTITY_SCHEMA || !self::hash($plan['plan_identity']['hash'])) {
+            throw new InvalidArgumentException('WordPress site plan identity is missing, malformed, or stale.');
         }
         self::assertSource($plan['source']);
         $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
