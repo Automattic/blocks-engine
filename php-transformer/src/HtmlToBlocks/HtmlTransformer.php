@@ -994,7 +994,7 @@ final class HtmlTransformer
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
-            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths),
+            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $sourceProvenance),
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
@@ -7456,12 +7456,12 @@ final class HtmlTransformer
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
         if ( 'div' !== strtolower($element->tagName)
-            || 'core/group' !== ($childBlock['blockName'] ?? null)
+            || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
             || $this->isRuntimeDomTarget($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || '' !== trim($this->attr($element, 'style'))
+            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
@@ -7471,17 +7471,19 @@ final class HtmlTransformer
         }
 
         $attrs = $this->presentationAttributes($element);
-        if ( array_diff(array_keys($attrs), array( 'className' )) ) {
+        if ( array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
             return null;
         }
 
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
         $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->sourceProvenance[$provenanceId]['source_digest'] ?? '')) : null;
+        if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
         if ( ! $sourceChild instanceof DOMElement
+            || ('core/image' === ($childBlock['blockName'] ?? null) && 'img' !== strtolower($sourceChild->tagName))
             || $this->hasMotionStructureToken($sourceChild)
-            || $this->hasBoxAffectingAuthorDeclarations($element)
-            || $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)
-            || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild)
+            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
+            || ('core/image' !== ($childBlock['blockName'] ?? null) && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
+            || (! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild))
         ) {
             return null;
         }
@@ -7490,7 +7492,7 @@ final class HtmlTransformer
         $childAttrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
 
-        return $this->createBlock('core/group', $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+        return $this->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }
 
     private function sameSourceGroupChainLeaf(DOMElement $element, string $sourceDigest): ?DOMElement
@@ -7501,6 +7503,16 @@ final class HtmlTransformer
 
         $child = $this->soleElementChild($element);
         while ( $child instanceof DOMElement && hash('sha256', $this->safeFallbackHtml($child)) !== $sourceDigest ) {
+            // A native image block may take its source provenance from the img
+            // while retaining an image-only anchor as block attributes.
+            $anchorChild = 'a' === strtolower($child->tagName) ? $this->soleElementChild($child) : null;
+            if ( $anchorChild instanceof DOMElement
+                && 'a' === strtolower($child->tagName)
+                && ($this->isImageOnlyAnchor($child) || in_array(strtolower($anchorChild->tagName), array('img', 'picture'), true))
+            ) {
+                $child = $anchorChild;
+                continue;
+            }
             if ( ! $this->isNeutralGroupChainWrapper($child) ) {
                 return null;
             }
@@ -7510,6 +7522,24 @@ final class HtmlTransformer
         return $child;
     }
 
+    /** @param array<string,mixed> $block */
+    private function syntheticImageGeometryLeaf(array $block): bool
+    {
+        $className = (string) ($block['attrs']['className'] ?? '');
+        return 'core/image' === ($block['blockName'] ?? null)
+            && str_contains($className, self::SYNTHETIC_IMAGE_FIGURE_CLASS)
+            && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
+    }
+
+    private function imageLeafInGroupChain(DOMElement $element): ?DOMElement
+    {
+        for ($child = $this->soleElementChild($element); $child instanceof DOMElement; $child = $this->soleElementChild($child)) {
+            if ('img' === strtolower($child->tagName)) return $child;
+            if (! in_array(strtolower($child->tagName), array('div', 'a'), true)) return null;
+        }
+        return null;
+    }
+
     private function isNeutralGroupChainWrapper(DOMElement $element): bool
     {
         if ( 'div' !== strtolower($element->tagName)
@@ -7517,18 +7547,18 @@ final class HtmlTransformer
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || '' !== trim($this->attr($element, 'style'))
+            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
             || $this->hasMotionStructureToken($element)
-            || $this->hasBoxAffectingAuthorDeclarations($element)
+            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
         ) {
             return false;
         }
 
         $attrs = $this->presentationAttributes($element);
-        return ! array_diff(array_keys($attrs), array( 'className' )) && $this->soleElementChild($element) instanceof DOMElement;
+        return ! array_diff(array_keys($attrs), array( 'className', 'style' )) && $this->soleElementChild($element) instanceof DOMElement;
     }
 
     private function soleElementChild(DOMElement $element): ?DOMElement
@@ -7542,6 +7572,9 @@ final class HtmlTransformer
             // Treating them as transparent lets generated exports shed an otherwise
             // inert authoring wrapper without interpreting product-specific markup.
             if ( XML_COMMENT_NODE === $node->nodeType ) {
+                continue;
+            }
+            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
                 continue;
             }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
@@ -7567,6 +7600,38 @@ final class HtmlTransformer
             }
         }
         return false;
+    }
+
+    private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
+    {
+        foreach ($this->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
+            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        }
+        return true;
+    }
+
+    private function hasOnlyRenderNeutralBoxAffectingDeclarations(DOMElement $element): bool
+    {
+        foreach ($this->matchingAuthorDeclarations($element) as $property => $value) {
+            if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
+            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        }
+        return true;
+    }
+
+    private function isRenderNeutralGeometryDeclaration(string $property, string $value): bool
+    {
+        $value = strtolower(trim($this->cssValueWithoutImportant($value)));
+        if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
+        if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);
+        return 'text-align' === $property && 'left' === $value;
+    }
+
+    /** @param array<string,string> $declarations */
+    private function hasOnlyRenderNeutralDeclarations(array $declarations): bool
+    {
+        foreach ($declarations as $property => $value) if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        return array() !== $declarations;
     }
 
     private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
@@ -7704,7 +7769,7 @@ final class HtmlTransformer
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
                 && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
-            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter ) {
+            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations']) ) {
                 $survives = false;
                 break;
             }
@@ -7833,6 +7898,18 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
+    {
+        return 0 === $this->childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && 'none' === strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')))
+            && '' === trim($this->attr($element, 'class'))
+            && '' === trim($this->attr($element, 'id'))
+            && '' === trim($this->attr($element, 'role'))
+            && array() === $this->interactiveAttributes($element)
+            && array() === $this->safeDataAttributes($element);
     }
 
     private function renderedTextContent(DOMElement $element): string
