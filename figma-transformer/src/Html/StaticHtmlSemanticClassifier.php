@@ -209,13 +209,15 @@ final class StaticHtmlSemanticClassifier
         }
 
         $placeholder = strtolower(trim(($this->subtreePlainText)($node)));
-        $haystack = $name . ' ' . $placeholder;
+        $label = strtolower($this->nearbyFormControlLabel($node, $parentNode));
+        $haystack = $name . ' ' . $placeholder . ' ' . $label;
         $hasInputName = str_contains($name, 'input')
             || str_contains($name, 'text field')
             || str_contains($name, 'textfield')
             || str_contains($name, 'form field')
             || str_contains($haystack, 'search')
-            || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name);
+            || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name)
+            || $this->isSimpleFormFieldLabel($label);
         if ( ! $hasInputName ) {
             return false;
         }
@@ -231,7 +233,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node);
+        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
     }
 
     /**
@@ -262,7 +264,9 @@ final class StaticHtmlSemanticClassifier
         }
 
         $textCount = ($this->textDescendantCount)($node);
-        if ( $textCount < 1 || $textCount > 3 ) {
+        // Component-backed field shells include their direct label plus nested
+        // placeholder layers, so allow that bounded structure when labeled.
+        if ( $textCount < 1 || $textCount > ($this->hasDirectFormFieldLabel($node) ? 6 : 3) ) {
             return false;
         }
 
@@ -275,7 +279,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node);
+        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
     }
 
     /**
@@ -291,12 +295,6 @@ final class StaticHtmlSemanticClassifier
         $name = strtolower((string) ($node['name'] ?? ''));
         $text = strtolower(($this->subtreePlainText)($node));
         $haystack = $name . ' ' . $text;
-        $hasFormIntent = str_contains($haystack, 'search')
-            || str_contains($haystack, 'newsletter')
-            || str_contains($haystack, 'subscribe')
-            || str_contains($haystack, 'sign up')
-            || str_contains($haystack, 'comment')
-            || str_contains($haystack, 'reply');
         $hasNamedFormIntent = str_contains($name, 'search')
             || str_contains($name, 'newsletter')
             || str_contains($name, 'subscribe')
@@ -304,7 +302,7 @@ final class StaticHtmlSemanticClassifier
             || str_contains($name, 'comment')
             || str_contains($name, 'reply')
             || str_contains($name, 'form');
-        if ( ! $hasFormIntent || ! $hasNamedFormIntent ) {
+        if ( ! $hasNamedFormIntent && ! $this->hasStrongFormTextIntent($text) ) {
             return false;
         }
 
@@ -333,6 +331,11 @@ final class StaticHtmlSemanticClassifier
         return $hasField && ($hasSubmit || str_contains($haystack, 'search'));
     }
 
+    private function hasStrongFormTextIntent(string $text): bool
+    {
+        return 1 === preg_match('/\b(leave\s+(?:a\s+)?(?:reply|comment)|post\s+(?:a\s+)?comment|submit\s+(?:a\s+)?comment)\b/', $text);
+    }
+
     /** @param array<string, mixed> $node */
     public function hasFormControlAccessoryChildren(array $node): bool
     {
@@ -347,6 +350,23 @@ final class StaticHtmlSemanticClassifier
 
             if ( ($this->subtreeHasRenderableVector)($child) || null !== ($this->nodeAssetPath)($child) ) {
                 return true;
+            }
+        }
+
+        if ( $this->hasDirectFormFieldLabel($node) ) {
+            foreach ( ($this->nodeList)($node) as $child ) {
+                if ( ! is_array($child) || 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
+                    continue;
+                }
+
+                $childName = strtolower((string) ($child['name'] ?? ''));
+                $childWidth = ($this->boxValue)($child, 'width');
+                $childHeight = ($this->boxValue)($child, 'height');
+                if ((str_contains($childName, 'input') || str_contains($childName, 'field'))
+                    && null !== $childWidth && $childWidth >= 80.0 && $childWidth <= 640.0
+                    && null !== $childHeight && $childHeight >= 24.0 && $childHeight <= 160.0) {
+                    return true;
+                }
             }
         }
 
@@ -448,6 +468,10 @@ final class StaticHtmlSemanticClassifier
             $attributes .= ' name="email"';
         } elseif ( 'textarea' === $tag ) {
             $attributes .= ' name="' . ($this->sanitizeAttribute)($this->textareaControlName($node, $haystack)) . '"';
+        } elseif ( str_contains($haystack, 'website') || str_contains($haystack, 'url') ) {
+            $attributes .= ' name="url"';
+        } elseif ( str_contains($haystack, 'name') ) {
+            $attributes .= ' name="author"';
         }
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($placeholder) . '"';
@@ -480,6 +504,17 @@ final class StaticHtmlSemanticClassifier
      */
     public function nearbyFormControlLabel(array $node, ?array $parentNode): string
     {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) || 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
+                continue;
+            }
+
+            $text = trim(($this->nodePlainText)($child));
+            if ( $this->isSimpleFormFieldLabel($text) ) {
+                return $text;
+            }
+        }
+
         if ( null === $parentNode ) {
             return '';
         }
@@ -505,6 +540,18 @@ final class StaticHtmlSemanticClassifier
         }
 
         return '';
+    }
+
+    /** @param array<string, mixed> $node */
+    private function hasDirectFormFieldLabel(array $node): bool
+    {
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( is_array($child) && 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && $this->isSimpleFormFieldLabel(trim(($this->nodePlainText)($child))) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

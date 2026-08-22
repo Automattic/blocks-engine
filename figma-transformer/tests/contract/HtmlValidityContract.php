@@ -233,6 +233,13 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(1 === ($artifactDiagnostics['invalid_list_child_count'] ?? null), 'html-validity-artifact-diagnostics-detects-invalid-list-children');
     $assert(2 === ($artifactDiagnostics['missing_semantic_role_count'] ?? null), 'html-validity-artifact-diagnostics-detects-missing-semantic-role');
 
+    $elasticHeightArtifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><section class="elastic"></section><section class="fixed"></section></main>',
+        '.elastic{width:1200px;min-height:2400px}.fixed{width:1200px;height:2400px}'
+    );
+    $assert(1 === ($elasticHeightArtifactDiagnostics['giant_fixed_section_count'] ?? null), 'html-validity-artifact-diagnostics-flags-only-fixed-giant-height');
+    $assert('.fixed' === ($elasticHeightArtifactDiagnostics['giant_fixed_sections'][0]['selector'] ?? null), 'html-validity-artifact-diagnostics-excludes-elastic-min-height');
+
     $sharedResponsiveArtifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
         '<main><div class="shared-card figma-node-card-a">First card</div><div class="shared-card figma-node-card-b">Second card</div></main>',
         '.shared-card{width:640px}@media (max-width:390px){.figma-node-card-a{max-width:100%}}'

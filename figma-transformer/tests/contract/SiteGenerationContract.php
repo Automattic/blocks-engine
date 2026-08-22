@@ -3460,7 +3460,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! str_contains($semanticArchive, 'href="archive.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-archive-title-not-self-linked');
     $assert(! str_contains($semanticAbout, 'href="page.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-page-title-not-self-linked');
     $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="get" action="index.html" role="search"'), 'semantic-route-search-form-action');
-    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post" action="index.html"'), 'semantic-route-newsletter-form-action');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post"') && ! str_contains($semanticHome, 'method="post" action="'), 'semantic-route-newsletter-form-does-not-invent-action');
     $assert(str_contains($semanticHome, 'type="search" name="s"'), 'semantic-route-search-input-name');
     $assert(str_contains($semanticHome, 'type="email" name="email"'), 'semantic-route-email-input-name');
     

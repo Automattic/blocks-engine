@@ -692,7 +692,7 @@ final class StaticHtmlEmissionDiagnostics
     {
         $sections = array();
         foreach ( $this->cssRuleDeclarations($css) as $rule ) {
-            $height = $this->cssNumericDeclaration((string) $rule['declarations'], 'height') ?? $this->cssNumericDeclaration((string) $rule['declarations'], 'min-height');
+            $height = $this->cssNumericDeclaration((string) $rule['declarations'], 'height');
             $width = $this->cssNumericDeclaration((string) $rule['declarations'], 'width');
             if ( null === $height || $height < 1800.0 || (null !== $width && $width < 960.0) || '' !== (string) $rule['media'] ) {
                 continue;

@@ -189,11 +189,8 @@ function matrix_fixture_visual_readiness(array $fixture): array
             array('missing_asset_nodes', 'vector_image_fallbacks', 'image_heavy_landmark_candidates')
         ),
         'form_validity' => matrix_risk_category(
-            matrix_quality_summary_int($summary, 'fallback_prone_form_island_count')
-                + matrix_quality_summary_int($summary, 'fallback_prone_input_island_count')
-                + matrix_quality_summary_int($summary, 'invalid_list_child_count')
-                + matrix_quality_summary_int($summary, 'missing_semantic_role_count'),
-            array('fallback_prone_form_island_count', 'fallback_prone_input_island_count', 'invalid_list_child_count', 'missing_semantic_role_count')
+            matrix_quality_summary_int($summary, 'invalid_list_child_count'),
+            array('invalid_list_child_count')
         ),
         'route_coverage' => matrix_risk_category(
             matrix_quality_summary_int($summary, 'link_targets_unresolved') + $transformRiskOmissionCount,

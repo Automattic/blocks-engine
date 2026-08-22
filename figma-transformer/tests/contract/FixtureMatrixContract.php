@@ -599,6 +599,20 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             'dom_box_quality' => $invalidDomBoxQuality,
         ),
     ));
+    $formScoringSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'native-form-fixture',
+            'quality_summary' => array(
+                'fallback_prone_form_island_count' => 1,
+                'fallback_prone_input_island_count' => 3,
+                'missing_semantic_role_count' => 4,
+            ),
+        ),
+        array(
+            'id' => 'invalid-list-fixture',
+            'quality_summary' => array('invalid_list_child_count' => 2),
+        ),
+    ));
     $roleSeparatedDomBoxQuality = matrix_analyze_dom_box_report(array(
         'entrypoints' => array(
             array(
@@ -839,6 +853,8 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_capture_valid'] ?? null), 'fixture-matrix-quality-invalid-dom-capture-readiness-flag');
     $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_css_loaded'] ?? null), 'fixture-matrix-quality-invalid-dom-css-loaded-flag');
     $assert(0 === ($invalidDomBoxMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-invalid-dom-not-scored-as-rendered-risk');
+    $assert(2 === ($formScoringSummary['risk_category_totals']['form_validity'] ?? null), 'fixture-matrix-form-validity-scores-only-structural-defects');
+    $assert(0 === ($formScoringSummary['per_fixture_readiness'][0]['risk_categories']['form_validity']['count'] ?? null), 'fixture-matrix-native-form-semantics-are-informational');
     $assert(in_array('dom_capture_invalid', $invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['risk_categories']['rendered_dom_boxes']['signals'] ?? array(), true), 'fixture-matrix-quality-invalid-dom-risk-signal');
     $assert('source_layout' === ($roleSeparatedDomBoxQuality['pages'][0]['comparison_role'] ?? null), 'fixture-matrix-dom-box-page-preserves-comparison-role');
     $assert('frame:desktop' === ($roleSeparatedDomBoxQuality['pages'][0]['source_frame']['id'] ?? null), 'fixture-matrix-dom-box-page-preserves-source-frame');
