@@ -58,6 +58,12 @@ final class ArtifactCompiler
     /** Observational only: compatibility fallback work during site rendering. */
     private int $terminalCompiledSiteRawTransformCount = 0;
 
+    /** Observational only: corrected v2 terminal source access must stay zero. */
+    private int $terminalRawPageFileReadCount = 0;
+
+    /** Observational only: corrected v2 terminal source access must stay zero. */
+    private int $terminalRawPageTextBytes = 0;
+
     private string $generatedAssetRoot = '';
 
     /** @var array<string, array<string, mixed>> */
@@ -129,6 +135,7 @@ final class ArtifactCompiler
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
                 'source_paths' => $partition['source_paths'],
+                'source_index' => $this->sourceDescriptorIndex(array_merge($partition['shared'], ...array_values($partition['pages']))),
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
@@ -143,10 +150,25 @@ final class ArtifactCompiler
             (string) $plan['analysis']['block_namespace'],
             $partition['source_paths']
         );
+        $sharedBlockDiagnostics = array();
+        $sharedBlockTypes = $sharedCompiler->detectBlockTypes($sharedArtifact['files'], $sharedBlockDiagnostics);
+        $plan['diagnostics'] = array_merge($plan['diagnostics'], $sharedBlockDiagnostics);
         $plan['shared_reduction'] = array(
             'files' => $sharedArtifact['files'],
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
             'transformed_documents' => $sharedTransformedDocuments,
+            'report_facts' => $sharedCompiler->collectPartitionReportFacts(
+                $sharedArtifact['files'],
+                $this->mergeSourceDescriptorIndex($sharedArtifact['files'], $plan['analysis']['source_index']),
+                $partition['source_paths']
+            ),
+            'block_types' => $sharedBlockTypes,
+        );
+        $plan['work'] = array(
+            'compiled_document_count' => count($sharedTransformedDocuments),
+            'html_document_transform_count' => $sharedCompiler->htmlDocumentTransformCount,
+            'source_document_transform_count' => $sharedCompiler->sourceDocumentTransformCount,
+            'analysis_count' => 1,
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
@@ -297,6 +319,7 @@ final class ArtifactCompiler
             $compiledDocuments,
             $transformedDocuments,
             $files,
+            $stageCompiler->mergeSourceDescriptorIndex($files, is_array($sharedPlan['analysis']['source_index'] ?? null) ? $sharedPlan['analysis']['source_index'] : array()),
             $entryPath
         );
         /*
@@ -328,7 +351,7 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
-    private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, array $transformedDocuments, array $files, string $entryPath): array
+    private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, array $transformedDocuments, array $files, array $reportIndexFiles, string $entryPath): array
     {
         $stylesheetOccurrenceFiles = array();
         if (isset($compiledDocuments[$entryPath])) {
@@ -351,7 +374,8 @@ final class ArtifactCompiler
             'transformed_documents' => $transformedDocuments,
             'stylesheet_occurrence_files' => $stylesheetOccurrenceFiles,
             'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
-            'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
+            'block_types' => $this->detectBlockTypes($pageArtifact['files'], $pageDocuments['diagnostics']),
+            'report_facts' => $this->collectPartitionReportFacts($pageArtifact['files'], $reportIndexFiles, array_column($reportIndexFiles, 'path')),
         );
     }
 
@@ -389,7 +413,7 @@ final class ArtifactCompiler
             }
             if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled v2 receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null) || !is_array($reduction['transformed_documents'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
+            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null) || !is_array($reduction['transformed_documents'] ?? null) || !is_array($reduction['report_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $reduction['files']);
             $files = array_merge($files, $reduction['files']);
@@ -403,9 +427,7 @@ final class ArtifactCompiler
             if ($expectedTransformable !== $receivedTransformable || $expectedSourcePaths !== $receivedSourcePaths) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its owned transformable sources.');
             $expectedRowPaths = array_values(array_map(static fn(array $file): string => (string) ($file['path'] ?? ''), array_filter($pageArtifact['files'], static fn(array $file): bool => in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true))));
             sort($expectedRowPaths, SORT_STRING);
-            $receivedRowPaths = array_map(static fn(array $row): string => (string) ($row['source_path'] ?? ''), $reduction['transformed_documents']);
-            sort($receivedRowPaths, SORT_STRING);
-            if ($expectedRowPaths !== $receivedRowPaths || count($receivedRowPaths) !== count(array_unique($receivedRowPaths))) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its transformed document rows.');
+            $this->assertTransformedDocumentRows($reduction['transformed_documents'], $expectedRowPaths, 'page');
             foreach ($pagePlan['compiled_documents'] as $path => $document) {
                 if (!is_string($path) || !is_array($document) || isset($compiledDocuments[$path])) {
                     throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
@@ -441,6 +463,8 @@ final class ArtifactCompiler
         $this->htmlDocumentTransformCount = 0;
         $this->sourceDocumentTransformCount = 0;
         $this->terminalCompiledSiteRawTransformCount = 0;
+        $this->terminalRawPageFileReadCount = 0;
+        $this->terminalRawPageTextBytes = 0;
         return $this->compileArtifact($artifact);
     }
 
@@ -475,7 +499,8 @@ final class ArtifactCompiler
         $normalized = $reduction['normalized'];
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
-        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
+        $reportFacts = is_array($reduction['report_facts'] ?? null) ? $reduction['report_facts'] : null;
+        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], null === $reportFacts ? $this->svgAssetDiagnostics($normalized['files']) : ($reportFacts['svg_diagnostics'] ?? array()));
 
         if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -529,8 +554,19 @@ final class ArtifactCompiler
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        if (null !== $reportFacts) {
+            $descriptorRanks = array_column($reportFacts['descriptors'] ?? array(), 'source_rank', 'path');
+            $reportFacts['css_sources'] = array();
+            foreach ($normalized['files'] as $file) {
+                if ('css' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
+                $path = (string) ($file['path'] ?? '');
+                $reportFacts['css_sources'][] = array('path' => $path, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content'])), 'source_rank' => (int) ($descriptorRanks[$path] ?? count($descriptorRanks)), 'local_rank' => count($reportFacts['css_sources']));
+            }
+            usort($reportFacts['css_sources'], static fn(array $left, array $right): int => ($left['source_rank'] ?? 0) <=> ($right['source_rank'] ?? 0) ?: ($left['local_rank'] ?? 0) <=> ($right['local_rank'] ?? 0));
+            $reportFacts['references'] = $this->refreshCollectedReferenceTargets($reportFacts['references'] ?? array(), $normalized['files']);
+        }
         $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
-        $referenceReports = $this->referenceReports($normalized['files']);
+        $referenceReports = null === $reportFacts ? $this->referenceReports($normalized['files']) : ($reportFacts['references'] ?? array('internal_links' => array(), 'asset_references' => array(), 'image_references' => array()));
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
@@ -557,15 +593,15 @@ final class ArtifactCompiler
                 'original_schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
                 'entry_path'      => $entryPath,
                 'entrypoints'     => $normalized['entrypoints'],
-                'file_count'      => count($normalized['files']),
-                'accepted_count'  => count($normalized['files']),
+                'file_count'      => count($reportFacts['descriptors'] ?? $normalized['files']),
+                'accepted_count'  => count($reportFacts['descriptors'] ?? $normalized['files']),
                 'rejected_count'  => $normalized['rejected_count'],
                 'bytes'           => $normalized['bytes'],
-                'files_by_kind'   => $this->countBy($normalized['files'], 'kind'),
-                'files_by_role'   => $this->countBy($normalized['files'], 'role'),
-                'files_by_mime'   => $this->countBy($normalized['files'], 'mime_type'),
-                'files_by_source' => $this->countBy($normalized['files'], 'source'),
-                'files_by_intent' => $this->countBy($normalized['files'], 'intent'),
+                'files_by_kind'   => $this->countBy($reportFacts['descriptors'] ?? $normalized['files'], 'kind'),
+                'files_by_role'   => $this->countBy($reportFacts['descriptors'] ?? $normalized['files'], 'role'),
+                'files_by_mime'   => $this->countBy($reportFacts['descriptors'] ?? $normalized['files'], 'mime_type'),
+                'files_by_source' => $this->countBy($reportFacts['descriptors'] ?? $normalized['files'], 'source'),
+                'files_by_intent' => $this->countBy($reportFacts['descriptors'] ?? $normalized['files'], 'intent'),
                 'truncation_impact' => $normalized['truncation_impact'],
                 'limits'          => array(
                     'max_files'       => $normalized['limits']['max_files'],
@@ -575,7 +611,7 @@ final class ArtifactCompiler
                 'source_hash'     => $normalized['source_hash'],
                 'html'            => array(
                     'bytes'         => strlen($html),
-                    'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
+                     'element_count' => null === $reportFacts ? preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html) : (int) ($reportFacts['html'][$entryPath]['element_count'] ?? 0),
                 ),
                 'internal_links'    => $referenceReports['internal_links'],
                 'asset_references'  => $referenceReports['asset_references'],
@@ -583,7 +619,7 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
-        $sourceReports['compiled_site'] = $this->renderCompiledSiteReport($normalized, $entryPath, $transformedDocuments, $assets, $blockTypes, $entryBlocks['shell_artifacts']);
+        $sourceReports['compiled_site'] = $this->renderCompiledSiteReport($normalized, $entryPath, $transformedDocuments, $assets, $blockTypes, $entryBlocks['shell_artifacts'], $reportFacts);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
         $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
@@ -680,6 +716,8 @@ final class ArtifactCompiler
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
         $metrics['source_document_transform_count'] = $this->sourceDocumentTransformCount;
         $metrics['terminal_compiled_site_raw_transform_count'] = $this->terminalCompiledSiteRawTransformCount;
+        $metrics['terminal_raw_page_file_read_count'] = $this->terminalRawPageFileReadCount;
+        $metrics['terminal_raw_page_text_bytes'] = $this->terminalRawPageTextBytes;
         // These counters describe process work and intentionally remain out of
         // canonical reports and WordPress site-plan equality.
         $metrics['normalization_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
@@ -721,9 +759,10 @@ final class ArtifactCompiler
         $sharedArtifact['files'] = $files;
         $documents = array('documents' => array(), 'components' => array(), 'diagnostics' => array());
         $componentFacts = array($sharedReduction['component_facts']);
-        $blockTypes = array();
+        $blockTypes = is_array($sharedReduction['block_types'] ?? null) ? $sharedReduction['block_types'] : array();
         $transformedDocuments = is_array($sharedReduction['transformed_documents'] ?? null) ? $sharedReduction['transformed_documents'] : array();
         $stylesheetOccurrenceFiles = array();
+        $reportFacts = array($sharedReduction['report_facts']);
         foreach ($reductions as $reduction) {
             $files = array_merge($files, $reduction['files']);
             foreach ($reduction['source_documents']['documents'] as $document) $documents['documents'][] = $document;
@@ -733,6 +772,7 @@ final class ArtifactCompiler
             $blockTypes = array_merge($blockTypes, $reduction['block_types'] ?? array());
             $transformedDocuments = array_merge($transformedDocuments, $reduction['transformed_documents'] ?? array());
             $stylesheetOccurrenceFiles = array_merge($stylesheetOccurrenceFiles, $reduction['stylesheet_occurrence_files'] ?? array());
+            $reportFacts[] = $reduction['report_facts'] ?? array();
         }
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
         $files = self::sortedBySourcePaths($files, $sourcePaths);
@@ -785,6 +825,7 @@ final class ArtifactCompiler
             'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => $this->dedupeRows($blockTypes),
             'transformed_documents' => $transformedDocuments,
+            'report_facts' => $this->reducePartitionReportFacts($reportFacts, $sourcePaths),
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
         );
     }
@@ -811,6 +852,7 @@ final class ArtifactCompiler
     private function partitionArtifact(array $artifact): array
     {
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $this->assertBlockPackagesHaveSingleOwner($normalized['files']);
         $shared = array();
         $pages = array();
         foreach ($normalized['files'] as $file) {
@@ -844,6 +886,30 @@ final class ArtifactCompiler
         );
     }
 
+    /** @param array<int,array<string,mixed>> $files */
+    private function assertBlockPackagesHaveSingleOwner(array $files): void
+    {
+        $roots = array();
+        foreach ($files as $file) {
+            if ('block.json' !== basename((string) ($file['path'] ?? ''))) continue;
+            $root = dirname((string) $file['path']);
+            $roots[] = '.' === $root ? '' : $root;
+        }
+        foreach ($roots as $root) {
+            $owners = array();
+            $prefix = '' === $root ? '' : $root . '/';
+            foreach ($files as $file) {
+                $path = (string) ($file['path'] ?? '');
+                if ('' !== $prefix && !str_starts_with($path, $prefix)) continue;
+                $owner = $this->fileOwnership($file);
+                $owners[$owner['scope'] . "\n" . $owner['id']] = true;
+            }
+            if (1 < count($owners)) {
+                throw new \InvalidArgumentException(sprintf('Custom block package "%s" is split across ownership partitions.', '' === $root ? '.' : $root));
+            }
+        }
+    }
+
     /**
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
@@ -862,6 +928,7 @@ final class ArtifactCompiler
                 $rawFiles[] = $file;
             }
         }
+        $this->assertBlockPackagesHaveSingleOwner($rawFiles);
         $shared = array();
         $pages = array();
         $sourcePaths = array();
@@ -1100,6 +1167,41 @@ final class ArtifactCompiler
         return $artifact;
     }
 
+    /** @param array<int,array<string,mixed>> $files @return array<int,array<string,mixed>> */
+    private function sourceDescriptorIndex(array $files): array
+    {
+        $index = array();
+        foreach ($files as $file) {
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            if ('' === $path) continue;
+            $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            $mime = strtolower((string) ($file['mime_type'] ?? $file['mime'] ?? ''));
+            if (!preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $mime)) $mime = match ($extension) {
+                'html', 'htm' => 'text/html', 'css' => 'text/css', 'js', 'mjs' => 'application/javascript', 'json' => 'application/json', 'md', 'markdown' => 'text/markdown', 'mdx' => 'text/mdx', 'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp', 'avif' => 'image/avif', 'woff' => 'font/woff', 'woff2' => 'font/woff2', 'ttf' => 'font/ttf', 'otf' => 'font/otf', default => 'application/octet-stream',
+            };
+            $kind = strtolower((string) ($file['kind'] ?? ''));
+            if (!in_array($kind, array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'asset', 'blocks'), true)) $kind = match ($extension) {
+                'html', 'htm' => 'html', 'css' => 'css', 'js', 'mjs' => 'js', 'jsx' => 'jsx', 'tsx' => 'tsx', 'json' => 'json', 'md', 'markdown' => 'markdown', 'mdx' => 'mdx', default => 'asset',
+            };
+            $role = (string) ($file['role'] ?? '');
+            if ('' === $role) $role = match (true) {
+                'html' === $kind => preg_match('#(^|/)index\.html?$#i', $path) ? 'entry' : 'document',
+                'css' === $kind => 'stylesheet', 'js' === $kind => 'script', str_starts_with($mime, 'image/') => 'image', str_starts_with($mime, 'font/') => 'font', default => 'asset',
+            };
+            $bytes = isset($file['payload_reference']['bytes']) ? (int) $file['payload_reference']['bytes'] : (isset($file['content_base64']) && is_string($file['content_base64']) ? strlen((string) (base64_decode($file['content_base64'], true) ?: '')) : strlen((string) ($file['content'] ?? $file['body'] ?? $file['text'] ?? '')));
+            $index[] = array('path' => $path, 'kind' => $kind, 'role' => $role, 'mime_type' => $mime, 'bytes' => $bytes, 'metadata' => is_array($file['metadata'] ?? null) ? $file['metadata'] : array(), 'binary' => !str_starts_with($mime, 'text/') && !in_array($mime, array('application/json', 'application/javascript', 'image/svg+xml'), true));
+        }
+        return $index;
+    }
+
+    /** @param array<int,array<string,mixed>> $files @param array<int,array<string,mixed>> $index @return array<int,array<string,mixed>> */
+    private function mergeSourceDescriptorIndex(array $files, array $index): array
+    {
+        $byPath = array_column($index, null, 'path');
+        foreach ($files as $file) if (is_string($file['path'] ?? null)) $byPath[$file['path']] = $file;
+        return array_values($byPath);
+    }
+
     /** @param array<string,mixed> $artifact */
     private function containsPayloadReferences(array $artifact): bool
     {
@@ -1164,6 +1266,7 @@ final class ArtifactCompiler
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
                 'source_paths' => $sourcePaths,
+                'source_index' => $this->sourceDescriptorIndex(is_array($artifact['files'] ?? null) ? $artifact['files'] : array()),
             ));
             $sharedCompiler = new self();
             $sharedCompiler->generatedAssetRoot = (string) $plan['analysis']['generated_asset_root'];
@@ -1178,6 +1281,16 @@ final class ArtifactCompiler
                     (string) $plan['analysis']['block_namespace'],
                     $sourcePaths
                 ),
+            );
+            $plan['shared_reduction']['report_facts'] = $sharedCompiler->collectPartitionReportFacts($normalized['files'], $this->mergeSourceDescriptorIndex($normalized['files'], $plan['analysis']['source_index']), $sourcePaths);
+            $sharedBlockDiagnostics = array();
+            $plan['shared_reduction']['block_types'] = $sharedCompiler->detectBlockTypes($normalized['files'], $sharedBlockDiagnostics);
+            $plan['diagnostics'] = array_merge($plan['diagnostics'], $sharedBlockDiagnostics);
+            $plan['work'] = array(
+                'compiled_document_count' => count($plan['shared_reduction']['transformed_documents']),
+                'html_document_transform_count' => $sharedCompiler->htmlDocumentTransformCount,
+                'source_document_transform_count' => $sharedCompiler->sourceDocumentTransformCount,
+                'analysis_count' => 1,
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -1272,9 +1385,15 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
         if (isset($sharedPlan['shared_reduction'])) {
-            if (!is_array($sharedPlan['shared_reduction']['files'] ?? null) || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            if (!is_array($sharedPlan['shared_reduction']['files'] ?? null) || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_array($sharedPlan['shared_reduction']['transformed_documents'] ?? null) || !is_array($sharedPlan['shared_reduction']['report_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
                 throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
             }
+            $expectedRows = array_values(array_map(
+                static fn(array $file): string => (string) ($file['path'] ?? ''),
+                array_filter($sharedPlan['shared_reduction']['files'], fn(array $file): bool => $this->isTemplatePartFile($file))
+            ));
+            sort($expectedRows, SORT_STRING);
+            $this->assertTransformedDocumentRows($sharedPlan['shared_reduction']['transformed_documents'], $expectedRows, 'shared');
         }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
@@ -1318,6 +1437,31 @@ final class ArtifactCompiler
             $pagePlan['digest'] ?? null,
             'page'
         );
+    }
+
+    /** @param array<int,mixed> $rows @param array<int,string> $expectedPaths */
+    private function assertTransformedDocumentRows(array $rows, array $expectedPaths, string $owner): void
+    {
+        if (!array_is_list($rows)) {
+            throw new \InvalidArgumentException(sprintf('The %s transformed document rows must be a list.', $owner));
+        }
+        $paths = array();
+        foreach ($rows as $row) {
+            if (!is_array($row) || !is_string($row['source_path'] ?? null) || '' === $row['source_path'] || !is_int($row['source_rank'] ?? null) || !is_int($row['canonical_rank'] ?? null) || !in_array($row['kind'] ?? null, array('html', 'markdown', 'mdx'), true) || !is_array($row['report_page'] ?? $row['report_template_part'] ?? null)) {
+                throw new \InvalidArgumentException(sprintf('The %s transformed document rows contain a malformed row.', $owner));
+            }
+            if ('html' === $row['kind'] && (!is_array($row['compiled'] ?? null) || !is_string($row['block_markup'] ?? null))) {
+                throw new \InvalidArgumentException(sprintf('The %s transformed HTML rows require compiled evidence.', $owner));
+            }
+            $paths[] = $row['source_path'];
+        }
+        $received = $paths;
+        sort($received, SORT_STRING);
+        $expected = $expectedPaths;
+        sort($expected, SORT_STRING);
+        if ($expected !== $received || count($received) !== count(array_unique($received))) {
+            throw new \InvalidArgumentException(sprintf('The %s reduction does not exactly cover its transformed document rows.', $owner));
+        }
     }
 
     /** @param array<string,mixed> $pagePlan @return array<string,mixed> */
@@ -3759,6 +3903,110 @@ final class ArtifactCompiler
     }
 
     /**
+     * Collect source-sensitive report evidence while one ownership partition is
+     * hydrated. The complete index is used only to classify resolved targets.
+     *
+     * @param array<int,array<string,mixed>> $partitionFiles
+     * @param array<int,array<string,mixed>> $indexFiles
+     * @param array<int,string> $sourcePaths
+     * @return array<string,mixed>
+     */
+    private function collectPartitionReportFacts(array $partitionFiles, array $indexFiles, array $sourcePaths): array
+    {
+        $ranks = array_flip($sourcePaths);
+        $references = (new ReferenceAnalyzer())->referenceReports(
+            $indexFiles,
+            fn(array $file): bool => $this->isLinkableDocument($file),
+            fn(array $asset): bool => $this->isSafeImageAsset($asset),
+            $partitionFiles
+        );
+        foreach ($references as &$rows) {
+            foreach ($rows as $localRank => &$row) {
+                $row['_source_rank'] = (int) ($ranks[$row['source_path'] ?? ''] ?? count($ranks));
+                $row['_local_rank'] = $localRank;
+            }
+            unset($row);
+        }
+        unset($rows);
+
+        $descriptors = array();
+        $html = array();
+        $fontLinks = array();
+        $inlineCss = array();
+        $cssSources = array();
+        foreach ($partitionFiles as $localRank => $file) {
+            $path = (string) ($file['path'] ?? '');
+            $content = is_string($file['content'] ?? null) ? $file['content'] : '';
+            $ownership = $this->fileOwnership($file);
+            $semanticHash = (string) ($file['provenance']['hash'] ?? '');
+            if ('' === $semanticHash && isset($file['payload_reference']['sha256'])) $semanticHash = (string) $file['payload_reference']['sha256'];
+            if ('' === $semanticHash) $semanticHash = hash('sha256', isset($file['content_base64']) ? (string) $file['content_base64'] : $content);
+            $descriptors[] = array(
+                'path' => $path,
+                'kind' => (string) ($file['kind'] ?? ''),
+                'role' => (string) ($file['role'] ?? ''),
+                'mime_type' => (string) ($file['mime_type'] ?? ''),
+                'source' => (string) ($file['source'] ?? ''),
+                'intent' => (string) ($file['intent'] ?? ''),
+                'bytes' => (int) ($file['bytes'] ?? 0),
+                'content_hash' => $semanticHash,
+                'ownership' => $ownership,
+                'metadata' => is_array($file['metadata'] ?? null) ? $file['metadata'] : array(),
+                'provenance' => is_array($file['provenance'] ?? null) ? $file['provenance'] : array(),
+                'source_rank' => (int) ($ranks[$path] ?? count($ranks)),
+                'local_rank' => $localRank,
+            );
+            if ('html' === ($file['kind'] ?? null)) {
+                $html[$path] = array('bytes' => strlen($content), 'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $content));
+                if (preg_match_all('/<link\b[^>]*>/i', $content, $matches)) foreach ($matches[0] as $tag) $fontLinks[] = array('value' => trim((string) $tag), 'source_rank' => (int) ($ranks[$path] ?? count($ranks)), 'local_rank' => count($fontLinks));
+                if (preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $content, $matches)) foreach ($matches[1] as $style) if ('' !== trim((string) $style)) $inlineCss[] = array('content' => trim((string) $style), 'source_rank' => (int) ($ranks[$path] ?? count($ranks)), 'local_rank' => count($inlineCss));
+            }
+            if ('css' === ($file['kind'] ?? null) && '' !== trim($content)) {
+                $cssSources[] = array('path' => $path, 'content' => $content, 'source_hash' => $semanticHash, 'source_rank' => (int) ($ranks[$path] ?? count($ranks)), 'local_rank' => $localRank);
+            }
+        }
+        return array(
+            'descriptors' => $descriptors,
+            'references' => $references,
+            'svg_diagnostics' => $this->svgAssetDiagnostics($partitionFiles),
+            'html' => $html,
+            'font_links' => $fontLinks,
+            'inline_css' => $inlineCss,
+            'css_sources' => $cssSources,
+        );
+    }
+
+    /** @param array<int,array<string,mixed>> $partitions @param array<int,string> $sourcePaths */
+    private function reducePartitionReportFacts(array $partitions, array $sourcePaths): array
+    {
+        $result = array('descriptors' => array(), 'references' => array('internal_links' => array(), 'asset_references' => array(), 'image_references' => array()), 'svg_diagnostics' => array(), 'html' => array(), 'font_links' => array(), 'inline_css' => array(), 'css_sources' => array());
+        foreach ($partitions as $facts) {
+            if (!is_array($facts)) continue;
+            foreach (array('descriptors', 'svg_diagnostics', 'font_links', 'inline_css', 'css_sources') as $key) $result[$key] = array_merge($result[$key], is_array($facts[$key] ?? null) ? $facts[$key] : array());
+            $result['html'] = array_merge($result['html'], is_array($facts['html'] ?? null) ? $facts['html'] : array());
+            foreach (array_keys($result['references']) as $key) $result['references'][$key] = array_merge($result['references'][$key], is_array($facts['references'][$key] ?? null) ? $facts['references'][$key] : array());
+        }
+        $result['descriptors'] = self::sortedBySourcePaths($result['descriptors'], $sourcePaths);
+        foreach ($result['references'] as &$rows) {
+            usort($rows, static fn(array $left, array $right): int => ($left['_source_rank'] ?? 0) <=> ($right['_source_rank'] ?? 0) ?: ($left['_local_rank'] ?? 0) <=> ($right['_local_rank'] ?? 0));
+            $seen = array();
+            $deduped = array();
+            foreach ($rows as $row) {
+                unset($row['_source_rank'], $row['_local_rank']);
+                $key = RuntimeDeclarations::canonicalJson($row);
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+                $deduped[] = $row;
+            }
+            $rows = $deduped;
+        }
+        unset($rows);
+        $result['svg_diagnostics'] = $this->dedupeDiagnostics($result['svg_diagnostics']);
+        foreach (array('font_links', 'inline_css', 'css_sources') as $key) usort($result[$key], static fn(array $left, array $right): int => ($left['source_rank'] ?? 0) <=> ($right['source_rank'] ?? 0) ?: ($left['local_rank'] ?? 0) <=> ($right['local_rank'] ?? 0));
+        return $result;
+    }
+
+    /**
      * @param array<string, mixed> $file
      */
     private function isLinkableDocument(array $file): bool
@@ -3899,7 +4147,7 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $blockTypes
      * @return array<string,mixed>
      */
-    private function renderCompiledSiteReport(array $artifact, string $entryPath, array $transformedDocuments, array $assets, array $blockTypes, array $entryShellArtifacts = array()): array
+    private function renderCompiledSiteReport(array $artifact, string $entryPath, array $transformedDocuments, array $assets, array $blockTypes, array $entryShellArtifacts = array(), ?array $reportFacts = null): array
     {
         $pages = array();
         $templateParts = array();
@@ -3948,9 +4196,9 @@ final class ArtifactCompiler
                     'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
                     'fonts'       => $this->assetPathsByRole($assets, 'font'),
                     'images'      => $this->assetPathsByRole($assets, 'image'),
-                    'font_link_html' => $this->themeFontLinkHtml($artifact['files']),
-                    'static_css'  => $this->themeStaticCss($artifact['files']),
-                    'font_css_sources' => $this->themeFontCssSources($artifact['files']),
+                     'font_link_html' => null === $reportFacts ? $this->themeFontLinkHtml($artifact['files']) : $this->collectedFontLinkHtml($reportFacts['font_links'] ?? array()),
+                     'static_css'  => null === $reportFacts ? $this->themeStaticCss($artifact['files']) : $this->collectedStaticCss($reportFacts, $artifact['files']),
+                     'font_css_sources' => null === $reportFacts ? $this->themeFontCssSources($artifact['files']) : $this->collectedFontCssSources($reportFacts['css_sources'] ?? array()),
                     'template_parts' => array_values(array_map(
                         static fn (array $part): string => (string) ($part['source_path'] ?? ''),
                         $templateParts
@@ -3968,6 +4216,53 @@ final class ArtifactCompiler
                 'input_bytes' => $artifact['bytes'],
             ),
         );
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function collectedFontLinkHtml(array $rows): string
+    {
+        $tags = array();
+        foreach ($rows as $row) if (is_string($row['value'] ?? null)) $tags[$row['value']] = true;
+        return implode("\n", array_keys($tags));
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @return array<int,array<string,string>> */
+    private function collectedFontCssSources(array $rows): array
+    {
+        $sources = array();
+        foreach ($rows as $row) if (is_string($row['path'] ?? null) && is_string($row['content'] ?? null) && is_string($row['source_hash'] ?? null)) $sources[] = array('path' => $row['path'], 'content' => $row['content'], 'source_hash' => $row['source_hash']);
+        return self::sortedByPath($sources);
+    }
+
+    /** @param array<string,mixed> $facts @param array<int,array<string,mixed>> $files */
+    private function collectedStaticCss(array $facts, array $files): string
+    {
+        $blocks = array();
+        foreach ($facts['css_sources'] ?? array() as $row) if (is_string($row['content'] ?? null) && '' !== trim($row['content'])) $blocks[trim($row['content'])] = true;
+        foreach ($facts['inline_css'] ?? array() as $row) if (is_string($row['content'] ?? null) && '' !== trim($row['content'])) $blocks[trim($row['content'])] = true;
+        $css = implode("\n", array_keys($blocks));
+        return $css . $this->wordpressCompatCss($css, $files);
+    }
+
+    /** @param array<string,array<int,array<string,mixed>>> $reports @param array<int,array<string,mixed>> $files */
+    private function refreshCollectedReferenceTargets(array $reports, array $files): array
+    {
+        $byPath = array_column($files, null, 'path');
+        foreach ($reports as &$rows) {
+            foreach ($rows as &$row) {
+                $path = (string) ($row['asset_path'] ?? $row['target_path'] ?? '');
+                if ('' === $path || !isset($byPath[$path])) continue;
+                $target = $byPath[$path];
+                if (array_key_exists('kind', $row)) $row['kind'] = $target['kind'] ?? '';
+                if (array_key_exists('role', $row)) $row['role'] = $target['role'] ?? '';
+                if (array_key_exists('mime_type', $row)) $row['mime_type'] = $target['mime_type'] ?? '';
+                $row['bytes'] = $target['bytes'] ?? 0;
+                if (array_key_exists('safe', $row) && str_starts_with((string) ($target['mime_type'] ?? ''), 'image/')) $row['safe'] = $this->isSafeImageAsset($target);
+            }
+            unset($row);
+        }
+        unset($rows);
+        return $reports;
     }
 
     private function htmlDocumentBlockMarkup(string $html): string

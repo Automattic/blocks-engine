@@ -85,7 +85,7 @@ $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
     if (!is_array($value)) return $value;
-    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['source_document_transform_count'], $value['terminal_compiled_site_raw_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
+    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['source_document_transform_count'], $value['terminal_compiled_site_raw_transform_count'], $value['terminal_raw_page_file_read_count'], $value['terminal_raw_page_text_bytes'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
     foreach ($value as $key => $item) $value[$key] = $canonical($item);
     return $value;
 };
@@ -142,6 +142,8 @@ $receiptHtmlTransforms = array_sum(array_column(array_column($rowReceipts, 'work
 $receiptSourceTransforms = array_sum(array_column(array_column($rowReceipts, 'work'), 'source_document_transform_count'));
 $assert(2 === $receiptHtmlTransforms && 2 === $receiptSourceTransforms, 'Each page-owned HTML, Markdown, and MDX source is transformed exactly once at its real worker call site.');
 $assert(0 === ($rowStaged['metrics']['html_document_transform_count'] ?? null) && 0 === ($rowStaged['metrics']['source_document_transform_count'] ?? null) && 0 === ($rowStaged['metrics']['terminal_compiled_site_raw_transform_count'] ?? null), 'Corrected v2 terminal compiled-site rendering performs zero raw HTML or source-document transformations.');
+$assert(1 === ($rowShared['work']['html_document_transform_count'] ?? null) && 1 === ($rowShared['work']['compiled_document_count'] ?? null), 'Each shared template part is transformed exactly once and reported at its real shared collector call site.');
+$assert(0 === ($rowStaged['metrics']['terminal_raw_page_file_read_count'] ?? null) && 0 === ($rowStaged['metrics']['terminal_raw_page_text_bytes'] ?? null), 'Corrected v2 terminal composition reads zero raw page files and zero raw page text bytes.');
 foreach ($rowReceipts as $receipt) {
     $assert(!isset($receipt['terminal_reduction']['entry_blocks']), 'Corrected v2 reductions select entry blocks from transformed rows instead of duplicating entry_blocks.');
     foreach ($receipt['terminal_reduction']['transformed_documents'] as $row) {
@@ -190,6 +192,31 @@ $throws(static fn() => $compiler->compose($shared, array($compiledPages['index.h
 $reductionMismatch = $shared;
 $reductionMismatch['shared_reduction']['component_facts']['classes']['corrupt'] = 1;
 $throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composition rejects a shared reduction whose immutable digest no longer matches.');
+
+$resignShared = static function (array $plan): array {
+    $plan['shared_reduction_digest'] = RuntimeDeclarations::hash($plan['shared_reduction']);
+    $plan['digest'] = RuntimeDeclarations::hash(array('artifact' => $plan['artifact'], 'analysis' => $plan['analysis'], 'shared_reduction' => $plan['shared_reduction'], 'shared_reduction_digest' => $plan['shared_reduction_digest'], 'compiler_options' => $plan['compiler_options']));
+    return $plan;
+};
+$missingSharedRow = $rowShared;
+$missingSharedRow['shared_reduction']['transformed_documents'] = array();
+$missingSharedRow = $resignShared($missingSharedRow);
+$throws(static fn() => (new ArtifactCompiler())->compose($missingSharedRow, array()), 'Composition rejects a validly digested shared reduction missing its transformed template-part row.');
+$malformedSharedRow = $rowShared;
+unset($malformedSharedRow['shared_reduction']['transformed_documents'][0]['compiled']);
+$malformedSharedRow = $resignShared($malformedSharedRow);
+$throws(static fn() => (new ArtifactCompiler())->compose($malformedSharedRow, array()), 'Composition rejects a validly digested malformed shared transformed row.');
+$duplicateSharedRow = $rowShared;
+$duplicateSharedRow['shared_reduction']['transformed_documents'][] = $duplicateSharedRow['shared_reduction']['transformed_documents'][0];
+$duplicateSharedRow = $resignShared($duplicateSharedRow);
+$throws(static fn() => (new ArtifactCompiler())->compose($duplicateSharedRow, array()), 'Composition rejects duplicate shared transformed rows deterministically.');
+
+$splitBlockArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'blocks/card/block.json', 'content' => '{"name":"test/card"}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+    array('path' => 'blocks/card/view.js', 'content' => 'console.log("card")', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
+));
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($splitBlockArtifact), 'Preparation rejects a custom block package split across ownership partitions.');
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
 

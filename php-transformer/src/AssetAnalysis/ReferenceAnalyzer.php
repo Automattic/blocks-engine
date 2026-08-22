@@ -11,9 +11,10 @@ final class ReferenceAnalyzer
      * @param array<int, array<string, mixed>> $files
      * @param callable(array<string, mixed>): bool|null $isLinkableDocument
      * @param callable(array<string, mixed>): bool|null $isSafeImageAsset
+     * @param array<int, array<string, mixed>>|null $sourceFiles
      * @return array{internal_links: array<int, array<string, mixed>>, asset_references: array<int, array<string, mixed>>, image_references: array<int, array<string, mixed>>}
      */
-    public function referenceReports(array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null): array
+    public function referenceReports(array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null, ?array $sourceFiles = null): array
     {
         $internalLinks = array();
         $assetReferences = array();
@@ -25,7 +26,7 @@ final class ReferenceAnalyzer
 			}
 		}
 
-        foreach ( $files as $file ) {
+        foreach ( null === $sourceFiles ? $files : $sourceFiles as $file ) {
             if ( ! empty($file['binary']) ) {
                 continue;
             }
