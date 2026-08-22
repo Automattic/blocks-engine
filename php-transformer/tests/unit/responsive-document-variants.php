@@ -30,12 +30,12 @@ $artifact = array(
     'files' => array(
         array(
             'path' => 'website/index.html',
-            'content' => '<!doctype html><html><head><style>:root{--site-width:980px}body.desktop main{width:var(--site-width)}</style></head><body class="desktop"><main><h1>Desktop</h1></main></body></html>',
+            'content' => '<!doctype html><html><head><style>:root{--site-width:980px}body.desktop main{width:var(--site-width)}.card{display:grid}</style></head><body class="desktop"><main><h1 class="card">Desktop</h1></main></body></html>',
         ),
         array(
             'path' => 'website/.variants/mobile/index.html',
             'role' => 'document_variant',
-            'content' => '<!doctype html><html><head><style>:root{--site-width:320px}body.mobile main{width:var(--site-width)}</style></head><body class="mobile" style="overflow:hidden"><main><h1>Mobile</h1></main></body></html>',
+            'content' => '<!doctype html><html><head><style>:root{--site-width:320px}body.mobile main{width:var(--site-width)}.card{display:block}</style></head><body class="mobile" style="overflow:hidden"><main><h1 class="card">Mobile</h1></main></body></html>',
         ),
     ),
 );
@@ -54,6 +54,9 @@ $assert(str_contains($blocks, '>Desktop<') && str_contains($blocks, '>Mobile<'),
 $assert(str_contains($assetCss, '@media (max-width: 768px)'), 'Variant visibility is controlled by the declared media query.');
 $assert(str_contains($assetCss, '.site-document-variant-mobile{--site-width:320px}'), 'Mobile root custom properties are scoped to the mobile document wrapper.');
 $assert(str_contains($assetCss, '.site-document-variant-mobile.mobile main'), 'Mobile body selectors are projected onto the mobile document wrapper.');
+$assert(str_contains($assetCss, '.site-document-variant-default .card{display:grid}'), 'Primary selectors are scoped to the default document wrapper.');
+$assert(str_contains($assetCss, '.site-document-variant-mobile .card{display:block}'), 'Mobile selectors are scoped to the mobile document wrapper.');
+$assert(str_contains($blocks, 'site-document-variant-default desktop'), 'Primary body classes are projected onto the default document wrapper.');
 
 $sharedPlan = $compiler->prepareShared($artifact);
 $pagePlan = $compiler->preparePage($artifact, $sharedPlan, 'website/index.html');
