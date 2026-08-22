@@ -45,6 +45,15 @@ final class ArtifactCompiler
 
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
+    /**
+     * Completed page document transforms supplied by compiled page stages.
+     * They are consumed once by terminal composition instead of transforming
+     * every HTML document again.
+     *
+     * @var array<string,array<string,mixed>>
+     */
+    private array $stagedCompiledDocuments = array();
+
     private string $generatedAssetRoot = '';
 
     /** @var array<string, array<string, mixed>> */
@@ -146,6 +155,75 @@ final class ArtifactCompiler
     }
 
     /**
+     * Compile the HTML owned by one page against an immutable shared plan.
+     * The returned receipt is serializable and may be retained across an
+     * interrupted fan-out before terminal composition.
+     *
+     * @param array<string,mixed> $artifact
+     * @param array<string,mixed> $sharedPlan
+     * @return array<string,mixed>
+     */
+    public function compilePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
+    {
+        $startedAt = hrtime(true);
+        $pagePlan = $this->preparePage($artifact, $sharedPlan, $pageId, $payloadReader);
+        $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
+        $stageArtifact = $sharedArtifact;
+        $stageArtifact['files'] = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
+        $normalized = (new ArtifactNormalizer())->normalize($stageArtifact);
+        $artifactNormalized = (new ArtifactNormalizer())->normalize($artifact);
+
+        $stageCompiler = new self();
+        $stageCompiler->themeStaticCssCache = array();
+        $stageCompiler->wordpressCompatCssCache = array();
+        $stageCompiler->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
+        $entry = $stageCompiler->entryFile($normalized['files'], $normalized['entrypoints']);
+        $artifactEntry = $stageCompiler->entryFile($artifactNormalized['files'], $artifactNormalized['entrypoints']);
+        if (is_array($artifactEntry)) {
+            // Whole-artifact compilation annotates stylesheet occurrences from
+            // the entry document before transforming any page document.
+            $normalized['files'] = $stageCompiler->withStylesheetOccurrenceAssets(
+                (string) $artifactEntry['content'],
+                (string) $artifactEntry['path'],
+                $normalized['files']
+            );
+        }
+        $stageCompiler->generatedAssetRoot = is_array($entry) && '.' !== dirname((string) $entry['path']) ? trim(dirname((string) $entry['path']), '/') : '';
+        $stageCompiler->indexFiles($normalized['files']);
+
+        $compiledDocuments = array();
+        foreach ($normalized['files'] as $file) {
+            if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
+                continue;
+            }
+            $path = (string) ($file['path'] ?? '');
+            if ($pageId !== $stageCompiler->fileOwnership($file)['id']) {
+                continue;
+            }
+            $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
+                (string) ($file['content'] ?? ''),
+                $path,
+                $normalized['files'],
+                $path === ($entry['path'] ?? null) ? 'artifact-entry' : 'artifact-document',
+                (new CompanionPluginPayload())->blockNamespace($artifact),
+                true
+            );
+        }
+        ksort($compiledDocuments, SORT_STRING);
+        $pagePlan['compiled_documents'] = $compiledDocuments;
+        // Observational work data is deliberately excluded from the receipt
+        // digest so independently resumed work has stable canonical identity.
+        $pagePlan['work'] = array(
+            'compiled_document_count' => count($compiledDocuments),
+            'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+        );
+        $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
+
+        return $pagePlan;
+    }
+
+    /**
      * Compose independently prepared plans in canonical page-id and path order.
      *
      * @param array<string,mixed> $sharedPlan
@@ -158,6 +236,8 @@ final class ArtifactCompiler
         $files = $sharedArtifact['files'];
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
+        $compiledDocuments = array();
+        $allPagesCompiled = array() !== $pagePlans;
         foreach ($pagePlans as $pagePlan) {
             $this->assertPagePlan($pagePlan, $sharedPlan);
             if (isset($seen[$pagePlan['page_id']])) {
@@ -166,12 +246,29 @@ final class ArtifactCompiler
             $seen[$pagePlan['page_id']] = true;
             $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
             $files = array_merge($files, $pageArtifact['files']);
+            if (!is_array($pagePlan['compiled_documents'] ?? null)) {
+                $allPagesCompiled = false;
+                continue;
+            }
+            foreach ($pagePlan['compiled_documents'] as $path => $document) {
+                if (!is_string($path) || !is_array($document) || isset($compiledDocuments[$path])) {
+                    throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
+                }
+                $compiledDocuments[$path] = $document;
+            }
         }
         $this->assertUniqueComposedPaths($files);
         $artifact = $sharedArtifact;
         $artifact['files'] = self::sortedByPath($files);
 
-        return $this->compile($artifact);
+        if ($allPagesCompiled) {
+            $this->stagedCompiledDocuments = $compiledDocuments;
+        }
+        try {
+            return $this->compile($artifact);
+        } finally {
+            $this->stagedCompiledDocuments = array();
+        }
     }
 
     /**
@@ -785,10 +882,22 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged page plan requires its serialized artifact payload.');
         }
         $this->assertPlanDigest(
-            $this->containsPayloadReferences($pagePlan['artifact']) ? array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact']) : array('shared_digest' => $sharedPlan['digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']),
+            $this->pagePlanDigestInput($pagePlan),
             $pagePlan['digest'] ?? null,
             'page'
         );
+    }
+
+    /** @param array<string,mixed> $pagePlan @return array<string,mixed> */
+    private function pagePlanDigestInput(array $pagePlan): array
+    {
+        $input = $this->containsPayloadReferences($pagePlan['artifact'])
+            ? array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'])
+            : array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']);
+        if (isset($pagePlan['compiled_documents'])) {
+            $input['compiled_documents'] = $pagePlan['compiled_documents'];
+        }
+        return $input;
     }
 
     /** @param array<string,mixed> $hashInput */
@@ -1041,6 +1150,9 @@ final class ArtifactCompiler
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
+        if (isset($this->stagedCompiledDocuments[$sourcePath])) {
+            return $this->stagedCompiledDocuments[$sourcePath];
+        }
         if ( $this->containsBlockMarkup($html) ) {
             return array(
                 'blocks'            => array(),
