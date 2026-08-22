@@ -29,7 +29,7 @@ $assert($formsPayloadBytes > 262144 && $formsPayloadBytes < RuntimeDeclarations:
 $artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => $formsPayload));
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
-$assert(ArtifactCompiler::SHARED_PLAN_SCHEMA === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation emits a bounded immutable shared plan and digest.');
+$assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
@@ -180,6 +180,12 @@ $mismatchedReferencePlan = $referencePlan;
 $mismatchedReferencePlan['writes'][array_search('assets/assets/logo.png', array_column($mismatchedReferencePlan['writes'], 'target_path'), true)]['raw_sha256'] = str_repeat('0', 64);
 $throws(static fn() => WordPressSitePlan::assertValid($mismatchedReferencePlan), 'WordPress plan validation rejects reference writes whose raw hash does not match the declared asset reference.');
 $assert(5 === count($reader->reads) && !in_array('payload:assets/logo.png', $reader->reads, true), 'Composition lazily reads text payloads while preserving binary references.');
+$reader->reads = array();
+$referencedReceipts = array();
+foreach ($referencedPages as $referencedPage) $referencedReceipts[] = (new ArtifactCompiler())->compilePreparedPage($referencedShared, $referencedPage, $reader);
+$pagePayloadsRemoved = new class implements PayloadReader { public array $reads = array(); public function read(array $reference): string { $this->reads[] = $reference['id']; throw new InvalidArgumentException('page payload access is forbidden at terminal assembly'); } };
+$receiptResult = (new ArtifactCompiler())->compose($referencedShared, array_reverse($referencedReceipts), $pagePayloadsRemoved)->toArray();
+$assert(array() === $pagePayloadsRemoved->reads && ($referencedResult['blocks'] ?? array()) === ($receiptResult['blocks'] ?? array()) && ($referencedResult['serialized_blocks'] ?? '') === ($receiptResult['serialized_blocks'] ?? ''), 'Compiled receipts retain hydrated shared and page reductions, so terminal composition reads no page payloads.');
 $assert($referencedShared['digest'] === $compiler->prepareShared($referencedArtifact, new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return $this->payloads[$reference['id']]; } } )['digest'], 'Reference-backed shared plan digests are deterministic.');
 $pageOnlyArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'payload_reference' => $referencedArtifact['files'][4]['payload_reference'])));
 $pageOnlyShared = $compiler->prepareShared($pageOnlyArtifact, $reader);
