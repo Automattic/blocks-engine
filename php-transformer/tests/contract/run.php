@@ -2812,6 +2812,64 @@ $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset):
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
 $assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
+$artifactCheckboxLabelNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><input type="checkbox" id="menu-toggle"><div id="header-wrapper"><div class="actions"><div class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></div><label class="hamburger" for="menu-toggle"></label></div></div></body></html>',
+            'styles.css' => '#menu-toggle{position:absolute;opacity:0}.actions{text-align:right}.menu{display:inline-block}.menu a{color:#fff}@media(max-width:700px){.menu{display:none!important}}',
+        ),
+    )
+)->toArray();
+$artifactCheckboxLabelNavigationMarkup = (string) ($artifactCheckboxLabelNavigation['serialized_blocks'] ?? '');
+$artifactCheckboxLabelNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactCheckboxLabelNavigation['assets'] ?? array()));
+$assert(str_contains($artifactCheckboxLabelNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactCheckboxLabelNavigationMarkup, 'blocks-engine-native-responsive-navigation') && str_contains($artifactCheckboxLabelNavigationMarkup, 'blocks-engine-inline-navigation'), 'a checkbox-bound empty label associated with an inline menu promotes native responsive navigation while retaining inline layout');
+$assert(! str_contains($artifactCheckboxLabelNavigationMarkup, 'menu-toggle') && str_contains($artifactCheckboxLabelNavigationCss, '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}') && str_contains($artifactCheckboxLabelNavigationCss, '>.wp-block-navigation__responsive-container-open') && str_contains($artifactCheckboxLabelNavigationCss, '{color:#fff}'), 'native responsive navigation supersedes checkbox-label chrome and restores inline-level host alignment and toggle contrast after author CSS');
+
+$artifactFormCheckboxLabel = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><form><input type="checkbox" id="terms"><label for="terms"></label></form>',
+        ),
+    )
+)->toArray();
+$assert(! str_contains((string) ($artifactFormCheckboxLabel['serialized_blocks'] ?? ''), 'blocks-engine-native-responsive-navigation'), 'an empty checkbox label inside a form does not promote unrelated navigation to a responsive overlay');
+
+$artifactVisibleCheckboxLabel = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><input type="checkbox" id="setting"><label for="setting"></label>',
+        ),
+    )
+)->toArray();
+$artifactVisibleCheckboxLabelMarkup = (string) ($artifactVisibleCheckboxLabel['serialized_blocks'] ?? '');
+$assert(str_contains($artifactVisibleCheckboxLabelMarkup, 'setting') && ! str_contains($artifactVisibleCheckboxLabelMarkup, 'blocks-engine-native-responsive-navigation'), 'a visible non-form checkbox and empty label remain content and do not promote unrelated navigation');
+
+$artifactHiddenCheckboxLabel = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<style>#theme-toggle{position:absolute;opacity:0}</style><header><nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><input type="checkbox" id="theme-toggle"><label for="theme-toggle"></label></header>',
+        ),
+    )
+)->toArray();
+$artifactHiddenCheckboxLabelMarkup = (string) ($artifactHiddenCheckboxLabel['serialized_blocks'] ?? '');
+$assert(str_contains($artifactHiddenCheckboxLabelMarkup, 'theme-toggle') && ! str_contains($artifactHiddenCheckboxLabelMarkup, 'blocks-engine-native-responsive-navigation'), 'an accessible-hidden theme toggle beside header navigation remains content and does not promote unrelated navigation');
+
+$artifactNonResponsiveInlineNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<style>.menu{display:inline-block}@media(max-width:700px){.menu{display:none}}</style><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav>',
+        ),
+    )
+)->toArray();
+$artifactNonResponsiveInlineNavigationMarkup = (string) ($artifactNonResponsiveInlineNavigation['serialized_blocks'] ?? '');
+$artifactNonResponsiveInlineNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactNonResponsiveInlineNavigation['assets'] ?? array()));
+$assert(! str_contains($artifactNonResponsiveInlineNavigationMarkup, 'blocks-engine-inline-navigation') && ! str_contains($artifactNonResponsiveInlineNavigationCss, 'display:inline-flex!important'), 'a non-responsive inline menu retains its authored mobile display cascade without a native visibility override');
+
 $artifactHeaderRuntimeCss = $compiler->compile(
     array(
         'entry' => 'index.html',
