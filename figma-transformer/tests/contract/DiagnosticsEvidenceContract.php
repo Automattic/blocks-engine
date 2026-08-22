@@ -327,6 +327,26 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-matched-direct-compound-responsive-selector-covers');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_uncovered_count'), 0, 'diagnostics-evidence-matched-direct-compound-responsive-selector-has-no-uncovered-width');
 
+    $siblingResponsiveSelectorArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><div class="row"><span class="anchor"></span><div class="fixed adjacent"></div><div class="fixed general"></div></div></main>',
+        '.fixed{width:1800px}@media (max-width:767px){.anchor + .adjacent{width:100%}.anchor ~ .general{max-width:100%}}'
+    );
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $siblingResponsiveSelectorArtifact, array('fixed_width_over_desktop_covered_count'), 2, 'diagnostics-evidence-sibling-combinator-responsive-selectors-remain-element-scoped');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $siblingResponsiveSelectorArtifact, array('fixed_width_coverage_analysis', 'status'), 'complete', 'diagnostics-evidence-sibling-combinator-analysis-complete');
+
+    $largeCoverageHtml = '<main>' . str_repeat('<div class="fixed"></div>', 21000) . '</main>';
+    $largeCoverageArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        $largeCoverageHtml,
+        '.fixed{width:1800px}@media (max-width:767px){.fixed{width:100%}}'
+    );
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $largeCoverageArtifact, array('fixed_width_coverage_analysis', 'status'), 'incomplete', 'diagnostics-evidence-large-coverage-budget-status');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $largeCoverageArtifact, array('fixed_width_coverage_analysis', 'diagnostic'), 'fixed_width_coverage_budget_exceeded', 'diagnostics-evidence-large-coverage-budget-diagnostic');
+    $assert(20000 === ($largeCoverageArtifact['fixed_width_coverage_analysis']['context_budget'] ?? null), 'diagnostics-evidence-large-coverage-context-budget-contract');
+    $assert(0.0 === ($largeCoverageArtifact['effective_responsive_coverage_ratio'] ?? null), 'diagnostics-evidence-large-coverage-never-false-passes');
+    $largeCoverageQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), $largeCoverageArtifact);
+    $largeCoverageCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $largeCoverageQuality['signals'] ?? array());
+    $assert(in_array('fixed_width_coverage_analysis_incomplete', $largeCoverageCodes, true), 'diagnostics-evidence-large-coverage-budget-quality-signal');
+
     $responsiveQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array(),
         array(),

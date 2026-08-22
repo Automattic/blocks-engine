@@ -234,6 +234,15 @@ final class TransformDiagnosticsBuilder
                 'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
             );
         }
+
+        if ( 'incomplete' === ($htmlArtifact['fixed_width_coverage_analysis']['status'] ?? null) ) {
+            $signals[] = array(
+                'code' => 'fixed_width_coverage_analysis_incomplete',
+                'diagnostic' => (string) ($htmlArtifact['fixed_width_coverage_analysis']['diagnostic'] ?? 'fixed_width_coverage_budget_exceeded'),
+                'contexts_evaluated' => (int) ($htmlArtifact['fixed_width_coverage_analysis']['contexts_evaluated'] ?? 0),
+                'operations_evaluated' => (int) ($htmlArtifact['fixed_width_coverage_analysis']['operations_evaluated'] ?? 0),
+            );
+        }
         if ( ! empty($htmlArtifact['giant_fixed_section_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
