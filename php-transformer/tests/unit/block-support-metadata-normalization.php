@@ -38,6 +38,10 @@ $assert(isset($cover['attrs']['style']['color']['text']) && ! isset($cover['attr
 $navigation = $runtime->normalizeBlockSupportAttributes('core/navigation', array( 'style' => array( 'spacing' => array( 'padding' => array( 'top' => '1rem' ) ), 'typography' => array( 'textDecoration' => 'underline' ), 'border' => array( 'width' => '2px' ) ) ));
 $assert(isset($navigation['fallbackStyle']['spacing']['padding']['top']) && isset($navigation['fallbackStyle']['typography']['textDecoration']) && isset($navigation['fallbackStyle']['border']['width']), 'Navigation rejects unsupported spacing, skipped typography, and border.');
 
+$navigationResult = ( new HtmlTransformer() )->transform('<nav class="menu" style="margin-left:auto"><a href="/">Home</a></nav>')->toArray();
+$navigationCss = implode("\n", array_column($navigationResult['assets'] ?? array(), 'content'));
+$assert(! isset($navigationResult['blocks'][0]['attrs']['style']['spacing']['margin']) && str_contains($navigationCss, '.wp-block-navigation.menu{margin-left:auto}'), 'Navigation carries metadata-rejected spacing on its rendered block class.');
+
 $result = ( new HtmlTransformer() )->transform('<p style="min-height:12rem">Metadata carrier</p>')->toArray();
 $block = $result['blocks'][0] ?? array();
 $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));

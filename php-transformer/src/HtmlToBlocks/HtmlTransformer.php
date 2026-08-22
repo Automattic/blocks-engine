@@ -421,6 +421,9 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $navigationSubmenuBackgroundFallbacks = array();
 
+    /** @var array<string, string> */
+    private array $navigationSpacingFallbacks = array();
+
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
 
@@ -700,6 +703,7 @@ final class HtmlTransformer
         $this->listNavigationPaddingFallbacks = array();
         $this->navigationLinkColorFallbacks = array();
         $this->navigationSubmenuBackgroundFallbacks = array();
+        $this->navigationSpacingFallbacks = array();
         $this->syntheticHeaderAnchorStyleRules = array();
         $this->headerRichTextStyleRules = array();
         $this->gutenbergIncompatibilities = array();
@@ -1240,6 +1244,11 @@ final class HtmlTransformer
         foreach ( $this->navigationSubmenuBackgroundFallbacks as $className => $color ) {
             if ( str_contains($serializedBlocks, $className) ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';
+            }
+        }
+        foreach ( $this->navigationSpacingFallbacks as $className => $declarations ) {
+            if ( str_contains($serializedBlocks, $className) ) {
+                $afterAuthorCssParts[] = '.wp-block-navigation.' . $className . '{' . $declarations . '}';
             }
         }
         foreach ( $this->syntheticHeaderAnchorStyleRules as $className => $rule ) {
@@ -5535,6 +5544,15 @@ final class HtmlTransformer
             foreach ( $classes as $class ) {
                 if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
                     $this->listNavigationPaddingFallbacks[ $class ] = $fallback['spacing']['padding'];
+                }
+            }
+        }
+        if ( 'core/navigation' === $name && is_array($fallback['spacing'] ?? null) ) {
+            $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
+            foreach ( $classes as $class ) {
+                if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
+                    $this->navigationSpacingFallbacks[ $class ] = $declarations;
+                    break;
                 }
             }
         }
