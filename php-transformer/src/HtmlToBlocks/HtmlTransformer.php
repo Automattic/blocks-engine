@@ -830,6 +830,7 @@ final class HtmlTransformer
         $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $generatedCarrierCss = $this->engineSupportCss();
         $sourceReports = array(
             'native_target_blocks' => $nativeTargetBlocks,
@@ -854,7 +855,7 @@ final class HtmlTransformer
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
-            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths),
+            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths),
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
@@ -3825,6 +3826,14 @@ final class HtmlTransformer
         return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
     }
 
+    /** Convert invalid block wrappers inside a heading into valid RichText breaks. */
+    private function headingRichTextContent(string $content): string
+    {
+        if ( ! preg_match('/<\/?(?:div|p)\b/i', $content) ) return $content;
+        $content = preg_replace_callback('/<\s*(\/)?\s*(?:div|p)\b[^>]*>/i', static fn (array $match): string => ! empty($match[1]) ? '<br>' : '', $content) ?? $content;
+        return preg_replace('/(?:<br>\s*){2,}/i', '<br>', $content) ?? $content;
+    }
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>
@@ -3843,12 +3852,16 @@ final class HtmlTransformer
                 continue;
             }
 
-            $columns[] = $this->createBlock(
+            $column = $this->createBlock(
                 'core/column',
                 $this->presentationAttributes($cell),
                 $this->convertChildren($cell, $fallbacks, true),
                 $cell
             );
+            // A blank layout-table cell remains a real native column: removing it
+            // changes the rendered Columns topology.
+            $column['_editability_visual_owned'] = true;
+            $columns[] = $column;
         }
 
         return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
@@ -4222,6 +4235,7 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
+            $content = $this->headingRichTextContent($content);
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
             }
@@ -7095,11 +7109,12 @@ final class HtmlTransformer
             $blockPath = $path . '.' . $index;
             $provenanceId = $block['_source_provenance_id'] ?? null;
             if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
-                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array());
+                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array(), !empty($block['_editability_visual_owned']) ? array('editability_visual_owned' => true) : array());
             }
             unset($block['_source_provenance_id']);
             unset($block['_binding_token']);
             unset($block['_editability_runtime_owned']);
+            unset($block['_editability_visual_owned']);
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
                 $this->resolveSourceProvenancePaths($block['innerBlocks'], $blockPath . '.innerBlocks', $resolved);
@@ -7749,7 +7764,9 @@ final class HtmlTransformer
     {
         $attrs = $this->emptyVisualElementAttributes($element);
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
-            return $this->createBlock('core/group', $attrs, array(), $element);
+            $block = $this->createBlock('core/group', $attrs, array(), $element);
+            $block['_editability_visual_owned'] = true;
+            return $block;
         }
 
         $declarations = $this->structuralPresentationDeclarations($element);
