@@ -14,6 +14,7 @@ final class WordPressSitePlanResolver
     public function resolve(array $plan, array $context): array
     {
         WordPressSitePlan::assertValid($plan);
+        if (($plan['plan_identity'] ?? null) !== WordPressSitePlan::planIdentity($plan)) throw new InvalidArgumentException('WordPress site plan identity is stale.');
         if (isset($context['approved_plan_identity'])) {
             if (!is_array($context['approved_plan_identity']) || $context['approved_plan_identity'] !== WordPressSitePlan::planIdentity($plan)) throw new InvalidArgumentException('WordPress site plan does not match the externally approved plan identity.');
         }
