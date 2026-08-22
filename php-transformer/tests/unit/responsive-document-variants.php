@@ -52,10 +52,11 @@ $assert(str_contains($blocks, 'site-document-variant-default'), 'Primary documen
 $assert(str_contains($blocks, 'site-document-variant-mobile'), 'Mobile document is emitted as an editable variant.');
 $assert(str_contains($blocks, '>Desktop<') && str_contains($blocks, '>Mobile<'), 'Both responsive document bodies remain editable block content.');
 $assert(str_contains($assetCss, '@media (max-width: 768px)'), 'Variant visibility is controlled by the declared media query.');
-$assert(str_contains($assetCss, '.site-document-variant-mobile{--site-width:320px}'), 'Mobile root custom properties are scoped to the mobile document wrapper.');
-$assert(str_contains($assetCss, '.site-document-variant-mobile.mobile main'), 'Mobile body selectors are projected onto the mobile document wrapper.');
-$assert(str_contains($assetCss, '.site-document-variant-default .card{display:grid}'), 'Primary selectors are scoped to the default document wrapper.');
-$assert(str_contains($assetCss, '.site-document-variant-mobile .card{display:block}'), 'Mobile selectors are scoped to the mobile document wrapper.');
+$assert(str_contains($assetCss, '@scope (.site-document-variant-mobile)'), 'Mobile styles are isolated by the mobile document scope.');
+$assert(str_contains($assetCss, ':scope{--site-width:320px}'), 'Mobile root custom properties target the mobile document scope.');
+$assert(str_contains($assetCss, ':scope.mobile main'), 'Mobile body selectors are projected onto the mobile document scope.');
+$assert(str_contains($assetCss, '@scope (.site-document-variant-default)') && str_contains($assetCss, '.card{display:grid}'), 'Primary selectors remain editable inside the default document scope.');
+$assert(str_contains($assetCss, '.card{display:block}'), 'Mobile selectors remain editable inside the mobile document scope.');
 $assert(str_contains($blocks, 'site-document-variant-default desktop'), 'Primary body classes are projected onto the default document wrapper.');
 
 $sharedPlan = $compiler->prepareShared($artifact);

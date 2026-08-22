@@ -128,7 +128,7 @@ final class ResponsiveDocumentVariants
                 . '>' . preg_replace('@<style\b[^>]*>[\s\S]*?</style\s*>@i', '', $body['content']) . '</div>';
 
             foreach ($this->styles($variant['html']) as $style) {
-                $css = $this->scopeDocumentSelectors($style['css'], $variantClass);
+                $css = $this->scopeDocumentStylesheet($style['css'], $variantClass);
                 $media = '' !== $style['media'] ? $variant['media'] . ' and ' . $style['media'] : $variant['media'];
                 $variantStyles .= '<style media="' . htmlspecialchars($media, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . $css . '</style>';
             }
@@ -146,37 +146,39 @@ final class ResponsiveDocumentVariants
             : $styles . $composed;
     }
 
-    private function scopeDocumentSelectors(string $css, string $variantClass): string
+    private function scopeDocumentSelectors(string $css): string
     {
-        $scope = '.' . $variantClass;
-        return (new CssStylesheetTransformer())->transform($css, static function (string $prelude) use ($scope): string {
+        return (new CssStylesheetTransformer())->transform($css, static function (string $prelude): string {
             $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
             if (null === $selectors) {
                 return $prelude;
             }
             foreach ($selectors as &$selector) {
-                $selector = (string) preg_replace('/(?<![-_a-z0-9])(?::root|html|body|:host)(?![-_a-z0-9(])/i', $scope, $selector);
+                $selector = (string) preg_replace('/(?<![-_a-z0-9])(?::root|html|body|:host)(?![-_a-z0-9(])/i', ':scope', $selector);
                 $selector = (string) preg_replace_callback(
                     '/(?<![-_a-z0-9]):host\(([^)]+)\)/i',
-                    static fn(array $match): string => $scope . $match[1],
+                    static fn(array $match): string => ':scope' . $match[1],
                     $selector
                 );
-                $quoted = preg_quote($scope, '/');
-                $selector = (string) preg_replace('/' . $quoted . '(?:\s+|\s*[>+~]\s*)' . $quoted . '/', $scope, $selector);
-                if (!preg_match('/' . $quoted . '(?![-_a-z0-9])/i', $selector)) {
-                    $selector = $scope . ' ' . trim($selector);
-                }
+                $selector = (string) preg_replace('/:scope(?:\s+|\s*[>+~]\s*):scope/', ':scope', $selector);
             }
             unset($selector);
             return implode(',', $selectors);
         });
     }
 
+    private function scopeDocumentStylesheet(string $css, string $variantClass): string
+    {
+        $split = (new CssStylesheetTransformer())->splitLeadingAtRulePreamble($css);
+        return $split['preamble'] . '@scope (.' . $variantClass . '){'
+            . $this->scopeDocumentSelectors($split['stylesheet']) . '}';
+    }
+
     private function scopeDocumentStyles(string $html, string $variantClass): string
     {
         return (string) preg_replace_callback(
             '@(<style\b[^>]*>)([\s\S]*?)(</style\s*>)@i',
-            fn(array $match): string => $match[1] . $this->scopeDocumentSelectors($match[2], $variantClass) . $match[3],
+            fn(array $match): string => $match[1] . $this->scopeDocumentStylesheet($match[2], $variantClass) . $match[3],
             $html
         );
     }
