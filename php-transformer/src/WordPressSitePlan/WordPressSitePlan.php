@@ -1452,6 +1452,7 @@ final class WordPressSitePlan
     {
         if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }
+        if (('.' === $value || './' === $value) && '' !== $suffix) return $this->routeSources[$origin] ?? null ? $this->routeSources[$origin] . $suffix : null;
         if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $value)) {
             if (!$this->isSameOriginSourceUrl($value)) return null;
             $absolute = parse_url($value);
