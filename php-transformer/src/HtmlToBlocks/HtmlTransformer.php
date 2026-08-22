@@ -3733,6 +3733,35 @@ final class HtmlTransformer
         return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private function nestedLayoutTableColumnsBlock(DOMElement $table, array &$fallbacks): array
+    {
+        $rows = $table->getElementsByTagName('tr');
+        $row = $rows->item(0);
+        if ( ! $row instanceof DOMElement ) {
+            return $this->htmlPreservationBlock($table);
+        }
+
+        $columns = array();
+        foreach ( $row->childNodes as $cell ) {
+            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+                continue;
+            }
+
+            $columns[] = $this->createBlock(
+                'core/column',
+                $this->presentationAttributes($cell),
+                $this->convertChildren($cell, $fallbacks, true),
+                $cell
+            );
+        }
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
+    }
+
     private function serializedTableSection(DOMElement $element): string
     {
         $section = $this->ancestorElement($element, 'thead') instanceof DOMElement
@@ -4751,6 +4780,10 @@ final class HtmlTransformer
         }
 
         if ( 'table' === $tagName ) {
+            if ( $this->tableClassificationPolicy->isNestedLayoutTableMember($element) ) {
+                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
+            }
+
             $classification = $this->tableClassificationPolicy->classify($element);
             if ( ! $classification['representable'] ) {
                 return $this->htmlPreservationBlock($element);
