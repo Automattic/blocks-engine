@@ -26,6 +26,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const DIRECT_NAVIGATION_LINK_COLOR_PREFIX = 'blocks-engine-direct-navigation-link-color-';
 
+    private const INLINE_NAVIGATION_CLASS = 'blocks-engine-inline-navigation';
+
     /**
      * @return array<string, mixed>|null
      */
@@ -91,6 +93,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($element) : 'never';
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $resolvedStyle);
         }
         if ( $label instanceof DOMElement ) {
             $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
@@ -110,6 +113,12 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
+            if ( '' !== $defaultTextColorClass ) {
+                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
+            }
+        }
         $currentTextColorClass = $this->currentNavigationTextColorClass($links);
         if ( '' !== $currentTextColorClass ) {
             $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
@@ -301,6 +310,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = null !== $navigationOverlayMenu ? $navigationOverlayMenu($cluster) : 'never';
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $resolvedStyle);
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
         $isDirectDivCascadeCollision = $isDirectDivCluster
@@ -326,6 +336,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             unset($commonTextAttrs['style']['typography']);
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
+        if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
+            if ( '' !== $defaultTextColorClass ) {
+                $navigationAttrs = $this->withClassName($navigationAttrs, $defaultTextColorClass);
+            }
+        }
         $currentTextColorClass = $this->currentNavigationTextColorClass($links);
         if ( '' !== $currentTextColorClass ) {
             $navigationAttrs['className'] = trim((string) ($navigationAttrs['className'] ?? '') . ' ' . $currentTextColorClass);
@@ -407,6 +423,21 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $className)) ?: array();
         $attrs['className'] = implode(' ', array_values(array_unique(array_filter($classes))));
+        return $attrs;
+    }
+
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withInlineNavigationDisplay(array $attrs, DOMElement $element, ?callable $resolvedStyle): array
+    {
+        if ( null === $resolvedStyle ) {
+            return $attrs;
+        }
+
+        $style = (string) $resolvedStyle($element);
+        if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*inline(?:-block|-flex)?(?:\s*!important)?\s*(?:;|$)/i', $style) ) {
+            return $this->withClassName($attrs, self::INLINE_NAVIGATION_CLASS);
+        }
+
         return $attrs;
     }
 
@@ -576,6 +607,22 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $links */
+    private function defaultNavigationTextColorClass(array $links): string
+    {
+        return $this->strictMajorityNavigationLinkString($links, static function (array $attrs): ?string {
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $className ) {
+                if ( str_starts_with($className, self::LINK_COLOR_CLASS_PREFIX)
+                    && ! str_starts_with($className, self::LINK_COLOR_STATE_CLASS_PREFIX)
+                ) {
+                    return $className;
+                }
+            }
+
+            return null;
+        }) ?? '';
     }
 
     /** @param array<int, array<string, mixed>> $links */
