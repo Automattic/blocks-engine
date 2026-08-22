@@ -27,9 +27,9 @@ use DOMElement;
 final class ArtifactCompiler
 {
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
-    public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v1';
-    public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
-    public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v1';
+    public const SHARED_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-shared-plan/v2';
+    public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v2';
+    public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v2';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
@@ -114,7 +114,15 @@ final class ArtifactCompiler
         }
         $partition = $this->partitionArtifact($artifact);
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
+        $terminal = $partition['normalized'];
+        $entry = $this->entryFile($terminal['files'], $terminal['entrypoints']);
+        $entryPath = is_array($entry) ? (string) $entry['path'] : '';
+        $entryHtml = is_array($entry) ? (string) $entry['content'] : '';
+        $terminal['files'] = $this->withStylesheetOccurrenceAssets($entryHtml, $entryPath, $terminal['files']);
+        $sharedArtifact = $this->artifactEnvelope($partition, array_values(array_filter($terminal['files'], fn(array $file): bool => 'shared' === $this->fileOwnership($file)['scope'])));
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+        $sourceDocuments = $this->compileSourceDocuments($terminal);
+        $terminal['files'] = $this->withStylesheetOccurrenceAssets($entryHtml, $entryPath, $terminal['files']);
 
         $plan = array(
             'schema' => self::SHARED_PLAN_SCHEMA,
@@ -122,7 +130,21 @@ final class ArtifactCompiler
             'limits' => $normalized['limits'],
             'diagnostics' => $normalized['diagnostics'],
             'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
-            'analysis' => $this->sharedAnalysis($normalized, array_keys($partition['pages'])),
+            'analysis' => array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
+                // This is the immutable analysis consumed by page and terminal
+                // stages, not merely descriptive digest metadata.
+                'entry_path' => $entryPath,
+                'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
+                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
+                'terminal' => array(
+                    // Page payloads remain in page plans. Terminal assembly
+                    // receives their reductions, not a hidden whole artifact.
+                    'normalized' => (static function (array $value): array { unset($value['files']); return $value; })($terminal),
+                    'source_documents' => $sourceDocuments,
+                    'components' => $this->detectComponents($terminal['files'], $entryPath, $sourceDocuments['components']),
+                    'block_types' => $this->detectBlockTypes($terminal['files'], $terminal['diagnostics']),
+                ),
+            )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
@@ -175,59 +197,57 @@ final class ArtifactCompiler
      */
     public function compilePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
     {
-        $startedAt = hrtime(true);
         $pagePlan = $this->preparePage($artifact, $sharedPlan, $pageId, $payloadReader);
+        return $this->compilePreparedPage($sharedPlan, $pagePlan, $payloadReader);
+    }
+
+    /** Compile one serialized page plan without receiving the source artifact. */
+    public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
+    {
+        $startedAt = hrtime(true);
+        $this->assertSharedPlan($sharedPlan);
+        $this->assertPagePlan($pagePlan, $sharedPlan);
         $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
-        $stageArtifact = $sharedArtifact;
-        $stageArtifact['files'] = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
-        $normalized = (new ArtifactNormalizer())->normalize($stageArtifact);
-        $artifactNormalized = (new ArtifactNormalizer())->normalize($artifact);
+        $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
 
         $stageCompiler = new self();
         $stageCompiler->themeStaticCssCache = array();
         $stageCompiler->wordpressCompatCssCache = array();
         $stageCompiler->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
-        $entry = $stageCompiler->entryFile($normalized['files'], $normalized['entrypoints']);
-        $artifactEntry = $stageCompiler->entryFile($artifactNormalized['files'], $artifactNormalized['entrypoints']);
-        if (is_array($artifactEntry)) {
-            // Whole-artifact compilation annotates stylesheet occurrences from
-            // the entry document before transforming any page document.
-            $normalized['files'] = $stageCompiler->withStylesheetOccurrenceAssets(
-                (string) $artifactEntry['content'],
-                (string) $artifactEntry['path'],
-                $normalized['files']
-            );
-        }
-        $stageCompiler->generatedAssetRoot = is_array($entry) && '.' !== dirname((string) $entry['path']) ? trim(dirname((string) $entry['path']), '/') : '';
-        $stageCompiler->indexFiles($normalized['files']);
+        $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
+        $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
+        $stageCompiler->indexFiles($files);
 
         $compiledDocuments = array();
-        foreach ($normalized['files'] as $file) {
+        foreach ($pageArtifact['files'] as $file) {
             if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
-            if ($pageId !== $stageCompiler->fileOwnership($file)['id']) {
+            if ($pagePlan['page_id'] !== $stageCompiler->fileOwnership($file)['id']) {
                 continue;
             }
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
                 (string) ($file['content'] ?? ''),
                 $path,
-                $normalized['files'],
-                $path === ($entry['path'] ?? null) ? 'artifact-entry' : 'artifact-document',
-                (new CompanionPluginPayload())->blockNamespace($artifact),
+                $files,
+                $path === $entryPath ? 'artifact-entry' : 'artifact-document',
+                (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
                 true
             );
         }
         ksort($compiledDocuments, SORT_STRING);
         $pagePlan['receipt_schema'] = self::PAGE_RECEIPT_SCHEMA;
         $pagePlan['compiled_documents'] = $compiledDocuments;
+        $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
         // Observational work data is deliberately excluded from the receipt
         // digest so independently resumed work has stable canonical identity.
         $pagePlan['work'] = array(
             'compiled_document_count' => count($compiledDocuments),
             'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+            'normalization_count' => 0,
+            'analysis_count' => 1,
             'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
         );
         $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
@@ -246,10 +266,12 @@ final class ArtifactCompiler
         $this->assertSharedPlan($sharedPlan);
         $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $files = $sharedArtifact['files'];
+        $receiptMode = is_array($sharedPlan['analysis']['terminal'] ?? null);
+        $hasReceipts = false;
+        foreach ($pagePlans as $candidate) if (is_array($candidate['compiled_documents'] ?? null)) { $hasReceipts = true; break; }
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         $compiledDocuments = array();
-        $allPagesCompiled = array() !== $pagePlans;
         foreach ($pagePlans as $pagePlan) {
             $this->assertPagePlan($pagePlan, $sharedPlan);
             if (isset($seen[$pagePlan['page_id']])) {
@@ -259,9 +281,11 @@ final class ArtifactCompiler
             $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
             $files = array_merge($files, $pageArtifact['files']);
             if (!is_array($pagePlan['compiled_documents'] ?? null)) {
-                $allPagesCompiled = false;
+                if ($receiptMode && $hasReceipts) throw new \InvalidArgumentException('Composition requires a compiled receipt for every page plan.');
                 continue;
             }
+            $expected = $this->ownedHtmlPaths($pageArtifact['files'], (string) $pagePlan['page_id']);
+            if ($expected !== array_keys($pagePlan['compiled_documents']) || $expected !== ($pagePlan['owned_document_paths'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its owned HTML documents.');
             foreach ($pagePlan['compiled_documents'] as $path => $document) {
                 if (!is_string($path) || !is_array($document) || isset($compiledDocuments[$path])) {
                     throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
@@ -276,10 +300,20 @@ final class ArtifactCompiler
         }
         $artifact = $sharedArtifact;
         $artifact['files'] = self::sortedByPath($files);
-
-        if ($allPagesCompiled) {
-            $this->stagedCompiledDocuments = $compiledDocuments;
+        if (!$receiptMode || !$hasReceipts) {
+            // Legacy prepared envelopes intentionally retain their existing
+            // fallback semantics; v2 receipts always use bounded assembly.
+            return $this->composeArtifact($artifact);
         }
+        $terminal = $sharedPlan['analysis']['terminal'] ?? null;
+        if (!is_array($terminal) || !is_array($terminal['normalized'] ?? null) || !is_array($terminal['source_documents'] ?? null)) throw new \InvalidArgumentException('A staged shared plan requires immutable terminal analysis.');
+        $normalized = $terminal['normalized'];
+        $normalized['files'] = $artifact['files'];
+        $artifact['__normalized'] = $normalized;
+        $artifact['__source_documents'] = $terminal['source_documents'];
+        $artifact['__components'] = $terminal['components'] ?? array();
+        $artifact['__block_types'] = $terminal['block_types'] ?? array();
+        $this->stagedCompiledDocuments = $compiledDocuments;
         try {
             $this->htmlDocumentTransformCount = 0;
             return $this->composeArtifact($artifact);
@@ -310,9 +344,9 @@ final class ArtifactCompiler
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
         $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
-        $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
+        $normalized = is_array($artifact['__normalized'] ?? null) ? $artifact['__normalized'] : ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
-        $documents = $this->compileSourceDocuments($normalized);
+        $documents = is_array($artifact['__source_documents'] ?? null) ? $artifact['__source_documents'] : $this->compileSourceDocuments($normalized);
         $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
@@ -322,10 +356,10 @@ final class ArtifactCompiler
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
         $html = is_array($entry) ? (string) $entry['content'] : '';
-        $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
-        $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
+        $components = is_array($artifact['__components'] ?? null) ? $artifact['__components'] : $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
+        $blockTypes = is_array($artifact['__block_types'] ?? null) ? $artifact['__block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
-        $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
+        if (!isset($artifact['__normalized'])) $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
@@ -496,6 +530,10 @@ final class ArtifactCompiler
         // This counter is intentionally outside the canonical report/site-plan
         // projections: it describes process work, not output identity.
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
+        // These counters describe process work and intentionally remain out of
+        // canonical reports and WordPress site-plan equality.
+        $metrics['normalization_count'] = isset($artifact['__normalized']) ? 0 : 1;
+        $metrics['analysis_count'] = isset($artifact['__normalized']) ? 0 : 1;
         $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_')));
         if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
             unset($sourceReports['wordpress_site_plan_diagnostics']);
@@ -548,6 +586,7 @@ final class ArtifactCompiler
             'runtime_declarations' => $normalized['runtime_declarations'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
+            'normalized' => $normalized,
         );
     }
 
@@ -934,12 +973,11 @@ final class ArtifactCompiler
     /** @param array<string,mixed> $pagePlan @return array<string,mixed> */
     private function pagePlanDigestInput(array $pagePlan): array
     {
-        $input = $this->containsPayloadReferences($pagePlan['artifact'])
-            ? array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'])
-            : array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($pagePlan['artifact'])['files']);
+        $input = array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact']);
         if (isset($pagePlan['compiled_documents'])) {
             $input['receipt_schema'] = $pagePlan['receipt_schema'] ?? null;
             $input['compiled_documents'] = $pagePlan['compiled_documents'];
+            $input['owned_document_paths'] = $pagePlan['owned_document_paths'] ?? null;
         }
         $input['compiler_options'] = $pagePlan['compiler_options'] ?? null;
         $input['output_schema'] = $pagePlan['output_schema'] ?? null;
@@ -949,9 +987,7 @@ final class ArtifactCompiler
     /** @param array<string,mixed> $sharedPlan @return array<string,mixed> */
     private function sharedPlanDigestInput(array $sharedPlan): array
     {
-        $input = $this->containsPayloadReferences($sharedPlan['artifact'])
-            ? array('artifact' => $sharedPlan['artifact'])
-            : array('artifact' => $sharedPlan['artifact'], 'files' => (new ArtifactNormalizer())->normalize($sharedPlan['artifact'])['files']);
+        $input = array('artifact' => $sharedPlan['artifact']);
         $input['analysis'] = $sharedPlan['analysis'] ?? null;
         $input['compiler_options'] = $sharedPlan['compiler_options'] ?? null;
         return $input;
@@ -1012,6 +1048,17 @@ final class ArtifactCompiler
             }
             $seenPaths[$path] = true;
         }
+    }
+
+    /** @param array<int,array<string,mixed>> $files @return array<int,string> */
+    private function ownedHtmlPaths(array $files, string $pageId): array
+    {
+        $paths = array();
+        foreach ($files as $file) {
+            if ('html' === ($file['kind'] ?? null) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+        }
+        sort($paths, SORT_STRING);
+        return $paths;
     }
 
     /**

@@ -67,11 +67,22 @@ $manyPages[0]['content'] = '<link rel="stylesheet" href="assets/site.css"><main 
 $manyArtifact = array('entrypoints' => array('index.html'), 'files' => array_merge(array(array('path' => 'assets/site.css', 'content' => '.page{color:#123;margin:1rem}', 'metadata' => array('compilation' => array('scope' => 'shared')))), $manyPages));
 $manyShared = $compiler->prepareShared($manyArtifact);
 $assert(50 === count($manyShared['analysis']['page_ids'] ?? array()) && 'assets/site.css' === ($manyShared['analysis']['stylesheets'][0]['path'] ?? null), 'Shared preparation persists immutable stylesheet and source analysis for all page receipts.');
-$manyReceipts = array();
-foreach (array_reverse($manyShared['analysis']['page_ids']) as $pageId) $manyReceipts[] = $compiler->compilePage($manyArtifact, $manyShared, $pageId);
-$serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
-$manyStaged = $compiler->compose(json_decode(json_encode($manyShared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR), $serializedReceipts)->toArray();
 $manyInline = $compiler->compile($manyArtifact)->toArray();
+$serializedShared = json_decode(json_encode($manyShared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$preparedPages = array();
+foreach ($manyShared['analysis']['page_ids'] as $pageId) $preparedPages[$pageId] = $compiler->preparePage($manyArtifact, $manyShared, $pageId);
+$serializedPages = json_decode(json_encode($preparedPages, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+// Resume from serialized plans in fresh workers. Page compilation receives no
+// source artifact, so a worker cannot normalize or retain all fifty pages.
+$manyReceipts = array();
+$initialWorker = new ArtifactCompiler();
+foreach (array_slice(array_keys($serializedPages), 0, 25) as $pageId) $manyReceipts[] = $initialWorker->compilePreparedPage($serializedShared, $serializedPages[$pageId]);
+unset($initialWorker, $manyArtifact, $preparedPages);
+$resumedWorker = new ArtifactCompiler();
+foreach (array_slice(array_keys($serializedPages), 25) as $pageId) $manyReceipts[] = $resumedWorker->compilePreparedPage($serializedShared, $serializedPages[$pageId]);
+$serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$terminalWorker = new ArtifactCompiler();
+$manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
     if (!is_array($value)) return $value;
     unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count']);
@@ -79,6 +90,7 @@ $canonical = static function (mixed $value) use (&$canonical): mixed {
     return $value;
 };
 $assert(0 === ($manyStaged['metrics']['html_document_transform_count'] ?? null), 'Terminal aggregation performs no HTML document transformations after independently serialized page receipts are complete.');
+$assert(0 === ($manyStaged['metrics']['normalization_count'] ?? null) && 0 === ($manyStaged['metrics']['analysis_count'] ?? null) && 0 === ($serializedReceipts[0]['work']['normalization_count'] ?? null), 'Serialized page workers and terminal aggregation expose bounded normalization and analysis work, not only HTML transform counts.');
 $assert(50 === ($manyInline['metrics']['html_document_transform_count'] ?? null), 'Inline compilation performs bounded work once per page document.');
 $assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($manyStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($manyInline['diagnostics'] ?? array()) === $canonical($manyStaged['diagnostics'] ?? array()), 'Fifty-page arbitrary-order resume preserves canonical WordPress plans and diagnostics after observational fields are excluded.');
 $throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
