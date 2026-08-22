@@ -1138,17 +1138,24 @@ final class ArtifactCompiler
      */
     private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
     {
+        $this->assertReferenceLimits($artifact);
         $references = array();
         $hydratedArtifact = $artifact;
         $hydratedArtifact['files'] = array();
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
+            $ownership = $file['metadata']['compilation'] ?? null;
+            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+            $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            // Shared preparation establishes the digest-bound canonical source
+            // catalog. Page workers subsequently hydrate only their page plus
+            // the shared inputs they need.
+            $required = 'shared' === $scope || 'shared' === $fileScope || ('page' === $scope && $pageId === $filePageId);
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
                 $references[$path] = $reference;
-                if ($this->isReferenceBackedBinary($file)) {
-                } else {
+                if ($required && !$this->isReferenceBackedBinary($file)) {
                     $content = $this->readPayload($reference, $payloadReader);
                     unset($file['payload_reference']);
                     $file['content'] = $content;
@@ -1218,6 +1225,22 @@ final class ArtifactCompiler
         }
         $plan['digest'] = $this->planDigest('shared' === $scope ? $this->sharedPlanDigestInput($plan) : $this->pagePlanDigestInput($plan));
         return $plan;
+    }
+
+    /** Reject unbounded reference declarations before a reader can allocate. */
+    private function assertReferenceLimits(array $artifact): void
+    {
+        $requested = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $maxFile = min(ArtifactNormalizer::MAX_FILE_BYTES, max(1, (int) ($requested['max_file_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES)));
+        $maxTotal = min(ArtifactNormalizer::MAX_TOTAL_BYTES, max(1, (int) ($requested['max_total_bytes'] ?? ArtifactNormalizer::DEFAULT_MAX_TOTAL_BYTES)));
+        $total = 0;
+        foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $file) {
+            if (!is_array($file) || !isset($file['payload_reference'])) continue;
+            $reference = $this->payloadReference($file['payload_reference']);
+            if ($reference['bytes'] > $maxFile) throw new \InvalidArgumentException('A payload reference exceeds the compiler per-file byte limit.');
+            $total += $reference['bytes'];
+            if ($total > $maxTotal) throw new \InvalidArgumentException('Payload references exceed the compiler aggregate byte limit.');
+        }
     }
 
     /** @param mixed $reference @return array{schema:string,id:string,bytes:int,sha256:string} */

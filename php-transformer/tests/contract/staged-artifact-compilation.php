@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
@@ -203,11 +204,11 @@ $reader = new class($payloads) implements PayloadReader {
     public function read(array $reference): string { $this->reads[] = $reference['id']; if (!isset($this->payloads[$reference['id']])) throw new InvalidArgumentException('missing'); return $this->payloads[$reference['id']]; }
 };
 $referencedShared = $compiler->prepareShared($referencedArtifact, $reader);
-$assert(!in_array('payload:assets/logo.png', $reader->reads, true) && 5 === count($reader->reads), 'Shared reference preparation hydrates the complete text artifact for canonical normalization while retaining binary references.');
+$assert(!in_array('payload:assets/logo.png', $reader->reads, true) && 5 === count($reader->reads), 'Shared preparation establishes the digest-bound canonical text source catalog while retaining binary references.');
 $reader->reads = array();
 $referencedPages = array();
 foreach ($pageIds as $pageId) $referencedPages[] = $compiler->preparePage($referencedArtifact, $referencedShared, $pageId, $reader);
-$assert(15 === count($reader->reads) && !in_array('payload:assets/logo.png', $reader->reads, true), 'Page reference preparation hydrates canonical text inputs while retaining binary references.');
+$assert(7 === count($reader->reads) && in_array('payload:assets/site.css', $reader->reads, true), 'Page reference preparation hydrates only selected-page and required shared text inputs.');
 $assert(!isset($referencedShared['artifact']['files'][0]['content']) && isset($referencedShared['artifact']['files'][0]['payload_reference']), 'Prepared reference plans remain serializable without hydrated payload bytes.');
 $reader->reads = array();
 $referencedResult = $compiler->compose($referencedShared, array_reverse($referencedPages), $reader)->toArray();
@@ -331,5 +332,32 @@ $sameCompiler = new ArtifactCompiler();
 $sameCompiler->compile($artifact);
 $sameInstanceTerminal = $sameCompiler->compose($shared, array_reverse($compiledPages))->toArray();
 $assert(0 === ($sameInstanceTerminal['metrics']['html_document_transform_count'] ?? null) && 0 === ($sameInstanceTerminal['metrics']['normalization_count'] ?? null) && 0 === ($sameInstanceTerminal['metrics']['analysis_count'] ?? null), 'Compose resets inherited process-observability counters after prior compiler work.');
+
+$fiftyReferencePayloads = array('shared-css' => '.page{color:#123}');
+$fiftyReferenceFiles = array(array('path' => 'assets/site.css', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'shared-css', 'bytes' => strlen($fiftyReferencePayloads['shared-css']), 'sha256' => hash('sha256', $fiftyReferencePayloads['shared-css'])), 'metadata' => array('compilation' => array('scope' => 'shared'))));
+for ($index = 0; $index < 50; ++$index) {
+    $path = sprintf('pages/page-%02d.html', $index);
+    $content = '<link rel="stylesheet" href="../assets/site.css"><main class="page">Page ' . $index . '</main>';
+    $id = 'page-' . $index;
+    $fiftyReferencePayloads[$id] = $content;
+    $fiftyReferenceFiles[] = array('path' => $path, 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => $id, 'bytes' => strlen($content), 'sha256' => hash('sha256', $content)));
+}
+$fiftyReferenceFiles[1]['path'] = 'index.html';
+$fiftyReferenceArtifact = array('entrypoint' => 'index.html', 'files' => $fiftyReferenceFiles);
+$boundedReader = new class($fiftyReferencePayloads) implements PayloadReader { public array $reads = array(); public function __construct(private array $payloads) {} public function read(array $reference): string { $this->reads[] = $reference['id']; return $this->payloads[$reference['id']] ?? throw new InvalidArgumentException('missing'); } };
+$fiftyShared = (new ArtifactCompiler())->prepareShared($fiftyReferenceArtifact, $boundedReader);
+$boundedReader->reads = array();
+$selectedPlan = (new ArtifactCompiler())->preparePage($fiftyReferenceArtifact, $fiftyShared, 'pages/page-24.html', $boundedReader);
+$assert(array('shared-css', 'page-24') === $boundedReader->reads, 'A 50-page reference-backed page preparation reads only its selected page plus bounded shared inputs.');
+$boundedReader->reads = array();
+$selectedReceipt = (new ArtifactCompiler())->compilePreparedPage($fiftyShared, $selectedPlan, $boundedReader);
+$assert(array('page-24') === $boundedReader->reads, 'A reference-backed page worker reads only its selected page after shared catalog preparation.');
+$terminalNoRead = new class implements PayloadReader { public int $reads = 0; public function read(array $reference): string { ++$this->reads; throw new InvalidArgumentException('terminal read'); } };
+$throws(static fn() => (new ArtifactCompiler())->compose($fiftyShared, array($selectedReceipt), $terminalNoRead), 'Incomplete 50-page receipt composition fails before terminal payload access.');
+$assert(0 === $terminalNoRead->reads, 'Incomplete terminal composition performs zero payload reads.');
+$oversizedReads = new class implements PayloadReader { public int $reads = 0; public function read(array $reference): string { ++$this->reads; return ''; } };
+$oversizedReference = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'payload_reference' => array('schema' => 'blocks-engine/payload-reference/v1', 'id' => 'oversized', 'bytes' => ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1, 'sha256' => hash('sha256', 'oversized')))));
+$throws(static fn() => (new ArtifactCompiler())->prepareShared($oversizedReference, $oversizedReads), 'Oversized declared references are rejected before payload hydration.');
+$assert(0 === $oversizedReads->reads, 'Oversized declared references invoke no payload reader calls.');
 
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");
