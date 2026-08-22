@@ -203,11 +203,11 @@ $reader = new class($payloads) implements PayloadReader {
     public function read(array $reference): string { $this->reads[] = $reference['id']; if (!isset($this->payloads[$reference['id']])) throw new InvalidArgumentException('missing'); return $this->payloads[$reference['id']]; }
 };
 $referencedShared = $compiler->prepareShared($referencedArtifact, $reader);
-$assert(array('payload:assets/site.css') === $reader->reads, 'Shared reference preparation hydrates only text payloads in the shared partition.');
+$assert(!in_array('payload:assets/logo.png', $reader->reads, true) && 5 === count($reader->reads), 'Shared reference preparation hydrates the complete text artifact for canonical normalization while retaining binary references.');
 $reader->reads = array();
 $referencedPages = array();
 foreach ($pageIds as $pageId) $referencedPages[] = $compiler->preparePage($referencedArtifact, $referencedShared, $pageId, $reader);
-$assert(4 === count($reader->reads) && !in_array('payload:assets/site.css', $reader->reads, true), 'Page reference preparation reads only requested page payloads.');
+$assert(15 === count($reader->reads) && !in_array('payload:assets/logo.png', $reader->reads, true), 'Page reference preparation hydrates canonical text inputs while retaining binary references.');
 $assert(!isset($referencedShared['artifact']['files'][0]['content']) && isset($referencedShared['artifact']['files'][0]['payload_reference']), 'Prepared reference plans remain serializable without hydrated payload bytes.');
 $reader->reads = array();
 $referencedResult = $compiler->compose($referencedShared, array_reverse($referencedPages), $reader)->toArray();
@@ -295,5 +295,41 @@ $capturedDialogArtifact = array('site_slug' => 'staged-dialog', 'files' => array
     array('path' => 'interaction-states.json', 'content' => json_encode($capturedStates, JSON_UNESCAPED_SLASHES)),
 ));
 $assertReceiptEquality($capturedDialogArtifact, 'Digest-bound captured-dialog projection preserves blocks, diagnostics, interaction reports, and complete canonical output through staged receipts.');
+
+$assertReferenceReceiptEquality = static function (array $artifact, string $message) use ($assert, $canonical): void {
+    $inline = (new ArtifactCompiler())->compile($artifact)->toArray();
+    $payloads = array();
+    foreach ($artifact['files'] as &$file) {
+        $id = 'reference:' . $file['path'];
+        $payloads[$id] = $file['content'];
+        unset($file['content']);
+        $file['payload_reference'] = array('schema' => 'blocks-engine/payload-reference/v1', 'id' => $id, 'bytes' => strlen($payloads[$id]), 'sha256' => hash('sha256', $payloads[$id]));
+    }
+    unset($file);
+    $reader = new class($payloads) implements PayloadReader { public function __construct(private array $payloads) {} public function read(array $reference): string { return $this->payloads[$reference['id']] ?? throw new InvalidArgumentException('missing'); } };
+    $shared = (new ArtifactCompiler())->prepareShared($artifact, $reader);
+    $receipts = array();
+    foreach ($shared['analysis']['page_ids'] as $pageId) $receipts[] = (new ArtifactCompiler())->compilePage($artifact, $shared, $pageId, $reader);
+    $terminalReader = new class implements PayloadReader { public int $reads = 0; public function read(array $reference): string { ++$this->reads; throw new InvalidArgumentException('terminal payload access'); } };
+    $staged = (new ArtifactCompiler())->compose($shared, array_reverse($receipts), $terminalReader)->toArray();
+    $assert(0 === $terminalReader->reads && $canonical($inline) === $canonical($staged), $message);
+    $assert(0 === ($staged['metrics']['html_document_transform_count'] ?? null) && 0 === ($staged['metrics']['normalization_count'] ?? null) && 0 === ($staged['metrics']['analysis_count'] ?? null), $message . ' Terminal composition performs no reads or work.');
+};
+$assertReferenceReceiptEquality($capturedDialogArtifact, 'Fully reference-backed captured dialogs preserve the exact complete canonical result.');
+$duplicateStylesheetArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/site.css"><main class="card">Duplicate stylesheet</main>'),
+    array('path' => 'assets/site.css', 'content' => '.card{color:#123}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$assertReferenceReceiptEquality($duplicateStylesheetArtifact, 'Fully reference-backed duplicate linked stylesheets preserve canonical pre-occurrence identity and complete output.');
+$sourceOrderArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Home</main>'),
+    array('path' => 'z.mdx', 'content' => "import Widget from './Widget'\n\n# Z"),
+    array('path' => 'a.mdx', 'content' => "import Widget from './Widget'\n\n# A"),
+));
+$assertReceiptEquality($sourceOrderArtifact, 'Source-document diagnostics retain original index,z.mdx,a.mdx order through receipt composition.');
+$sameCompiler = new ArtifactCompiler();
+$sameCompiler->compile($artifact);
+$sameInstanceTerminal = $sameCompiler->compose($shared, array_reverse($compiledPages))->toArray();
+$assert(0 === ($sameInstanceTerminal['metrics']['html_document_transform_count'] ?? null) && 0 === ($sameInstanceTerminal['metrics']['normalization_count'] ?? null) && 0 === ($sameInstanceTerminal['metrics']['analysis_count'] ?? null), 'Compose resets inherited process-observability counters after prior compiler work.');
 
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

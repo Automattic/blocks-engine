@@ -350,6 +350,9 @@ final class ArtifactCompiler
      */
     public function compose(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): TransformerResult
     {
+        // A compiler instance may have performed page work previously; terminal
+        // receipt metrics describe this invocation only.
+        $this->htmlDocumentTransformCount = 0;
         $this->assertSharedPlan($sharedPlan);
         $hasReceipts = false;
         foreach ($pagePlans as $candidate) if (($candidate['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) { $hasReceipts = true; break; }
@@ -758,6 +761,10 @@ final class ArtifactCompiler
             $files = self::sortedBySourcePaths(array_merge($files, $stylesheetOccurrenceFiles), $sourcePaths);
         }
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
+        $documents['diagnostics'] = $this->dedupeDiagnostics(array_merge(...array_map(
+            static fn(array $document): array => is_array($document['diagnostics'] ?? null) ? $document['diagnostics'] : array(),
+            $documents['documents']
+        )));
         $compiledDocuments = self::orderedMapBySourcePaths($compiledDocuments, $sourcePaths);
         // Shared preparation already supplied this bounded normalization. Page
         // normalizations were performed by their individual receipt workers.
@@ -1131,38 +1138,33 @@ final class ArtifactCompiler
      */
     private function prepareReferencedStage(array $artifact, string $scope, string $pageId, PayloadReader $payloadReader, ?string $sharedDigest): array
     {
-        $stageArtifact = $artifact;
-        $stageArtifact['files'] = array();
         $references = array();
-        $pageIds = array();
-        $sourcePaths = array();
+        $hydratedArtifact = $artifact;
+        $hydratedArtifact['files'] = array();
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
-            $safePath = ArtifactPath::safeRelativePath($path);
-            if ('' !== $safePath && !in_array($safePath, $sourcePaths, true)) $sourcePaths[] = $safePath;
-            $ownership = $file['metadata']['compilation'] ?? null;
-            $fileScope = is_array($ownership) && isset($ownership['scope']) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
-            $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
-            if ('page' === $fileScope) $pageIds[$filePageId] = true;
-            if ($scope !== $fileScope || ('page' === $scope && $pageId !== $filePageId)) continue;
             if (isset($file['payload_reference'])) {
                 $reference = $this->payloadReference($file['payload_reference']);
+                $references[$path] = $reference;
                 if ($this->isReferenceBackedBinary($file)) {
-                    $references[$path] = $reference;
                 } else {
                     $content = $this->readPayload($reference, $payloadReader);
                     unset($file['payload_reference']);
                     $file['content'] = $content;
-                    $references[$path] = $reference;
                 }
             }
-            $stageArtifact['files'][] = $file;
+            $hydratedArtifact['files'][] = $file;
         }
-        $partition = $this->partitionArtifact($stageArtifact);
+        // Reference-backed callers receive the same whole-artifact
+        // normalization and captured-dialog projection as inline callers.
+        $partition = $this->stagePartition($hydratedArtifact, $scope, $pageId);
         $stageFiles = 'shared' === $scope ? $partition['shared'] : ($partition['pages'][$pageId] ?? array());
         $planArtifact = $this->artifactEnvelope($partition, $stageFiles);
         $normalized = (new ArtifactNormalizer())->normalize($planArtifact);
+        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
+        unset($file);
+        $planArtifact['files'] = $normalized['files'];
         $plan = array(
             'schema' => 'shared' === $scope ? self::SHARED_PLAN_SCHEMA : self::PAGE_PLAN_SCHEMA,
             'artifact' => $planArtifact,
@@ -1173,11 +1175,16 @@ final class ArtifactCompiler
         );
         if ('shared' === $scope) {
             $entryPath = (string) ($partition['entrypoints'][0] ?? '');
-            $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($pageIds)), array(
+            $plan['analysis'] = array_merge($this->sharedAnalysis($normalized, array_keys($partition['pages'])), array(
                 'entry_path' => $entryPath,
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
-                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
-                'source_paths' => $sourcePaths,
+                'block_namespace' => (new CompanionPluginPayload())->blockNamespace($hydratedArtifact),
+                'source_paths' => $partition['source_paths'],
+                'canonical_source_hash' => $partition['canonical_source_hash'],
+                'canonical_bytes' => $partition['canonical_bytes'],
+                'canonical_diagnostics' => $partition['canonical_diagnostics'],
+                'canonical_rejected_count' => $partition['canonical_rejected_count'],
+                'captured_dialogs' => $partition['captured_dialogs'],
             ));
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
@@ -1192,6 +1199,9 @@ final class ArtifactCompiler
         }
         foreach ($plan['artifact']['files'] as &$file) {
             if (!isset($references[$file['path']])) continue;
+            // Projection changes page HTML. Only retain a portable reference
+            // when its canonical bytes still match the referenced payload.
+            if (!hash_equals($references[$file['path']]['sha256'], hash('sha256', (string) ($file['content'] ?? '')))) continue;
             unset($file['content'], $file['content_base64']);
             $file['payload_reference'] = $references[$file['path']];
         }
