@@ -91,8 +91,8 @@ $assert('core/button' === ($nativeButton['blockName'] ?? ''), '21: native button
 $assert('button' === ($nativeButton['attrs']['tagName'] ?? ''), '22: native button keeps button tagName', json_encode($nativeButton['attrs'] ?? array()));
 
 $roleButton = ( new HtmlTransformer() )->transform('<a role="button" aria-label="Open player" href="/player">Play</a>', array())->toArray();
-$roleButtonAttrs = $roleButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
-$assert('core/button' === ($roleButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? '') && '/player' === ($roleButtonAttrs['url'] ?? '') && 'Open player' === ($roleButtonAttrs['title'] ?? ''), '23: role=button maps to core/button and preserves its accessible label', json_encode($roleButton['blocks'] ?? array()));
+$roleButtonFallbacks = array_values(array_filter($roleButton['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$assert('core/html' === ($roleButton['blocks'][0]['blockName'] ?? '') && str_contains((string) ($roleButton['blocks'][0]['attrs']['content'] ?? ''), 'aria-label="Open player"') && 1 === count($roleButtonFallbacks), '23: role=button with a materially different accessible name remains a diagnostic fallback', json_encode($roleButton['blocks'] ?? array()));
 
 $plainLinkResult = ( new HtmlTransformer() )->transform('<a href="/about">About us</a>', array())->toArray();
 $plainLink = $plainLinkResult['blocks'][0] ?? array();

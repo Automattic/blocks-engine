@@ -26,9 +26,10 @@ final class ButtonsPattern
      * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(DOMElement): array<string, mixed> $accessibleNameFallback
      * @return array<string, mixed>|null
      */
-    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock): ?array
+    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock, callable $accessibleNameFallback): ?array
     {
         $fileBlock = $fileBlockFromAnchor($anchor);
         if ( null !== $fileBlock ) {
@@ -48,6 +49,11 @@ final class ButtonsPattern
         $surface = $this->buttonSurfaceElement($anchor);
         if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor), null !== $surface ? (string) $resolvedStyle($surface) : '', $resolvedStyle) ) {
             return null;
+        }
+
+        $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
+        if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+            return $accessibleNameFallback($anchor);
         }
 
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes, $resolvedStyle), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock) ), $anchor);
@@ -81,7 +87,7 @@ final class ButtonsPattern
                 array(
                     'tagName' => 'button',
                     'text'    => $text,
-                    'title'   => $this->buttonAccessibleTitle($button, $text),
+                    'title'   => $this->buttonAccessibleTitle($button),
                 )
             ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);
@@ -151,12 +157,9 @@ final class ButtonsPattern
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $attr($anchor, 'href'),
-            'title'      => $this->buttonAccessibleTitle($anchor, $text),
+            'title'      => $this->buttonTitle($anchor),
             'linkTarget' => $attr($anchor, 'target'),
             'rel'        => $attr($anchor, 'rel'),
-            // Core/button has no native aria-label attribute. Keep it as a
-            // persisted companion attribute while the save shape carries it.
-            'ariaLabel'  => $attr($anchor, 'aria-label'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
@@ -236,9 +239,21 @@ final class ButtonsPattern
         return '';
     }
 
-    private function buttonAccessibleTitle(DOMElement $element, string $text): string
+    private function buttonTitle(DOMElement $element): string
     {
-        return html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return html_entity_decode(trim($element->getAttribute('title')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
+    private function buttonAccessibleTitle(DOMElement $element): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = trim($element->getAttribute($attribute));
+            if ( '' !== $label ) {
+                return html_entity_decode($label, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+        }
+
+        return '';
     }
 
     private function plainText(string $html): string
@@ -246,29 +261,15 @@ final class ButtonsPattern
         return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
     }
 
-    private function accessibleFallbackLabel(DOMElement $element): string
+    private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
     {
-        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $label = trim($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
-            if ( '' !== $label ) {
-                return htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
+        $ariaLabel = $this->normalizedAccessibleText($anchor->getAttribute('aria-label'));
+        return '' !== $ariaLabel && $ariaLabel !== $this->normalizedAccessibleText($this->plainText($text));
+    }
 
-        $image = $element->getElementsByTagName('img')->item(0);
-        if ( $image instanceof DOMElement ) {
-            $alt = trim($image->hasAttribute('alt') ? $image->getAttribute('alt') : '');
-            if ( '' !== $alt ) {
-                return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
-
-        $title = $element->getElementsByTagName('title')->item(0);
-        if ( $title instanceof DOMElement && '' !== trim($title->textContent ?? '') ) {
-            return htmlspecialchars(trim($title->textContent ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        }
-
-        return '';
+    private function normalizedAccessibleText(string $text): string
+    {
+        return strtolower(trim(preg_replace('/\s+/', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
     }
 
     /**

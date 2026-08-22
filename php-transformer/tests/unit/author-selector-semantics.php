@@ -85,7 +85,9 @@ $assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && 
 
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
-$assert(3 === substr_count($attributeCss, '> :where(.wp-block-button__link)') && str_contains($attributeCss, '{margin:1rem}') && str_contains($attributeCss, ':focus') && ! str_contains($attributeCss, '[data-cta]') && ! str_contains($attributeCss, '[aria-label]') && ! str_contains($attributeCss, '[data-kind') && ! str_contains($attributeCss, '#cta-id') && ! str_contains($attributes['serialized_blocks'], 'core/html') && 'pass' === ($attributes['source_reports']['wp_block_validity']['status'] ?? ''), 'data, aria, attribute-operator, ID, and class selectors project through exact control markers with canonical validity');
+$attributeFallbacks = array_values(array_filter($attributes['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$attributeFallback = $attributeFallbacks[0] ?? array();
+$assert(str_contains((string) ($attributes['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($attributeFallback['html'] ?? ''), 'aria-label="Start"'), 'a materially different anchor accessible name remains a diagnostic fallback rather than becoming an invalid native button');
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);

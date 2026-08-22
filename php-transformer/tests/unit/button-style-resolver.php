@@ -113,21 +113,26 @@ foreach ( array(
 ) as $url => $linkAttributes ) {
     $stylable = ( new HtmlTransformer() )->transform(
         '<style>.wix-label{padding:12px 20px;background:#173b64;border-radius:6px;color:#fff}.wix-icon{width:1em;height:1em}</style>' .
-        '<a class="wix-action wix-button" href="' . $url . '" target="' . $linkAttributes[0] . '" rel="' . $linkAttributes[1] . '" aria-label="Contact the team"><span class="wix-label"><span>Contact us</span></span><svg class="wix-icon" aria-hidden="true"><g><path d="M0 0h1v1z"/></g></svg></a>'
+        '<a class="wix-action wix-button" href="' . $url . '" target="' . $linkAttributes[0] . '" rel="' . $linkAttributes[1] . '" aria-label="Contact us"><span class="wix-label"><span>Contact us</span></span><svg class="wix-icon" aria-hidden="true"><g><path d="M0 0h1v1z"/></g></svg></a>'
     )->toArray();
     $stylableButton = $stylable['blocks'][0]['innerBlocks'][0] ?? array();
     $stylableAttrs = $stylableButton['attrs'] ?? array();
     $stylableMarkup = (string) ($stylable['serialized_blocks'] ?? '');
 
     $assert('core/button' === ($stylableButton['blockName'] ?? null), 'nested-label SVG anchor becomes a native button for ' . $url, $stylableMarkup);
-    $assert($url === ($stylableAttrs['url'] ?? null) && $linkAttributes[0] === ($stylableAttrs['linkTarget'] ?? '') && $linkAttributes[1] === ($stylableAttrs['rel'] ?? '') && 'Contact the team' === ($stylableAttrs['ariaLabel'] ?? ''), 'nested-label SVG button retains link semantics for ' . $url, json_encode($stylableAttrs));
-    $assert(str_contains($stylableMarkup, 'href="' . $url . '"') && str_contains($stylableMarkup, 'aria-label="Contact the team"') && str_contains($stylableMarkup, 'wix-label') && str_contains($stylableMarkup, 'materialized-svg'), 'nested-label SVG button retains label and icon placement for ' . $url, $stylableMarkup);
+    $assert($url === ($stylableAttrs['url'] ?? null) && $linkAttributes[0] === ($stylableAttrs['linkTarget'] ?? '') && $linkAttributes[1] === ($stylableAttrs['rel'] ?? '') && ! isset($stylableAttrs['ariaLabel']), 'nested-label SVG button retains schema-supported link semantics for ' . $url, json_encode($stylableAttrs));
+    $assert(str_contains($stylableMarkup, 'href="' . $url . '"') && ! str_contains($stylableMarkup, 'aria-label=') && str_contains($stylableMarkup, 'wix-label') && str_contains($stylableMarkup, 'materialized-svg'), 'equivalent accessible label stays visible without an unsupported native attribute for ' . $url, $stylableMarkup);
     $assert(! str_contains($stylableMarkup, '<!-- wp:html'), 'nested-label SVG button has no HTML fallback for ' . $url, $stylableMarkup);
 }
 
 $unsafeButton = ( new HtmlTransformer() )->transform('<a class="button" style="padding:12px;background:#123" href="/join"><span>Join</span><input type="checkbox"></a>')->toArray();
 $unsafeMarkup = (string) ($unsafeButton['serialized_blocks'] ?? '');
 $assert(! str_contains($unsafeMarkup, '<!-- wp:button'), 'nested interactive content is not promoted to a native button', $unsafeMarkup);
+
+$differentAccessibleName = ( new HtmlTransformer() )->transform('<a class="wix-button" href="/contact" aria-label="Open contact form"><span class="wix-label">Contact us</span><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></a>')->toArray();
+$differentMarkup = (string) ($differentAccessibleName['serialized_blocks'] ?? '');
+$differentFallbacks = $differentAccessibleName['fallbacks'] ?? array();
+$assert(str_contains($differentMarkup, '<!-- wp:html') && str_contains($differentMarkup, 'aria-label="Open contact form"') && 'html_stylable_button_accessible_name_fallback' === ($differentFallbacks[0]['diagnostic_code'] ?? null), 'materially different accessible name remains a diagnostic HTML fallback pending a typed companion', json_encode($differentAccessibleName));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");

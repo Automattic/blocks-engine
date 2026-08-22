@@ -4281,7 +4281,7 @@ final class HtmlTransformer
             return $mediaDispatch['block'];
         }
 
-        if ($this->fallbackReductionMode && in_array($tagName, array('a', 'button'), true)) {
+        if ($this->fallbackReductionMode && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));

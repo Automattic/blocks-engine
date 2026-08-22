@@ -672,7 +672,6 @@ final class BlockFactory
             'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
             'style' => $support['style'],
             'title' => (string) ($attrs['title'] ?? ''),
-            'aria-label' => (string) ($attrs['ariaLabel'] ?? ''),
         );
 
         if ( 'button' === ($attrs['tagName'] ?? '') ) {
