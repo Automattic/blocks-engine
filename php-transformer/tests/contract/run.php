@@ -1842,6 +1842,12 @@ $assert('core/image' === ($exportedSvgMetadata['blocks'][0]['blockName'] ?? '') 
 $exportedSvgFilter = ( new HtmlTransformer() )->transform('<svg viewBox="0 0 40 40" focusable="false"><defs><filter id="shadow"><feGaussianBlur stdDeviation="2" result="blur"></feGaussianBlur><feOffset in="blur" x="1" y="1" result="offset"></feOffset><feColorMatrix in="offset" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 .5 0"></feColorMatrix></filter></defs><rect data-testid="shape" width="40" height="40" filter="url(#shadow)"></rect></svg>')->toArray();
 $assert('core/image' === ($exportedSvgFilter['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgFilter['fallbacks'] ?? array()), 'passive exported SVG filter primitives materialize without raw HTML fallback');
 
+$exportedSvgBoxVariables = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" width="24" height="24" style="height:1em;min-height:calc(var(--nav-icon-width)*1px);min-width:calc(var(--nav-icon-width)*1px);width:1em"><path fill-rule="evenodd" d="M15 5 L16 6 L9 12 L16 18 L15 19 L8 12 Z"></path></svg></div>')->toArray();
+$assert('core/image' === ($exportedSvgBoxVariables['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgBoxVariables['fallbacks'] ?? array()), 'passive SVG root box variables transfer to native image geometry without raw HTML fallback');
+
+$exportedSvgPaintVariable = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" style="fill:var(--icon-color)"><path d="M0 0h24v24H0z"></path></svg></div>')->toArray();
+$assert('core/html' === ($exportedSvgPaintVariable['blocks'][0]['blockName'] ?? ''), 'SVG paint variables remain inline because an image document cannot inherit the source custom property');
+
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
