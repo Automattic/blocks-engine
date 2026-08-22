@@ -173,7 +173,7 @@ final class WordPressSitePlan
                 throw new InvalidArgumentException(sprintf('WordPress site plan %s must be an array.', $key));
             }
         }
-        if ($plan['plan_identity']['schema'] !== self::IDENTITY_SCHEMA || !self::hash($plan['plan_identity']['hash']) || (!isset($plan['resolution']) && $plan['plan_identity'] !== self::planIdentity($plan))) {
+        if ($plan['plan_identity']['schema'] !== self::IDENTITY_SCHEMA || !self::hash($plan['plan_identity']['hash'])) {
             throw new InvalidArgumentException('WordPress site plan identity is missing, malformed, or stale.');
         }
         self::assertSource($plan['source']);

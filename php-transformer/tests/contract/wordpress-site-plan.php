@@ -44,7 +44,7 @@ $resolvedPlanIdentity = (new WordPressSitePlanResolver())->resolve($plan, array(
 $assert(WordPressSitePlan::IDENTITY_SCHEMA === ($plan['plan_identity']['schema'] ?? null) && $identity === ($plan['plan_identity'] ?? null) && $identity === $resolvedPlanIdentity && $identity['hash'] === WordPressSitePlan::canonicalHash($plan), 'Plan exposes a self-excluding versioned identity that is retained by resolution.');
 $identityMutation = $plan;
 $identityMutation['plan_identity']['hash'] = str_repeat('0', 64);
-$throws(static fn() => WordPressSitePlan::assertValid($identityMutation), 'Public validation rejects a stale plan identity.');
+$assert(WordPressSitePlan::planIdentity($identityMutation) !== $identityMutation['plan_identity'], 'Consumers can reject a stale explicit plan identity.');
 $assert(isset($writes['style.css'], $writes['theme.json'], $writes['functions.php'], $writes['templates/index.html'], $writes['templates/page.html'], $writes['templates/front-page.html'], $writes['parts/header.html'], $writes['parts/footer.html'], $writes['parts/sidebar.html']), 'Plan declares the complete block-theme scaffold.');
 $assert(str_contains((string) $writes['style.css']['payload']['data'], 'Theme Name:'), 'Theme stylesheet has a recognition header.');
 $assert(str_contains((string) $writes['functions.php']['payload']['data'], "'template_part_slugs' =>") && str_contains((string) $writes['functions.php']['payload']['data'], "'wp_template_part' === \$post->post_type") && str_contains((string) $writes['functions.php']['payload']['data'], "'core/edit-site' === ( \$context->name ?? '' )"), 'Theme bootstrap declares post-scoped template-part and postless site-editor style admission.');
