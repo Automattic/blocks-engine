@@ -30,7 +30,8 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"brand-mark\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "line-height:0" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:transparent" },
+    { "path": "assets.1.content", "assert": "contains", "value": "background-color:transparent !important" },
+    { "path": "assets.1.content", "assert": "contains", "value": "padding-top:0 !important" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "fallbacks", "assert": "count", "count": 0 }

@@ -27,8 +27,10 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 };
 $assets = $result['assets'] ?? array();
 $assetPaths = array_column($assets, 'path');
-$assert(array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 0, 6)
-    && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'allocated repeated-link alias avoids authored path collisions while preserving source occurrence and support placement order');
+$assetsByPath = array_column($assets, null, 'path');
+$assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $assetPaths[0] ?? '')
+    && array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 1, 6)
+    && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[7] ?? ''), 'allocated repeated-link alias preserves source occurrence order around before- and after-author support assets');
 foreach ( $assets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
     $hash = hash('sha256', $content);
@@ -40,11 +42,11 @@ foreach ( $planAssets as $asset ) {
     $hash = hash('sha256', $content);
     $assert(strlen($content) === ($asset['bytes'] ?? null) && $hash === ($asset['hash'] ?? null), 'materialization plan payload hashes describe rewritten content');
 }
-$assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assets[1]['source_hash'] ?? null) && ($assets[1]['hash'] ?? '') !== ($assets[1]['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
-$assert('text' === ($assets[1]['content_encoding'] ?? '') && ! isset($assets[1]['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
-$assert(! str_contains((string) ($assets[1]['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assets[1]['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
-$assert(hash('sha256', '.hero p{color:green}') === ($assets[2]['source_hash'] ?? null) && ! str_contains((string) ($assets[2]['content'] ?? ''), '.hero p') && str_contains((string) ($assets[2]['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
-$assert(str_contains((string) ($assets[4]['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assets[5]['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
+$assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsByPath['a.css']['source_hash'] ?? null) && ($assetsByPath['a.css']['hash'] ?? '') !== ($assetsByPath['a.css']['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
+$assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
+$assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
+$assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
+$assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
 
 $richText = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

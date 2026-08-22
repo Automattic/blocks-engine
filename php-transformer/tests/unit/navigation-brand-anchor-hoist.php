@@ -112,8 +112,8 @@ $assert(
     $unlistedMarkup
 );
 $assert(
-    '#DDE3EB' === (string) ($unlistedNavigations[0]['attrs']['customTextColor'] ?? ''),
-    'unlisted brand class: the colour every remaining link shares is promoted onto the navigation',
+    ! isset($unlistedNavigations[0]['attrs']['customTextColor']) && str_contains(implode("\n", array_column($unlistedBrand['assets'] ?? array(), 'content')), 'color:#DDE3EB'),
+    'unlisted brand class: the colour every remaining link shares remains in projected navigation CSS',
     json_encode($unlistedNavigations[0]['attrs'] ?? array())
 );
 
@@ -225,8 +225,8 @@ $assert(
     (string) ($bareLinkOutsideList['serialized_blocks'] ?? '')
 );
 $assert(
-    '#DDE3EB' === (string) ($bareLinkNavigations[0]['attrs']['customTextColor'] ?? ''),
-    'bare link outside the list: the shared link colour is still promoted to the navigation',
+    ! isset($bareLinkNavigations[0]['attrs']['customTextColor']) && str_contains(implode("\n", array_column($bareLinkOutsideList['assets'] ?? array(), 'content')), 'color:#DDE3EB'),
+    'bare link outside the list: the shared link colour remains in projected navigation CSS',
     json_encode($bareLinkNavigations[0]['attrs'] ?? array())
 );
 

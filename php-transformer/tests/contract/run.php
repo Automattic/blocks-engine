@@ -855,8 +855,8 @@ $stylesheetFillSvg = ( new HtmlTransformer() )->transform(
 )->toArray();
 $stylesheetFillMarkup = (string) ($stylesheetFillSvg['serialized_blocks'] ?? '');
 $stylesheetFillCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $stylesheetFillSvg['assets'] ?? array()));
-$assert(str_contains($stylesheetFillMarkup, 'class="wp-block-image be-inline-geometry-') && str_contains($stylesheetFillMarkup, 'style="line-height:0"'), 'stylesheet-sourced object-fit drives the SVG parent-fill carrier and drops the image line box');
-$assert(str_contains($stylesheetFillCss, '{margin:0;width:100%;height:100%}') && str_contains($stylesheetFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'stylesheet-sourced object-fit projects the same fill rules as an inline object-fit declaration');
+$assert(str_contains($stylesheetFillMarkup, 'class="wp-block-image be-inline-geometry-') && str_contains($stylesheetFillCss, 'line-height:0'), 'stylesheet-sourced object-fit drives the SVG parent-fill carrier and drops the image line box');
+$assert(str_contains($stylesheetFillCss, '{margin:0;width:100%;height:100%;line-height:0}') && str_contains($stylesheetFillCss, '>img{width:100%;height:100%;-o-object-fit:cover;object-fit:cover}'), 'stylesheet-sourced object-fit projects the same fill rules as an inline object-fit declaration');
 $assert(! str_contains($stylesheetFillMarkup, 'is-resized') && ! str_contains($stylesheetFillMarkup, 'style="width:100%"'), 'stylesheet-sourced object-fit no longer falls back to intrinsic resized geometry');
 
 $cssOwnedSvgFill = ( new HtmlTransformer() )->transform(
@@ -878,7 +878,7 @@ $flexItemSvgArtwork = ( new HtmlTransformer() )->transform(
 $flexItemSvgWrapper = $flexItemSvgArtwork['blocks'][0] ?? array();
 $flexItemSvg = $flexItemSvgArtwork['blocks'][0]['innerBlocks'][0] ?? array();
 $assert('core/group' === ($flexItemSvgWrapper['blockName'] ?? '') && array() === ($flexItemSvgArtwork['source_reports']['generated_blocks'] ?? array()), 'single-child flex media wrappers retain source layout ownership through core/group');
-$assert(! str_contains((string) ($flexItemSvg['attrs']['className'] ?? ''), 'be-inline-geometry-') && '0' === ($flexItemSvg['attrs']['style']['typography']['lineHeight'] ?? ''), 'standalone SVG flex items use block image geometry without an inline baseline carrier');
+$assert(str_contains((string) ($flexItemSvg['attrs']['className'] ?? ''), 'be-inline-geometry-') && ! isset($flexItemSvg['attrs']['style']['typography']['lineHeight']), 'standalone SVG flex items carry metadata-skipped baseline styling outside native image attributes');
 
 $classSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.map-art{width:100%}</style><main><div><svg class="map-art" viewBox="0 0 440 280" role="img" aria-label="Map"><rect width="440" height="280" fill="#111"/></svg></div></main>'
@@ -904,7 +904,7 @@ $cssSizedInlineSvgArtworkCss = implode("\n", array_map(static fn (array $asset):
 $assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image keeps collapsed line-box geometry and source display and dimensions on the materialized image');
+$assert(str_contains($cssSizedInlineSvgArtworkCss, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image carries metadata-skipped line-box geometry with its materialized image rules');
 
 $artifactInlineSvg = ( new ArtifactCompiler() )->compile(
     array(
@@ -988,9 +988,10 @@ $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
 )->toArray();
 $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
+$outlineButtonCss = implode("\n", array_column($outlineButton['assets'] ?? array(), 'content'));
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
-$assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'outline button emits transparent background to suppress default theme fill');
-$assert(str_contains($outlineButtonMarkup, 'border-radius:0'), 'outline button with no source radius emits square radius to suppress default rounded inner button chrome');
+$assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
+$assert(str_contains($outlineButtonCss, 'border-radius:0'), 'outline button with no source radius carries square radius to suppress default rounded inner button chrome');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
 
@@ -1029,7 +1030,7 @@ $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
 )->toArray();
 $flexAnchorAutoMarginMarkup = (string) ($flexAnchorAutoMargin['serialized_blocks'] ?? '');
 $flexAnchorAutoMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorAutoMargin['assets'] ?? array()));
-$assert(str_contains($flexAnchorAutoMarginMarkup, 'margin-right:auto') && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
+$assert(preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:auto\}/', $flexAnchorAutoMarginCss) && 2 === substr_count($flexAnchorAutoMarginMarkup, 'wp-block-buttons'), 'direct flex anchor preserves its authored auto margin on the lowered source flex-item wrapper beside navigation and button siblings');
 $assert(str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}') && ! str_contains($flexAnchorAutoMarginCss, '.wp-block-buttons){display:block!important;gap:0!important;margin:0!important;min-width:0}') && str_contains($flexAnchorAutoMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}'), 'direct flex bridge leaves source wrapper margins intact while neutralizing only the synthetic inner wrapper');
 $assert('pass' === ($flexAnchorAutoMargin['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex anchor with auto margin remains editor-valid beside navigation and button siblings');
 
@@ -1052,9 +1053,8 @@ foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
     $directFlexMarginWrapper = $directFlexMarginButton['blocks'][0]['innerBlocks'][0] ?? array();
     $directFlexMarginInner = $directFlexMarginWrapper['innerBlocks'][0] ?? array();
     $directFlexMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $directFlexMarginButton['assets'] ?? array()));
-    $assert($margin['expected'] === ($directFlexMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'direct-flex ' . $marginCase . ' anchor margin stays on the outer core/buttons source flex item');
     $assert(! isset($directFlexMarginInner['attrs']['style']['spacing']['margin']) && str_contains($directFlexMarginCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}'), 'direct-flex ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
-    $assert(str_contains($directFlexMarginCss, $margin['css']) && ! str_contains($directFlexMarginCss, $margin['css'] . '!important'), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+    $assert(str_contains($directFlexMarginCss, $margin['css']) && preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:' . preg_quote($margin['expected']['right'], '/') . ';margin-left:' . preg_quote($margin['expected']['left'], '/') . '\}/', $directFlexMarginCss), 'direct-flex ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
 
     $fullWidthMarginButton = ( new HtmlTransformer() )->transform(
         '<style>.cta{display:inline-flex;padding:1rem;background:#123456;width:100%;' . $margin['source'] . '}</style><main><section><a class="cta" href="/start">Start</a></section></main>'
@@ -1062,9 +1062,8 @@ foreach ( $anchorButtonMarginCases as $marginCase => $margin ) {
     $fullWidthMarginWrapper = $fullWidthMarginButton['blocks'][0] ?? array();
     $fullWidthMarginInner = $fullWidthMarginWrapper['innerBlocks'][0] ?? array();
     $fullWidthMarginCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthMarginButton['assets'] ?? array()));
-    $assert($margin['expected'] === ($fullWidthMarginWrapper['attrs']['style']['spacing']['margin'] ?? null), 'full-width ' . $marginCase . ' anchor margin stays on the outer core/buttons wrapper');
     $assert(! isset($fullWidthMarginInner['attrs']['style']['spacing']['margin']) && str_contains($fullWidthMarginCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}'), 'full-width ' . $marginCase . ' anchor keeps the synthetic inner core/button margin-neutral');
-    $assert(str_contains($fullWidthMarginCss, $margin['css']) && ! str_contains($fullWidthMarginCss, $margin['css'] . '!important'), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
+    $assert(str_contains($fullWidthMarginCss, $margin['css']) && preg_match('/\.wp-block-buttons\.blocks-engine-control-[^{]+\{margin-right:' . preg_quote($margin['expected']['right'], '/') . ';margin-left:' . preg_quote($margin['expected']['left'], '/') . '\}/', $fullWidthMarginCss), 'full-width ' . $marginCase . ' anchor preserves authored outer margin priority without !important');
 }
 
 $fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
@@ -1085,7 +1084,7 @@ $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks']
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
 $assert(100 === ($fullWidthNativeButtonAttrs['width'] ?? null) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button uses native width support and a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
-$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && '#123456' === ($fullWidthNativeButtonAttrs['style']['color']['background'] ?? null), 'a filled button variant overrides an earlier native-button background reset without becoming an outline control');
+$assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && ! isset($fullWidthNativeButtonAttrs['style']['color']['background']) && str_contains($fullWidthNativeButtonCss, 'background-color:#123456!important'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
 
@@ -1094,8 +1093,8 @@ $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
-$assert('#fff' === ($contextualSurfaceButtonAttrs['style']['color']['background'] ?? null), 'later contextual background shorthand overrides an earlier descendant background color');
-$assert('0' === ($contextualSurfaceButtonAttrs['style']['border']['radius'] ?? null), 'authored square button borders suppress rounded theme defaults');
+$assert(! isset($contextualSurfaceButtonAttrs['style']['color']['background']) && str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important'), 'later contextual background shorthand carries over an earlier descendant background color');
+$assert(! isset($contextualSurfaceButtonAttrs['style']['border']['radius']) && str_contains($contextualSurfaceButtonCss, 'border-radius:0!important'), 'authored square button borders carry the suppression of rounded theme defaults');
 $assert(! str_contains((string) ($contextualSurfaceButtonAttrs['className'] ?? ''), 'cta-inner'), 'descendant presentation classes do not paint the structural core button wrapper');
 $assert(str_contains($contextualSurfaceButtonCss, 'background-color:#fff!important') && str_contains($contextualSurfaceButtonCss, 'color:#000!important'), 'native button control rule protects resolved source paint from theme defaults');
 
@@ -1136,20 +1135,22 @@ $roundedOutlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;border-radius:12px;background:transparent;color:#eee" href="/tickets">Tickets</a></main>'
 )->toArray();
 $roundedOutlineButtonMarkup = (string) ($roundedOutlineButton['serialized_blocks'] ?? '');
-$assert(str_contains($roundedOutlineButtonMarkup, 'border-radius:12px'), 'outline button preserves an explicit source border radius');
-$assert(! str_contains($roundedOutlineButtonMarkup, 'border-radius:0'), 'outline button does not override an explicit source border radius');
+$roundedOutlineButtonCss = implode("\n", array_column($roundedOutlineButton['assets'] ?? array(), 'content'));
+$assert(str_contains($roundedOutlineButtonCss, 'border-radius:12px !important'), 'outline button carries an explicit source border radius');
+$assert(! str_contains($roundedOutlineButtonCss, 'border-radius:0!important'), 'outline button does not override an explicit source border radius');
 
 $wrapperOwnedButton = ( new HtmlTransformer() )->transform(
     '<main><div class="hero-cta" role="button" style="display:inline-flex;align-items:center;padding:14px 24px;border-radius:999px;background:#2563eb;color:#ffffff;font-weight:700"><a href="/start"><span>Start free</span></a></div></main>'
 )->toArray();
 $wrapperOwnedButtonMarkup = (string) ($wrapperOwnedButton['serialized_blocks'] ?? '');
+$wrapperOwnedButtonCss = implode("\n", array_column($wrapperOwnedButton['assets'] ?? array(), 'content'));
 $assert(str_contains($wrapperOwnedButtonMarkup, '<!-- wp:button'), 'button-like wrapper with a single simple anchor materializes as core/button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'href="/start"'), 'button-like wrapper preserves the nested anchor URL on the native button');
 $assert(str_contains($wrapperOwnedButtonMarkup, 'Start free'), 'button-like wrapper preserves the nested anchor label');
-$assert(str_contains($wrapperOwnedButtonMarkup, 'background-color:#2563eb'), 'button-like wrapper applies wrapper-owned fill color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonMarkup, 'color:#ffffff'), 'button-like wrapper applies wrapper-owned text color to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonMarkup, 'border-radius:999px'), 'button-like wrapper applies wrapper-owned radius to the native button chrome');
-$assert(str_contains($wrapperOwnedButtonMarkup, 'padding-top:14px'), 'button-like wrapper applies wrapper-owned padding to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonCss, 'background-color:#2563eb !important'), 'button-like wrapper carries wrapper-owned fill color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonCss, 'color:#ffffff !important'), 'button-like wrapper carries wrapper-owned text color to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonCss, 'border-radius:999px !important'), 'button-like wrapper carries wrapper-owned radius to the native button chrome');
+$assert(str_contains($wrapperOwnedButtonCss, 'padding-top:14px !important'), 'button-like wrapper carries wrapper-owned padding to the native button chrome');
 $assert('pass' === ($wrapperOwnedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'button-like wrapper conversion emits valid native button markup');
 
 $fullWidthButton = ( new HtmlTransformer() )->transform(
@@ -1164,9 +1165,10 @@ $cssVariableButton = ( new HtmlTransformer() )->transform(
     '<style>:root{--amber:#f0ac22;--ink:#050d1a;--radius:6px}.btn-primary{padding:9px 20px;border-radius:var(--radius);background:var(--amber);color:var(--ink)}</style><main><a class="btn btn-primary" href="/start">Start free</a></main>'
 )->toArray();
 $cssVariableButtonMarkup = (string) ($cssVariableButton['serialized_blocks'] ?? '');
-$assert(str_contains($cssVariableButtonMarkup, 'background-color:#f0ac22'), 'button CSS variable fill resolves to a concrete canonical background color');
-$assert(str_contains($cssVariableButtonMarkup, 'color:#050d1a'), 'button CSS variable text color resolves to a concrete canonical text color');
-$assert(str_contains($cssVariableButtonMarkup, 'border-radius:6px'), 'button CSS variable radius resolves to a concrete canonical radius');
+$cssVariableButtonCss = implode("\n", array_column($cssVariableButton['assets'] ?? array(), 'content'));
+$assert(str_contains($cssVariableButtonCss, 'background-color:#f0ac22!important'), 'button CSS variable fill resolves to a concrete carried background color');
+$assert(str_contains($cssVariableButtonCss, 'color:#050d1a!important'), 'button CSS variable text color resolves to a concrete carried text color');
+$assert(str_contains($cssVariableButtonCss, 'border-radius:6px!important'), 'button CSS variable radius resolves to a concrete carried radius');
 $assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
 $assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
 
@@ -1424,8 +1426,9 @@ $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
     '<main><a class="artist-button" href="/music" style="padding:10px 16px;font-size:1rem;color:#fdf0d5;border:1px solid #fdf0d5">Listen now</a></main>'
 )->toArray();
 $buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_blocks'] ?? '');
-$assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class required by core/button save markup');
-$assert(str_contains($buttonCustomFontSizeMarkup, 'font-size:1rem'), 'button custom font-size preserves the inline style declaration');
+$buttonCustomFontSizeCss = implode("\n", array_column($buttonCustomFontSizeResult['assets'] ?? array(), 'content'));
+$assert(! str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size avoids unsupported native save markup');
+$assert(str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size preserves the declaration through the carrier');
 $assert('pass' === ($buttonCustomFontSizeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'button custom font-size serialization passes generated WordPress block validity checks');
 
 $rubyResult = ( new HtmlTransformer() )->transform(
@@ -1780,8 +1783,8 @@ $styledCoverBlock = $styledCoverHero['blocks'][0] ?? array();
 $styledCoverOpeningContent = (string) ($styledCoverBlock['innerContent'][0] ?? '');
 $styledCoverOpeningEnd = strpos($styledCoverOpeningContent, '>');
 $styledCoverWrapperOpening = false === $styledCoverOpeningEnd ? '' : substr($styledCoverOpeningContent, 0, $styledCoverOpeningEnd + 1);
-$expectedStyledCoverWrapperOpening = '<div class="wp-block-cover has-background hero" style="background-color:#123456;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px;min-height:480px">';
-$assert($expectedStyledCoverWrapperOpening === $styledCoverWrapperOpening, 'styled cover wrapper opening tag preserves exact support and min-height order', $styledCoverWrapperOpening);
+$styledCoverCss = implode("\n", array_column($styledCoverHero['assets'] ?? array(), 'content'));
+$assert(str_contains($styledCoverWrapperOpening, 'class="wp-block-cover hero be-inline-geometry-') && str_contains($styledCoverWrapperOpening, 'padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px;min-height:480px') && str_contains($styledCoverCss, 'background-color:#123456 !important'), 'styled cover carries metadata-rejected background while retaining spacing and min-height order', $styledCoverWrapperOpening);
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($styledCoverHero['blocks'] ?? array()), 'styled cover passes save-shape validation');
 
 $flexIconRow = ( new HtmlTransformer() )->transform(
@@ -2016,12 +2019,13 @@ $dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
     '<style>.dropdown{background:#181818;color:#f2f2f2}</style><header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
 )->toArray();
 $dropdownHeaderSerialized = (string) ($dropdownHeaderNavigation['serialized_blocks'] ?? '');
+$dropdownHeaderCss = implode("\n", array_column($dropdownHeaderNavigation['assets'] ?? array(), 'content'));
 $dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
 $dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
 $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
-$assert(str_contains($dropdownHeaderSerialized, '"color":{"background":"#181818"}'), 'dropdown header navigation carries authored submenu background into the native submenu container');
+$assert(! str_contains($dropdownHeaderSerialized, '"color":{"background":"#181818"}') && str_contains($dropdownHeaderCss, '.dropdown{background:#181818;color:#f2f2f2}'), 'dropdown header navigation retains authored submenu background in its projected stylesheet');
 
 $nestedNavMenu = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Main"><ul><li><a href="/coffee">Coffee</a><nav id="nav-links" class="wp-block-navigation nav-links" style="display:none;align-items:flex-start;gap:1.4rem;background:var(--cream);flex-direction:column;padding:1.8rem var(--gutter) 2rem;box-shadow:0 10px 20px rgba(0,0,0,.2)"><a href="#espresso">Espresso</a><a href="#latte">Latte</a></nav></li><li><a href="/visit">Visit</a></li></ul></nav>'
@@ -2191,10 +2195,10 @@ $activeNavigationColorLinks = $activeNavigationColor['blocks'][0]['innerBlocks']
 $activeNavigationColorAttrs = $activeNavigationColor['blocks'][0]['attrs'] ?? array();
 $activeNavigationColorSerialized = (string) ($activeNavigationColor['serialized_blocks'] ?? '');
 $activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $activeNavigationColor['assets'] ?? array()));
-$assert('var(--bone)' === ($activeNavigationColorLinks[0]['attrs']['style']['color']['text'] ?? ''), 'navigation link carries source anchor text color as a native block attribute');
+$assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['color']['text']) && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'navigation link retains source anchor text color in projected CSS instead of an unsupported native attribute');
 $assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
-$assert('var(--bone)' === ($activeNavigationColorAttrs['customTextColor'] ?? '') && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation'), 'list navigation keeps source container typography separate from anchor styling while retaining shared color context');
+$assert(! isset($activeNavigationColorAttrs['customTextColor']) && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation') && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'list navigation keeps source container typography separate while retaining shared color through projected CSS');
 $assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
@@ -2216,9 +2220,10 @@ $lateNavigationStyle = ( new HtmlTransformer() )->transform(
 )->toArray();
 $lateNavigationLinkAttrs = $lateNavigationStyle['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $lateNavigationAttrs = $lateNavigationStyle['blocks'][0]['attrs'] ?? array();
-$assert('#637188' === ($lateNavigationLinkAttrs['style']['color']['text'] ?? ''), 'stylesheet rules after the first 200 preserve navigation text color');
+$lateNavigationCss = implode("\n", array_column($lateNavigationStyle['assets'] ?? array(), 'content'));
+$assert(! isset($lateNavigationLinkAttrs['style']['color']['text']) && str_contains($lateNavigationCss, '.footer-links a{color:#637188'), 'stylesheet rules after the first 200 preserve navigation text color through projected CSS');
 $assert('monospace' === ($lateNavigationLinkAttrs['style']['typography']['fontFamily'] ?? ''), 'stylesheet rules after the first 200 preserve navigation typography');
-$assert('#637188' === ($lateNavigationAttrs['customTextColor'] ?? ''), 'late shared link color reaches core navigation context');
+$assert(! isset($lateNavigationAttrs['customTextColor']) && str_contains($lateNavigationCss, '.footer-links a{color:#637188'), 'late shared link color remains in navigation CSS when metadata rejects the context attr');
 
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start" style="padding:10px 16px;background:#135e96">Get started</a></div></header>'
@@ -2242,7 +2247,7 @@ $expandableHeaderSearchSerialized = (string) ($expandableHeaderSearch['serialize
 $expandableHeaderSearchCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $expandableHeaderSearch['assets'] ?? array()));
 $assert(str_contains($expandableHeaderSearchSerialized, '<!-- wp:search'), 'provider search cluster migrates to native WordPress search');
 $assert(str_contains($expandableHeaderSearchSerialized, '"buttonPosition":"button-only"') && str_contains($expandableHeaderSearchSerialized, '"buttonUseIcon":true'), 'adjacent icon trigger maps to expandable icon-only core/search');
-$assert(str_contains($expandableHeaderSearchSerialized, '"text":"#000000"') && str_contains($expandableHeaderSearchSerialized, '"background":"transparent"') && str_contains($expandableHeaderSearchSerialized, '"width":"0px"'), 'expandable native search preserves borderless black icon treatment');
+$assert(! str_contains($expandableHeaderSearchSerialized, '"text":"#000000"') && str_contains($expandableHeaderSearchCss, 'color:#000!important') && str_contains($expandableHeaderSearchCss, 'background:none!important') && str_contains($expandableHeaderSearchCss, 'border:0!important'), 'expandable native search preserves borderless black icon treatment through the carrier');
 $assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && str_contains($expandableHeaderSearchSerialized, '"placeholder":"Search"'), 'provider search cluster uses an accessible hidden label and preserves placeholder text');
 $assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
 $assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrappers while carrying the trigger presentation onto core search');
@@ -4240,8 +4245,8 @@ $borderedImage = $factory->create('core/image', array(
     'className' => 'source-image',
     'style' => array('border' => array('color' => '#ffffff', 'style' => 'solid')),
 ));
-$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image has-custom-border has-border-color source-image"><img'), 'core/image emits border support classes on the figure without figure styles');
-$assert(str_contains($borderedImage['innerHTML'], 'alt="Bordered" class="has-border-color" style="border-color:#ffffff;border-style:solid"'), 'core/image emits border support classes and styles on the image element');
+$assert(str_contains($borderedImage['innerHTML'], '<figure class="wp-block-image source-image"><img'), 'core/image omits metadata-skipped border classes from its canonical markup');
+$assert(! str_contains($borderedImage['innerHTML'], 'has-border-color') && ! str_contains($borderedImage['innerHTML'], 'border-color:#ffffff'), 'core/image does not serialize metadata-skipped border styles without a source carrier');
 
 $defaultTable = $factory->create(
     'core/table',

@@ -23,7 +23,6 @@
       "path": "blocks.0",
       "name": "core/navigation",
       "attrs": {
-        "customTextColor": "#DDE3EB",
         "overlayMenu": "never"
       }
     },
@@ -72,6 +71,11 @@
       "path": "serialized_blocks",
       "assert": "not_contains",
       "value": "wp:paragraph"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "color:#DDE3EB"
     },
     {
       "path": "fallbacks",

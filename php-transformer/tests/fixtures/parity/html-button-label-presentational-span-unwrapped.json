@@ -17,13 +17,14 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn blocks-engine-native-button-alignment-start", "text": "Listen Now", "url": "/listen" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Listen Now", "url": "/listen" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "btn blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/listen\">Listen Now</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<span>Listen Now</span>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"layout\"" },

@@ -157,7 +157,10 @@ trait SvgMaterializationTrait
             && null !== $this->svgPercentageWidth(trim($this->attr($element, 'height')));
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
-            $figureRule = '{margin:0;width:100%;height:100%}';
+            // This is generated fill geometry, not an authored image support.
+            // Keep the line-box reset in the same carrier because core/image
+            // metadata does not serialize typography.lineHeight.
+            $figureRule = '{margin:0;width:100%;height:100%;line-height:0}';
             $objectFit = '' === $sourceObjectFit ? 'contain' : $sourceObjectFit;
             // WordPress core's `.wp-block-image img { height:auto }` is loaded
             // after theme styles. Include the native wrapper class so the fill
@@ -170,11 +173,6 @@ trait SvgMaterializationTrait
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
                 'className'  => $this->mergePresentationClassNames($this->attr($element, 'class'), $fillClass),
-                'style'      => array(
-                    'typography' => array(
-                        'lineHeight' => '0',
-                    ),
-                ),
             );
 
             return array_filter($attrs, static fn ($value): bool => null !== $value && '' !== $value);
@@ -192,17 +190,18 @@ trait SvgMaterializationTrait
             }
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
             $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
+            $this->generatedGeometryRules[$geometryClass] = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+        } elseif ( ! $richTextImage ) {
+            // Core/image rejects typography.lineHeight. A standalone SVG still
+            // needs its source line box removed when it becomes a figure.
+            $rule = '{line-height:0}';
+            $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
             $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
         }
         $attrs = array_filter(array_merge(array(
             'url'          => $url,
             'alt'          => $this->svgImageAlt($element),
             'className'    => $this->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
-            'style'        => $preserveInlineGeometry ? null : array(
-                'typography' => array(
-                    'lineHeight' => '0',
-                ),
-            ),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $attrs;

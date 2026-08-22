@@ -893,8 +893,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $textColor = trim((string) ($itemAttrs['style']['color']['text'] ?? ''));
+        $stateMask = $this->navigationColorStateMask($anchor, $navigationColorInteractionStates);
         if ( '' !== $textColor ) {
-            $stateMask = $this->navigationColorStateMask($anchor, $navigationColorInteractionStates);
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' '
                 . self::LINK_COLOR_STATE_CLASS_PREFIX . $stateMask);
             if ( ! $isCurrentNavigationItem ) {
@@ -905,6 +905,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         if ( $isCurrentNavigationItem ) {
             $itemAttrs['className'] = trim((string) ($itemAttrs['className'] ?? '') . ' blocks-engine-current-navigation-item');
+            if ( '' !== $textColor ) {
+                // The navigation-link block cannot serialize its text color in
+                // current metadata. Keep an opaque shared marker on both the
+                // source-current item and its owning navigation so the final
+                // CSS rule can recover the rejected value without crossing into
+                // another menu.
+                $itemAttrs['className'] .= ' ' . self::CURRENT_COLOR_CLASS_PREFIX
+                    . hash('sha256', $textColor . "\0" . $stateMask);
+            }
             $decorationColor = null !== $navigationUnderlineColor ? trim((string) $navigationUnderlineColor($item, $anchor)) : '';
             $sourceDecoration = strtolower(trim((string) ($anchorAttrs['style']['typography']['textDecoration'] ?? $itemAttrs['style']['typography']['textDecoration'] ?? '')));
             if ( 'underline' === $sourceDecoration || '' !== $decorationColor ) {
@@ -973,13 +982,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             foreach ( $items as $link ) {
                 $attrs = is_array($link['attrs'] ?? null) ? $link['attrs'] : array();
                 $className = (string) ($attrs['className'] ?? '');
-                $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
-                if ( '' !== $color && str_contains($className, 'blocks-engine-current-navigation-item') ) {
-                    $stateMask = 0;
-                    if ( preg_match('/(?:^|\s)' . preg_quote(self::LINK_COLOR_STATE_CLASS_PREFIX, '/') . '(\d+)(?:\s|$)/', $className, $match) ) {
-                        $stateMask = (int) $match[1];
-                    }
-                    $colors[$color . "\0" . $stateMask] = array( 'color' => $color, 'state_mask' => $stateMask );
+                if ( str_contains($className, 'blocks-engine-current-navigation-item')
+                    && preg_match('/(?:^|\s)(' . preg_quote(self::CURRENT_COLOR_CLASS_PREFIX, '/') . '[a-f0-9]{64})(?:\s|$)/', $className, $match)
+                ) {
+                    $colors[$match[1]] = true;
                 }
 
                 $collect(is_array($link['innerBlocks'] ?? null) ? $link['innerBlocks'] : array());
@@ -991,8 +997,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return '';
         }
 
-        $current = reset($colors);
-        return self::CURRENT_COLOR_CLASS_PREFIX . hash('sha256', $current['color'] . "\0" . $current['state_mask']);
+        return (string) array_key_first($colors);
     }
 
 

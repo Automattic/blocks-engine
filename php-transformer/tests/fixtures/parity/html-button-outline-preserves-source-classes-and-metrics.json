@@ -18,12 +18,15 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Tour Dates", "url": "/tour", "style": { "color": { "text": "#e6d8c5", "background": "transparent" }, "border": { "width": "1px", "style": "solid", "color": "#e6d8c5", "radius": "0" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } } } } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Tour Dates", "url": "/tour" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline blocks-engine-control-" },
+    { "path": "assets.2.content", "assert": "contains", "value": "background-color:transparent!important" },
+    { "path": "assets.2.content", "assert": "contains", "value": "border-width:1px!important" },
+    { "path": "assets.2.content", "assert": "contains", "value": "padding-top:14px!important" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

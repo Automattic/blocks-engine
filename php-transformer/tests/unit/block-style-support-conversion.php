@@ -38,8 +38,8 @@ $nav = $blocks[0] ?? array();
 
 $assert('core/navigation' === ($nav['blockName'] ?? ''), '1: nav-like wrapper becomes core/navigation', (string) ($nav['blockName'] ?? '(none)'));
 $attrs = is_array($nav['attrs'] ?? null) ? $nav['attrs'] : array();
-$assert('base' === ($attrs['backgroundColor'] ?? ''), '2: preset background variable maps to backgroundColor attr', json_encode($attrs));
-$assert('contrast' === ($attrs['textColor'] ?? ''), '3: preset text variable maps to textColor attr', json_encode($attrs));
+$assert(! isset($attrs['backgroundColor']) && str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-'), '2: Navigation carries unsupported background color instead of storing an ignored attr', json_encode($attrs));
+$assert(! isset($attrs['textColor']) && str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-'), '3: Navigation carries unsupported text color instead of storing an ignored attr', json_encode($attrs));
 $assert('24px' === ($attrs['style']['spacing']['blockGap'] ?? ''), '4: gap maps to spacing.blockGap', json_encode($attrs['style']['spacing'] ?? array()));
 $assert('flex' === ($attrs['layout']['type'] ?? ''), '5: display:flex maps to flex layout', json_encode($attrs['layout'] ?? array()));
 $assert('space-between' === ($attrs['layout']['justifyContent'] ?? ''), '6: justify-content maps to layout.justifyContent', json_encode($attrs['layout'] ?? array()));
@@ -65,7 +65,8 @@ $classBorderImage = ( new HtmlTransformer() )->transform(
     array('static_css' => '.photo{border-top-width:12.808px;border-right-width:12.808px;border-bottom-width:12.808px;border-left-width:12.808px;border-style:solid;border-color:#fff}')
 )->toArray();
 $classBorderImageAttrs = $classBorderImage['blocks'][0]['attrs'] ?? array();
-$assert('12.808px' === ($classBorderImageAttrs['style']['border']['width'] ?? ''), '8b: matched class CSS physical border widths reach native image support', json_encode($classBorderImageAttrs));
+$classBorderImageCss = implode("\n", array_column($classBorderImage['assets'] ?? array(), 'content'));
+$assert(! isset($classBorderImageAttrs['style']['border']['width']) && str_contains($classBorderImageCss, 'border-top-width:12.808px'), '8b: Image carries border width when metadata skips its native serialization', json_encode($classBorderImageAttrs));
 
 $groupHtml = '<div class="hero-row" style="display:flex;justify-content:center;gap:1rem;min-height:100svh;padding:2rem;background:var(--wp--preset--color--base)"><p>Hello</p><p>World</p></div>';
 $groupResult = ( new HtmlTransformer() )->transform($groupHtml, array())->toArray();
@@ -180,7 +181,7 @@ $button = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
 $buttonAttrs = is_array($button['attrs'] ?? null) ? $button['attrs'] : array();
 $buttonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($buttonResult['assets'] ?? null) ? $buttonResult['assets'] : array()));
 $assert(50 === ($buttonAttrs['width'] ?? null), '32: recognized core/button owns its canonical width', json_encode($buttonAttrs));
-$assert(! str_contains($buttonCss, 'width:50%') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1'), '33: core/button removes only native-owned width from mixed geometry', $buttonCss);
+$assert(! str_contains($buttonCss, 'width:50%') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1') && str_contains($buttonCss, 'background-color:#135e96') && str_contains($buttonCss, 'padding-top:8px'), '33: core/button carries metadata-rejected paint and spacing with mixed geometry', $buttonCss);
 
 $specificityHtml = '<style>#target{width:12rem}</style><main><p id="target" style="width:30rem">Specificity</p></main>';
 $specificityResult = ( new HtmlTransformer() )->transform($specificityHtml, array())->toArray();

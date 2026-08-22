@@ -35,8 +35,7 @@
       "name": "core/navigation",
       "attrs": {
         "className": "navlinks blocks-engine-list-navigation",
-        "overlayMenu": "never",
-        "customTextColor": "#DDE3EB"
+        "overlayMenu": "never"
       }
     },
     {
@@ -84,6 +83,11 @@
       "path": "serialized_blocks",
       "assert": "not_contains",
       "value": "anchorClassName"
+    },
+    {
+      "path": "assets.1.content",
+      "assert": "contains",
+      "value": "color:#DDE3EB"
     },
     {
       "path": "source_reports.semantic_parity.status",

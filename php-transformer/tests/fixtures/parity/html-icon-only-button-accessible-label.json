@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-button blocks-engine-native-button-alignment-start", "title": "Email us", "url": "mailto:hello@example.com" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "title": "Email us", "url": "mailto:hello@example.com" } }
   ],
   "expected_fallbacks": [],
   "expect": [

@@ -17,14 +17,17 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Buy now", "className": "checkout-button", "style": { "color": { "background": "#111827", "text": "#f9fafb" }, "border": { "radius": "6px" }, "spacing": { "padding": { "top": "10px", "right": "20px", "bottom": "10px", "left": "20px" } }, "typography": { "fontWeight": "800", "textTransform": "uppercase" } } } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Buy now" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button checkout-button\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background wp-element-button\"" },
-    { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "border-radius:6px;color:#f9fafb;background-color:#111827;padding-top:10px;padding-right:20px;padding-bottom:10px;padding-left:20px;font-weight:800;text-transform:uppercase" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "checkout-button be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button checkout-button be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button\"" },
+    { "path": "assets.0.content", "assert": "contains", "value": "background-color:#111827 !important" },
+    { "path": "assets.0.content", "assert": "contains", "value": "padding-top:10px !important" },
+    { "path": "assets.0.content", "assert": "contains", "value": "text-transform:uppercase !important" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "border-width" }
   ]

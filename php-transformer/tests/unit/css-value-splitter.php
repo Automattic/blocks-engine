@@ -129,7 +129,7 @@ $assert(($support['attrs']['backgroundColor'] ?? '') === 'base', '7: preset back
 $assert(($support['attrs']['textColor'] ?? '') === 'contrast', '7b: preset text CSS variable maps to textColor attr');
 $assert(($support['style']['spacing']['blockGap'] ?? '') === '1.25rem', '7c: gap maps to spacing.blockGap');
 $assert(! isset($support['leftover']['display']) && ! isset($support['leftover']['align-items']) && ! isset($support['leftover']['justify-content']), '7d: layout declarations are not left as raw styles');
-$assert(($support['leftover']['box-shadow'] ?? '') === '0 12px 30px rgba(0,0,0,.12)', '7e: unsupported box-shadow stays leftover for class/CSS ownership');
+$assert(($support['style']['shadow'] ?? '') === '0 12px 30px rgba(0,0,0,.12)' && ! isset($support['leftover']['box-shadow']), '7e: box-shadow maps to the native shadow support candidate');
 $serializedGap = $mapper->serialize($support['style']);
 $assert(str_contains($serializedGap['style'], 'gap:1.25rem'), '7f: blockGap serializes to the wrapper gap declaration');
 

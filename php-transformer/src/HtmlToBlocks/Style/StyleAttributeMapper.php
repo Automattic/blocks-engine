@@ -108,6 +108,12 @@ final class StyleAttributeMapper
             $style['border'] = $border;
         }
 
+        $shadow = trim((string) ($normalized['box-shadow'] ?? ''));
+        if ( '' !== $shadow && $this->isSafeShadow($shadow) ) {
+            $style['shadow'] = $shadow;
+            $consumed['box-shadow'] = true;
+        }
+
         $leftover = array();
         foreach ( $normalized as $name => $value ) {
             if ( isset($consumed[ $name ]) || in_array($name, self::LAYOUT_PROPERTIES, true) ) {
@@ -227,6 +233,9 @@ final class StyleAttributeMapper
             if ( '' !== $value ) {
                 $declarations[] = $cssName . ':' . $value;
             }
+        }
+        if ( '' !== trim((string) ($style['shadow'] ?? '')) ) {
+            $declarations[] = 'box-shadow:' . trim((string) $style['shadow']);
         }
 
         return array(
@@ -385,6 +394,23 @@ final class StyleAttributeMapper
         return (bool) preg_match('/^(?:0|[0-9]*\.?[0-9]+(?:px|em|rem|%|vh|vw|svh|svw|lvh|lvw|dvh|dvw|vmin|vmax|ch|ex|lh|rlh))$/i', $value);
     }
 
+    private function isSafeShadow(string $value): bool
+    {
+        if ( preg_match('/[{}<>;]/', $value) || ! CssValueSplitter::hasBalancedParens($value) || str_ends_with($value, '\\') ) {
+            return false;
+        }
+        $quote = '';
+        for ( $index = 0, $length = strlen($value); $index < $length; ++$index ) {
+            $character = $value[ $index ];
+            if ( '' !== $quote ) {
+                if ( $character === $quote && '\\' !== ($value[ $index - 1 ] ?? '') ) $quote = '';
+            } elseif ( '"' === $character || "'" === $character ) {
+                $quote = $character;
+            }
+        }
+        return '' === $quote;
+    }
+
     /**
      * @param array<string, string> $declarations
      * @param array<string, bool> $consumed
@@ -393,7 +419,8 @@ final class StyleAttributeMapper
     {
         if ( isset($declarations['background-color']) ) {
             $consumed['background-color'] = true;
-            return $this->cssColor($declarations['background-color']);
+            $color = trim($declarations['background-color']);
+            return 'transparent' === strtolower($color) ? $color : $this->cssColor($color);
         }
 
         $value = trim((string) ($declarations['background'] ?? ''));
@@ -402,7 +429,8 @@ final class StyleAttributeMapper
         }
 
         $consumed['background'] = true;
-        return $this->cssColor(CssValueSplitter::splitTopLevelWhitespace($value)[0] ?? '');
+        $color = trim(CssValueSplitter::splitTopLevelWhitespace($value)[0] ?? '');
+        return 'transparent' === strtolower($color) ? $color : $this->cssColor($color);
     }
 
     /**

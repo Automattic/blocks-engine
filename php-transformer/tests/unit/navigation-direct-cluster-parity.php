@@ -83,7 +83,7 @@ $assert(
     $direct['after']
 );
 $assert(
-    1 === preg_match('/\.wp-block-navigation-item\.blocks-engine-direct-navigation-link-color-[a-f0-9]{12}>\.wp-block-navigation-item__content\{color:#6e3b32\}/', $direct['after']),
+    1 === preg_match('/\.wp-block-navigation \.wp-block-navigation-item\.blocks-engine-navigation-link-color-[a-f0-9]{64}>\.wp-block-navigation-item__content\{color:#6e3b32\}/', $direct['after']),
     'colour bridge targets the runtime navigation item class and child anchor',
     $direct['after']
 );
