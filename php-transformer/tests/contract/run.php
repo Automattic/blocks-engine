@@ -1314,6 +1314,20 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeClockCss = '*{margin:0;padding:0}.site-footer{display:flex}.footer-left{display:flex;flex-direction:column}.clock-time{font-size:.75rem;font-weight:700}.clock-date{font-size:.7rem;min-height:1.2em}.blink-colon{animation:blink 1s infinite}#timezone{margin-left:.2rem;opacity:.6}';
+$runtimeClock = ( new HtmlTransformer() )->transform(
+    '<footer class="site-footer"><div id="clock-container" class="footer-left"><div id="clock-time" class="clock-time"><span id="hours">12</span><span id="colon" class="blink-colon">:</span><span id="minutes">28</span><span id="ampm">PM</span><span id="timezone">(GMT -4)</span></div><div id="clock-date" class="clock-date">Saturday</div></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#clock-container', '#hours', '#colon', '#minutes', '#ampm', '#timezone', '#clock-date'),
+        'static_css' => $runtimeClockCss,
+        'author_stylesheet_assets' => array(array('path' => 'style.css', 'source_path' => 'style.css', 'content' => $runtimeClockCss, 'source_hash' => hash('sha256', $runtimeClockCss), 'media' => '', 'type' => '')),
+        'skip_author_stylesheet_materialization' => true,
+    )
+)->toArray();
+$runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
+$assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
+$assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
+
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))

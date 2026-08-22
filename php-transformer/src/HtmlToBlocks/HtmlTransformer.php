@@ -4811,6 +4811,17 @@ final class HtmlTransformer
                 }
             }
 
+            // Keep safe phrasing runs together before generic flex/grid preservation can split
+            // selector-addressed inline targets into block-level children. The recognizer rejects
+            // children with independent layout geometry, so structural inline items still fall
+            // through to the author-owned layout path below.
+            if ( $this->hasMultipleRuntimeInlineTextTargets($element) ) {
+                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $inlineContent ) {
+                    return $inlineContent;
+                }
+            }
+
             if ( 'button' !== strtolower($this->attr($element, 'role'))
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
@@ -8298,6 +8309,25 @@ final class HtmlTransformer
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
+    private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool
+    {
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->hasOnlyPhrasingChildren($element) ) {
+            return false;
+        }
+
+        $targets = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isRuntimeDomTarget($child) ) {
+                ++$targets;
+            }
+        }
+
+        return 1 < $targets;
     }
 
     private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array
