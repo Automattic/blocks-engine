@@ -7349,6 +7349,12 @@ final class HtmlTransformer
             if ( XML_TEXT_NODE === $node->nodeType && '' === trim($node->textContent ?? '') ) {
                 continue;
             }
+            // Source comments carry no rendered, selector, or runtime boundary.
+            // Treating them as transparent lets generated exports shed an otherwise
+            // inert authoring wrapper without interpreting product-specific markup.
+            if ( XML_COMMENT_NODE === $node->nodeType ) {
+                continue;
+            }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
                 return null;
             }

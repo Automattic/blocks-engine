@@ -537,6 +537,10 @@ $neutralSameSourceGroupChain = $transform('<div class="outer"><div class="middle
 $neutralSameSourceGroupChainMarkup = (string) ($neutralSameSourceGroupChain['serialized_blocks'] ?? '');
 $assert(1 === substr_count($neutralSameSourceGroupChainMarkup, '<!-- wp:group') && str_contains($neutralSameSourceGroupChainMarkup, 'outer middle content'), 'neutral same-source Group chains coalesce to their source-provenance leaf');
 
+$commentAnnotatedGroupChain = $transform('<div class="outer"><!-- export annotation --><div class="content"><p>Copy</p></div></div>');
+$commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['serialized_blocks'] ?? '');
+$assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
+
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 
 $blocks = array(array(
     'blockName' => 'core/group',
@@ -18,7 +19,8 @@ $blocks = array(array(
 
 $report = (new EditabilityReport())->fromBlocks($blocks, 'website/index.html', str_repeat('x', 120));
 $metrics = $report['metrics'];
-if (EditabilityReport::SCHEMA !== $report['schema'] || 'thresholds_v1' !== $report['enforcement'] || 'passed' !== $report['status']) throw new RuntimeException('Editability reports must apply versioned meaningful-editability thresholds independently of parity.');
+if ('blocks-engine/php-transformer/editability-report/v3' !== EditabilityReport::SCHEMA || EditabilityReport::SCHEMA !== $report['schema'] || isset($report['enforcement'], $report['status'])) throw new RuntimeException('The factual-only editability report uses a new schema version rather than changing the v2 contract.');
+if ('passed' !== (new EditabilityPolicy())->evaluate($report)['status']) throw new RuntimeException('The versioned editability policy must accept ordinary editable output independently of parity.');
 if (4 !== $metrics['block_count'] || 2 !== $metrics['wrapper_block_count'] || 1 !== $metrics['empty_wrapper_count'] || 2 !== $metrics['max_nesting_depth']) throw new RuntimeException('Editability report must measure block-tree complexity deterministically.');
 if (1 !== $metrics['html_bearing_table_cell_count'] || 1 !== $metrics['source_marker_class_count'] || 1 !== $metrics['generated_geometry_class_count'] || 120 !== $metrics['serialized_bytes']) throw new RuntimeException('Editability report must expose opaque HTML and generated-class signals.');
 if (1 !== $metrics['html_bearing_attribute_count']) throw new RuntimeException('Supported RichText inline markup must not be classified as opaque structural HTML.');
@@ -34,15 +36,30 @@ $emptyGroups = array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => 
 $bounded = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => $emptyGroups)));
 if (101 !== $bounded['signal_totals']['observed'] || 100 !== $bounded['signal_totals']['reported'] || 1 !== $bounded['signal_totals']['omitted'] || !$bounded['signal_totals']['truncated'] || 100 !== count($bounded['signals'])) throw new RuntimeException('Editability reports must bound evidence without losing aggregate signal totals.');
 
+$cleanDocumentBlocks = array_merge(array_fill(0, 6, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')), array(
+    array('blockName' => 'core/paragraph', 'attrs' => array('content' => 'One'), 'innerBlocks' => array(), 'innerHTML' => '<p>One</p>'),
+    array('blockName' => 'core/paragraph', 'attrs' => array('content' => 'Two'), 'innerBlocks' => array(), 'innerHTML' => '<p>Two</p>'),
+));
+$multiDocumentReport = (new EditabilityReport())->fromDocuments(array('a.html' => array('blocks' => $cleanDocumentBlocks), 'b.html' => array('blocks' => $cleanDocumentBlocks)));
+$multiDocumentPolicy = (new EditabilityPolicy())->evaluate($multiDocumentReport);
+if ('passed' !== $multiDocumentPolicy['status'] || 10 !== $multiDocumentPolicy['thresholds']['empty_wrapper_count'] || 12 !== ($multiDocumentReport['metrics']['empty_wrapper_count'] ?? null)) throw new RuntimeException('Each clean document passes independently even when aggregate empty wrappers exceed the per-document limit.');
+$pathologicalDocumentPolicy = (new EditabilityPolicy())->evaluate((new EditabilityReport())->fromDocuments(array('clean.html' => array('blocks' => $cleanDocumentBlocks), 'bad.html' => array('blocks' => array_fill(0, 11, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''))))));
+if ('failed' !== $pathologicalDocumentPolicy['status'] || 'bad.html' !== ($pathologicalDocumentPolicy['failures'][0]['source_path'] ?? null) || 'empty_wrapper_count' !== ($pathologicalDocumentPolicy['failures'][0]['metric'] ?? null)) throw new RuntimeException('A pathological document fails with deterministic source-path attribution.');
+$manyFailedDocuments = array();
+for ($i = 0; $i < 101; $i++) $manyFailedDocuments[] = array('source_path' => sprintf('page-%03d.html', $i), 'metrics' => array('empty_wrapper_count' => 11));
+$boundedPolicy = (new EditabilityPolicy())->evaluate(array('documents' => $manyFailedDocuments));
+if ('failed' !== $boundedPolicy['status'] || 101 !== ($boundedPolicy['failure_totals']['observed'] ?? null) || 100 !== ($boundedPolicy['failure_totals']['reported'] ?? null) || 1 !== ($boundedPolicy['failure_totals']['omitted'] ?? null) || true !== ($boundedPolicy['failure_totals']['truncated'] ?? null) || 100 !== count($boundedPolicy['failures']) || 'page-099.html' !== ($boundedPolicy['failures'][99]['source_path'] ?? null)) throw new RuntimeException('Policy failure evidence is bounded with deterministic totals and source ordering.');
+
 $structuralRichText = '<div><h3>Card title</h3><p>Card copy</p></div>';
 $richTextReport = (new EditabilityReport())->fromBlocks(array(array(
     'blockName' => 'core/list-item',
     'attrs' => array('content' => $structuralRichText),
     'innerBlocks' => array(),
     'innerHTML' => '<li>' . $structuralRichText . '</li>',
-)));
+)), 'standalone.html');
 if (1 !== $richTextReport['metrics']['structural_rich_text_attribute_count'] || strlen($structuralRichText) !== $richTextReport['metrics']['structural_rich_text_attribute_bytes']) throw new RuntimeException('Editability reports must quantify structural HTML stored in RichText attributes.');
 if ('structural_rich_text_attribute' !== ($richTextReport['signals'][0]['kind'] ?? null) || 'core/list-item' !== ($richTextReport['signals'][0]['block_name'] ?? null)) throw new RuntimeException('Structural RichText evidence must retain block attribution.');
-if ('failed' !== $richTextReport['status'] || 'structural_rich_text_attribute_count' !== ($richTextReport['threshold_failures'][0]['metric'] ?? null)) throw new RuntimeException('Structural RichText must fail the bounded meaningful-editability threshold with an actionable metric.');
+$richTextPolicy = (new EditabilityPolicy())->evaluate($richTextReport);
+if ('failed' !== $richTextPolicy['status'] || 'required' !== $richTextPolicy['enforcement'] || 'structural_rich_text_attribute_count' !== ($richTextPolicy['failures'][0]['metric'] ?? null) || 'standalone.html' !== ($richTextPolicy['failures'][0]['source_path'] ?? null)) throw new RuntimeException('Standalone reports fail the bounded meaningful-editability policy with source-path attribution.');
 
 fwrite(STDOUT, "editability report contract passed\n");
