@@ -249,4 +249,51 @@ $throws(static fn() => $compiler->prepareShared($referencedArtifact, $corrupt), 
 $missing = new class implements PayloadReader { public function read(array $reference): string { throw new InvalidArgumentException('missing'); } };
 $throws(static fn() => $compiler->compose($referencedShared, $referencedPages, $missing), 'Composition rejects missing referenced payloads.');
 
+// File-level entrypoint and role metadata are normalized whole-artifact
+// semantics. Staging must retain them even when the entry is page-owned.
+$assertReceiptEquality = static function (array $artifact, string $message) use ($assert, $canonical): void {
+    $inline = (new ArtifactCompiler())->compile($artifact)->toArray();
+    $shared = (new ArtifactCompiler())->prepareShared($artifact);
+    $receipts = array();
+    foreach ($shared['analysis']['page_ids'] as $pageId) $receipts[] = (new ArtifactCompiler())->compilePage($artifact, $shared, $pageId);
+    $staged = (new ArtifactCompiler())->compose($shared, array_reverse($receipts))->toArray();
+    $expected = $canonical($inline);
+    $actual = $canonical($staged);
+    $firstDifference = static function (mixed $left, mixed $right, string $path = '') use (&$firstDifference): string {
+        if (!is_array($left) || !is_array($right)) return $left === $right ? '' : $path;
+        foreach (array_unique(array_merge(array_keys($left), array_keys($right))) as $key) {
+            if (!array_key_exists($key, $left) || !array_key_exists($key, $right)) return $path . '/' . $key;
+            $difference = $firstDifference($left[$key], $right[$key], $path . '/' . $key);
+            if ('' !== $difference) return $difference;
+        }
+        return '';
+    };
+    $assert($expected === $actual, $message . ' First difference: ' . $firstDifference($expected, $actual));
+    $assert(0 === ($staged['metrics']['html_document_transform_count'] ?? null) && 0 === ($staged['metrics']['normalization_count'] ?? null) && 0 === ($staged['metrics']['analysis_count'] ?? null), $message . ' Terminal composition performs no page work.');
+};
+$fileEntrypointArtifact = array('files' => array(
+    array('path' => 'index.html', 'content' => '<main><h1>Non-entry</h1></main>', 'role' => 'page'),
+    array('path' => 'landing.html', 'content' => '<main><h1>Selected entry</h1></main>', 'entrypoint' => true, 'role' => 'entry'),
+));
+$assertReceiptEquality($fileEntrypointArtifact, 'File-level entrypoint and role selection preserve the exact complete inline result through staged receipts.');
+
+$dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
+$capturedStates = array(
+    'schema' => 'data-liberation/captured-interactions/v1',
+    'pages' => array(array(
+        'sourceUrl' => 'https://example.test/',
+        'states' => array(array(
+            'status' => 'captured',
+            'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+            'dialog' => array('html' => $dialogHtml, 'htmlBytes' => strlen($dialogHtml), 'htmlTruncated' => false),
+        )),
+    )),
+);
+$capturedDialogArtifact = array('site_slug' => 'staged-dialog', 'files' => array(
+    array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>', 'entrypoint' => true),
+    array('path' => 'capture-receipt.json', 'content' => json_encode(array('schema' => 'data-liberation/capture-receipt/v1', 'routes' => array(array('url' => 'https://example.test/', 'path' => 'website/index.html'))), JSON_UNESCAPED_SLASHES)),
+    array('path' => 'interaction-states.json', 'content' => json_encode($capturedStates, JSON_UNESCAPED_SLASHES)),
+));
+$assertReceiptEquality($capturedDialogArtifact, 'Digest-bound captured-dialog projection preserves blocks, diagnostics, interaction reports, and complete canonical output through staged receipts.');
+
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

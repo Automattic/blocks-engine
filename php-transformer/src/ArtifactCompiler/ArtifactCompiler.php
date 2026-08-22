@@ -110,6 +110,8 @@ final class ArtifactCompiler
         $entryPath = (string) ($partition['entrypoints'][0] ?? '');
         $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
+        unset($file);
         $sharedArtifact['files'] = $normalized['files'];
 
         $plan = array(
@@ -123,6 +125,13 @@ final class ArtifactCompiler
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
                 'source_paths' => $partition['source_paths'],
+                // Preserve whole-artifact semantics before synthetic stylesheet
+                // occurrence records are introduced by page workers.
+                'canonical_source_hash' => $partition['canonical_source_hash'],
+                'canonical_bytes' => $partition['canonical_bytes'],
+                'canonical_diagnostics' => $partition['canonical_diagnostics'],
+                'canonical_rejected_count' => $partition['canonical_rejected_count'],
+                'captured_dialogs' => $partition['captured_dialogs'],
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
@@ -154,6 +163,8 @@ final class ArtifactCompiler
         }
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
         $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
+        foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];
+        unset($file);
         $pageArtifact['files'] = $normalized['files'];
 
         $plan = array(
@@ -751,8 +762,8 @@ final class ArtifactCompiler
         // Shared preparation already supplied this bounded normalization. Page
         // normalizations were performed by their individual receipt workers.
         $sharedNormalized = array(
-            'diagnostics' => $sharedPlan['diagnostics'] ?? array(),
-            'rejected_count' => $sharedPlan['summary']['rejected_count'] ?? 0,
+            'diagnostics' => $sharedPlan['analysis']['canonical_diagnostics'] ?? ($sharedPlan['diagnostics'] ?? array()),
+            'rejected_count' => $sharedPlan['analysis']['canonical_rejected_count'] ?? ($sharedPlan['summary']['rejected_count'] ?? 0),
             'limits' => $sharedPlan['limits'],
             'entrypoints' => $sharedArtifact['entrypoints'],
             'runtime_declarations' => $sharedArtifact['runtime_declarations'],
@@ -761,17 +772,13 @@ final class ArtifactCompiler
         $bytes = array_sum(array_map(static fn(array $file): int => (int) ($file['bytes'] ?? 0), $files));
         $diagnostics = $sharedNormalized['diagnostics'];
         $rejected = $sharedNormalized['rejected_count'];
-        foreach ($reductions as $reduction) {
-            $diagnostics = array_merge($diagnostics, $reduction['normalization']['diagnostics'] ?? array());
-            $rejected += (int) ($reduction['normalization']['rejected_count'] ?? 0);
-        }
         $normalized = array_merge($sharedNormalized, array(
             'files' => $files,
             'entrypoints' => $sharedArtifact['entrypoints'],
-            'bytes' => $bytes,
+            'bytes' => $sharedPlan['analysis']['canonical_bytes'] ?? $bytes,
             'diagnostics' => $this->dedupeDiagnostics($diagnostics),
             'rejected_count' => $rejected,
-            'source_hash' => $this->normalizedSourceHash($files, $sharedArtifact['runtime_declarations']),
+            'source_hash' => $sharedPlan['analysis']['canonical_source_hash'] ?? $this->normalizedSourceHash($files, $sharedArtifact['runtime_declarations']),
         ));
         $artifact = $sharedArtifact;
         $artifact['files'] = $files;
@@ -783,6 +790,7 @@ final class ArtifactCompiler
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
+            'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),
         );
     }
 
@@ -849,23 +857,30 @@ final class ArtifactCompiler
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
-        $rawFiles = array();
-        foreach (array('files', 'artifacts', 'outputs') as $key) {
-            if (!is_array($artifact[$key] ?? null)) continue;
-            foreach ($artifact[$key] as $path => $file) {
-                if (is_string($file)) $file = array('path' => is_string($path) ? $path : '', 'content' => $file);
-                if (!is_array($file)) continue;
-                if (!is_string($file['path'] ?? null) && is_string($path)) $file['path'] = $path;
-                $rawFiles[] = $file;
+        // Normalize the complete input once so file-level entrypoint flags,
+        // roles, rejection diagnostics, and source order have exactly the same
+        // meaning as inline compilation before ownership partitions are made.
+        $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
+        $rawFiles = $capturedDialogs['files'];
+        // A later partition-envelope normalization must not lose the implicit
+        // page ownership of already-expanded inline assets.
+        foreach ($rawFiles as &$file) {
+            $inlineSource = ArtifactNormalizer::inlineExpansionSourcePath($file);
+            if ('' !== $inlineSource && !isset($file['metadata']['compilation'])) {
+                $file['metadata']['compilation'] = array('scope' => 'page', 'id' => $inlineSource);
             }
         }
+        unset($file);
         $shared = array();
         $pages = array();
         $sourcePaths = array();
+        $canonicalProvenanceHashes = array();
         foreach ($rawFiles as $file) {
             $path = (string) ($file['path'] ?? '');
             $safePath = ArtifactPath::safeRelativePath($path);
             if ('' !== $safePath && !in_array($safePath, $sourcePaths, true)) $sourcePaths[] = $safePath;
+            if ('' !== $safePath && is_string($file['provenance']['hash'] ?? null)) $canonicalProvenanceHashes[$safePath] = $file['provenance']['hash'];
             $ownership = $file['metadata']['compilation'] ?? null;
             $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
             $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null)
@@ -876,22 +891,24 @@ final class ArtifactCompiler
             else $shared[] = $file;
         }
         ksort($pages, SORT_STRING);
-        $entrypoints = array();
-        foreach (array('entrypoint', 'entry', 'main') as $key) if (is_string($artifact[$key] ?? null)) $entrypoints[] = $artifact[$key];
-        foreach (is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array() as $entrypoint) if (is_string($entrypoint)) $entrypoints[] = $entrypoint;
-        $limits = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
         $identity = array();
         foreach (array('site_slug', 'site_name', 'block_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
         return array(
             'shared' => 'shared' === $scope ? $shared : array(),
             'pages' => 'page' === $scope ? (isset($pages[$pageId]) ? array($pageId => $pages[$pageId]) : array()) : $pages,
-            'entrypoints' => array_values(array_unique($entrypoints)),
-            'limits' => $limits,
-            'runtime_declarations' => RuntimeDeclarations::normalize($artifact),
+            'entrypoints' => $normalized['entrypoints'],
+            'limits' => $normalized['limits'],
+            'runtime_declarations' => $normalized['runtime_declarations'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
             'source_paths' => $sourcePaths,
+            'canonical_source_hash' => $normalized['source_hash'],
+            'canonical_bytes' => $normalized['bytes'],
+            'canonical_provenance_hashes' => $canonicalProvenanceHashes,
+            'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
+            'canonical_rejected_count' => $normalized['rejected_count'],
+            'captured_dialogs' => $capturedDialogs,
         );
     }
 
