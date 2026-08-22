@@ -152,17 +152,17 @@ final class RuntimeDeclarations
         try { return json_encode(self::canonical($value), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); } catch (JsonException) { throw new InvalidArgumentException('Runtime declaration payload is not serializable.'); }
     }
 
-    public static function hash(mixed $value): string
+    public static function hash(mixed $value, int $maxDepth = self::MAX_CANONICAL_DEPTH): string
     {
         $context = hash_init('sha256');
-        self::updateCanonicalHash($context, $value);
+        self::updateCanonicalHash($context, $value, $maxDepth);
         return hash_final($context);
     }
 
     /** @param resource $context */
-    private static function updateCanonicalHash($context, mixed $value, int $depth = 0): void
+    private static function updateCanonicalHash($context, mixed $value, int $maxDepth, int $depth = 0): void
     {
-        if ($depth > self::MAX_CANONICAL_DEPTH || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
+        if ($depth > $maxDepth || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
         if (!is_array($value)) {
             if (is_string($value)) {
                 self::updateCanonicalStringHash($context, $value);
@@ -188,7 +188,7 @@ final class RuntimeDeclarations
                 self::updateCanonicalStringHash($context, (string) $key);
                 hash_update($context, ':');
             }
-            self::updateCanonicalHash($context, $value[$key], $depth + 1);
+            self::updateCanonicalHash($context, $value[$key], $maxDepth, $depth + 1);
         }
         hash_update($context, $list ? ']' : '}');
     }
