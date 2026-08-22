@@ -56,10 +56,7 @@ final class Runtime
     private array $diagnostics = array();
 
     /** @var array<string, array<string, mixed>>|null */
-    private ?array $fallbackCoreBlockSupports = null;
-
-    /** @var array<string, array<string, array<string, mixed>>>|null */
-    private ?array $fallbackCoreBlockAttributes = null;
+    private ?array $fallbackCoreBlockMetadata = null;
 
     public function hasWordPress(): bool
     {
@@ -141,13 +138,12 @@ final class Runtime
             return false;
         }
 
-        $supports = $this->registeredBlockSupports($blockName);
-        if ( null === $supports ) {
-            $supports = $this->fallbackBlockSupports($blockName);
-        }
-        if ( null === $supports ) {
+        $metadata = $this->blockMetadata($blockName);
+        if ( null === $metadata ) {
             return false;
         }
+
+        $supports = $metadata['supports'];
 
         $border = $supports['border'] ?? $supports['__experimentalBorder'] ?? false;
         if ( true === $border ) {
@@ -166,8 +162,9 @@ final class Runtime
      */
     public function normalizeBlockSupportAttributes(string $blockName, array $attrs): array
     {
-        $supports = $this->registeredBlockSupports($blockName) ?? $this->fallbackBlockSupports($blockName);
-        if ( null === $supports ) return array( 'attrs' => $attrs, 'fallbackStyle' => array() );
+        $metadata = $this->blockMetadata($blockName);
+        if ( null === $metadata ) return array( 'attrs' => $attrs, 'fallbackStyle' => array() );
+        $supports = $metadata['supports'];
         $fallback = array();
         if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
         if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
@@ -193,7 +190,7 @@ final class Runtime
     private function filterBorder(array &$style, array &$fallback, array $supports): void { $border = is_array($style['border'] ?? null) ? $style['border'] : array(); foreach ( array( 'color', 'style', 'width', 'radius' ) as $feature ) if ( isset($border[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { $fallback['border'][ $feature ] = $border[ $feature ]; unset($border[ $feature ]); } foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) { $sideBorder = is_array($border[ $side ] ?? null) ? $border[ $side ] : array(); foreach ( array( 'color', 'style', 'width' ) as $feature ) if ( isset($sideBorder[ $feature ]) && ! $this->supportsFeature($supports, 'border', $feature) ) { $fallback['border'][ $side ][ $feature ] = $sideBorder[ $feature ]; unset($sideBorder[ $feature ]); } if ( array() === $sideBorder ) unset($border[ $side ]); else $border[ $side ] = $sideBorder; } if ( array() === $border ) unset($style['border']); else $style['border'] = $border; }
 
     /** @param array<string, mixed> $supports */
-    private function supportsFeature(array $supports, string $group, string $feature, bool $colorDefaults = false, string $side = ''): bool { $declaration = 'border' === $group ? ($supports['border'] ?? $supports['__experimentalBorder'] ?? false) : ($supports[ $group ] ?? false); if ( true === $declaration ) return true; if ( ! is_array($declaration) || true === ($declaration['__experimentalSkipSerialization'] ?? false) ) return false; $skipped = $declaration['__experimentalSkipSerialization'] ?? array(); $skipFeature = lcfirst(str_replace('__experimental', '', $feature)); if ( is_array($skipped) && (in_array($feature, $skipped, true) || in_array($skipFeature, $skipped, true)) ) return false; if ( 'layout' === $group ) return 'grid' !== $feature || false !== ($declaration['allowSwitching'] ?? true); $value = $declaration[ $feature ] ?? ($colorDefaults ? true : false); return '' !== $side && is_array($value) ? in_array($side, $value, true) : true === $value; }
+    private function supportsFeature(array $supports, string $group, string $feature, bool $colorDefaults = false, string $side = ''): bool { $declaration = 'border' === $group ? ($supports['border'] ?? $supports['__experimentalBorder'] ?? false) : ($supports[ $group ] ?? false); if ( true === $declaration ) return true; if ( ! is_array($declaration) || true === ($declaration['__experimentalSkipSerialization'] ?? false) ) return false; $skipped = $declaration['__experimentalSkipSerialization'] ?? array(); $skipFeature = lcfirst(str_replace('__experimental', '', $feature)); if ( is_array($skipped) && (in_array($feature, $skipped, true) || in_array($skipFeature, $skipped, true)) ) return false; if ( 'layout' === $group ) return false !== ($declaration['allowEditing'] ?? true) && ( 'grid' !== $feature || false !== ($declaration['allowSwitching'] ?? true) ); $value = $declaration[ $feature ] ?? ($colorDefaults ? true : false); return '' !== $side && is_array($value) ? in_array($side, $value, true) : true === $value; }
 
     /**
      * @return array<int, string>
@@ -237,15 +234,20 @@ final class Runtime
     }
 
     /**
-     * Resolve support from the block type's registered declaration, never from a
-     * transformer-owned block-name allowlist.
+     * Resolve a block's declared capabilities from WordPress first, then the
+     * bundled core metadata snapshot for standalone transforms.
      *
-     * @return array<string, mixed>|null
+     * @return array{supports: array<string, mixed>, attributes: array<string, mixed>, parent: array<int, string>, allowedBlocks: mixed, dynamic: bool, assets: array<string, mixed>}|null
      */
-    private function registeredBlockSupports(string $blockName): ?array
+    public function blockMetadata(string $blockName): ?array
     {
         $blockType = $this->registeredBlockType($blockName);
-        return is_object($blockType) ? (is_array($blockType->supports ?? null) ? $blockType->supports : array()) : null;
+        if ( is_object($blockType) ) {
+            return $this->metadataFromRegisteredBlockType($blockType);
+        }
+
+        $this->loadFallbackCoreBlockMetadata();
+        return $this->fallbackCoreBlockMetadata[ $blockName ] ?? null;
     }
 
     private function registeredBlockType(string $blockName): ?object
@@ -263,48 +265,61 @@ final class Runtime
         return null;
     }
 
-    /**
-     * Standalone transforms have no WP_Block_Type_Registry. Load the generated
-     * latest WordPress declaration snapshot so the same block.json support check
-     * is still available. Live registered declarations always take precedence.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function fallbackBlockSupports(string $blockName): ?array
-    {
-        if ( null === $this->fallbackCoreBlockSupports ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-supports.json';
-            $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
-            $this->fallbackCoreBlockSupports = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
-        }
-
-        $supports = $this->fallbackCoreBlockSupports[ $blockName ] ?? null;
-        return is_array($supports) ? $supports : null;
-    }
-
-    /**
-     * Resolve attributes from a live registered declaration first, then from
-     * the generated core snapshot for standalone transforms. A registered
-     * declaration without attributes is authoritative and deliberately does
-     * not fall back to a possibly stale snapshot.
-     *
-     * @return array<string, array<string, mixed>>|null
-     */
+    /** @return array<string, array<string, mixed>>|null */
     private function blockAttributes(string $blockName): ?array
     {
-        $blockType = $this->registeredBlockType($blockName);
-        if ( is_object($blockType) ) {
-            return is_array($blockType->attributes ?? null) ? $blockType->attributes : array();
+        $metadata = $this->blockMetadata($blockName);
+        return is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : null;
+    }
+
+    /** @return array{supports: array<string, mixed>, attributes: array<string, mixed>, parent: array<int, string>, allowedBlocks: mixed, dynamic: bool, assets: array<string, mixed>} */
+    private function metadataFromRegisteredBlockType(object $blockType): array
+    {
+        $assets = array();
+        foreach ( array( 'editor_script_handles' => 'editorScript', 'script_handles' => 'script', 'view_script_handles' => 'viewScript', 'view_script_module_ids' => 'viewScriptModule', 'style_handles' => 'style', 'editor_style_handles' => 'editorStyle', 'view_style_handles' => 'viewStyle' ) as $property => $field ) {
+            if ( isset($blockType->{$property}) && is_array($blockType->{$property}) ) {
+                $assets[ $field ] = array_values($blockType->{$property});
+            }
         }
 
-        if ( null === $this->fallbackCoreBlockAttributes ) {
-            $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-attributes.json';
-            $registry = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
-            $this->fallbackCoreBlockAttributes = is_array($registry['blocks'] ?? null) ? $registry['blocks'] : array();
-        }
+        return array(
+            'supports'      => is_array($blockType->supports ?? null) ? $blockType->supports : array(),
+            'attributes'    => is_array($blockType->attributes ?? null) ? $blockType->attributes : array(),
+            'parent'        => is_array($blockType->parent ?? null) ? array_values($blockType->parent) : array(),
+            'allowedBlocks' => $blockType->allowed_blocks ?? ($blockType->supports['allowedBlocks'] ?? null),
+            'dynamic'       => method_exists($blockType, 'is_dynamic') ? $blockType->is_dynamic() : null !== ($blockType->render_callback ?? null),
+            'assets'        => $assets,
+        );
+    }
 
-        $attributes = $this->fallbackCoreBlockAttributes[ $blockName ] ?? null;
-        return is_array($attributes) ? $attributes : null;
+    private function loadFallbackCoreBlockMetadata(): void
+    {
+        if ( null !== $this->fallbackCoreBlockMetadata ) return;
+
+        $resourceDirectory = dirname(__DIR__, 2) . '/resources/';
+        $supports = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-supports.json');
+        $attributes = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-attributes.json');
+        $capabilities = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-metadata.json');
+        $names = array_unique(array_merge(array_keys($supports), array_keys($attributes), array_keys($capabilities)));
+        $this->fallbackCoreBlockMetadata = array();
+        foreach ( $names as $name ) {
+            $capability = is_array($capabilities[ $name ] ?? null) ? $capabilities[ $name ] : array();
+            $this->fallbackCoreBlockMetadata[ $name ] = array(
+                'supports'      => is_array($supports[ $name ] ?? null) ? $supports[ $name ] : array(),
+                'attributes'    => is_array($attributes[ $name ] ?? null) ? $attributes[ $name ] : array(),
+                'parent'        => is_array($capability['parent'] ?? null) ? array_values($capability['parent']) : array(),
+                'allowedBlocks' => $capability['allowedBlocks'] ?? ($supports[ $name ]['allowedBlocks'] ?? null),
+                'dynamic'       => true === ($capability['dynamic'] ?? false),
+                'assets'        => is_array($capability['assets'] ?? null) ? $capability['assets'] : array(),
+            );
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function snapshotBlocks(string $path): array
+    {
+        $snapshot = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+        return is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : array();
     }
 
     /**
