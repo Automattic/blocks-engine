@@ -349,6 +349,8 @@ final class HtmlTransformer
 
     private bool $responsiveMediaBlockGenerated = false;
 
+    private bool $capturedDialogBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -698,6 +700,7 @@ final class HtmlTransformer
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
         $this->responsiveMediaBlockGenerated = false;
+        $this->capturedDialogBlockGenerated = false;
         $this->descriptionListBlockGenerated = false;
         $this->formSelectBlockGenerated = false;
         $this->formInputBlockGenerated = false;
@@ -4321,6 +4324,10 @@ final class HtmlTransformer
             }
         }
 
+        if ('dialog' === $tagName && 'true' === $this->attr($element, 'data-blocks-engine-captured-dialog')) {
+            return $this->capturedDialogBlock($element, $fallbacks);
+        }
+
         if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
@@ -5342,6 +5349,45 @@ final class HtmlTransformer
 
         $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
         return $blocks;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
+    private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
+    {
+        $blockName = $this->generatedBlockNamespace . '/' . CapturedDialogBlockGenerator::LOCAL_NAME;
+        if (! $this->capturedDialogBlockGenerated) {
+            $this->generatedBlocks[] = (new CapturedDialogBlockGenerator())->definition($blockName);
+            $this->capturedDialogBlockGenerated = true;
+        }
+
+        $attrs = array_filter(array(
+            'dialogId' => trim($this->attr($element, 'id')),
+            'triggerId' => trim($this->attr($element, 'data-blocks-engine-trigger')),
+            'ariaLabel' => trim($this->attr($element, 'aria-label')),
+            'ariaLabelledby' => trim($this->attr($element, 'aria-labelledby')),
+            'ariaDescribedby' => trim($this->attr($element, 'aria-describedby')),
+            'className' => trim($this->attr($element, 'class')),
+            'addCloseButton' => 'true' === $this->attr($element, 'data-blocks-engine-add-close'),
+        ), static fn(mixed $value): bool => false !== $value && '' !== $value);
+        $children = $this->convertChildren($element, $fallbacks, true);
+        $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $opening = '<dialog';
+        foreach (array('dialogId' => 'id', 'className' => 'class', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby', 'triggerId' => 'data-blocks-engine-trigger') as $key => $attribute) {
+            if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
+        }
+        $opening .= '>';
+        if (! empty($attrs['addCloseButton'])) $opening .= '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>';
+        $innerContent = array($opening);
+        foreach ($children as $_) $innerContent[] = null;
+        $innerContent[] = '</dialog>';
+
+        return array(
+            'blockName' => $blockName,
+            'attrs' => $attrs,
+            'innerBlocks' => $children,
+            'innerHTML' => $opening . '</dialog>',
+            'innerContent' => $innerContent,
+        );
     }
 
     /**

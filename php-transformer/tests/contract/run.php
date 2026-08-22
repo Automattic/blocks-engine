@@ -48,7 +48,8 @@ if ( ! function_exists('serialize_blocks') ) {
                 $inner .= $part;
             }
 
-            $serialized .= '<!-- wp:' . substr($name, 5) . $attrs . ' -->' . $inner . '<!-- /wp:' . substr($name, 5) . ' -->';
+            $commentName = str_starts_with($name, 'core/') ? substr($name, 5) : $name;
+            $serialized .= '<!-- wp:' . $commentName . $attrs . ' -->' . $inner . '<!-- /wp:' . $commentName . ' -->';
         }
 
         return $serialized;
@@ -3996,6 +3997,44 @@ $companionAbsent = $compiler->compile(
     array( 'files' => array( 'index.html' => '<main><h1>Plain</h1><p>No blocks</p></main>' ) )
 )->toArray();
 $assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
+
+$capturedDialog = $compiler->compile(array(
+    'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(array(
+                    'status' => 'captured',
+                    'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+                    'dialog' => array(
+                        'html' => '<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>',
+                        'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
+                        'htmlTruncated' => false,
+                    ),
+                )),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-trigger='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
+$capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
+$capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
+$assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');
+$assert(str_contains((string) ($capturedDialogBlock['view_js'] ?? ''), 'showModal'), 'captured dialog companion block carries scoped native dialog behavior');
+$assert(isset($capturedDialogBlock['assets']['index.js']), 'captured dialog companion block carries an editable InnerBlocks editor');
+$capturedDialogForms = array_values(array_filter($capturedDialog['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
+$assert(1 === count($capturedDialogForms), 'captured dialog forms continue through the generic form materialization declaration');
 
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream
