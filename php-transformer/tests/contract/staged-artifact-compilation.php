@@ -57,6 +57,31 @@ $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($stage
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
 $compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
+$manyPages = array();
+for ($index = 0; $index < 50; ++$index) {
+    $path = sprintf('pages/page-%02d.html', $index);
+    $manyPages[] = array('path' => $path, 'content' => '<link rel="stylesheet" href="../assets/site.css"><main class="page"><h1>Page ' . $index . '</h1><p>Page-local content ' . str_repeat((string) $index, 8) . '</p></main>');
+}
+$manyPages[0]['path'] = 'index.html';
+$manyPages[0]['content'] = '<link rel="stylesheet" href="assets/site.css"><main class="page"><h1>Page 0</h1><p>Page-local content</p></main>';
+$manyArtifact = array('entrypoints' => array('index.html'), 'files' => array_merge(array(array('path' => 'assets/site.css', 'content' => '.page{color:#123;margin:1rem}', 'metadata' => array('compilation' => array('scope' => 'shared')))), $manyPages));
+$manyShared = $compiler->prepareShared($manyArtifact);
+$assert(50 === count($manyShared['analysis']['page_ids'] ?? array()) && 'assets/site.css' === ($manyShared['analysis']['stylesheets'][0]['path'] ?? null), 'Shared preparation persists immutable stylesheet and source analysis for all page receipts.');
+$manyReceipts = array();
+foreach (array_reverse($manyShared['analysis']['page_ids']) as $pageId) $manyReceipts[] = $compiler->compilePage($manyArtifact, $manyShared, $pageId);
+$serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$manyStaged = $compiler->compose(json_decode(json_encode($manyShared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR), $serializedReceipts)->toArray();
+$manyInline = $compiler->compile($manyArtifact)->toArray();
+$canonical = static function (mixed $value) use (&$canonical): mixed {
+    if (!is_array($value)) return $value;
+    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count']);
+    foreach ($value as $key => $item) $value[$key] = $canonical($item);
+    return $value;
+};
+$assert(0 === ($manyStaged['metrics']['html_document_transform_count'] ?? null), 'Terminal aggregation performs no HTML document transformations after independently serialized page receipts are complete.');
+$assert(50 === ($manyInline['metrics']['html_document_transform_count'] ?? null), 'Inline compilation performs bounded work once per page document.');
+$assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($manyStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($manyInline['diagnostics'] ?? array()) === $canonical($manyStaged['diagnostics'] ?? array()), 'Fifty-page arbitrary-order resume preserves canonical WordPress plans and diagnostics after observational fields are excluded.');
+$throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
 $siteWrites = array_column($sitePlan['writes'] ?? array(), null, 'target_path');
