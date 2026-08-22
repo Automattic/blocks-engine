@@ -16,15 +16,15 @@
     "content": "<a href=\"single.html\" tabindex=\"-1\" aria-hidden=\"true\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"></a><a class=\"bp-logo\" href=\"index.html\" aria-label=\"The Baseplate - home\"></a>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/photos/thumb-stop-motion.png", "href": "single.html", "linkDestination": "custom" } },
+    { "path": "blocks.0", "name": "custom/responsive-media", "attrs": { "content": "<a href=\"single.html\" tabindex=\"-1\" aria-hidden=\"true\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"></a>" } },
     { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "blocks-engine-synthetic-paragraph" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"single.html\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"/></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/responsive-media" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"content\":\"<a href=\\\"single.html\\\" tabindex=\\\"-1\\\" aria-hidden=\\\"true\\\"><img src=\\\"assets/photos/thumb-stop-motion.png\\\" alt=\\\"\\\"></a>\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-synthetic-paragraph\"><a class=\"bp-logo\" href=\"index.html\" aria-label=\"The Baseplate - home\"></a></p>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

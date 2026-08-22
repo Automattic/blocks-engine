@@ -23,6 +23,21 @@ $blocks = $runtime->parseBlocks('<!-- wp:paragraph {"content":"Hello"} --><p>Hel
 assertSame('core/paragraph', $blocks[0]['blockName'] ?? null, 'Fallback parser should parse serialized block comments.');
 assertSame('wordpress_parse_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback parser should expose a diagnostic.');
 
+$parserFixtures = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/standalone-block-parser.json'), true);
+assertSame('blocks-engine/php-transformer/standalone-block-parser/v1', $parserFixtures['schema'] ?? null, 'Standalone parser fixture should expose its schema.');
+foreach ( $parserFixtures['cases'] ?? array() as $case ) {
+    $parsed = $runtime->parseBlocks($case['markup']);
+    if ( 'freeform' === ($case['expectation'] ?? null) ) {
+        assertSame(true, array_key_exists('blockName', $parsed[0] ?? array()) && null === $parsed[0]['blockName'], 'Standalone parser should preserve malformed input as freeform for ' . $case['name']);
+        assertSame($case['markup'], $parsed[0]['innerHTML'] ?? null, 'Standalone parser should preserve malformed input byte-for-byte for ' . $case['name']);
+        continue;
+    }
+    assertSame($case['top_level_block'], $parsed[array_key_exists('freeform_segments', $case) ? 1 : 0]['blockName'] ?? null, 'Standalone parser should parse bounded fixture ' . $case['name']);
+    if ( isset($case['nested_block']) ) assertSame($case['nested_block'], $parsed[0]['innerBlocks'][0]['blockName'] ?? null, 'Standalone parser should retain nested blocks for ' . $case['name']);
+    if ( isset($case['attribute']) ) assertSame($case['attribute'], $parsed[0]['attrs']['content'] ?? null, 'Standalone parser should decode escaped delimiter text for ' . $case['name']);
+    if ( isset($case['freeform_segments']) ) assertSame($case['freeform_segments'], array($parsed[0]['innerHTML'] ?? null, $parsed[2]['innerHTML'] ?? null), 'Standalone parser should preserve freeform interleaving for ' . $case['name']);
+}
+
 $serialized = $runtime->serializeBlocks($blocks);
 assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $serialized, 'Standalone canonicalization should omit Paragraph rich-text content from block comments.');
 assertSame('wordpress_serialize_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback serializer should expose a diagnostic.');

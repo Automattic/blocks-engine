@@ -105,8 +105,10 @@ $assert(
 );
 $linkedDimensionedImageResult = ( new HtmlTransformer() )->transform('<a href="/profile"><img src="avatar.jpg" style="width:44px;height:44px" width="44" height="44" alt="Profile"></a>')->toArray();
 $assert(
-    str_contains((string) ($linkedDimensionedImageResult['serialized_blocks'] ?? ''), 'style="width:44;height:44"'),
-    'linked core image dimensions match the unitless WordPress canonical save shape'
+    'custom/responsive-media' === ($linkedDimensionedImageResult['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($linkedDimensionedImageResult['blocks'][0]['attrs']['content'] ?? ''), 'style="width:44px;height:44px"')
+        && '' === ($linkedDimensionedImageResult['blocks'][0]['innerHTML'] ?? 'x'),
+    'linked images use the responsive-media companion while preserving authored geometry'
 );
 $visualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}</style><div class="media-column"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
 $visualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $visualLayerImageResult['assets'] ?? array()));
@@ -124,11 +126,11 @@ $assert(
 );
 $customPictureResult = ( new HtmlTransformer() )->transform('<media-image><picture><source media="(min-width: 800px)" srcset="hero-large.jpg 1200w"><img src="hero.jpg" alt="Hero"></picture></media-image>')->toArray();
 $assert(
-    str_starts_with((string) ($customPictureResult['blocks'][0]['blockName'] ?? ''), 'custom/')
-        && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', '<media-image><picture>')
-        && str_contains($customPictureResult['source_reports']['generated_blocks'][0]['render'] ?? '', 'media="(min-width: 800px)" srcset="hero-large.jpg 1200w"')
+    'custom/responsive-media' === ($customPictureResult['blocks'][0]['blockName'] ?? null)
+        && str_contains($customPictureResult['blocks'][0]['attrs']['content'] ?? '', '<media-image><picture>')
+        && str_contains($customPictureResult['blocks'][0]['attrs']['content'] ?? '', 'media="(min-width: 800px)" srcset="hero-large.jpg 1200w"')
         && array() === ($customPictureResult['fallbacks'] ?? array()),
-    'custom image wrappers should preserve picture source selection in a generated editable block'
+    'custom image wrappers preserve picture source selection in the reusable editable companion block'
 );
 $responsiveSrcsetSanitization = ( new HtmlTransformer() )->transform('<picture><source srcset="javascript:alert(1) 1x, safe.webp 2x"><img src="hero.jpg" srcset="data:image/png;base64,aGVsbG8= 1x, blob:https://example.com/id 2x, hero-2x.jpg 3x"></picture>')->toArray();
 $responsiveSrcsetMarkup = (string) ($responsiveSrcsetSanitization['serialized_blocks'] ?? '');
@@ -142,12 +144,12 @@ $assert(
 );
 $responsiveGallery = ( new HtmlTransformer() )->transform('<div class="gallery"><figure><img src="one.jpg" srcset="one-2x.jpg 2x"></figure><figure><img src="two.jpg"></figure></div>')->toArray();
 $assert(
-    str_starts_with((string) ($responsiveGallery['blocks'][0]['blockName'] ?? ''), 'custom/')
+    'custom/responsive-media' === ($responsiveGallery['blocks'][0]['blockName'] ?? null)
         && 1 === count($responsiveGallery['source_reports']['generated_blocks'] ?? array())
         && array() === ($responsiveGallery['fallbacks'] ?? array())
-        && str_contains($responsiveGallery['source_reports']['generated_blocks'][0]['render'] ?? '', '<div class="gallery">')
+        && str_contains($responsiveGallery['blocks'][0]['attrs']['content'] ?? '', '<div class="gallery">')
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
-    'responsive gallery media is preserved as one generated editable block instead of a gallery with unsupported children'
+    'responsive gallery media is preserved as one reusable editable block instead of a gallery with unsupported children'
 );
 
 $referenceAnalyzer = new ReferenceAnalyzer();
@@ -816,7 +818,7 @@ $numericLinkedImageDimensions = ( new HtmlTransformer() )->transform(
 )->toArray();
 $numericLinkedImageAttrs = $numericLinkedImageDimensions['blocks'][0]['attrs'] ?? array();
 $numericLinkedImageMarkup = (string) ($numericLinkedImageDimensions['serialized_blocks'] ?? '');
-$assert('44' === ($numericLinkedImageAttrs['width'] ?? null) && '44' === ($numericLinkedImageAttrs['height'] ?? null) && str_contains($numericLinkedImageMarkup, 'style="object-fit:cover;width:44;height:44"'), 'numeric linked-image dimensions retain Gutenberg linked-image save semantics in block attributes and markup');
+$assert('custom/responsive-media' === ($numericLinkedImageDimensions['blocks'][0]['blockName'] ?? null) && str_contains((string) ($numericLinkedImageAttrs['content'] ?? ''), 'style="object-fit:cover;width:44;height:44"') && str_contains($numericLinkedImageMarkup, 'responsive-media'), 'numeric linked-image dimensions remain in the reusable responsive-media companion markup');
 
 $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
@@ -2702,8 +2704,9 @@ $linkedRuntimeImage = ( new HtmlTransformer() )->transform(
     '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
 )->toArray();
 $linkedRuntimeImageSerialized = (string) ($linkedRuntimeImage['serialized_blocks'] ?? '');
-$assert(str_contains($linkedRuntimeImageSerialized, 'id="productHero"'), 'linked image conversion preserves linked media anchor IDs for runtime selectors');
-$assert(str_contains($linkedRuntimeImageSerialized, 'class="product-detail__main-image"'), 'linked image conversion preserves linked media classes for runtime selectors');
+$linkedRuntimeImageContent = (string) ($linkedRuntimeImage['blocks'][0]['attrs']['content'] ?? '');
+$assert(str_contains($linkedRuntimeImageContent, 'id="productHero"'), 'linked image conversion preserves linked media anchor IDs for runtime selectors');
+$assert(str_contains($linkedRuntimeImageContent, 'class="product-detail__main-image"'), 'linked image conversion preserves linked media classes for runtime selectors');
 
 $bridgeImageBlocks = ( new FormatBridge() )->toBlocks('<main><img src="assets/hero.jpg" alt="Hero alt"></main>', 'html', $assetMetadataOptions);
 $bridgeImageAttrs = $bridgeImageBlocks[0]['attrs'] ?? array();

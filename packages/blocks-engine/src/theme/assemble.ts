@@ -84,8 +84,8 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
         templatePlan,
         parts.layoutOffsetWrapperClass
       ),
-      'index.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
-      'page.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
+      'index.html': buildPostsIndexTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
+      'page.html': buildSingularContentTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
     },
     parts: { ...(parts.chromeParts ?? {}) },
     patterns: {},
@@ -327,12 +327,49 @@ ${blocks}
   ].join('\n');
 }
 
-function buildGenericQueriedContentTemplate(
+function buildSingularContentTemplate(
   chromeParts: Record<string, string>,
   layoutOffsetWrapperClass: string | undefined
 ): string {
   const mainTemplate =
     `<!-- wp:group ${mainGroupAttrs(layoutOffsetWrapperClass)} --><main class="${mainGroupClass(layoutOffsetWrapperClass)}"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></main><!-- /wp:group -->`;
+
+  if (!hasChromePart(chromeParts, 'header') || !hasChromePart(chromeParts, 'footer')) {
+    return `${mainTemplate}\n`;
+  }
+
+  return [
+    templatePartRef('header', 'header'),
+    mainTemplate,
+    templatePartRef('footer', 'footer'),
+    '',
+  ].join('\n');
+}
+
+function buildPostsIndexTemplate(
+  chromeParts: Record<string, string>,
+  layoutOffsetWrapperClass: string | undefined
+): string {
+  const mainTemplate = `<!-- wp:group ${mainGroupAttrs(layoutOffsetWrapperClass)} -->
+<main class="${mainGroupClass(layoutOffsetWrapperClass)}">
+<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":true},"layout":{"type":"constrained"}} -->
+<div class="wp-block-query"><!-- wp:post-template -->
+<!-- wp:post-title {"isLink":true} /-->
+<!-- wp:post-excerpt /-->
+<!-- wp:post-date {"isLink":true} /-->
+<!-- /wp:post-template -->
+<!-- wp:query-pagination {"paginationArrow":"arrow","layout":{"type":"flex","justifyContent":"space-between"}} -->
+<!-- wp:query-pagination-previous /-->
+<!-- wp:query-pagination-next /-->
+<!-- /wp:query-pagination -->
+<!-- wp:query-no-results -->
+<!-- wp:paragraph -->
+<p>No posts found.</p>
+<!-- /wp:paragraph -->
+<!-- /wp:query-no-results --></div>
+<!-- /wp:query -->
+</main>
+<!-- /wp:group -->`;
 
   if (!hasChromePart(chromeParts, 'header') || !hasChromePart(chromeParts, 'footer')) {
     return `${mainTemplate}\n`;
