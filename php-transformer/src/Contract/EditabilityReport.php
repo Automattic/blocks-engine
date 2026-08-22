@@ -16,7 +16,7 @@ final class EditabilityReport
     );
 
     /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
-    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $visualBlockPaths = array()): array
+    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $visualBlockPaths = array(), array $sourceProvenance = array()): array
     {
         $metrics = array(
             'block_count' => 0,
@@ -40,7 +40,8 @@ final class EditabilityReport
         $signals = array();
         $runtimeBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $runtimeBlockPaths);
         $visualBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $visualBlockPaths);
-        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), array_fill_keys($visualBlockPaths, true));
+        $deepestBlock = array();
+        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), array_fill_keys($visualBlockPaths, true), $this->provenanceByBlockPath($sourceProvenance), $deepestBlock);
         ksort($blockTypes, SORT_STRING);
         $policyWrapperCount = $metrics['wrapper_block_count'] - $metrics['empty_visual_group_count'] - $metrics['empty_runtime_group_count'];
         $metrics['wrapper_to_content_ratio'] = 0 === $metrics['content_block_count']
@@ -52,6 +53,7 @@ final class EditabilityReport
             'schema' => self::SCHEMA,
             'scope' => array_filter(array('source_path' => $sourcePath), static fn(string $value): bool => '' !== $value),
             'metrics' => $metrics,
+            'deepest_block' => $deepestBlock,
             'block_types' => $blockTypes,
             'signals' => array_slice($signals, 0, self::MAX_REPORTED_SIGNALS),
             'signal_totals' => array(
@@ -73,17 +75,19 @@ final class EditabilityReport
         $signals = array();
         $signalCount = 0;
         foreach ($documents as $sourcePath => $document) {
-            $report = $this->fromBlocks(
+            $report = is_array($document['editability_report'] ?? null) ? $document['editability_report'] : $this->fromBlocks(
                 is_array($document['blocks'] ?? null) ? $document['blocks'] : array(),
                 (string) $sourcePath,
                 is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : '',
                 is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
                 is_array($document['runtime_block_paths'] ?? null) ? $document['runtime_block_paths'] : array(),
-                is_array($document['visual_block_paths'] ?? null) ? $document['visual_block_paths'] : array()
+                is_array($document['visual_block_paths'] ?? null) ? $document['visual_block_paths'] : array(),
+                is_array($document['source_provenance'] ?? null) ? $document['source_provenance'] : array()
             );
             $reports[] = array(
                 'source_path' => (string) $sourcePath,
                 'metrics' => $report['metrics'],
+                'deepest_block' => $report['deepest_block'],
                 'block_types' => $report['block_types'],
                 'signals' => $report['signals'],
                 'signal_totals' => $report['signal_totals'],
@@ -146,7 +150,7 @@ final class EditabilityReport
      * @param array<string,int> $blockTypes
      * @param array<int,array<string,mixed>> $signals
      */
-    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $visualBlockPaths): void
+    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $visualBlockPaths, array $provenanceByBlockPath, array &$deepestBlock): void
     {
         foreach ($blocks as $index => $block) {
             if (!is_array($block)) continue;
@@ -156,6 +160,13 @@ final class EditabilityReport
             $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
             $metrics['block_count']++;
             $metrics['max_nesting_depth'] = max($metrics['max_nesting_depth'], $depth);
+            if ($depth > ($deepestBlock['depth'] ?? 0)) {
+                $deepestBlock = array_filter(array_merge(array(
+                    'depth' => $depth,
+                    'block_path' => implode('.', $blockPath),
+                    'block_name' => $name,
+                ), $provenanceByBlockPath[implode('.', $blockPath)] ?? array()), static fn(mixed $value): bool => is_array($value) || '' !== $value);
+            }
             $blockTypes[$name] = ($blockTypes[$name] ?? 0) + 1;
             if (array() === $innerBlocks) $metrics['leaf_block_count']++;
             if ($this->isWrapper($name)) {
@@ -184,8 +195,21 @@ final class EditabilityReport
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
             }
             $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals);
-            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths);
+            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock);
         }
+    }
+
+    /** @param array<int,array<string,mixed>> $sourceProvenance @return array<string,array<string,mixed>> */
+    private function provenanceByBlockPath(array $sourceProvenance): array
+    {
+        $resolved = array();
+        foreach ($sourceProvenance as $provenance) {
+            if (!is_array($provenance) || !is_string($provenance['block_path'] ?? null)) continue;
+            $path = preg_replace('/(?:^blocks\.|\.innerBlocks\.)/', '.', $provenance['block_path']);
+            if (!is_string($path) || !preg_match('/^\.\d+(?:\.\d+)*$/', $path)) continue;
+            $resolved[ltrim($path, '.')] = array_filter(array_intersect_key($provenance, array_flip(array('tag', 'selector', 'source_attributes', 'source_fragment', 'source_digest', 'source_bytes', 'source_path', 'context'))), static fn(mixed $value): bool => is_array($value) || '' !== $value);
+        }
+        return $resolved;
     }
 
     private function isWrapper(string $name): bool

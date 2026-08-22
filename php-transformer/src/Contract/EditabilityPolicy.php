@@ -29,14 +29,16 @@ final class EditabilityPolicy
                 if (!is_array($document)) continue;
                 $failures = array_merge($failures, $this->failures(
                     is_array($document['metrics'] ?? null) ? $document['metrics'] : array(),
-                    is_string($document['source_path'] ?? null) ? $document['source_path'] : ''
+                    is_string($document['source_path'] ?? null) ? $document['source_path'] : '',
+                    is_array($document['deepest_block'] ?? null) ? $document['deepest_block'] : array()
                 ));
             }
         } else {
             $scope = is_array($report['scope'] ?? null) ? $report['scope'] : array();
             $failures = $this->failures(
                 is_array($report['metrics'] ?? null) ? $report['metrics'] : array(),
-                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : ''
+                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : '',
+                is_array($report['deepest_block'] ?? null) ? $report['deepest_block'] : array()
             );
         }
 
@@ -57,7 +59,7 @@ final class EditabilityPolicy
     }
 
     /** @param array<string,mixed> $metrics @return array<int,array<string,mixed>> */
-    private function failures(array $metrics, string $sourcePath): array
+    private function failures(array $metrics, string $sourcePath, array $deepestBlock = array()): array
     {
         $failures = array();
         foreach (self::THRESHOLDS as $metric => $maximum) {
@@ -70,6 +72,7 @@ final class EditabilityPolicy
                 'message' => sprintf('%s is %s; meaningful editability allows at most %s.', $metric, $actual, $maximum),
             );
             if ('' !== $sourcePath) $failure['source_path'] = $sourcePath;
+            if ('max_nesting_depth' === $metric && array() !== $deepestBlock) $failure['deepest_block'] = $deepestBlock;
             $failures[] = $failure;
         }
         return $failures;
