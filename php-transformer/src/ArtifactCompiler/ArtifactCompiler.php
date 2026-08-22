@@ -45,6 +45,30 @@ final class ArtifactCompiler
 
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
+    public function __construct(private readonly bool $cacheHtmlAnalysis = true)
+    {
+    }
+
+    /** @return array<string, int> */
+    public function htmlAnalysisCacheMetrics(): array
+    {
+        $cache = $this->htmlTransformerAnalysisCache;
+        if ( ! $cache instanceof HtmlTransformerAnalysisCache ) {
+            return array();
+        }
+
+        return array(
+            'style_builds' => $cache->styleBuilds,
+            'style_hits' => $cache->styleHits,
+            'style_evictions' => $cache->styleEvictions,
+            'style_bytes' => $cache->styleBytes,
+            'author_builds' => $cache->authorSelectorBuilds,
+            'author_hits' => $cache->authorSelectorHits,
+            'author_evictions' => $cache->authorSelectorEvictions,
+            'author_bytes' => $cache->authorSelectorBytes,
+        );
+    }
+
     private string $generatedAssetRoot = '';
 
     /** @var array<string, array<string, mixed>> */
@@ -182,7 +206,7 @@ final class ArtifactCompiler
         $startedAt = hrtime(true);
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
-        $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
+        $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $capturedDialogs = ( new CapturedDialogProjector() )->project($normalized['files']);
         $normalized['files'] = $capturedDialogs['files'];
@@ -1101,11 +1125,16 @@ final class ArtifactCompiler
             );
         }
 
-        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $stylesheetPayloads = $this->linkedStylesheetPayloads($html, $sourcePath, $files);
+        $analysisCache = $this->cacheHtmlAnalysis
+            ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
+            : new HtmlTransformerAnalysisCache();
+        $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'stylesheet_payloads'       => $stylesheetPayloads,
             'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
@@ -1491,15 +1520,29 @@ final class ArtifactCompiler
      */
     private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
     {
-        $css = array();
+        return trim(implode("\n", array_column($this->linkedStylesheetPayloads($html, $sourcePath, $files), 'content')));
+    }
+
+    /**
+     * Keep source stylesheet boundaries intact for payload-addressed analysis.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return list<array{content: string, source_hash: string}>
+     */
+    private function linkedStylesheetPayloads(string $html, string $sourcePath, array $files): array
+    {
+        $payloads = array();
         foreach ( $this->stylesheetAssetsForSource($html, $sourcePath, $files) as $stylesheet ) {
             $content = (string) ($stylesheet['content'] ?? '');
             if ( '' !== trim($content) ) {
-                $css[] = $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files);
+                $payloads[] = array(
+                    'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
+                    'source_hash' => (string) ($stylesheet['source_hash'] ?? hash('sha256', $content)),
+                );
             }
         }
 
-        return trim(implode("\n", $css));
+        return $payloads;
     }
 
     /**

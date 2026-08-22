@@ -12,6 +12,8 @@ final class HtmlTransformerAnalysisCache
     // cache small even when every route contributes a local stylesheet.
     private const MAX_PAYLOAD_ENTRIES = 16;
 
+    private const MAX_PAYLOAD_BYTES = 1048576;
+
     /** @var array<string, array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array}> */
     public array $styles = array();
 
@@ -21,6 +23,10 @@ final class HtmlTransformerAnalysisCache
 
     public int $styleEvictions = 0;
 
+    public int $styleBytes = 0;
+
+    public int $styleEvictedBytes = 0;
+
     /** @var array<string, array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>}>} */
     public array $authorSelectorAnalyses = array();
 
@@ -29,6 +35,10 @@ final class HtmlTransformerAnalysisCache
     public int $authorSelectorHits = 0;
 
     public int $authorSelectorEvictions = 0;
+
+    public int $authorSelectorBytes = 0;
+
+    public int $authorSelectorEvictedBytes = 0;
 
     public int $authorSelectorClassTokenBuilds = 0;
 
@@ -59,11 +69,20 @@ final class HtmlTransformerAnalysisCache
     /** @param array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array} $analysis */
     public function rememberStyle(string $key, array $analysis): void
     {
-        if ( count($this->styles) >= self::MAX_PAYLOAD_ENTRIES ) {
-            array_shift($this->styles);
+        $bytes = $this->analysisBytes($analysis);
+        if ( $bytes > self::MAX_PAYLOAD_BYTES ) {
             ++$this->styleEvictions;
+            $this->styleEvictedBytes += $bytes;
+            return;
+        }
+        while ( count($this->styles) >= self::MAX_PAYLOAD_ENTRIES || $this->styleBytes + $bytes > self::MAX_PAYLOAD_BYTES ) {
+            $evicted = array_shift($this->styles);
+            ++$this->styleEvictions;
+            $this->styleBytes -= $this->analysisBytes($evicted);
+            $this->styleEvictedBytes += $this->analysisBytes($evicted);
         }
         $this->styles[$key] = $analysis;
+        $this->styleBytes += $bytes;
     }
 
     public function style(string $key): ?array
@@ -81,11 +100,20 @@ final class HtmlTransformerAnalysisCache
     /** @param array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} $analysis */
     public function rememberAuthorSelectors(string $key, array $analysis): void
     {
-        if ( count($this->authorSelectorAnalyses) >= self::MAX_PAYLOAD_ENTRIES ) {
-            array_shift($this->authorSelectorAnalyses);
+        $bytes = $this->analysisBytes($analysis);
+        if ( $bytes > self::MAX_PAYLOAD_BYTES ) {
             ++$this->authorSelectorEvictions;
+            $this->authorSelectorEvictedBytes += $bytes;
+            return;
+        }
+        while ( count($this->authorSelectorAnalyses) >= self::MAX_PAYLOAD_ENTRIES || $this->authorSelectorBytes + $bytes > self::MAX_PAYLOAD_BYTES ) {
+            $evicted = array_shift($this->authorSelectorAnalyses);
+            ++$this->authorSelectorEvictions;
+            $this->authorSelectorBytes -= $this->analysisBytes($evicted);
+            $this->authorSelectorEvictedBytes += $this->analysisBytes($evicted);
         }
         $this->authorSelectorAnalyses[$key] = $analysis;
+        $this->authorSelectorBytes += $bytes;
     }
 
     public function authorSelectors(string $key): ?array
@@ -98,5 +126,10 @@ final class HtmlTransformerAnalysisCache
         $this->authorSelectorAnalyses[$key] = $analysis;
 
         return $analysis;
+    }
+
+    private function analysisBytes(array $analysis): int
+    {
+        return strlen(serialize($analysis));
     }
 }
