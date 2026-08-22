@@ -894,10 +894,10 @@ final class HtmlTransformer
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
-        $this->finalizeFallbackBindings($fallbacks, $blocks);
+        $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->finalizeReusableComponentRecognition($reusableComponentRecognition);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
-        $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $this->materializeAuthorStylesheet(
             $html,
@@ -9255,9 +9255,8 @@ final class HtmlTransformer
     }
 
     /** @param array<int,array<string,mixed>> $fallbacks @param array<int,array<string,mixed>> $blocks */
-    private function finalizeFallbackBindings(array &$fallbacks, array $blocks): void
+    private function finalizeFallbackBindings(array &$fallbacks, array $blocks, string $markup): void
     {
-        $markup = $this->runtime->serializeBlocks($blocks);
         $provenanceIndexes = array(); $index = 0;
         $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
         $ranges = $this->serializedBlockRanges($markup);
