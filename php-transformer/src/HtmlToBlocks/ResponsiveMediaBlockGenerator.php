@@ -23,7 +23,6 @@ final class ResponsiveMediaBlockGenerator
                 'content' => array( 'type' => 'string', 'default' => '' ),
             ),
             'supports' => array( 'html' => false ),
-            'render' => 'file:./render.php',
         );
     }
 

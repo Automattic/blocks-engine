@@ -184,9 +184,11 @@ final class ArtifactCompiler
 		$this->wordpressCompatCssCache = array();
         $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
+        $capturedDialogs = ( new CapturedDialogProjector() )->project($normalized['files']);
+        $normalized['files'] = $capturedDialogs['files'];
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
-        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
+        $diagnostics = array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -274,6 +276,12 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
+        if (0 < $capturedDialogs['projected_count']) {
+            $sourceReports['captured_interactions'] = array(
+                'schema' => 'blocks-engine/captured-interactions/v1',
+                'projected_dialog_count' => $capturedDialogs['projected_count'],
+            );
+        }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();

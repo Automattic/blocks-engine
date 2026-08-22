@@ -30,7 +30,18 @@ trait ButtonLinkDispatchTrait
             fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
             fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
             fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
+            function (DOMElement $anchor) use (&$fallbacks): array {
+                $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic::build(array(
+                    'type'            => 'html',
+                    'reason'          => 'stylable_button_accessible_name_requires_typed_companion',
+                    'diagnostic_code' => 'html_stylable_button_accessible_name_fallback',
+                    'source_format'   => 'html',
+                    'tag'             => 'a',
+                    'html'            => $this->safeFallbackHtml($anchor),
+                ), $this->fallbackProvenance);
+                return $this->htmlPreservationBlock($anchor);
+            }
         );
         if ( null !== $button ) {
             return $button;

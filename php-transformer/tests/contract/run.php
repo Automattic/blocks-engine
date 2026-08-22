@@ -48,7 +48,8 @@ if ( ! function_exists('serialize_blocks') ) {
                 $inner .= $part;
             }
 
-            $serialized .= '<!-- wp:' . substr($name, 5) . $attrs . ' -->' . $inner . '<!-- /wp:' . substr($name, 5) . ' -->';
+            $commentName = str_starts_with($name, 'core/') ? substr($name, 5) : $name;
+            $serialized .= '<!-- wp:' . $commentName . $attrs . ' -->' . $inner . '<!-- /wp:' . $commentName . ' -->';
         }
 
         return $serialized;
@@ -428,8 +429,18 @@ $assert(! str_contains($maxWidthImageMarkup, 'style="max-width:100%"'), 'native 
 $assert(str_contains($maxWidthImageCss, 'max-width:100%'), 'native image max-width remains in its generated geometry carrier');
 $assert('pass' === ($maxWidthImageResult['source_reports']['wp_block_validity']['status'] ?? ''), 'max-width native image remains editor-valid');
 $nestedTableResult = ( new HtmlTransformer() )->transform('<table><tr><td>Outer<table><tr><td>Inner</td></tr></table></td></tr></table>')->toArray();
-$assert('core/html' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'descendant table falls back to core/html');
-$assert(str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<table><tr><td>Outer<table>'), 'descendant table fallback preserves nested table markup');
+$assert('core/columns' === ($nestedTableResult['blocks'][0]['blockName'] ?? null), 'nested single-row layout table lowers to responsive columns');
+$assert(! str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), 'Outer') && str_contains((string) ($nestedTableResult['serialized_blocks'] ?? ''), 'Inner'), 'nested layout table lowering preserves content without an HTML fallback');
+$nestedLayoutTableSource = '<table class="layout"><tbody><tr><td style="width:30%"><a href="/quote"><img src="quote.jpg" alt="Quote"></a></td><td style="width:70%"><table><tbody><tr><td style="width:20%"><img src="mark.jpg" alt="Mark"></td><td style="width:80%"><p>Layout copy</p></td></tr></tbody></table></td></tr></tbody></table>';
+$nestedLayoutTableResult = ( new HtmlTransformer() )->transform($nestedLayoutTableSource)->toArray();
+$nestedLayoutTableMarkup = (string) ($nestedLayoutTableResult['serialized_blocks'] ?? '');
+$nestedLayoutTableLinkedMedia = $nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$assert(TableClassificationPolicy::COMPLEX_NESTED === ($tablePolicy->classify($tableElement($nestedLayoutTableSource))['classification'] ?? null) && $tablePolicy->isNestedLayoutTable($tableElement($nestedLayoutTableSource)), 'nested single-row headerless tables are recognized as layout columns');
+$assert('core/columns' === ($nestedLayoutTableResult['blocks'][0]['blockName'] ?? null) && 2 === count($nestedLayoutTableResult['blocks'][0]['innerBlocks'] ?? array()) && 'core/columns' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? null), 'nested layout tables lower to responsive native column blocks');
+$assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/responsive-media' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'href="/quote"') && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'src="quote.jpg"') && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves links, media, and content order without HTML fallback');
+$assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
+$nestedDataTableResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></td></tr></table>')->toArray();
+$assert('core/html' === ($nestedDataTableResult['blocks'][0]['blockName'] ?? null), 'nested data tables retain conservative HTML fallback');
 $colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
 $assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
 $rowspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td rowspan="2">Merged</td><td>A</td></tr><tr><td>B</td></tr></table>')->toArray();
@@ -3986,6 +3997,44 @@ $companionAbsent = $compiler->compile(
     array( 'files' => array( 'index.html' => '<main><h1>Plain</h1><p>No blocks</p></main>' ) )
 )->toArray();
 $assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
+
+$capturedDialog = $compiler->compile(array(
+    'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(array(
+                    'status' => 'captured',
+                    'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+                    'dialog' => array(
+                        'html' => '<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>',
+                        'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
+                        'htmlTruncated' => false,
+                    ),
+                )),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-trigger='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
+$capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
+$capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
+$assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');
+$assert(str_contains((string) ($capturedDialogBlock['view_js'] ?? ''), 'showModal'), 'captured dialog companion block carries scoped native dialog behavior');
+$assert(isset($capturedDialogBlock['assets']['index.js']), 'captured dialog companion block carries an editable InnerBlocks editor');
+$capturedDialogForms = array_values(array_filter($capturedDialog['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
+$assert(1 === count($capturedDialogForms), 'captured dialog forms continue through the generic form materialization declaration');
 
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream

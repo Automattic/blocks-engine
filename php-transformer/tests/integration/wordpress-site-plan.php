@@ -100,6 +100,25 @@ $videoMarkup = (string) ((new HtmlTransformer())->transform('<video src="hero.mp
 $videoSaved = serialize_blocks(parse_blocks($videoMarkup));
 $videoRendered = do_blocks($videoSaved);
 $assert('core/video' === (parse_blocks($videoSaved)[0]['blockName'] ?? null) && ! str_contains($videoSaved, '"playsInline":true') && str_contains($videoRendered, '<video src="hero.mp4" controls="controls" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'), 'WordPress derives native core/video playback attributes from saved HTML and renders them without duplicate delimiter values or invalid markup.');
+$stylableButton = (new HtmlTransformer())->transform('<style>.wix-label{padding:12px 20px;background:#173b64;border-radius:6px;color:#fff}</style><a class="wix-button" href="mailto:hello@example.com" target="_blank" rel="noopener external" aria-label="Email us"><span class="wix-label"><span>Email us</span></span><svg aria-hidden="true"><g><path d="M0 0h1v1z"/></g></svg></a>')->toArray();
+$stylableButtonMarkup = (string) ($stylableButton['serialized_blocks'] ?? '');
+$stylableButtonId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Stylable button', 'post_content' => serialize_blocks(parse_blocks($stylableButtonMarkup))), true);
+if (is_wp_error($stylableButtonId)) throw new RuntimeException($stylableButtonId->get_error_message());
+$pageIds['stylable-button'] = $stylableButtonId;
+$stylableButtonSaved = (string) get_post_field('post_content', $stylableButtonId);
+$stylableButtonBlocks = parse_blocks($stylableButtonSaved);
+$stylableButtonAttrs = $stylableButtonBlocks[0]['innerBlocks'][0]['attrs'] ?? array();
+// parse_blocks() retains core/button source attributes in its saved inner HTML;
+// only comment-backed attributes such as className appear in attrs.
+$stylableButtonBlocks[0]['innerBlocks'][0]['innerContent'][0] = str_replace(
+    array( 'Email us', 'mailto:hello@example.com' ),
+    array( 'Write to us', 'tel:+15551234567' ),
+    (string) ($stylableButtonBlocks[0]['innerBlocks'][0]['innerContent'][0] ?? '')
+);
+$stylableButtonEdited = serialize_blocks($stylableButtonBlocks);
+wp_update_post(array('ID' => $stylableButtonId, 'post_content' => wp_slash($stylableButtonEdited)));
+$stylableButtonReloaded = (string) get_post_field('post_content', $stylableButtonId);
+$assert('core/button' === ($stylableButtonBlocks[0]['innerBlocks'][0]['blockName'] ?? null) && str_contains((string) ($stylableButtonAttrs['className'] ?? ''), 'wix-button') && !isset($stylableButtonAttrs['ariaLabel']) && !str_contains($stylableButtonSaved, 'aria-label=') && str_contains($stylableButtonSaved, 'href="mailto:hello@example.com"') && str_contains($stylableButtonSaved, 'target="_blank"') && str_contains($stylableButtonSaved, 'rel="noopener external"') && str_contains($stylableButtonSaved, 'materialized-svg') && str_contains($stylableButtonReloaded, 'Write to us') && str_contains($stylableButtonReloaded, 'tel:+15551234567'), 'WordPress parses, serializes, and persists core/button source markup for nested-label SVG label and destination edits without an HTML fallback.');
 $fixture87Styles = '.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
 $fixture87 = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>', 'assets/site.css' => $fixture87Styles)))->toArray();
 $fixture87Saved = serialize_blocks(parse_blocks((string) ($fixture87['serialized_blocks'] ?? '')));

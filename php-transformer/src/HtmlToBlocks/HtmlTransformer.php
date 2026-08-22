@@ -349,6 +349,8 @@ final class HtmlTransformer
 
     private bool $responsiveMediaBlockGenerated = false;
 
+    private bool $capturedDialogBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -555,6 +557,9 @@ final class HtmlTransformer
     /** @var list<string> Source body-state classes referenced by authored CSS. */
     private array $sourceBodyProjectionClasses = array();
 
+    /** @var array<string, array{selector: string, min_width: string}> */
+    private array $responsiveGeometryAmbiguities = array();
+
     /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
     private array $sourceTableMarkers = array();
 
@@ -695,6 +700,7 @@ final class HtmlTransformer
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
         $this->responsiveMediaBlockGenerated = false;
+        $this->capturedDialogBlockGenerated = false;
         $this->descriptionListBlockGenerated = false;
         $this->formSelectBlockGenerated = false;
         $this->formInputBlockGenerated = false;
@@ -730,6 +736,7 @@ final class HtmlTransformer
         $this->sourceAttributeMarkers = array();
         $this->sourceRootChildMarkers = array();
         $this->sourceBodyProjectionClasses = array();
+        $this->responsiveGeometryAmbiguities = array();
         $this->sourceTableMarkers = array();
         $this->sourceTableRepresentability = array();
         $this->sourceTableDescendantPaths = array();
@@ -912,6 +919,16 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        foreach ( $this->responsiveGeometryAmbiguities as $ambiguity ) {
+            $diagnostics[] = array(
+                'code' => 'responsive_geometry_ambiguous_min_width',
+                'message' => 'A wide minimum-width rule matches both page-shell and authored content surfaces, so it was retained without a responsive projection.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $ambiguity['selector'],
+                'min_width' => $ambiguity['min_width'],
+            );
+        }
         $headMetadata = $this->headMetadataReport($html);
         if ( array() !== $headMetadata ) {
             $diagnostics[] = array(
@@ -3142,6 +3159,7 @@ final class HtmlTransformer
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
+            $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -3162,6 +3180,102 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
+    }
+
+    /**
+     * Captured builders commonly impose a desktop canvas minimum on a document
+     * root and its immediate section strips. That is runtime viewport scaffolding,
+     * not an authored content constraint: retaining it forces a desktop-wide
+     * WordPress document on narrow viewports. Only project broad absolute values
+     * when every matched source element is a structural shell or section surface.
+     */
+    private function projectResponsiveCanvasMinimumWidth(string $prelude, string $body): string
+    {
+        $declarations = $this->cssDeclarations($body);
+        $minimumWidth = (string) ($declarations['min-width'] ?? '');
+        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element));
+            if ( count($shellMatches) !== count($matches) ) {
+                if ( array() !== $shellMatches ) {
+                    $this->responsiveGeometryAmbiguities[$selector . "\0" . $minimumWidth] = array('selector' => $selector, 'min_width' => $minimumWidth);
+                }
+                return $body;
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($minimumWidth) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'min-width' !== strtolower(trim(strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'min-width:0' . $important;
+        $retained[] = 'max-width:100%' . $important;
+        return implode(';', $retained);
+    }
+
+    private function isWideAbsoluteMinimumWidth(string $value): bool
+    {
+        $value = $this->cssValueWithoutImportant($value);
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(px|r?em)$/i', $value, $matches) ) {
+            return false;
+        }
+        $pixels = (float) $matches[1];
+        if ( 'px' !== strtolower($matches[2]) ) {
+            $pixels *= self::ROOT_FONT_SIZE_PX;
+        }
+        return $pixels >= 640;
+    }
+
+    private function isPageShellOrSectionSurface(DOMElement $element): bool
+    {
+        if ( $element->parentNode === $this->authorStyleSourceBody ) {
+            return true;
+        }
+
+        if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {
+            return true;
+        }
+
+        $parent = $element->parentNode;
+        return $parent instanceof DOMElement
+            && $parent->parentNode === $this->authorStyleSourceBody
+            && $this->elementChildCount($parent) > 1;
+    }
+
+    private function elementChildCount(DOMElement $element): int
+    {
+        $count = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$count;
+            }
+        }
+        return $count;
     }
 
     private function rewriteAuthorStyleRule(string $prelude, string $body): string
@@ -3851,6 +3965,35 @@ final class HtmlTransformer
         return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private function nestedLayoutTableColumnsBlock(DOMElement $table, array &$fallbacks): array
+    {
+        $rows = $table->getElementsByTagName('tr');
+        $row = $rows->item(0);
+        if ( ! $row instanceof DOMElement ) {
+            return $this->htmlPreservationBlock($table);
+        }
+
+        $columns = array();
+        foreach ( $row->childNodes as $cell ) {
+            if ( ! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName) ) {
+                continue;
+            }
+
+            $columns[] = $this->createBlock(
+                'core/column',
+                $this->presentationAttributes($cell),
+                $this->convertChildren($cell, $fallbacks, true),
+                $cell
+            );
+        }
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
+    }
+
     private function serializedTableSection(DOMElement $element): string
     {
         $section = $this->ancestorElement($element, 'thead') instanceof DOMElement
@@ -4190,6 +4333,10 @@ final class HtmlTransformer
             }
         }
 
+        if ('dialog' === $tagName && 'true' === $this->attr($element, 'data-blocks-engine-captured-dialog')) {
+            return $this->capturedDialogBlock($element, $fallbacks);
+        }
+
         if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
@@ -4290,7 +4437,7 @@ final class HtmlTransformer
             return $mediaDispatch['block'];
         }
 
-        if ($this->fallbackReductionMode && in_array($tagName, array('a', 'button'), true)) {
+        if ($this->fallbackReductionMode && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));
@@ -4299,6 +4446,13 @@ final class HtmlTransformer
                 }
                 return $this->createBlock('core/buttons', array(), array($this->createBlock('core/button', $attrs, array(), $element)), $element);
             }
+        }
+
+        // Anchors are phrasing content, but button-like anchors must be offered
+        // to the button dispatcher before generic inline lowering splits their
+        // label and decorative SVG into separate paragraph blocks.
+        if ( 'a' === $tagName ) {
+            return $this->convertAnchorDispatchElement($element, $fallbacks);
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
@@ -4603,6 +4757,10 @@ final class HtmlTransformer
         }
 
         if ( 'table' === $tagName ) {
+            if ( $this->tableClassificationPolicy->isNestedLayoutTableMember($element) ) {
+                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
+            }
+
             $classification = $this->tableClassificationPolicy->classify($element);
             if ( ! $classification['representable'] ) {
                 return $this->htmlPreservationBlock($element);
@@ -5200,6 +5358,45 @@ final class HtmlTransformer
 
         $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
         return $blocks;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
+    private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
+    {
+        $blockName = $this->generatedBlockNamespace . '/' . CapturedDialogBlockGenerator::LOCAL_NAME;
+        if (! $this->capturedDialogBlockGenerated) {
+            $this->generatedBlocks[] = (new CapturedDialogBlockGenerator())->definition($blockName);
+            $this->capturedDialogBlockGenerated = true;
+        }
+
+        $attrs = array_filter(array(
+            'dialogId' => trim($this->attr($element, 'id')),
+            'triggerId' => trim($this->attr($element, 'data-blocks-engine-trigger')),
+            'ariaLabel' => trim($this->attr($element, 'aria-label')),
+            'ariaLabelledby' => trim($this->attr($element, 'aria-labelledby')),
+            'ariaDescribedby' => trim($this->attr($element, 'aria-describedby')),
+            'className' => trim($this->attr($element, 'class')),
+            'addCloseButton' => 'true' === $this->attr($element, 'data-blocks-engine-add-close'),
+        ), static fn(mixed $value): bool => false !== $value && '' !== $value);
+        $children = $this->convertChildren($element, $fallbacks, true);
+        $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $opening = '<dialog';
+        foreach (array('dialogId' => 'id', 'className' => 'class', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby', 'triggerId' => 'data-blocks-engine-trigger') as $key => $attribute) {
+            if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
+        }
+        $opening .= '>';
+        if (! empty($attrs['addCloseButton'])) $opening .= '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>';
+        $innerContent = array($opening);
+        foreach ($children as $_) $innerContent[] = null;
+        $innerContent[] = '</dialog>';
+
+        return array(
+            'blockName' => $blockName,
+            'attrs' => $attrs,
+            'innerBlocks' => $children,
+            'innerHTML' => $opening . '</dialog>',
+            'innerContent' => $innerContent,
+        );
     }
 
     /**
