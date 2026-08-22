@@ -27,7 +27,7 @@ use Throwable;
  * |
  * `-- core/cover
  */
-final class CoverPattern
+final class CoverPattern implements PatternRecognizerInterface
 {
     use PatternGateHelpersTrait;
 
@@ -38,6 +38,18 @@ final class CoverPattern
     {
         $this->styleResolver = new CoverStyleResolver();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
+    }
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $children = $context->convertChildrenWithFallbacksCallback(); $style = $context->mergedPresentationStyleCallback(); $attrs = $context->htmlAttributesCallback(); $url = $context->resolveAssetImageUrlCallback();
+        if (null === $children || null === $style || null === $attrs || null === $url) return null;
+        $fallbacks = array(); $block = $this->match($element, $fallbacks, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($children): array {
+            $result = $children($sourceElement, $captureUnsupported);
+            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
+            return $result->blocks();
+        }, $context->presentationAttributesCallback(), $style, $attrs, $url, $context->createBlockCallback());
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks, array(), array('fallbacks'));
     }
 
     /**

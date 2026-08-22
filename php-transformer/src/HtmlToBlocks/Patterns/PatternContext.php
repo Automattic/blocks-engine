@@ -19,6 +19,14 @@ final class PatternContext
      * @param callable(DOMElement): array<string, mixed>|null $convertElement
      * @param callable(DOMElement): list<string>|null $navigationColorInteractionStates
      * @param callable(DOMElement): string|null $navigationOverlayMenu
+     * @param callable(DOMElement, bool): PatternConversionResult|null $convertChildrenWithFallbacks
+     * @param callable(DOMElement, bool): PatternConversionResult|null $convertElementWithFallbacks
+     * @param callable(DOMElement): string|null $mergedPresentationStyle
+     * @param callable(DOMElement): array<string, string>|null $htmlAttributes
+     * @param callable(string): string|null $resolveAssetImageUrl
+     * @param callable(DOMElement, array<int, string>): array<string, mixed>|null $mediaTextPresentationAttributes
+     * @param callable(DOMElement): string|null $mediaTextPresentationStyle
+     * @param callable(DOMElement): string|null $structuralPresentationStyle
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -31,7 +39,15 @@ final class PatternContext
         private readonly mixed $resolvedStyle = null,
         private readonly mixed $convertElement = null,
         private readonly mixed $navigationColorInteractionStates = null,
-        private readonly mixed $navigationOverlayMenu = null
+        private readonly mixed $navigationOverlayMenu = null,
+        private readonly mixed $convertChildrenWithFallbacks = null,
+        private readonly mixed $convertElementWithFallbacks = null,
+        private readonly mixed $mergedPresentationStyle = null,
+        private readonly mixed $htmlAttributes = null,
+        private readonly mixed $resolveAssetImageUrl = null,
+        private readonly mixed $mediaTextPresentationAttributes = null,
+        private readonly mixed $mediaTextPresentationStyle = null,
+        private readonly mixed $structuralPresentationStyle = null
     ) {
     }
 
@@ -127,4 +143,13 @@ final class PatternContext
     {
         return is_callable($this->navigationOverlayMenu) ? $this->navigationOverlayMenu : null;
     }
+
+    public function convertChildrenWithFallbacksCallback(): ?callable { return is_callable($this->convertChildrenWithFallbacks) ? $this->convertChildrenWithFallbacks : null; }
+    public function convertElementWithFallbacksCallback(): ?callable { return is_callable($this->convertElementWithFallbacks) ? $this->convertElementWithFallbacks : null; }
+    public function mergedPresentationStyleCallback(): ?callable { return is_callable($this->mergedPresentationStyle) ? $this->mergedPresentationStyle : null; }
+    public function htmlAttributesCallback(): ?callable { return is_callable($this->htmlAttributes) ? $this->htmlAttributes : null; }
+    public function resolveAssetImageUrlCallback(): ?callable { return is_callable($this->resolveAssetImageUrl) ? $this->resolveAssetImageUrl : null; }
+    public function mediaTextPresentationAttributesCallback(): ?callable { return is_callable($this->mediaTextPresentationAttributes) ? $this->mediaTextPresentationAttributes : null; }
+    public function mediaTextPresentationStyleCallback(): ?callable { return is_callable($this->mediaTextPresentationStyle) ? $this->mediaTextPresentationStyle : null; }
+    public function structuralPresentationStyleCallback(): ?callable { return is_callable($this->structuralPresentationStyle) ? $this->structuralPresentationStyle : null; }
 }
