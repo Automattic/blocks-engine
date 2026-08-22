@@ -1,0 +1,27 @@
+{
+    "schema": "blocks-engine/php-transformer/core-block-metadata/v1",
+    "source": "WordPress/wordpress-develop@7.1",
+    "blocks": {
+        "core/accordion": {
+            "allowedBlocks": ["core/accordion-item"],
+            "assets": {
+                "viewScriptModule": ["@wordpress/block-library/accordion/view"]
+            }
+        },
+        "core/accordion-item": {
+            "parent": ["core/accordion"],
+            "allowedBlocks": ["core/accordion-heading", "core/accordion-panel"],
+            "assets": {
+                "style": ["wp-block-accordion-item"]
+            }
+        },
+        "core/navigation": {
+            "dynamic": true,
+            "allowedBlocks": ["core/navigation-link", "core/search", "core/social-links", "core/page-list", "core/spacer", "core/home-link", "core/icon", "core/site-title", "core/site-logo", "core/navigation-submenu", "core/loginout", "core/buttons"],
+            "assets": {
+                "editorStyle": ["wp-block-navigation-editor"],
+                "style": ["wp-block-navigation"]
+            }
+        }
+    }
+}

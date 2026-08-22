@@ -108,6 +108,7 @@
       "php tests/unit/shell-landmark-policy.php",
        "php tests/unit/block-style-support-conversion.php",
        "php tests/unit/block-support-metadata-normalization.php",
+       "php tests/unit/block-metadata-capabilities.php",
       "php tests/unit/content-round-trip-reporter.php",
       "php tests/unit/content-round-trip-form-echo.php",
       "php tests/unit/corpus-detectors.php",
