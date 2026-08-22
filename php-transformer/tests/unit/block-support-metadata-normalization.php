@@ -42,6 +42,11 @@ $navigationResult = ( new HtmlTransformer() )->transform('<nav class="menu" styl
 $navigationCss = implode("\n", array_column($navigationResult['assets'] ?? array(), 'content'));
 $assert(! isset($navigationResult['blocks'][0]['attrs']['style']['spacing']['margin']) && str_contains($navigationCss, '.wp-block-navigation.menu{margin-left:auto}'), 'Navigation carries metadata-rejected spacing on its rendered block class.');
 
+$spacerResult = ( new HtmlTransformer() )->transform('<style>.signal{display:block;width:24px;height:4px;background:var(--green)}</style><main><span class="signal"></span></main>')->toArray();
+$spacer = $spacerResult['blocks'][0]['innerBlocks'][0] ?? array();
+$spacerCss = implode("\n", array_column($spacerResult['assets'] ?? array(), 'content'));
+$assert(! isset($spacer['attrs']['style']['color']) && str_contains((string) ($spacer['attrs']['className'] ?? ''), 'be-inline-geometry-') && preg_match('/\.be-inline-geometry-[^{]+\{[^}]*background-color:var\(--green\)/', $spacerCss), 'Spacer carries metadata-rejected generated paint through deterministic CSS.');
+
 $result = ( new HtmlTransformer() )->transform('<p style="min-height:12rem">Metadata carrier</p>')->toArray();
 $block = $result['blocks'][0] ?? array();
 $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));

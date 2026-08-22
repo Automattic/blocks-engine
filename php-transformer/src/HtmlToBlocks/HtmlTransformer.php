@@ -5593,7 +5593,8 @@ final class HtmlTransformer
         $inlineDeclarations = $this->cssDeclarations($this->attr($sourceElement, 'style'));
         $inlineMapped = $this->styleAttributeMapper()->map($inlineDeclarations);
         $inlineFallbackDeclarations = $this->cssDeclarations($this->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
-        $preserveGeneratedLogoStyle = 'core/button' === $name && $this->hasLogoBrandSignal($sourceElement);
+        $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
+            || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
         foreach ( array_keys($fallbackDeclarations) as $property ) {
             if ( 'core/button' === $name
                 && 'border-radius' === $property
@@ -5604,7 +5605,7 @@ final class HtmlTransformer
                 // compatibility geometry, not a missing source declaration.
                 continue;
             }
-            if ( ! $preserveGeneratedLogoStyle && ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
+            if ( ! $preserveGeneratedStyle && ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
                 unset($fallbackDeclarations[ $property ]);
             }
         }
