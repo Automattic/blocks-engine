@@ -271,15 +271,22 @@ $nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumnsHtml, 
 $nativeColumnsBlock = $nativeColumnsResult['blocks'][0] ?? array();
 $assert('core/columns' === ($nativeColumnsBlock['blockName'] ?? ''), '29: explicit native Columns markup remains core Columns', (string) ($nativeColumnsBlock['blockName'] ?? '(none)'));
 
-$labelHtml = '<section class="pricing"><div class="section-head"><div class="tag">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
+$labelHtml = '<section class="pricing"><div class="section-head"><div class="tag" style="padding:4px 12px;border:1px solid #6b4f2d;border-radius:100px;background:#f2e3c6;width:137px;height:28px">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();
 $labelMarkup = (string) ($labelResult['serialized_blocks'] ?? '');
+$labelGeometryCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($labelResult['assets'] ?? null) ? $labelResult['assets'] : array()));
 
-$assert(str_contains($labelMarkup, '<div class="wp-block-group tag'), '25: box-model section badge stays a group wrapper', $labelMarkup);
+$tag = $labelResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$tagAttrs = is_array($tag['attrs'] ?? null) ? $tag['attrs'] : array();
+$assert('core/paragraph' === ($tag['blockName'] ?? '') && 0 === count($tag['innerBlocks'] ?? array()), '25: pure-text pill becomes one painted paragraph without a nested paragraph', json_encode($tag));
+$assert(str_starts_with((string) ($tagAttrs['className'] ?? ''), 'tag be-inline-geometry-') && '4px' === ($tagAttrs['style']['spacing']['padding']['top'] ?? '') && '12px' === ($tagAttrs['style']['spacing']['padding']['right'] ?? '') && '#f2e3c6' === ($tagAttrs['style']['color']['background'] ?? ''), '25a: pill retains its class, padding, and background on the paragraph', json_encode($tagAttrs));
+$assert('1px' === ($tagAttrs['style']['border']['width'] ?? '') && 'solid' === ($tagAttrs['style']['border']['style'] ?? '') && '#6b4f2d' === ($tagAttrs['style']['border']['color'] ?? '') && '100px' === ($tagAttrs['style']['border']['radius'] ?? ''), '25aa: pill retains its border and radius on the paragraph', json_encode($tagAttrs));
+$assert(str_contains($labelMarkup, '<p class="has-background has-border-color tag be-inline-geometry-') && str_contains($labelMarkup, 'border-radius:100px') && str_contains($labelGeometryCss, 'width:137px !important') && str_contains($labelGeometryCss, 'height:28px !important') && ! str_contains($labelMarkup, '<div class="wp-block-group tag') && ! preg_match('/<!-- wp:paragraph[^>]*"className":"tag"[^>]*-->\s*<p[^>]*>[^<]*<\/p>\s*<!-- \/wp:paragraph -->/', $labelMarkup), '25b: pill chrome and dimensions are serialized on its sole paragraph instead of a group plus nested paragraph', $labelMarkup . "\n" . $labelGeometryCss);
+$assert('pass' === ($labelResult['source_reports']['wp_block_validity']['status'] ?? ''), '25c: single-paragraph pill serialization is Gutenberg-valid', json_encode($labelResult['source_reports']['wp_block_validity'] ?? array()));
 $assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price blocks-engine-css-owned-layout'), '27: CSS-owned card price row uses the marked core group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<div class="wp-block-group use-case-result'), '28: box-model card result row stays a group wrapper', $labelMarkup);
+$assert(str_contains($labelMarkup, '<p class="use-case-result">Launch faster</p>'), '28: pure-text card result row carries its box chrome on one paragraph', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 
 // A universal reset (`* { margin: 0; padding: 0 }`) sets zero-valued box
