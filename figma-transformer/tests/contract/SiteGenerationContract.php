@@ -3574,4 +3574,24 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert('' !== $singleFrameLiveStyle, 'single-frame-live-stylesheet-emitted');
     $assert(str_contains($singleFrameLiveStyle, '@media (max-width:767px)'), 'single-frame-live-desktop-fallback-media-block');
     $assert(false === ($singleFrameLiveResult['source_reports']['figma']['pages']['pages'][0]['responsive'] ?? true), 'single-frame-live-plan-not-responsive');
+
+    $responsiveBoundaryResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Responsive intrinsic boundary fixture',
+        'nodes' => array(
+            array('id' => 'boundary:desktop', 'type' => 'FRAME', 'name' => 'Landing Desktop', 'width' => 1440, 'height' => 600, 'children' => array(
+                array('id' => 'boundary:desktop:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240),
+            )),
+            array('id' => 'boundary:mobile', 'type' => 'FRAME', 'name' => 'Landing Mobile', 'width' => 390, 'height' => 600, 'children' => array(
+                array('id' => 'boundary:mobile:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'boundary:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'boundary:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsiveBoundaryCss = $fileContent($responsiveBoundaryResult, 'style.css');
+    $assert(str_contains($responsiveBoundaryCss, '.figma-node-boundary-desktop-card-intrinsic-card{width:376px;height:240px'), 'responsive-boundary-base-preserves-intrinsic-width');
+    $assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-boundary-desktop-card-intrinsic-card\{max-width:100%;box-sizing:border-box\}/', $responsiveBoundaryCss), 'responsive-boundary-mobile-caps-matched-intrinsic-width');
 }

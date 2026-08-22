@@ -827,7 +827,49 @@ final class BreakpointMediaDiffBuilder
             }
         }
 
+        if ( $viewportWidth <= 480.0 ) {
+            $rules = array_merge($rules, $this->fixedWidthBoundaryRules($baseStyles));
+        }
+
         return array_values(array_unique($rules));
+    }
+
+    /**
+     * A mobile variant can intentionally retain a fixed intrinsic width that
+     * fits its source canvas. Cap it at its containing width so later parent
+     * layout changes cannot make that otherwise valid geometry overflow.
+     *
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @return array<int, string>
+     */
+    private function fixedWidthBoundaryRules(array $baseStyles): array
+    {
+        $rules = array();
+        foreach ( $baseStyles as $base ) {
+            $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            $width = $this->cssPixelValue($baseMap['width'] ?? '');
+            if (
+                '' === $class
+                || null === $width
+                || $width < 320.0
+                || 'absolute' === ($baseMap['position'] ?? null)
+                || $this->usesFullBleedViewportBreakout($baseMap)
+                || $this->hasResponsiveWidthConstraint($baseMap)
+            ) {
+                continue;
+            }
+
+            $rules[] = '.' . $class . '{max-width:100%;box-sizing:border-box}';
+        }
+
+        return array_values(array_unique($rules));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasResponsiveWidthConstraint(array $declarations): bool
+    {
+        return isset($declarations['max-width']) && preg_match('/^(?:100%|calc\(|clamp\(|min\()/i', $declarations['max-width']);
     }
 
     /**

@@ -233,6 +233,13 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(1 === ($artifactDiagnostics['invalid_list_child_count'] ?? null), 'html-validity-artifact-diagnostics-detects-invalid-list-children');
     $assert(2 === ($artifactDiagnostics['missing_semantic_role_count'] ?? null), 'html-validity-artifact-diagnostics-detects-missing-semantic-role');
 
+    $sharedResponsiveArtifactDiagnostics = (new StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><div class="shared-card figma-node-card">Card</div></main>',
+        '.shared-card{width:640px}@media (max-width:390px){.figma-node-card{max-width:100%}}'
+    );
+    $assert(1 === ($sharedResponsiveArtifactDiagnostics['fixed_width_with_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-attributes-node-override-to-shared-style-class');
+    $assert(0 === ($sharedResponsiveArtifactDiagnostics['fixed_width_without_responsive_override_count'] ?? null), 'html-validity-artifact-diagnostics-shared-style-class-is-not-uncovered');
+
     $artifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array('missing_assets' => array(), 'image_block_count' => 0, 'total_node_count' => 0),
         array('placeholders' => 0, 'rendered_asset_fallbacks' => 0),

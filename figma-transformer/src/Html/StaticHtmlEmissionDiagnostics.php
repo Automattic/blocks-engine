@@ -179,7 +179,7 @@ final class StaticHtmlEmissionDiagnostics
         $breakpointLeaks = $this->breakpointOverrideLeaks($css);
         $absoluteToFlowConversions = $this->absoluteToFlowConversions($css);
         $mediaQueryCount = preg_match_all('/@media\s*\(max-width:[^)]+\)/i', $css) ?: 0;
-        $fixedWidthCoverage = $this->fixedWidthCoverage($css);
+        $fixedWidthCoverage = $this->fixedWidthCoverage($html, $css);
         $fixedWidthOverDesktopCount = (int) $fixedWidthCoverage['fixed_width_over_desktop_count'];
         $largeFixedSections = $this->largeFixedSections($css);
         $largeOverflowRules = $this->largeOverflowRules($css);
@@ -235,7 +235,7 @@ final class StaticHtmlEmissionDiagnostics
     /**
      * @return array{fixed_width_declaration_count: int, fixed_width_over_desktop_count: int, fixed_width_with_responsive_override_count: int, fixed_width_without_responsive_override_count: int, effective_responsive_coverage_ratio: float, fixed_width_samples: array<int, array<string, mixed>>, fixed_width_over_desktop_class_count: int, fixed_width_over_desktop_covered_count: int, fixed_width_over_desktop_uncovered_count: int, fixed_width_over_desktop_covered_classes: array<int, string>, fixed_width_over_desktop_uncovered_classes: array<int, string>}
      */
-    private function fixedWidthCoverage(string $css): array
+    private function fixedWidthCoverage(string $html, string $css): array
     {
         $rules = $this->cssRuleDeclarations($css);
         $base = array();
@@ -282,6 +282,19 @@ final class StaticHtmlEmissionDiagnostics
             }
         }
 
+        // Shared style classes and their per-node Figma hooks coexist on one
+        // emitted element. A breakpoint override on either class constrains the
+        // element, so attribute coverage to the fixed-width shared class too.
+        $classAssociations = $this->htmlClassAssociations($html);
+        foreach ( $base as $class => $_ ) {
+            foreach ( array_keys($classAssociations[$class] ?? array()) as $associatedClass ) {
+                if ( isset($responsive[$associatedClass]) ) {
+                    $responsive[$class] = true;
+                    break;
+                }
+            }
+        }
+
         $baseClasses = array_keys($base);
         $coveredCount = count(array_filter($baseClasses, static fn (string $class): bool => isset($responsive[$class])));
         $totalCount = count($baseClasses);
@@ -301,6 +314,33 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_over_desktop_covered_classes' => $overDesktopCoveredClasses,
             'fixed_width_over_desktop_uncovered_classes' => $overDesktopUncoveredClasses,
         );
+    }
+
+    /**
+     * @return array<string, array<string, true>>
+     */
+    private function htmlClassAssociations(string $html): array
+    {
+        $associations = array();
+        if ( ! preg_match_all('/\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches, PREG_SET_ORDER) ) {
+            return $associations;
+        }
+
+        foreach ( $matches as $match ) {
+            $classes = preg_split('/\s+/', trim((string) ($match[2] ?? ''))) ?: array();
+            foreach ( $classes as $class ) {
+                if ( '' === $class ) {
+                    continue;
+                }
+                foreach ( $classes as $associatedClass ) {
+                    if ( '' !== $associatedClass && $associatedClass !== $class ) {
+                        $associations[$class][$associatedClass] = true;
+                    }
+                }
+            }
+        }
+
+        return $associations;
     }
 
     private function hasResponsiveWidthConstraint(string $declarations): bool
