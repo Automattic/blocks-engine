@@ -345,6 +345,8 @@ final class HtmlTransformer
 
     private bool $formInputBlockGenerated = false;
 
+    private bool $responsiveMediaBlockGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -687,6 +689,7 @@ final class HtmlTransformer
         $this->runtimeIslands = array();
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
+        $this->responsiveMediaBlockGenerated = false;
         $this->descriptionListBlockGenerated = false;
         $this->formSelectBlockGenerated = false;
         $this->formInputBlockGenerated = false;
@@ -4926,10 +4929,10 @@ final class HtmlTransformer
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
             // A gallery can only contain native image blocks. Preserve the
-            // complete media collection before author-layout recognition can
-            // create a core/gallery with a responsive core/html child.
+            // complete media collection in the responsive-media companion before
+            // author-layout recognition can create an invalid core/gallery child.
             if ( $this->hasResponsiveImageSources($element) && $this->hasGalleryMediaItems($element) ) {
-                return $this->responsiveImageFallbackBlock($element);
+                return $this->responsiveMediaBlock($element);
             }
 
             if ( $this->isDirectChildOfAuthorOwnedLayout($element) && '' !== $this->attr($element, 'role') ) {
@@ -5257,8 +5260,8 @@ final class HtmlTransformer
 
         if ( $this->hasResponsiveImageSources($element) ) {
             // GalleryPattern probes child conversions before it knows whether it
-            // has enough images. Avoid emitting speculative child fallbacks.
-            return $this->hasGalleryMediaItems($element) ? $this->responsiveImageFallbackBlock($element) : null;
+            // has enough images. Preserve the collection as one companion block.
+            return $this->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
         }
 
         return $this->galleryPattern->match(
@@ -13696,7 +13699,7 @@ final class HtmlTransformer
         }
 
         if ( $this->hasPictureSourceSelection($picture) ) {
-            return $this->responsiveImageFallbackBlock($figure ?? $picture);
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
         }
 
         return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
@@ -13708,16 +13711,25 @@ final class HtmlTransformer
         if ( ! $this->isImageOnlyAnchor($anchor) ) {
             return null;
         }
+        if ( '' === $href ) {
+            $picture = $this->firstChildElement($anchor, 'picture');
+            if ( $picture instanceof DOMElement ) {
+                $image = $this->firstChildElement($picture, 'img');
+                return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture) : null;
+            }
+            $image = $this->firstChildElement($anchor, 'img');
+            return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
+        }
         $link = '' !== $href ? $anchor : null;
 
         $picture = $this->firstChildElement($anchor, 'picture');
         if ( $picture instanceof DOMElement ) {
             $image = $this->firstChildElement($picture, 'img');
-            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $link) : null;
+            return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
         }
 
         $image = $this->firstChildElement($anchor, 'img');
-        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $link) : null;
+        return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
@@ -13743,7 +13755,7 @@ final class HtmlTransformer
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
         if ( $picture instanceof DOMElement && $this->hasPictureSourceSelection($picture) ) {
-            return $this->responsiveImageFallbackBlock($figure ?? $picture ?? $image);
+            return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
         $originalUrl = $this->imageSourceUrl($image);
@@ -14003,6 +14015,26 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /** @return array<string, mixed> */
+    private function responsiveMediaBlock(DOMElement $element): array
+    {
+        if ( $this->hasUnsafeResponsiveImageSources($element) ) {
+            return $this->responsiveImageFallbackBlock($element);
+        }
+
+        if ( ! $this->responsiveMediaBlockGenerated ) {
+            $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
+            $this->responsiveMediaBlockGenerated = true;
+        }
+
+        return $this->createBlock(
+            $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
+            array( 'content' => $this->safeFallbackHtml($element) ),
+            array(),
+            $element
+        );
     }
 
     /**
