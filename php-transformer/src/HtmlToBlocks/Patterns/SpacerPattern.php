@@ -26,7 +26,7 @@ final class SpacerPattern
             return null;
         }
 
-        if ( ! $hasClass($element, 'wp-block-spacer') && ! $hasClass($element, 'spacer') ) {
+        if ( ! $hasClass($element, 'wp-block-spacer') && ! $hasClass($element, 'spacer') && ! $hasClass($element, 'wsite-spacer') ) {
             return null;
         }
 
@@ -39,7 +39,7 @@ final class SpacerPattern
         return $createBlock('core/spacer', $attrs, array(), $element);
     }
 
-    private function heightFromStyle(string $style): string
+    public function heightFromStyle(string $style): string
     {
         if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
             return '';

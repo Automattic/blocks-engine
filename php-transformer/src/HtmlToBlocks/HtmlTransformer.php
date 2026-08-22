@@ -5000,6 +5000,23 @@ final class HtmlTransformer
 
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
+            $spacer = $this->spacerPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $spacer ) {
+                return $spacer;
+            }
+
+            $flankedSeparator = $this->flankedSeparatorBlockFromElement($element);
+            if ( null !== $flankedSeparator ) {
+                return $flankedSeparator;
+            }
+
             // A gallery can only contain native image blocks. Preserve the
             // complete media collection in the responsive-media companion before
             // author-layout recognition can create an invalid core/gallery child.
@@ -5071,18 +5088,6 @@ final class HtmlTransformer
             );
             if ( null !== $logo ) {
                 return $logo;
-            }
-
-            $spacer = $this->spacerPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
-            if ( null !== $spacer ) {
-                return $spacer;
             }
 
             $navigationSection = $this->navigationSectionBlockFromElement($element);
@@ -8075,6 +8080,51 @@ final class HtmlTransformer
         $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
 
         return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function flankedSeparatorBlockFromElement(DOMElement $element): ?array
+    {
+        if ( array() !== $this->htmlAttributes($element) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $child;
+            }
+        }
+        if ( 3 !== count($children) || 'hr' !== strtolower($children[1]->tagName) ) {
+            return null;
+        }
+
+        $margins = array();
+        foreach ( array( 'top' => $children[0], 'bottom' => $children[2] ) as $side => $flank ) {
+            if ( 0 !== $this->childElementCount($flank) || '' !== trim($flank->textContent ?? '') || array( 'style' ) !== array_keys($this->htmlAttributes($flank)) ) {
+                return null;
+            }
+
+            $declarations = $this->cssDeclarations($this->attr($flank, 'style'));
+            if ( array() !== array_diff(array_keys($declarations), array( 'height', 'overflow', 'width' ))
+                || 'hidden' !== strtolower(trim((string) ($declarations['overflow'] ?? '')))
+                || ! in_array(strtolower(trim((string) ($declarations['width'] ?? ''))), array( '', '100%' ), true)
+            ) {
+                return null;
+            }
+
+            $height = $this->spacerPattern->heightFromStyle($this->attr($flank, 'style'));
+            if ( '' === $height || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($height, $flank)) ) {
+                return null;
+            }
+            $margins[ $side ] = $height;
+        }
+
+        $separator = $children[1];
+        $attrs = $this->presentationAttributes($separator, array(), array( 'margin-left', 'margin-right' ));
+        $attrs['style']['spacing']['margin'] = array_merge($attrs['style']['spacing']['margin'] ?? array(), $margins);
+
+        return $this->createBlock('core/separator', $attrs, array(), $separator);
     }
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool
