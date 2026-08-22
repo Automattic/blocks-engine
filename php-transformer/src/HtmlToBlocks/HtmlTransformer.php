@@ -4841,14 +4841,10 @@ final class HtmlTransformer
                 // silently erased every shape — service icons collapsed to empty
                 // blocks and pipe/boiler diagrams to whitespace + comments.
                 //
-                // The exception is genuine decorative chrome the materialized
-                // source CSS recreates: a positioned visual layer (an absolutely
-                // positioned full-bleed background) or a stretched-to-fit band
-                // (preserveAspectRatio="none", which distorts geometry and so is
-                // never used for meaningful icons/diagrams). Those still collapse
-                // to a styleable group / are dropped below.
-                $isDecorativeChrome = $this->isVisualLayerElement($element)
-                    || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
+                // A proven positioned visual layer can collapse to its CSS-owned
+                // carrier. Stretching alone is not evidence that artwork is
+                // recreated elsewhere; preserve drawable stretched SVGs.
+                $isDecorativeChrome = $this->isVisualLayerElement($element);
                 if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
                     if ( $this->svgNeedsPhrasingHost($element) ) {
                         $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
@@ -13821,7 +13817,7 @@ final class HtmlTransformer
         if ( ! $image instanceof DOMElement ) {
             foreach ( $anchor->childNodes as $child ) {
                 if ( $child instanceof DOMElement ) {
-                    $image = $this->imageOnlyCustomElement($child);
+                    $image = $this->imageOnlyCarrierElement($child);
                     if ( $image instanceof DOMElement ) {
                         break;
                     }
@@ -13836,7 +13832,7 @@ final class HtmlTransformer
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCustomElement($child) instanceof DOMElement ) ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCarrierElement($child) instanceof DOMElement ) ) {
                     return false;
                 }
                 ++$imageChildren;
@@ -14086,6 +14082,35 @@ final class HtmlTransformer
         }
 
         return $images->item(0);
+    }
+
+    private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
+    {
+        $customImage = $this->imageOnlyCustomElement($element);
+        if ( $customImage instanceof DOMElement ) {
+            return $customImage;
+        }
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $image = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            $candidate = 'img' === strtolower($child->tagName) ? $child : $this->imageOnlyCarrierElement($child);
+            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
+                return null;
+            }
+            $image = $candidate;
+        }
+
+        return $image;
     }
 
     private function isImageCarrierButton(DOMElement $element): bool

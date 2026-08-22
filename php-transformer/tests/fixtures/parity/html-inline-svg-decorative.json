@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-decorative",
-  "description": "Consumes decorative SVG separators and represents simple accessible passive icon SVGs as core/image data URI blocks without fallback noise.",
+  "description": "Preserves stretched SVG separators and accessible passive icon SVGs as native image blocks without fallback noise.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-decorative.json",
@@ -17,16 +17,18 @@
   },
   "expected_blocks": [
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Before", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "After" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph" }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "After" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
-    { "path": "blocks.0.innerBlocks.2.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
-    { "path": "blocks.0.innerBlocks.2.attrs.content", "assert": "contains", "value": "alt=\"Acme integration\"" },
-    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.3.attrs.content", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.3.attrs.content", "assert": "contains", "value": "alt=\"Acme integration\"" },
+    { "path": "assets", "assert": "count", "count": 3 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
