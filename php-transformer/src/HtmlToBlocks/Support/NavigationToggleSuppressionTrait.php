@@ -563,7 +563,7 @@ trait NavigationToggleSuppressionTrait
     {
         $navigation = $this->patternRecognizers->firstMatch($element, $this->probePatternContext());
 
-        return null !== $navigation && 'core/navigation' === ($navigation['blockName'] ?? '');
+        return null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
     }
 
     private function elementWithId(DOMElement $context, string $id): ?DOMElement

@@ -4529,7 +4529,7 @@ final class HtmlTransformer
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
             }
 
             if ( $this->isStructuredCardList($element) ) {
@@ -4916,7 +4916,7 @@ final class HtmlTransformer
         if ( 'nav' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
             }
 
             $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
@@ -5027,7 +5027,7 @@ final class HtmlTransformer
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
                 $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
                 if ( null !== $navigation ) {
-                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                    return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
                 }
             }
 

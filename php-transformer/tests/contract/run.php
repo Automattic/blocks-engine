@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolic
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
@@ -355,9 +356,9 @@ $registryDocument->loadHTML('<div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_N
 $registryElement = $registryDocument->getElementsByTagName('div')->item(0);
 $registry = new PatternRecognizerRegistry(array(
     new class implements PatternRecognizerInterface {
-        public function match(DOMElement $element, PatternContext $context): ?array
+        public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
         {
-            return 'div' === strtolower($element->tagName) ? array('blockName' => 'core/group') : null;
+            return 'div' === strtolower($element->tagName) ? new PatternRecognitionResult(array('blockName' => 'core/group')) : null;
         }
     },
 ));
@@ -367,7 +368,7 @@ $registryContext = new PatternContext(
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
-$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)['blockName'] ?? null), 'pattern registry returns the first recognizer match');
+$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
 
 $tableElement = static function (string $html): DOMElement {
     $document = new DOMDocument();
