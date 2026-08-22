@@ -104,7 +104,7 @@ $fixture87Styles = '.gallery .photo{min-height:var(--h)}.gallery .photo::before{
 $fixture87 = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>', 'assets/site.css' => $fixture87Styles)))->toArray();
 $fixture87Saved = serialize_blocks(parse_blocks((string) ($fixture87['serialized_blocks'] ?? '')));
 $fixture87Css = implode("\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixture87['assets'] ?? array()));
-$assert(!str_contains($fixture87Saved, '--h:') && !str_contains($fixture87Saved, '--tone:') && str_contains($fixture87Saved, 'min-height:var(--h)') && str_contains($fixture87Saved, 'border-color:#d8dee9;border-style:solid;border-width:1px;border-radius:16px;min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem') && str_contains($fixture87Css, '--h:280px !important;--a:#27485f !important;--b:#87d8ff !important') && str_contains($fixture87Css, '--tone:#315b74 !important'), 'WordPress parse/save retains fixture87 core group support styles while generated carrier CSS preserves gallery and card custom-property paint.');
+$assert(!str_contains($fixture87Saved, '--h:') && !str_contains($fixture87Saved, '--tone:') && !str_contains($fixture87Saved, 'min-height:430px') && str_contains($fixture87Saved, 'min-height:var(--h)') && str_contains($fixture87Saved, 'border-color:#d8dee9;border-style:solid;border-width:1px;border-radius:16px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem') && str_contains($fixture87Css, '--h:280px !important;--a:#27485f !important;--b:#87d8ff !important') && str_contains($fixture87Css, '--tone:#315b74 !important') && str_contains($fixture87Css, 'min-height:430px !important'), 'WordPress parse/save retains supported fixture87 styles while generated carrier CSS preserves unsupported dimensions and custom-property paint.');
 $pageDeclarations = array(); foreach ($resolved['pages'] as $page) $pageDeclarations[$page['source_path']] = $page;
 $pagesBySource = array(); foreach ($resolved['operations'] as $operation) if ('create_page' === $operation['kind']) { $page = $pageDeclarations[$operation['source_path']] ?? null; if (!is_array($page) || ($operation['post_type'] ?? $page['post_type']) !== $page['post_type']) throw new RuntimeException('Create operation lacks an authoritative post type.'); $id = wp_insert_post(array('post_type' => $page['post_type'], 'post_status' => 'publish', 'post_title' => $page['title'], 'post_name' => $operation['slug'], 'post_parent' => 'page' === $page['post_type'] && '' !== $operation['parent_source_path'] ? ($pagesBySource[$operation['parent_source_path']] ?? 0) : 0, 'post_content' => $page['resolved_block_markup']), true); if (is_wp_error($id)) throw new RuntimeException($id->get_error_message()); update_post_meta($id, '_blocks_engine_reconciliation_identity', $page['reconciliation_identity']); $pageIds[$operation['reconciliation_identity']] = $id; $pagesBySource[$operation['source_path']] = $id; }
 foreach ($resolved['operations'] as $operation) if ('site_reading' === $operation['kind']) { update_option('show_on_front', $operation['show_on_front']); update_option('page_on_front', $pageIds[$operation['front_page_reconciliation_identity']]); }
@@ -154,6 +154,23 @@ $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
+$indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
+$queryPostIds = array();
+foreach (array('Query Loop First', 'Query Loop Second') as $title) {
+    $queryPostId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => $title, 'post_content' => '<!-- wp:paragraph --><p>' . $title . ' excerpt.</p><!-- /wp:paragraph -->'), true);
+    if (is_wp_error($queryPostId)) throw new RuntimeException($queryPostId->get_error_message());
+    $queryPostIds[] = $queryPostId;
+    $pageIds['query-loop-' . $queryPostId] = $queryPostId;
+}
+$indexBlocks = parse_blocks($indexTemplate);
+$indexQuery = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
+$indexPostTemplate = $indexQuery['innerBlocks'][0] ?? array();
+$previousQuery = $wp_query;
+$wp_query = new WP_Query(array('post_type' => 'post', 'post__in' => $queryPostIds, 'orderby' => 'post__in', 'posts_per_page' => 10));
+$indexRendered = do_blocks($indexTemplate);
+wp_reset_postdata();
+$wp_query = $previousQuery;
+$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

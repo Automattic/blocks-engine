@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "custom/gallery-41250ed5d7b7a590b897aa57c935cd89495845d74357932f2003e3a6badf659f" },
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/responsive-media" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Image feature", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Linked media stays beside readable copy." } },
     { "path": "blocks.1", "name": "core/media-text", "attrs": { "className": "video-split", "mediaPosition": "right", "mediaType": "video", "mediaUrl": "https://example.com/feature.mp4", "mediaWidth": 35, "verticalAlignment": "center" } },

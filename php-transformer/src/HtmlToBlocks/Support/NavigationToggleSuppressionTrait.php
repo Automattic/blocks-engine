@@ -162,7 +162,10 @@ trait NavigationToggleSuppressionTrait
     {
         $tagName = strtolower($element->tagName);
         if ( 'label' === $tagName ) {
-            return $this->isNestedHamburgerBarLabel($element);
+            return $this->isNestedHamburgerBarLabel($element) || $this->isCheckboxBoundEmptyLabel($element);
+        }
+        if ( 'input' === $tagName ) {
+            return $this->isCheckboxWithEmptyBoundLabel($element);
         }
 
         $isButton = 'button' === $tagName;
@@ -189,6 +192,69 @@ trait NavigationToggleSuppressionTrait
         // it. Recognizing that shape (never a class string) lets these toggles be
         // dropped too, instead of surfacing as an empty, always-visible button.
         return $this->isHamburgerBarStackControl($element);
+    }
+
+    private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
+    {
+        $controlId = trim($this->attr($element, 'for'));
+        if ( '' === $controlId || '' !== $this->visibleMenuToggleLabel($element) ) {
+            return false;
+        }
+
+        $control = $this->elementWithId($element, $controlId);
+        if ( ! $control instanceof DOMElement
+            || 'input' !== strtolower($control->tagName)
+            || 'checkbox' !== strtolower($this->attr($control, 'type'))
+            || ! $this->hasCheckboxNavigationToggleSignal($element, $control)
+        ) {
+            return false;
+        }
+
+        foreach ( array( $element, $control ) as $candidate ) {
+            for ( $node = $candidate->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                if ( 'form' === strtolower($node->tagName) ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private function hasCheckboxNavigationToggleSignal(DOMElement $label, DOMElement $control): bool
+    {
+        $identity = array();
+        foreach ( array( $label, $control ) as $element ) {
+            foreach ( array( 'id', 'class', 'aria-label', 'aria-controls', 'title' ) as $attribute ) {
+                $identity[] = $this->attr($element, $attribute);
+            }
+        }
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger|drawer|offcanvas)(?:[^a-z0-9]|$)/', strtolower(implode(' ', $identity)));
+    }
+
+    private function isCheckboxWithEmptyBoundLabel(DOMElement $element): bool
+    {
+        $controlId = trim($this->attr($element, 'id'));
+        if ( '' === $controlId || 'checkbox' !== strtolower($this->attr($element, 'type')) ) {
+            return false;
+        }
+
+        $document = $element->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return false;
+        }
+
+        foreach ( $document->getElementsByTagName('label') as $label ) {
+            if ( $label instanceof DOMElement
+                && $controlId === trim($this->attr($label, 'for'))
+                && $this->isCheckboxBoundEmptyLabel($label)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNestedHamburgerBarLabel(DOMElement $element): bool
@@ -351,6 +417,12 @@ trait NavigationToggleSuppressionTrait
                 if ( $target instanceof DOMElement
                     && ($this->elementContains($target, $navigation) || $this->elementContains($navigation, $target))
                 ) {
+                    return 'mobile';
+                }
+            }
+
+            for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
+                if ( $this->elementContains($container, $navigation) ) {
                     return 'mobile';
                 }
             }

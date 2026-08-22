@@ -927,16 +927,26 @@ final class ArtifactCompiler
                     if ( is_scalar($product['description'] ?? null) && '' !== trim((string) $product['description']) ) $row['description'] = (string) $product['description'];
                     $image = is_string($product['image'] ?? null) ? $product['image'] : (is_array($product['image'] ?? null) && is_string($product['image']['src'] ?? null) ? $product['image']['src'] : '');
                     if ( '' !== trim($image) ) $row['image'] = $image;
-                    $selectors = array_values(array_unique(array_filter(array($product['source_selector'] ?? '', $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
+                    $sourceSelector = is_string($product['source_selector'] ?? null) ? trim($product['source_selector']) : '';
+                    $selectors = array_values(array_unique(array_filter(array($sourceSelector, $container), static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
                     if ( array() !== $selectors ) $row['source_selectors'] = $selectors;
+                    // This is the compiler's exact product-card identity. Consumers
+                    // must not infer a leaf selector from diagnostic presentation data.
+                    if ( '' !== $sourceSelector ) {
+                        $row['source_path'] = $sourcePath;
+                        $row['selector'] = $sourceSelector;
+                    }
                     if ( is_array($product['binding'] ?? null) && 'generic/block-binding/v1' === ($product['binding']['schema'] ?? null) && is_string($product['binding']['search_block_markup'] ?? null) && '' !== trim($product['binding']['search_block_markup']) ) {
                         $row['bindings'] = array(array_merge($product['binding'], array('source_path' => $sourcePath)));
                     }
-                    if ( ! isset($row['bindings']) ) continue;
                     if ( isset($products[$productSlug]) ) {
+                        if ( ! isset($row['bindings'][0]) ) {
+                            continue;
+                        }
                         $binding = $row['bindings'][0];
                         $claim = $binding['source_path'] . "\n" . hash('sha256', $binding['search_block_markup']) . "\n" . $binding['occurrence'];
-                        $existingClaims = array_map(static fn(array $existing): string => $existing['source_path'] . "\n" . hash('sha256', $existing['search_block_markup']) . "\n" . $existing['occurrence'], $products[$productSlug]['bindings']);
+                        $existingBindings = is_array($products[$productSlug]['bindings'] ?? null) ? $products[$productSlug]['bindings'] : array();
+                        $existingClaims = array_map(static fn(array $existing): string => $existing['source_path'] . "\n" . hash('sha256', $existing['search_block_markup']) . "\n" . $existing['occurrence'], $existingBindings);
                         if (!in_array($claim, $existingClaims, true)) $products[$productSlug]['bindings'][] = $binding;
                         continue;
                     }

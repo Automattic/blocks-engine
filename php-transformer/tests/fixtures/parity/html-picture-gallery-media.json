@@ -16,8 +16,8 @@
     "content": "<picture class=\"hero-picture\"><source media=\"(min-width: 800px)\" srcset=\"https://example.com/hero-large.jpg 1200w\" sizes=\"100vw\"><img src=\"https://example.com/hero.jpg\" alt=\"Hero\"></picture><div class=\"gallery-grid\" data-layout=\"grid\"><figure><picture><source srcset=\"https://example.com/one-large.jpg 900w\"><img src=\"https://example.com/one.jpg\" alt=\"One\"></picture><figcaption>One caption</figcaption></figure><figure class=\"tile\"><img src=\"https://example.com/two.jpg\" alt=\"Two\" width=\"400\" height=\"300\"><figcaption>Two caption</figcaption></figure><figcaption>Gallery caption</figcaption></div>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/gallery-3813d68bc078aa097df6f26c4e928179e7258b8d14763f2885d47b326e8cadad" },
-    { "path": "blocks.1", "name": "custom/gallery-f17507873f8b8a601fa74724e3b974f727f583a228c1a0ed3f6136ab0135e74c" }
+    { "path": "blocks.0", "name": "custom/responsive-media" },
+    { "path": "blocks.1", "name": "custom/responsive-media" }
   ],
   "expected_fallbacks": [],
   "expect": [
