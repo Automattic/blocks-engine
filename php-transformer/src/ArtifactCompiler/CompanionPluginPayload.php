@@ -19,7 +19,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  *   - site_slug   (string)  per-site naming; SSI may override at install time.
  *   - site_name   (string)  optional human-readable name; defaults to slug.
  *   - mu_plugin   (bool)    optional; emit as a must-use loader.
- *   - blocks[]    (array)   each: name, block_json, render, view_js, assets{}.
+ *   - blocks[]    (array)   each: name, block_json, optional static render or
+ *                            audited renderer identifier, view_js, assets{}.
  *   - preserved_js[] (array) each: content, handle, src, block, selector,
  *                            source_path. Populated from the generic runtime
  *                            island package for downstream plugin materialization.
@@ -176,8 +177,8 @@ final class CompanionPluginPayload
     /**
      * Normalize a generated-block entry to scaffold()'s per-block contract.
      * Generated blocks already declare a sanitizable name, a block_json object,
-     * and static render HTML; producer-only diagnostic keys (e.g. signature) are
-     * dropped so only contract keys reach SSI.
+     * and static render HTML or an audited renderer identifier. Producer-only
+     * diagnostic keys (e.g. signature) are dropped so only contract keys reach SSI.
      *
      * @param array<string, mixed> $block Generated-block entry from the transformer.
      * @return array<string, mixed> Empty array when the entry is unusable.
@@ -201,6 +202,9 @@ final class CompanionPluginPayload
 
         if ( is_scalar($block['render'] ?? null) && '' !== (string) $block['render'] ) {
             $normalized['render'] = (string) $block['render'];
+        }
+        if ( is_scalar($block['renderer'] ?? null) && '' !== (string) $block['renderer'] ) {
+            $normalized['renderer'] = (string) $block['renderer'];
         }
         if ( is_scalar($block['view_js'] ?? null) && '' !== (string) $block['view_js'] ) {
             $normalized['view_js'] = (string) $block['view_js'];
