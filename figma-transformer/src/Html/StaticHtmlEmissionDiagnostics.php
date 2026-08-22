@@ -282,24 +282,34 @@ final class StaticHtmlEmissionDiagnostics
             }
         }
 
-        // Shared style classes and their per-node Figma hooks coexist on one
-        // emitted element. A breakpoint override on either class constrains the
-        // element, so attribute coverage to the fixed-width shared class too.
-        $classAssociations = $this->htmlClassAssociations($html);
+        $classSets = $this->htmlClassSets($html);
+        $totalCount = 0;
+        $coveredCount = 0;
+        $overDesktopCoveredClasses = array();
+        $overDesktopUncoveredClasses = array();
         foreach ( $base as $class => $_ ) {
-            foreach ( array_keys($classAssociations[$class] ?? array()) as $associatedClass ) {
-                if ( isset($responsive[$associatedClass]) ) {
-                    $responsive[$class] = true;
-                    break;
+            foreach ( $classSets[$class] ?? array() as $classSet ) {
+                ++$totalCount;
+                $covered = false;
+                foreach ( $classSet as $elementClass ) {
+                    if ( isset($responsive[$elementClass]) ) {
+                        $covered = true;
+                        break;
+                    }
+                }
+                if ( $covered ) {
+                    ++$coveredCount;
+                }
+                if ( ! isset($overDesktop[$class]) ) {
+                    continue;
+                }
+                if ( $covered ) {
+                    $overDesktopCoveredClasses[] = $class;
+                } else {
+                    $overDesktopUncoveredClasses[] = $class;
                 }
             }
         }
-
-        $baseClasses = array_keys($base);
-        $coveredCount = count(array_filter($baseClasses, static fn (string $class): bool => isset($responsive[$class])));
-        $totalCount = count($baseClasses);
-        $overDesktopCoveredClasses = array_values(array_filter(array_keys($overDesktop), static fn (string $class): bool => isset($responsive[$class])));
-        $overDesktopUncoveredClasses = array_values(array_diff(array_keys($overDesktop), $overDesktopCoveredClasses));
 
         return array(
             'fixed_width_declaration_count' => $totalCount,
@@ -308,7 +318,7 @@ final class StaticHtmlEmissionDiagnostics
             'fixed_width_without_responsive_override_count' => max(0, $totalCount - $coveredCount),
             'effective_responsive_coverage_ratio' => $totalCount > 0 ? round($coveredCount / $totalCount, 3) : 1.0,
             'fixed_width_samples' => $samples,
-            'fixed_width_over_desktop_class_count' => count($overDesktop),
+            'fixed_width_over_desktop_class_count' => count($overDesktopCoveredClasses) + count($overDesktopUncoveredClasses),
             'fixed_width_over_desktop_covered_count' => count($overDesktopCoveredClasses),
             'fixed_width_over_desktop_uncovered_count' => count($overDesktopUncoveredClasses),
             'fixed_width_over_desktop_covered_classes' => $overDesktopCoveredClasses,
@@ -317,13 +327,13 @@ final class StaticHtmlEmissionDiagnostics
     }
 
     /**
-     * @return array<string, array<string, true>>
+     * @return array<string, array<int, array<int, string>>>
      */
-    private function htmlClassAssociations(string $html): array
+    private function htmlClassSets(string $html): array
     {
-        $associations = array();
+        $classSets = array();
         if ( ! preg_match_all('/\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches, PREG_SET_ORDER) ) {
-            return $associations;
+            return $classSets;
         }
 
         foreach ( $matches as $match ) {
@@ -332,15 +342,11 @@ final class StaticHtmlEmissionDiagnostics
                 if ( '' === $class ) {
                     continue;
                 }
-                foreach ( $classes as $associatedClass ) {
-                    if ( '' !== $associatedClass && $associatedClass !== $class ) {
-                        $associations[$class][$associatedClass] = true;
-                    }
-                }
+                $classSets[$class][] = $classes;
             }
         }
 
-        return $associations;
+        return $classSets;
     }
 
     private function hasResponsiveWidthConstraint(string $declarations): bool

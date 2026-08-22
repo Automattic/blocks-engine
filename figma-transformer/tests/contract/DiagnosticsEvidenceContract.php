@@ -307,7 +307,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
 
     $responsiveCss = '.desktop-shell{width:1800px;height:620px;display:flex;flex-direction:row}.uncovered-shell{width:1600px}'
         . "\n@media (max-width:767px){\n.desktop-shell{width:100%;max-width:100%;height:auto;min-height:620px;flex-wrap:wrap}\n}";
-    $responsiveHtmlArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics('<main><section></section></main>', $responsiveCss);
+    $responsiveHtmlArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics('<main><section class="desktop-shell"></section><section class="uncovered-shell"></section></main>', $responsiveCss);
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_count'), 2, 'diagnostics-evidence-responsive-raw-fixed-width-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_class_count'), 2, 'diagnostics-evidence-responsive-fixed-width-class-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-responsive-covered-fixed-width-count');

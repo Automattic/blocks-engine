@@ -715,7 +715,7 @@ final class BreakpointMediaDiffBuilder
                     }
                     continue;
                 }
-                $responsiveWidthDeclarations = 'width' === $property
+                $responsiveWidthDeclarations = 'width' === $property && ! $this->nodeHasMaxWidthConstraint($baseNode) && ! $this->nodeHasMaxWidthConstraint($variantNode)
                     ? $this->breakpointDimensionPolicy->breakpointWidthDeclarations($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode)
                     : null;
                 if ( null !== $responsiveWidthDeclarations ) {
@@ -800,6 +800,12 @@ final class BreakpointMediaDiffBuilder
             $variantNode = '' !== $pathKey && is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : null;
             $decision = $this->responsiveBreakpointSafetyPolicy->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode, $variantNode);
             $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
+            if ( $this->nodeHasMaxWidthConstraint($node) ) {
+                $declarations = array_values(array_filter(
+                    $declarations,
+                    static fn (string $declaration): bool => ! str_starts_with($declaration, 'width:') && ! str_starts_with($declaration, 'max-width:')
+                ));
+            }
             if ( empty($declarations) ) {
                 continue;
             }
@@ -856,6 +862,7 @@ final class BreakpointMediaDiffBuilder
                 || 'absolute' === ($baseMap['position'] ?? null)
                 || $this->usesFullBleedViewportBreakout($baseMap)
                 || $this->hasResponsiveWidthConstraint($baseMap)
+                || $this->nodeHasMaxWidthConstraint($base['node'] ?? array())
             ) {
                 continue;
             }
@@ -869,7 +876,14 @@ final class BreakpointMediaDiffBuilder
     /** @param array<string, string> $declarations */
     private function hasResponsiveWidthConstraint(array $declarations): bool
     {
-        return isset($declarations['max-width']) && preg_match('/^(?:100%|calc\(|clamp\(|min\()/i', $declarations['max-width']);
+        return isset($declarations['max-width']);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeHasMaxWidthConstraint(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return isset($layout['max_width']) && is_numeric($layout['max_width']);
     }
 
     /**

@@ -3579,10 +3579,10 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         'name' => 'Responsive intrinsic boundary fixture',
         'nodes' => array(
             array('id' => 'boundary:desktop', 'type' => 'FRAME', 'name' => 'Landing Desktop', 'width' => 1440, 'height' => 600, 'children' => array(
-                array('id' => 'boundary:desktop:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240),
+                array('id' => 'boundary:desktop:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240, 'maxWidth' => 360),
             )),
             array('id' => 'boundary:mobile', 'type' => 'FRAME', 'name' => 'Landing Mobile', 'width' => 390, 'height' => 600, 'children' => array(
-                array('id' => 'boundary:mobile:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240),
+                array('id' => 'boundary:mobile:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240, 'maxWidth' => 360),
             )),
         ),
     ), array(
@@ -3592,6 +3592,6 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         ),
     ));
     $responsiveBoundaryCss = $fileContent($responsiveBoundaryResult, 'style.css');
-    $assert(str_contains($responsiveBoundaryCss, '.figma-node-boundary-desktop-card-intrinsic-card{width:376px;height:240px'), 'responsive-boundary-base-preserves-intrinsic-width');
-    $assert(1 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-boundary-desktop-card-intrinsic-card\{max-width:100%;box-sizing:border-box\}/', $responsiveBoundaryCss), 'responsive-boundary-mobile-caps-matched-intrinsic-width');
+    $assert(str_contains($responsiveBoundaryCss, '.figma-node-boundary-desktop-card-intrinsic-card{width:376px;height:240px;max-width:360px'), 'responsive-boundary-base-preserves-intrinsic-width-constraint');
+    $assert(0 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-boundary-desktop-card-intrinsic-card\{[^}]*max-width:100%/', $responsiveBoundaryCss), 'responsive-boundary-mobile-keeps-existing-max-width-constraint');
 }
