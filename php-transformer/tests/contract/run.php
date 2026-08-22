@@ -4059,7 +4059,7 @@ $capturedDialog = $compiler->compile(array(
     'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>'),
+        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
             'schema' => 'data-liberation/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
@@ -4070,7 +4070,7 @@ $capturedDialog = $compiler->compile(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(array(
                     'status' => 'captured',
-                    'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+                    'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
                         'html' => '<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>',
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
@@ -4084,6 +4084,7 @@ $capturedDialog = $compiler->compile(array(
 $assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
