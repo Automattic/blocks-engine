@@ -184,9 +184,11 @@ final class ArtifactCompiler
 		$this->wordpressCompatCssCache = array();
         $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
+        $capturedDialogs = ( new CapturedDialogProjector() )->project($normalized['files']);
+        $normalized['files'] = $capturedDialogs['files'];
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
-        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
+        $diagnostics = array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -200,7 +202,7 @@ final class ArtifactCompiler
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $this->indexFiles($normalized['files']);
-        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $entryBlocks = $this->compileHtmlDocumentBlocks($html, $entryPath, $normalized['files'], 'artifact-entry', $companionPluginPayloadBuilder->blockNamespace($artifact), true);
         $compiledHtmlDocuments = $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
@@ -274,15 +276,24 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
+        if (0 < $capturedDialogs['projected_count']) {
+            $sourceReports['captured_interactions'] = array(
+                'schema' => 'blocks-engine/captured-interactions/v1',
+                'projected_dialog_count' => $capturedDialogs['projected_count'],
+            );
+        }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
                 'blocks' => is_array($compiledHtmlDocument['blocks'] ?? null) ? $compiledHtmlDocument['blocks'] : array(),
                 'serialized_blocks' => is_string($compiledHtmlDocument['serialized_blocks'] ?? null) ? $compiledHtmlDocument['serialized_blocks'] : '',
+                'generated_carrier_css' => $this->cssAssetContent(is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array()),
+                'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'] ?? array(),
+                'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'] ?? array(),
                 'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
                 'provenance' => $sourceFile['provenance'] ?? null,
             );
@@ -323,6 +334,13 @@ final class ArtifactCompiler
                 'source_hash'   => $normalized['source_hash'],
             ),
         );
+        $sourceUrl = is_array($artifact['provenance'] ?? null) && is_string($artifact['provenance']['source_url'] ?? null)
+            ? trim($artifact['provenance']['source_url'])
+            : '';
+        $sourceUrlParts = '' !== $sourceUrl ? parse_url($sourceUrl) : false;
+        if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
+            $provenance[0]['source_url'] = $sourceUrl;
+        }
         // WordPressSitePlan consumes a canonical result envelope, so give it a
         // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
@@ -385,6 +403,30 @@ final class ArtifactCompiler
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /** @param array<int,array<string,mixed>> $assets */
+    private function cssAssetContent(array $assets): string
+    {
+        $content = array();
+        foreach ($assets as $asset) if ('css' === ($asset['kind'] ?? '') && 'engine-support' === ($asset['source'] ?? '') && is_string($asset['content'] ?? null)) $content[] = $asset['content'];
+        return implode("\n", $content);
+    }
+
+    /** @param array<string,mixed> $result @return array<int,string> */
+    private function runtimeBlockPaths(array $result): array
+    {
+        $paths = array();
+        foreach ($result['source_reports']['html']['source_provenance'] ?? array() as $entry) if (is_array($entry) && !empty($entry['editability_runtime_owned']) && is_string($entry['block_path'] ?? null)) $paths[] = $entry['block_path'];
+        return $paths;
+    }
+
+    /** @param array<string,mixed> $result @return array<int,string> */
+    private function visualBlockPaths(array $result): array
+    {
+        $paths = array();
+        foreach ($result['source_reports']['html']['source_provenance'] ?? array() as $entry) if (is_array($entry) && !empty($entry['editability_visual_owned']) && is_string($entry['block_path'] ?? null)) $paths[] = $entry['block_path'];
+        return $paths;
     }
 
     /**
@@ -1019,36 +1061,6 @@ final class ArtifactCompiler
         ), $options));
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
-     */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
-    {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
-
-        return array(
-            'blocks'            => $result['blocks'],
-            'serialized_blocks' => $result['serialized_blocks'],
-            'diagnostics'       => $result['diagnostics'],
-            'fallbacks'         => $result['fallbacks'],
-            'assets'            => $result['assets'],
-            'runtime_islands'   => $result['runtime_islands'],
-            'generated_blocks'  => $result['generated_blocks'],
-            'gutenberg_gaps'    => $result['gutenberg_gaps'],
-            'interaction_candidates' => $result['interaction_candidates'],
-            'superseded_selectors' => $result['superseded_selectors'],
-            'author_stylesheet_projections' => $result['author_stylesheet_projections'],
-            'shell_artifacts' => $result['shell_artifacts'],
-            'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
-            'reusable_components' => $result['reusable_components'],
-        );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
-     */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
         if ( $this->containsBlockMarkup($html) ) {
@@ -1111,6 +1123,8 @@ final class ArtifactCompiler
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+            'runtime_block_paths' => $this->runtimeBlockPaths($result),
+            'visual_block_paths' => $this->visualBlockPaths($result),
             'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(

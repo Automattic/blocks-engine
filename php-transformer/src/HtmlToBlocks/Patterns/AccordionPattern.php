@@ -9,10 +9,7 @@ final class AccordionPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, PatternContext $context): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $createBlock = $context->createBlockCallback();
         $convertChildren = $context->convertChildrenCallback();
@@ -37,7 +34,9 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        return $createBlock('core/accordion', $presentationAttributes($element), $items, $element);
+        return new PatternRecognitionResult(
+            $createBlock('core/accordion', $presentationAttributes($element), $items, $element)
+        );
     }
 
     private function accordionItem(DOMElement $item, callable $innerHtml, callable $convertChildren, callable $convertChildrenWithoutTags, callable $createBlock, callable $presentationAttributes): ?array

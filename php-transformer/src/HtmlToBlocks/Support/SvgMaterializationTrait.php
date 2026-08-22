@@ -817,15 +817,16 @@ trait SvgMaterializationTrait
         // inline-preservation path (local refs) or the fallback diagnostic
         // (external sprite refs) rather than this decorative classification.
         $allowedTags = array_flip(array(
-            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'fegaussianblur', 'femerge',
-            'femergenode', 'filter', 'g', 'line', 'lineargradient',
+            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'fecolormatrix', 'fegaussianblur',
+            'femerge', 'femergenode', 'feoffset', 'filter', 'g', 'line', 'lineargradient',
             'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
             'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
+            'data-bbox', 'data-color', 'data-testid', 'data-type',
             'dominant-baseline', 'dx', 'dy', 'enable-background', 'fill', 'fill-opacity', 'fill-rule', 'font-family',
-            'filter', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'filter', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
             'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
             'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
@@ -833,7 +834,7 @@ trait SvgMaterializationTrait
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
             'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'text-anchor', 'transform',
-            'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xml:space',
+            'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xml:space',
             'xmlns', 'xmlns:xlink', 'y', 'y1', 'y2', 'in', 'title',
         ));
 

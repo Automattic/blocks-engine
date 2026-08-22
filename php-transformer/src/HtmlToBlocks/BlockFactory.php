@@ -21,54 +21,6 @@ final class BlockFactory
      */
     private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'ul', 'ol', 'li' );
 
-    /**
-     * Blocks whose supports.layout accepts an authored layout attribute, per
-     * the vendored block-library block.json files. Blocks declaring
-     * layout {allowEditing:false} (quote, details, accordion items) manage
-     * their own layout and never accept one; blocks without layout support
-     * (list, paragraph, image) reject the attribute entirely.
-     *
-     * @var array<string, true>
-     */
-    private const LAYOUT_SUPPORTING_BLOCKS = array(
-        'core/accordion'           => true,
-        'core/buttons'             => true,
-        'core/column'              => true,
-        'core/comments-pagination' => true,
-        'core/cover'               => true,
-        'core/group'               => true,
-        'core/navigation'          => true,
-        'core/post-content'        => true,
-        'core/post-template'       => true,
-        'core/query'               => true,
-        'core/query-pagination'    => true,
-        'core/social-links'        => true,
-        'core/tab-list'            => true,
-        'core/tab-panel'           => true,
-        'core/term-template'       => true,
-        'core/terms-query'         => true,
-    );
-
-    /**
-     * The subset whose supports.layout permits switching to type grid
-     * (layout true, or an object without an allowSwitching:false pin to a
-     * fixed flex default).
-     *
-     * @var array<string, true>
-     */
-    private const GRID_LAYOUT_BLOCKS = array(
-        'core/accordion'     => true,
-        'core/column'        => true,
-        'core/cover'         => true,
-        'core/group'         => true,
-        'core/post-content'  => true,
-        'core/post-template' => true,
-        'core/query'         => true,
-        'core/tab-panel'     => true,
-        'core/term-template' => true,
-        'core/terms-query'   => true,
-    );
-
     private ?StyleAttributeMapper $styleMapper = null;
 
     private ?Runtime $runtime = null;
@@ -121,19 +73,6 @@ final class BlockFactory
         $attrs = $this->normalizeClassNameAttr($attrs);
 
         $attrs = $this->runtime()->normalizeBlockSupportAttributes($name, $attrs)['attrs'];
-
-        // Layout is a block-supports opt-in. Stamping it on a block whose
-        // supports do not accept an authored layout bakes is-layout-* classes
-        // into save markup the block's canonical save never emits, so
-        // downstream re-serialization rejects the block and reverts it.
-        if ( isset($attrs['layout']) ) {
-            $layoutType = is_array($attrs['layout']) ? strtolower((string) ($attrs['layout']['type'] ?? '')) : '';
-            if ( ! isset(self::LAYOUT_SUPPORTING_BLOCKS[$name])
-                || ( 'grid' === $layoutType && ! isset(self::GRID_LAYOUT_BLOCKS[$name]) )
-            ) {
-                unset($attrs['layout']);
-            }
-        }
 
         // These core save functions do not reproduce dimensions.maxWidth. Inline
         // max-width is retained by the generated geometry carrier stylesheet.
@@ -681,7 +620,11 @@ final class BlockFactory
         }
 
         $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
+        $linkAttrs = $this->htmlAttrs(array(
+            'target' => (string) ($attrs['linkTarget'] ?? ''),
+            'rel'    => (string) ($attrs['rel'] ?? ''),
+        ));
+        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . $linkAttrs . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
     }
 
     /**
