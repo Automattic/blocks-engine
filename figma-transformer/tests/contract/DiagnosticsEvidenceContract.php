@@ -327,6 +327,14 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-matched-direct-compound-responsive-selector-covers');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_uncovered_count'), 0, 'diagnostics-evidence-matched-direct-compound-responsive-selector-has-no-uncovered-width');
 
+    $selectorListArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><div class="a"></div><div class="b"></div></main>',
+        '.a,.b{width:1800px}@media (max-width:767px){.a{width:100%}}'
+    );
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $selectorListArtifact, array('fixed_width_declaration_count'), 2, 'diagnostics-evidence-selector-list-counts-each-matched-element-once');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $selectorListArtifact, array('fixed_width_with_responsive_override_count'), 1, 'diagnostics-evidence-selector-list-preserves-partial-responsive-coverage');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $selectorListArtifact, array('fixed_width_without_responsive_override_count'), 1, 'diagnostics-evidence-selector-list-reports-uncovered-part');
+
     $siblingResponsiveSelectorArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
         '<main><div class="row"><span class="anchor"></span><div class="fixed adjacent"></div><div class="fixed general"></div></div></main>',
         '.fixed{width:1800px}@media (max-width:767px){.anchor + .adjacent{width:100%}.anchor ~ .general{max-width:100%}}'

@@ -599,6 +599,24 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
             'dom_box_quality' => $invalidDomBoxQuality,
         ),
     ));
+    $incompleteCoverageMatrixSummary = matrix_quality_matrix(array(
+        array(
+            'id' => 'complete-page',
+            'quality_summary' => array(
+                'fixed_width_declaration_count' => 2,
+                'fixed_width_with_responsive_override_count' => 2,
+                'fixed_width_coverage_analysis' => array('status' => 'complete'),
+            ),
+        ),
+        array(
+            'id' => 'budget-limited-page',
+            'quality_summary' => array(
+                'fixed_width_declaration_count' => 2,
+                'fixed_width_with_responsive_override_count' => 2,
+                'fixed_width_coverage_analysis' => array('status' => 'incomplete', 'diagnostic' => 'fixed_width_coverage_budget_exceeded'),
+            ),
+        ),
+    ));
     $formScoringSummary = matrix_quality_matrix(array(
         array(
             'id' => 'native-form-fixture',
@@ -850,6 +868,10 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert(3 === ($matrixQualitySummary['risk_category_totals']['responsive_coverage'] ?? null), 'fixture-matrix-quality-risk-category-total');
     $assert(8 === ($matrixQualitySummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-rendered-dom-risk-category-total');
     $assert(1 === ($invalidDomBoxMatrixSummary['totals']['dom_capture_invalid_count'] ?? null), 'fixture-matrix-quality-invalid-dom-capture-total');
+    $assert('incomplete' === ($incompleteCoverageMatrixSummary['fixed_width_coverage_analysis']['status'] ?? null), 'fixture-matrix-quality-multi-page-budget-status-aggregates');
+    $assert(1 === ($incompleteCoverageMatrixSummary['fixed_width_coverage_analysis']['incomplete_fixture_count'] ?? null), 'fixture-matrix-quality-multi-page-budget-count-aggregates');
+    $assert(0.0 === ($incompleteCoverageMatrixSummary['effective_responsive_coverage_ratio'] ?? null), 'fixture-matrix-quality-multi-page-budget-never-implies-complete-coverage');
+    $assert(1 === ($incompleteCoverageMatrixSummary['per_fixture_readiness'][1]['risk_categories']['responsive_coverage']['count'] ?? null), 'fixture-matrix-quality-multi-page-budget-is-readiness-risk');
     $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_capture_valid'] ?? null), 'fixture-matrix-quality-invalid-dom-capture-readiness-flag');
     $assert(false === ($invalidDomBoxMatrixSummary['per_fixture_readiness'][0]['dom_css_loaded'] ?? null), 'fixture-matrix-quality-invalid-dom-css-loaded-flag');
     $assert(0 === ($invalidDomBoxMatrixSummary['risk_category_totals']['rendered_dom_boxes'] ?? null), 'fixture-matrix-quality-invalid-dom-not-scored-as-rendered-risk');

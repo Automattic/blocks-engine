@@ -57,6 +57,7 @@ function matrix_quality_matrix(array $fixtures): array
     $perFixtureReadiness = array();
     $coverageNumerator = 0;
     $coverageDenominator = 0;
+    $incompleteCoverageFixtureCount = 0;
     $routeCoverageNumerator = 0;
     $routeCoverageDenominator = 0;
 
@@ -79,6 +80,10 @@ function matrix_quality_matrix(array $fixtures): array
         }
         $coverageNumerator += (int) ($summary['fixed_width_with_responsive_override_count'] ?? 0);
         $coverageDenominator += (int) ($summary['fixed_width_declaration_count'] ?? 0);
+        $coverageIncomplete = 'incomplete' === ($summary['fixed_width_coverage_analysis']['status'] ?? null);
+        if ( $coverageIncomplete ) {
+            ++$incompleteCoverageFixtureCount;
+        }
         $selectedRouteCount = max(
             count(is_array($fixture['selected_frame_ids'] ?? null) ? $fixture['selected_frame_ids'] : array()),
             matrix_fixture_emitted_route_count($fixture)
@@ -108,6 +113,7 @@ function matrix_quality_matrix(array $fixtures): array
             'readiness_score' => $readiness['readiness_score'] ?? null,
             'visual_risk_bucket' => $readiness['visual_risk_bucket'] ?? 'unknown',
             'route_coverage_ratio' => $readiness['route_coverage_ratio'] ?? null,
+            'fixed_width_coverage_analysis_status' => $summary['fixed_width_coverage_analysis']['status'] ?? 'complete',
             'dom_css_loaded' => $domSummary['dom_css_loaded'] ?? null,
             'dom_capture_valid' => $domSummary['dom_capture_valid'] ?? null,
             'risk_categories' => $readiness['risk_categories'] ?? array(),
@@ -126,7 +132,11 @@ function matrix_quality_matrix(array $fixtures): array
         'visual_risk_bucket_counts' => $riskBucketCounts,
         'risk_category_totals' => $riskCategoryTotals,
         'per_fixture_readiness' => $perFixtureReadiness,
-        'effective_responsive_coverage_ratio' => $coverageDenominator > 0 ? round($coverageNumerator / $coverageDenominator, 3) : 1.0,
+        'effective_responsive_coverage_ratio' => $incompleteCoverageFixtureCount > 0 ? 0.0 : ($coverageDenominator > 0 ? round($coverageNumerator / $coverageDenominator, 3) : 1.0),
+        'fixed_width_coverage_analysis' => array(
+            'status' => $incompleteCoverageFixtureCount > 0 ? 'incomplete' : 'complete',
+            'incomplete_fixture_count' => $incompleteCoverageFixtureCount,
+        ),
         'route_coverage_ratio' => $routeCoverageDenominator > 0 ? round($routeCoverageNumerator / $routeCoverageDenominator, 3) : 1.0,
         'totals' => $totals,
         'totals_by_comparison_role' => $totalsByComparisonRole,
@@ -162,8 +172,9 @@ function matrix_fixture_visual_readiness(array $fixture): array
         'responsive_coverage' => matrix_risk_category(
             matrix_quality_summary_int($summary, 'fixed_width_without_responsive_override_count')
                 + matrix_quality_summary_int($summary, 'fixed_width_over_desktop_uncovered_count')
-                + (true === ($summary['desktop_canvas_without_responsive_breakpoints'] ?? null) ? 1 : 0),
-            array('fixed_width_without_responsive_override_count', 'fixed_width_over_desktop_uncovered_count', 'desktop_canvas_without_responsive_breakpoints')
+                + (true === ($summary['desktop_canvas_without_responsive_breakpoints'] ?? null) ? 1 : 0)
+                + ('incomplete' === ($summary['fixed_width_coverage_analysis']['status'] ?? null) ? 1 : 0),
+            array('fixed_width_without_responsive_override_count', 'fixed_width_over_desktop_uncovered_count', 'desktop_canvas_without_responsive_breakpoints', 'fixed_width_coverage_analysis')
         ),
         'absolute_scaffolding' => matrix_risk_category(
             matrix_quality_summary_int($summary, 'large_absolute_offset_count')

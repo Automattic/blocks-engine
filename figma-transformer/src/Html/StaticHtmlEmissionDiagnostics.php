@@ -249,13 +249,15 @@ final class StaticHtmlEmissionDiagnostics
         $responsive = array();
         $samples = array();
         $fixedWidthOverDesktopCount = 0;
+        $declarationIndex = 0;
 
         foreach ( $rules as $rule ) {
             $selector = (string) ($rule['selector'] ?? '');
             $declarations = (string) ($rule['declarations'] ?? '');
-            $classes = $this->selectorClassNames($selector);
             if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*(?:width|max-width)\s*:/i', $declarations) ) {
-                $responsive[] = $selector;
+                foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+                    $responsive[] = $selectorPart;
+                }
                 continue;
             }
 
@@ -267,26 +269,32 @@ final class StaticHtmlEmissionDiagnostics
                 continue;
             }
 
-            foreach ( $classes as $class ) {
+            foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+                $classes = $this->selectorClassNames($selectorPart);
+                if ( empty($classes) ) {
+                    continue;
+                }
                 $base[] = array(
-                    'class' => $class,
-                    'selector' => $selector,
+                    'class' => $classes[0],
+                    'selector' => $selectorPart,
+                    'declaration' => $declarationIndex,
                     'over_desktop' => $width > 1440.0,
                 );
                 if ( $this->hasResponsiveWidthConstraint($declarations) ) {
-                    $responsive[] = $selector;
+                    $responsive[] = $selectorPart;
                 }
                 if ( $width > 1440.0 ) {
                     ++$fixedWidthOverDesktopCount;
                 }
                 if ( count($samples) < 25 ) {
                     $samples[] = array(
-                        'class' => $class,
+                        'class' => $classes[0],
                         'width' => $width,
-                        'selector' => $selector,
+                        'selector' => $selectorPart,
                     );
                 }
             }
+            ++$declarationIndex;
         }
 
         $elements = $this->htmlElements($html);
@@ -310,6 +318,7 @@ final class StaticHtmlEmissionDiagnostics
         $coveredCount = 0;
         $overDesktopCoveredClasses = array();
         $overDesktopUncoveredClasses = array();
+        $evaluatedDeclarations = array();
         foreach ( $base as $baseContext ) {
             $class = (string) $baseContext['class'];
             $baseCandidates = $this->selectorCandidateElements((string) $baseContext['selector'], $indexes);
@@ -319,6 +328,11 @@ final class StaticHtmlEmissionDiagnostics
                 break;
             }
             foreach ( $baseCandidates as $element ) {
+                $elementId = spl_object_id($element);
+                $declaration = (int) $baseContext['declaration'];
+                if ( isset($evaluatedDeclarations[$declaration][$elementId]) ) {
+                    continue;
+                }
                 if (++$operations > self::FIXED_WIDTH_COVERAGE_OPERATION_BUDGET) {
                     $incomplete = true;
                     break 2;
@@ -330,6 +344,7 @@ final class StaticHtmlEmissionDiagnostics
                     }
                     continue;
                 }
+                $evaluatedDeclarations[$declaration][$elementId] = true;
                 ++$totalCount;
                 $covered = false;
                 foreach ($responsiveCandidates[spl_object_id($element)] ?? array() as $selector) {

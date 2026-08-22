@@ -231,6 +231,7 @@ final class TransformDiagnosticsBuilder
                 'coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 0.0),
                 'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
                 'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
+                'fixed_width_coverage_analysis' => is_array($htmlArtifact['fixed_width_coverage_analysis'] ?? null) ? $htmlArtifact['fixed_width_coverage_analysis'] : array(),
                 'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
             );
         }

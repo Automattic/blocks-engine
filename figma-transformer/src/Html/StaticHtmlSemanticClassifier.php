@@ -222,6 +222,12 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
+        // A direct Name or Email label is common in profile cards and other
+        // non-interactive chrome. Require enclosing form evidence for it.
+        if ( $this->hasDirectFormFieldLabel($node) && ! $this->hasFormContextIntent($parentNode) ) {
+            return false;
+        }
+
         $textCount = ($this->textDescendantCount)($node);
         if ( $textCount < 1 || $textCount > 2 ) {
             return false;
@@ -260,6 +266,13 @@ final class StaticHtmlSemanticClassifier
             || str_contains($haystack, 'comment')
             || str_contains($haystack, 'reply');
         if ( ! $hasTextareaIntent ) {
+            return false;
+        }
+
+        $isMultilineCommentOrMessage = null !== ($this->boxValue)($node, 'height')
+            && ($this->boxValue)($node, 'height') >= 72.0
+            && 1 === preg_match('/\b(?:comment|message|reply)\b/', $label);
+        if ( ! $this->hasFormContextIntent($parentNode) && ! $isMultilineCommentOrMessage ) {
             return false;
         }
 
@@ -334,6 +347,26 @@ final class StaticHtmlSemanticClassifier
     private function hasStrongFormTextIntent(string $text): bool
     {
         return 1 === preg_match('/\b(leave\s+(?:a\s+)?(?:reply|comment)|post\s+(?:a\s+)?comment|submit\s+(?:a\s+)?comment)\b/', $text);
+    }
+
+    /** @param array<string, mixed>|null $parentNode */
+    private function hasFormContextIntent(?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($parentNode['name'] ?? ''));
+        $text = strtolower(($this->subtreePlainText)($parentNode));
+
+        return str_contains($name, 'search')
+            || str_contains($name, 'newsletter')
+            || str_contains($name, 'subscribe')
+            || str_contains($name, 'sign up')
+            || str_contains($name, 'comment')
+            || str_contains($name, 'reply')
+            || str_contains($name, 'form')
+            || $this->hasStrongFormTextIntent($text);
     }
 
     /** @param array<string, mixed> $node */
