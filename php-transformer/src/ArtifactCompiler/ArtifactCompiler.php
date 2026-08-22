@@ -427,7 +427,7 @@ final class ArtifactCompiler
         }
         $this->assertUniqueComposedPaths($files);
         $expectedPageIds = is_array($sharedPlan['analysis']['page_ids'] ?? null) ? $sharedPlan['analysis']['page_ids'] : array();
-        if (array() !== $expectedPageIds && array_values($expectedPageIds) !== array_keys($seen)) {
+        if ($hasReceipts && array() !== $expectedPageIds && array_values($expectedPageIds) !== array_keys($seen)) {
             throw new \InvalidArgumentException('Composition requires exactly one compiled page plan for every page declared by the shared plan.');
         }
         $artifact = $sharedArtifact;

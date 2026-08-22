@@ -53,6 +53,8 @@ $assert(1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?
 $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $resumedPages = json_decode(json_encode(array($pages['contact.html'], $pages['index.html'], $pages['about.html']), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $staged = $compiler->compose($resumedShared, $resumedPages)->toArray();
+$partialLegacy = $compiler->compose($resumedShared, array($pages['index.html']))->toArray();
+$assert(array('index.html') === array_column($partialLegacy['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'source_path'), 'Legacy prepared envelopes retain partial composition for batch-local page sets.');
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
