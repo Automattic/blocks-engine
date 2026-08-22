@@ -38,22 +38,6 @@ final class ThemeJsonProjection
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => 1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:')));
         $presets = $this->presets($selected);
-        $removed = array();
-        foreach ($selected as $candidate) $removed[$candidate['asset']][$candidate['selector']][$candidate['property']] = true;
-
-        foreach ($assets as $index => &$asset) {
-            if (!isset($removed[$index]) || !is_string($asset['content'] ?? null)) continue;
-            $asset['content'] = (new CssStylesheetTransformer())->transformTopLevelStyleRules($asset['content'], function (string $prelude, string $body) use ($removed, $index): string {
-                $properties = $removed[$index][strtolower(trim($prelude))] ?? array();
-                if (array() === $properties) return $prelude . '{' . $body . '}';
-                $kept = array();
-                foreach ($this->declarations($body) as $name => $value) if (!isset($properties[$name])) $kept[] = $name . ':' . $value;
-                return array() === $kept ? '' : $prelude . '{' . implode(';', $kept) . '}';
-            });
-            $asset['bytes'] = strlen($asset['content']);
-            $asset['content_hash'] = hash('sha256', $asset['content']);
-        }
-        unset($asset);
 
         return array('assets' => $assets, 'theme' => $this->theme($selected, $presets), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);
     }
