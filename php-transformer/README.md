@@ -29,7 +29,7 @@ PHP Transformer does not own product workflows such as importer admin screens, u
 - `HtmlToBlocks` - low-level HTML to core block transforms.
 - `FormatBridge` - declared-format normalization and format-to-format conversion.
 - `ArtifactCompiler` - generated artifact bundle normalization and compilation.
-- `StaticSite` - product-neutral projections for static-site materialization planning.
+- `StaticSite` - product-neutral compatibility reports for static-site materialization planning.
 - `WordPress` - runtime adapters around WordPress functions.
 - `Contract` - shared result envelopes and diagnostics.
 
@@ -42,7 +42,6 @@ Consumers should treat these classes and interface as the public entrypoints for
 - `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`. Markdown support is optional: the adapter registers only when `league/commonmark` + `league/html-to-markdown` are loadable (vendored copies may omit them and `FormatBridge/MarkdownAdapter.php` entirely), otherwise markdown conversion fails cleanly as `unsupported_source_format` and `supportedFormats()` omits `markdown`.
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
-- `StaticSite\MaterializationView` - validates a `TransformerResult` object or canonical result array and returns a stable product-neutral array view for importer planning.
 - `WordPressSitePlan\WordPressSitePlan` - projects an artifact result to the self-contained v2 block-theme plan.
 - `WordPressSitePlan\WordPressSitePlanView` - exposes the self-contained WordPress site plan and required ancillary materialization contracts without duplicating legacy compiler projections.
 - `WordPressSitePlan\WordPressSitePlanResolver` - resolves that plan's declared asset tokens with an explicit runtime `theme_uri`.
@@ -62,7 +61,6 @@ File ownership is generic artifact metadata: `metadata.compilation` is either `a
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
 
 $htmlResult = (new HtmlTransformer())->transform('<h1>Hello</h1>', array(
@@ -81,7 +79,6 @@ $artifactResult = (new ArtifactCompiler())->compile(array(
     'generated_html' => '<main><h1>Hello</h1></main>',
 ))->toArray();
 
-$materialization = (new MaterializationView())->fromResult($artifactResult);
 $plan = (new WordPressSitePlan())->fromResult($artifactResult);
 $planView = (new WordPressSitePlanView())->fromResult($artifactResult);
 $resolvedPlan = (new WordPressSitePlanResolver())->resolve($plan, array(
@@ -133,8 +130,6 @@ The result envelope includes generic `metrics` for wrapper reporting: `input_byt
 `source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. `source_reports.materialization_plan` exposes generic site-structure planning rows for routes, navigation links, and menus using source paths, target paths/slugs, titles/labels, parent/source relations, order, and kind. These reports remain product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
 
 Visual parity tooling should use the product-neutral report/config contracts in `docs/contracts/visual-parity-report.md`. The report covers source and target render metadata, viewports, optional screenshot paths, DOM candidate matches, computed-style deltas, optional visual diff metrics, severity, selector evidence, and recommendations. Button, menu, card, and form fields are modeled as generic UI facts rather than product-specific entities.
-
-Consumers that need a single importer-facing projection should use `StaticSite\MaterializationView::fromResult()` instead of reprojecting `TransformerResult` manually. The view validates the canonical result envelope and exposes `result_schema`, `status`, `artifact_summary`, `materialization_plan`, `compiled_site`, `assets`, `documents`, `block_markup`, `blocks`, `block_types`, `components`, `diagnostics`, `provenance`, and `conversion_report`. It does not perform WordPress writes or encode product-specific import policy.
 
 WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, generic materialization-plan, root asset, document, and block projections.
 
