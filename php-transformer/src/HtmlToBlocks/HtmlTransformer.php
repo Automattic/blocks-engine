@@ -1551,6 +1551,9 @@ final class HtmlTransformer
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
+        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->combinedAuthorCss) ) {
+            $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
+        }
 
         $repairs = array();
         foreach ( $this->frozenHiddenStateFindings as $finding ) {

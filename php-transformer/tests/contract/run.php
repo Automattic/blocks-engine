@@ -1333,13 +1333,14 @@ $emptyRuntimeText = ( new HtmlTransformer() )->transform(
     '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
     array(
         'runtime_dom_selectors' => array('#runtime-status'),
-        'static_css' => '.footer{display:flex}.runtime-status{min-height:1.2em}',
+        'static_css' => 'body{overflow:hidden;height:100dvh;width:100vw}.footer{display:flex}.runtime-status{min-height:1.2em}',
     )
 )->toArray();
 $emptyRuntimeTextMarkup = (string) ($emptyRuntimeText['serialized_blocks'] ?? '');
 $emptyRuntimeTextEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor' === ($asset['stylesheet_target'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyRuntimeText['assets'] ?? array()));
 $assert(str_contains($emptyRuntimeTextMarkup, 'blocks-engine-empty-runtime-target'), 'empty script-owned text targets carry a dedicated editor placeholder class', $emptyRuntimeTextMarkup);
 $assert(str_contains($emptyRuntimeTextEditorCss, 'content:"Dynamic content"') && str_contains($emptyRuntimeTextEditorCss, '>*{display:none!important}'), 'empty script-owned text targets replace the Group inserter with an editor-only dynamic-content placeholder', $emptyRuntimeTextEditorCss);
+$assert(str_contains($emptyRuntimeTextEditorCss, ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}'), 'viewport-locked source documents remain scrollable inside the block editor', $emptyRuntimeTextEditorCss);
 
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
