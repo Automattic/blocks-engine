@@ -52,6 +52,12 @@ final class ArtifactCompiler
     /** Observational only: excludes receipt cache hits. */
     private int $htmlDocumentTransformCount = 0;
 
+    /** Observational only: counts Markdown/MDX conversion at its call site. */
+    private int $sourceDocumentTransformCount = 0;
+
+    /** Observational only: compatibility fallback work during site rendering. */
+    private int $terminalCompiledSiteRawTransformCount = 0;
+
     private string $generatedAssetRoot = '';
 
     /** @var array<string, array<string, mixed>> */
@@ -126,9 +132,21 @@ final class ArtifactCompiler
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
+        $sharedCompiler = new self();
+        $sharedCompiler->generatedAssetRoot = (string) $plan['analysis']['generated_asset_root'];
+        $sharedCompiler->indexFiles($sharedArtifact['files']);
+        $sharedTemplateFiles = array_values(array_filter($sharedArtifact['files'], fn(array $file): bool => $sharedCompiler->isTemplatePartFile($file)));
+        $sharedTransformedDocuments = $sharedCompiler->collectTransformedDocumentRows(
+            $sharedArtifact['files'],
+            $sharedTemplateFiles,
+            $entryPath,
+            (string) $plan['analysis']['block_namespace'],
+            $partition['source_paths']
+        );
         $plan['shared_reduction'] = array(
             'files' => $sharedArtifact['files'],
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'transformed_documents' => $sharedTransformedDocuments,
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
@@ -214,7 +232,7 @@ final class ArtifactCompiler
 
         $compiledDocuments = array();
         foreach ($pageArtifact['files'] as $file) {
-            if ('html' !== ($file['kind'] ?? null) || $stageCompiler->isTemplatePartFile($file)) {
+            if ('html' !== ($file['kind'] ?? null)) {
                 continue;
             }
             $path = (string) ($file['path'] ?? '');
@@ -245,13 +263,15 @@ final class ArtifactCompiler
         }
         ksort($compiledDocuments, SORT_STRING);
         $pageDocuments = $stageCompiler->compileSourceDocuments($pageArtifact);
-        $entryBlocks = null;
-        foreach ($pageArtifact['files'] as $file) {
-            if (($file['path'] ?? null) === $entryPath && 'html' === ($file['kind'] ?? null)) {
-                $entryBlocks = $compiledDocuments[$entryPath] ?? null;
-                break;
-            }
-        }
+        $transformedDocuments = $stageCompiler->collectTransformedDocumentRows(
+            $files,
+            $pageArtifact['files'],
+            $entryPath,
+            (string) ($sharedPlan['analysis']['block_namespace'] ?? ''),
+            is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array(),
+            $compiledDocuments,
+            $pageDocuments['documents']
+        );
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
         $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction']) ? self::COMPILED_RECEIPT_SCHEMA : self::PAGE_RECEIPT_SCHEMA;
@@ -261,6 +281,7 @@ final class ArtifactCompiler
             $pagePlan['work'] = array(
                 'compiled_document_count' => count($compiledDocuments),
                 'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+                'source_document_transform_count' => $stageCompiler->sourceDocumentTransformCount,
                 'normalization_count' => 0,
                 'analysis_count' => 0,
                 'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
@@ -274,7 +295,7 @@ final class ArtifactCompiler
             $pageArtifact,
             $pageDocuments,
             $compiledDocuments,
-            $entryBlocks,
+            $transformedDocuments,
             $files,
             $entryPath
         );
@@ -285,6 +306,7 @@ final class ArtifactCompiler
         $pagePlan['work'] = array(
             'compiled_document_count' => count($compiledDocuments),
             'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+            'source_document_transform_count' => $stageCompiler->sourceDocumentTransformCount,
             'normalization_count' => 0,
             'analysis_count' => 3,
             'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
@@ -302,19 +324,21 @@ final class ArtifactCompiler
      * @param array<string,mixed> $pageArtifact
      * @param array<string,mixed> $pageDocuments
      * @param array<string,array<string,mixed>> $compiledDocuments
-     * @param array<string,mixed>|null $entryBlocks
+     * @param array<int,array<string,mixed>> $transformedDocuments
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
-    private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, ?array $entryBlocks, array $files, string $entryPath): array
+    private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, array $transformedDocuments, array $files, string $entryPath): array
     {
         $stylesheetOccurrenceFiles = array();
-        if (is_array($entryBlocks)) {
+        if (isset($compiledDocuments[$entryPath])) {
             $pageFilesByPath = array_column($pageArtifact['files'], null, 'path');
             foreach ($this->withStylesheetOccurrenceAssets((string) ($pageFilesByPath[$entryPath]['content'] ?? ''), $entryPath, $files) as $file) {
                 if (isset($file['stylesheet_occurrence'])) $stylesheetOccurrenceFiles[] = $file;
             }
         }
+        // Raw normalized files and source_documents are migration-only inputs
+        // for report surfaces outside the compiled-site projection.
         return array(
             'files' => $pageArtifact['files'],
             'normalization' => array(
@@ -324,7 +348,7 @@ final class ArtifactCompiler
             ),
             'source_documents' => $pageDocuments,
             'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
-            'entry_blocks' => $entryBlocks,
+            'transformed_documents' => $transformedDocuments,
             'stylesheet_occurrence_files' => $stylesheetOccurrenceFiles,
             'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
             'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
@@ -365,7 +389,7 @@ final class ArtifactCompiler
             }
             if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled v2 receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
+            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null) || !is_array($reduction['transformed_documents'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $reduction['files']);
             $files = array_merge($files, $reduction['files']);
@@ -377,6 +401,11 @@ final class ArtifactCompiler
             sort($receivedSourcePaths, SORT_STRING);
             $expectedSourcePaths = array_values(array_filter($expectedTransformable, static fn(string $path): bool => !isset($pagePlan['compiled_documents'][$path])));
             if ($expectedTransformable !== $receivedTransformable || $expectedSourcePaths !== $receivedSourcePaths) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its owned transformable sources.');
+            $expectedRowPaths = array_values(array_map(static fn(array $file): string => (string) ($file['path'] ?? ''), array_filter($pageArtifact['files'], static fn(array $file): bool => in_array($file['kind'] ?? null, array('html', 'markdown', 'mdx'), true))));
+            sort($expectedRowPaths, SORT_STRING);
+            $receivedRowPaths = array_map(static fn(array $row): string => (string) ($row['source_path'] ?? ''), $reduction['transformed_documents']);
+            sort($receivedRowPaths, SORT_STRING);
+            if ($expectedRowPaths !== $receivedRowPaths || count($receivedRowPaths) !== count(array_unique($receivedRowPaths))) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its transformed document rows.');
             foreach ($pagePlan['compiled_documents'] as $path => $document) {
                 if (!is_string($path) || !is_array($document) || isset($compiledDocuments[$path])) {
                     throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
@@ -410,6 +439,8 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $this->htmlDocumentTransformCount = 0;
+        $this->sourceDocumentTransformCount = 0;
+        $this->terminalCompiledSiteRawTransformCount = 0;
         return $this->compileArtifact($artifact);
     }
 
@@ -458,8 +489,28 @@ final class ArtifactCompiler
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
         if (!empty($reduction['inline_compilation'])) $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $this->indexFiles($normalized['files']);
-        $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $transformedDocuments = is_array($reduction['transformed_documents'] ?? null)
+            ? $reduction['transformed_documents']
+            : $this->collectTransformedDocumentRows(
+                $normalized['files'],
+                $normalized['files'],
+                $entryPath,
+                $companionPluginPayloadBuilder->blockNamespace($artifact),
+                array_column($normalized['files'], 'path'),
+                array(),
+                $documents['documents']
+            );
+        $htmlRowsByPath = array();
+        foreach ($transformedDocuments as $row) {
+            if ('html' === ($row['kind'] ?? null) && is_array($row['compiled'] ?? null)) $htmlRowsByPath[(string) ($row['source_path'] ?? '')] = $row;
+        }
+        $entryBlocks = is_array($htmlRowsByPath[$entryPath]['compiled'] ?? null)
+            ? $htmlRowsByPath[$entryPath]['compiled']
+            : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $compiledHtmlDocuments = array();
+        foreach ($htmlRowsByPath as $sourcePath => $row) {
+            if ($sourcePath !== $entryPath && empty($row['template_part'])) $compiledHtmlDocuments[$sourcePath] = $row['compiled'];
+        }
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
@@ -532,7 +583,7 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
+        $sourceReports['compiled_site'] = $this->renderCompiledSiteReport($normalized, $entryPath, $transformedDocuments, $assets, $blockTypes, $entryBlocks['shell_artifacts']);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
         $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
@@ -627,6 +678,8 @@ final class ArtifactCompiler
         // This counter is intentionally outside the canonical report/site-plan
         // projections: it describes process work, not output identity.
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
+        $metrics['source_document_transform_count'] = $this->sourceDocumentTransformCount;
+        $metrics['terminal_compiled_site_raw_transform_count'] = $this->terminalCompiledSiteRawTransformCount;
         // These counters describe process work and intentionally remain out of
         // canonical reports and WordPress site-plan equality.
         $metrics['normalization_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
@@ -669,7 +722,7 @@ final class ArtifactCompiler
         $documents = array('documents' => array(), 'components' => array(), 'diagnostics' => array());
         $componentFacts = array($sharedReduction['component_facts']);
         $blockTypes = array();
-        $entryBlocks = null;
+        $transformedDocuments = is_array($sharedReduction['transformed_documents'] ?? null) ? $sharedReduction['transformed_documents'] : array();
         $stylesheetOccurrenceFiles = array();
         foreach ($reductions as $reduction) {
             $files = array_merge($files, $reduction['files']);
@@ -678,7 +731,7 @@ final class ArtifactCompiler
             $documents['diagnostics'] = array_merge($documents['diagnostics'], $reduction['source_documents']['diagnostics']);
             $componentFacts[] = $reduction['component_facts'];
             $blockTypes = array_merge($blockTypes, $reduction['block_types'] ?? array());
-            if (is_array($reduction['entry_blocks'] ?? null)) $entryBlocks = $reduction['entry_blocks'];
+            $transformedDocuments = array_merge($transformedDocuments, $reduction['transformed_documents'] ?? array());
             $stylesheetOccurrenceFiles = array_merge($stylesheetOccurrenceFiles, $reduction['stylesheet_occurrence_files'] ?? array());
         }
         $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
@@ -697,6 +750,7 @@ final class ArtifactCompiler
         }
         $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
         $compiledDocuments = self::orderedMapBySourcePaths($compiledDocuments, $sourcePaths);
+        $transformedDocuments = self::sortedBySourcePaths($transformedDocuments, $sourcePaths, 'source_path');
         // Shared preparation already supplied this bounded normalization. Page
         // normalizations were performed by their individual receipt workers.
         $sharedNormalized = array(
@@ -730,7 +784,7 @@ final class ArtifactCompiler
             'source_documents' => $documents,
             'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => $this->dedupeRows($blockTypes),
-            'entry_blocks' => $entryBlocks,
+            'transformed_documents' => $transformedDocuments,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
         );
     }
@@ -1111,9 +1165,19 @@ final class ArtifactCompiler
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
                 'source_paths' => $sourcePaths,
             ));
+            $sharedCompiler = new self();
+            $sharedCompiler->generatedAssetRoot = (string) $plan['analysis']['generated_asset_root'];
+            $sharedCompiler->indexFiles($normalized['files']);
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'transformed_documents' => $sharedCompiler->collectTransformedDocumentRows(
+                    $normalized['files'],
+                    array_values(array_filter($normalized['files'], fn(array $file): bool => $sharedCompiler->isTemplatePartFile($file))),
+                    $entryPath,
+                    (string) $plan['analysis']['block_namespace'],
+                    $sourcePaths
+                ),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -1356,7 +1420,7 @@ final class ArtifactCompiler
     {
         $paths = array();
         foreach ($files as $file) {
-            if ('html' === ($file['kind'] ?? null) && !$this->isTemplatePartFile($file) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
+            if ('html' === ($file['kind'] ?? null) && $pageId === $this->fileOwnership($file)['id']) $paths[] = (string) $file['path'];
         }
         sort($paths, SORT_STRING);
         return $paths;
@@ -1630,7 +1694,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false, bool $prepareDocument = true): array
     {
         ++$this->htmlDocumentTransformCount;
         if ( $this->containsBlockMarkup($html) ) {
@@ -1671,7 +1735,7 @@ final class ArtifactCompiler
             );
         }
 
-        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $options = $prepareDocument ? array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
@@ -1685,7 +1749,13 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
-        ))->toArray();
+        ) : array(
+            // Template-part fragments retain the established v1 conversion
+            // semantics while sharing the counted document compiler boundary.
+            'source' => 'html-document',
+            'source_scope' => 'artifact-document',
+        );
+        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($prepareDocument ? $this->safeHtmlDocumentHtml($html, $sourcePath, $files) : $html, $options)->toArray();
 
         return array(
             'blocks'            => is_array($result['blocks'] ?? null) ? $result['blocks'] : array(),
@@ -3697,104 +3767,150 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{files: array<int, array<string, mixed>>, bytes: int, source_hash: string} $artifact
-     * @param array<int, array<string, mixed>> $documents
-     * @param array<int, array<string, mixed>> $assets
-     * @param array<int, array<string, mixed>> $blockTypes
-     * @return array<string, mixed>
+     * Collect transformed rows while one normalized source partition is hydrated.
+     * Raw Markdown/MDX bodies deliberately remain in the migration-only
+     * source_documents reduction rather than this report-facing contract.
+     *
+     * @param array<int,array<string,mixed>> $allFiles
+     * @param array<int,array<string,mixed>> $partitionFiles
+     * @param array<int,string> $sourcePaths
+     * @param array<string,array<string,mixed>> $compiledHtmlDocuments
+     * @param array<int,array<string,mixed>> $sourceDocuments
+     * @return array<int,array<string,mixed>>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
+    private function collectTransformedDocumentRows(array $allFiles, array $partitionFiles, string $entryPath, string $blockNamespace, array $sourcePaths, array $compiledHtmlDocuments = array(), array $sourceDocuments = array()): array
     {
-        $pages = array();
-        $assetPayloadsByPath = array();
-        foreach ( $assets as $asset ) {
-            $path = (string) ($asset['path'] ?? '');
-            $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
-            $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
-        }
-        foreach ( $artifact['files'] as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
+        $sourceRanks = array_flip($sourcePaths);
+        $sourceDocumentsByPath = array_column($sourceDocuments, null, 'source_path');
+        $rows = array();
+        foreach ($partitionFiles as $file) {
+            $kind = (string) ($file['kind'] ?? '');
+            if (!in_array($kind, array('html', 'markdown', 'mdx'), true)) continue;
+            $path = (string) ($file['path'] ?? '');
+            $rank = (int) ($sourceRanks[$path] ?? count($sourceRanks));
+            if ('html' === $kind) {
+                $content = (string) ($file['content'] ?? '');
+                $templatePart = $this->isTemplatePartFile($file);
+                $compiled = $compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks(
+                    $content,
+                    $path,
+                    $allFiles,
+                    $path === $entryPath ? 'artifact-entry' : 'artifact-document',
+                    $blockNamespace,
+                    !$templatePart,
+                    !$templatePart
+                );
+                $blockMarkup = (string) ($compiled['serialized_blocks'] ?? '');
+                $bodyFormat = '' !== trim($blockMarkup) ? 'blocks' : 'html';
+                $slug = $this->slugFromPath($path);
+                $title = $this->titleFromHtml($content, $path);
+                $base = array_merge(array(
+                    'source_path' => $path,
+                    'source_rank' => $rank,
+                    'canonical_rank' => $rank,
+                    'kind' => 'html',
+                    'role' => $file['role'] ?? 'document',
+                    'entrypoint' => $path === $entryPath || !empty($file['entrypoint']),
+                    'slug' => $slug,
+                    'title' => $title,
+                    'metadata' => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
+                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $allFiles, $path === $entryPath ? array_merge($allFiles, $compiled['assets'] ?? array()) : ($compiled['assets'] ?? array())),
+                    'body_format' => $bodyFormat,
+                    'block_markup' => $blockMarkup,
+                    'html' => $content,
+                    'bytes' => $file['bytes'] ?? 0,
+                    'mime_type' => $file['mime_type'] ?? 'text/html',
+                    'provenance' => $file['provenance'] ?? array(),
+                    'template_part' => $templatePart,
+                    'stylesheet_occurrences' => array_values(array_filter($allFiles, static fn(array $candidate): bool => isset($candidate['stylesheet_occurrence']) && $path === ($candidate['source_path'] ?? $candidate['stylesheet_occurrence']['source_path'] ?? null))),
+                    'compiled' => $compiled,
+                ), $compiled);
+                if ($templatePart) {
+                    $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
+                    $base['report_template_part'] = array_filter(array(
+                        'source_path' => $path,
+                        'slug' => $slug,
+                        'title' => $this->titleFromPath($path),
+                        'area' => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
+                        'tag_name' => $tagName,
+                        'body_format' => $kind,
+                        'block_markup' => $blockMarkup,
+                        'document_metadata' => $base['document_metadata'],
+                        'runtime_islands' => array(),
+                        'bytes' => $file['bytes'] ?? 0,
+                        'provenance' => $file['provenance'] ?? array(),
+                        'placement' => 'aside' === $tagName ? array('kind' => 'shared_shell', 'source_path' => $path, 'template_slugs' => array('index', 'page', 'front-page')) : array('kind' => 'unbound'),
+                    ), static fn(mixed $value): bool => '' !== $value && array() !== $value);
+                } else {
+                    $base['report_page'] = array_filter(array(
+                        'source_path' => $path,
+                        'kind' => 'html',
+                        'role' => $file['role'] ?? 'document',
+                        'entrypoint' => $base['entrypoint'],
+                        'slug' => $slug,
+                        'title' => $title,
+                        'metadata' => $base['metadata'],
+                        'document_metadata' => $base['document_metadata'],
+                        'html' => $content,
+                        'body_format' => $bodyFormat,
+                        'block_markup' => $blockMarkup,
+                        'shell_artifacts' => $compiled['shell_artifacts'] ?? array(),
+                        'runtime_islands' => $path === $entryPath ? array() : ($compiled['runtime_islands'] ?? array()),
+                        'bytes' => $file['bytes'] ?? 0,
+                        'mime_type' => $file['mime_type'] ?? 'text/html',
+                        'provenance' => $file['provenance'] ?? array(),
+                    ), static fn(mixed $value): bool => array() !== $value);
+                }
+                $rows[] = $base;
                 continue;
             }
-
-            $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
-            $slug = $this->slugFromPath($path);
-            $content = (string) ($file['content'] ?? '');
-            $compiledBlocks = $path === $entryPath
-                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array(), 'shell_artifacts' => $entryShellArtifacts)
-                : ($compiledHtmlDocuments[$path] ?? $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document', '', true));
-            foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
-                if ( is_array($generatedAsset) ) {
-                    if ( 'css' === ($generatedAsset['kind'] ?? null) ) {
-                        $generatedAsset['compilation'] = array('scope' => 'page', 'id' => $path);
-                    }
-                    $generatedAssetPath = (string) ($generatedAsset['path'] ?? '');
-                    $payload = is_string($generatedAsset['visual_payload'] ?? null) ? $generatedAsset['visual_payload'] : (is_string($generatedAsset['content_base64'] ?? null) ? $generatedAsset['content_base64'] : (string) ($generatedAsset['content'] ?? ''));
-                    $payloadHash = hash('sha256', $payload);
-                    if ( isset($assetPayloadsByPath[$generatedAssetPath][$payloadHash]) ) {
-                        continue;
-                    }
-                    $assets[] = $generatedAsset;
-                    $assetPayloadsByPath[$generatedAssetPath][$payloadHash] = true;
-                }
-            }
-            $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
-            if ( '' === $blockMarkup && '' !== trim($content) ) {
-                $blockMarkup = $this->htmlDocumentBlockMarkup($content);
-            }
-            $bodyFormat = '' !== trim($blockMarkup) ? 'blocks' : 'html';
-            $pages[] = array_filter(
-                array(
-                    'source_path'    => $path,
-                    'kind'           => 'html',
-                    'role'           => $file['role'] ?? 'document',
-                    'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
-                    'slug'           => $slug,
-                    'title'          => $title,
-                    'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
-                    'html'           => $file['content'] ?? '',
-                    'body_format'    => $bodyFormat,
-                    'block_markup'   => $blockMarkup,
-                    'shell_artifacts' => is_array($compiledBlocks['shell_artifacts'] ?? null) ? $compiledBlocks['shell_artifacts'] : array(),
-                    'runtime_islands' => is_array($compiledBlocks['runtime_islands'] ?? null) ? $compiledBlocks['runtime_islands'] : array(),
-                    'bytes'          => $file['bytes'] ?? 0,
-                    'mime_type'      => $file['mime_type'] ?? 'text/html',
-                    'asset_references' => $this->assetReferencePaths($assets),
-                    'provenance'     => $file['provenance'] ?? array(),
-                ),
-                static fn (mixed $value): bool => array() !== $value
-            );
+            $document = $sourceDocumentsByPath[$path] ?? null;
+            if (!is_array($document)) continue;
+            unset($document['body']);
+            $document['source_rank'] = $rank;
+            $document['canonical_rank'] = $rank;
+            $document['role'] = 'document';
+            $document['entrypoint'] = false;
+            $document['metadata'] = $this->documentMetadata($path, $kind, 'document', (string) ($document['slug'] ?? ''), (string) ($document['title'] ?? ''), (string) ($document['body_format'] ?? ''), $document);
+            $document['report_page'] = array_filter(array(
+                'source_path' => $path,
+                'kind' => $kind,
+                'role' => 'document',
+                'entrypoint' => false,
+                'slug' => $document['slug'] ?? '',
+                'title' => $document['title'] ?? '',
+                'metadata' => $document['metadata'],
+                'body_format' => $document['body_format'] ?? '',
+                'block_markup' => $document['block_markup'] ?? '',
+                'provenance' => $document['provenance'] ?? array(),
+            ), static fn(mixed $value): bool => array() !== $value);
+            $rows[] = $document;
         }
+        return self::sortedBySourcePaths($rows, $sourcePaths, 'source_path');
+    }
 
-        foreach ( $documents as $document ) {
-            $pages[] = array_filter(
-                array(
-                    'source_path'  => $document['source_path'] ?? '',
-                    'kind'         => $document['kind'] ?? 'document',
-                    'role'         => 'document',
-                    'entrypoint'   => false,
-                    'slug'         => $document['slug'] ?? '',
-                    'title'        => $document['title'] ?? '',
-                    'metadata'     => $this->documentMetadata(
-                        (string) ($document['source_path'] ?? ''),
-                        (string) ($document['kind'] ?? 'document'),
-                        'document',
-                        (string) ($document['slug'] ?? ''),
-                        (string) ($document['title'] ?? ''),
-                        (string) ($document['body_format'] ?? ''),
-                        $document
-                    ),
-                    'body_format'  => $document['body_format'] ?? '',
-                    'block_markup' => $document['block_markup'] ?? '',
-                    'provenance'   => $document['provenance'] ?? array(),
-                ),
-                static fn (mixed $value): bool => array() !== $value
-            );
+    /**
+     * Pure report projection over transformed rows and finalized assets. It
+     * performs no source transformation and has no raw-document fallback.
+     *
+     * @param array{files:array<int,array<string,mixed>>,bytes:int,source_hash:string} $artifact
+     * @param array<int,array<string,mixed>> $transformedDocuments
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $blockTypes
+     * @return array<string,mixed>
+     */
+    private function renderCompiledSiteReport(array $artifact, string $entryPath, array $transformedDocuments, array $assets, array $blockTypes, array $entryShellArtifacts = array()): array
+    {
+        $pages = array();
+        $templateParts = array();
+        foreach ($transformedDocuments as $document) {
+            if (is_array($document['report_page'] ?? null)) {
+                $page = $document['report_page'];
+                if ('html' === ($page['kind'] ?? null)) $page['asset_references'] = $this->assetReferencePaths($assets);
+                $pages[] = $page;
+            }
+            if (is_array($document['report_template_part'] ?? null)) $templateParts[] = $document['report_template_part'];
         }
-
-        $templateParts = $this->compiledSiteTemplateParts($artifact['files']);
         // Preserve the v1 report's established entry-shell shape while the v2
         // plan uses complete shell candidates for cross-page comparison.
         $partSlugs = array_fill_keys(array_column($templateParts, 'slug'), true);
@@ -4073,6 +4189,9 @@ final class ArtifactCompiler
             $slug = $this->slugFromPath($path);
             $area = $this->templatePartArea($path, (string) ($file['role'] ?? ''));
             $tagName = ShellLandmarkPolicy::templatePartTagName($path, (string) ($file['role'] ?? ''));
+            // Migration-only raw compatibility adapter. Corrected v2 and inline
+            // rendering consume transformed template-part rows instead.
+            ++$this->terminalCompiledSiteRawTransformCount;
             $parts[] = array_filter(
                 array(
                     'source_path'  => $path,
@@ -4301,6 +4420,7 @@ final class ArtifactCompiler
                 $documentDiagnostics = array_merge($documentDiagnostics, $mdx['diagnostics']);
             }
 
+            ++$this->sourceDocumentTransformCount;
             $conversion = $this->convertMarkdownToBlocks($body);
             $documentDiagnostics = array_merge($documentDiagnostics, $conversion['diagnostics']);
             $diagnostics = array_merge($diagnostics, $documentDiagnostics);

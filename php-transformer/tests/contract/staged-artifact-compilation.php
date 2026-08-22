@@ -85,7 +85,7 @@ $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
     if (!is_array($value)) return $value;
-    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
+    unset($value['transform_duration_ms'], $value['compile_duration_ms'], $value['html_document_transform_count'], $value['source_document_transform_count'], $value['terminal_compiled_site_raw_transform_count'], $value['normalization_count'], $value['analysis_count'], $value['terminal_reduction_count']);
     foreach ($value as $key => $item) $value[$key] = $canonical($item);
     return $value;
 };
@@ -119,6 +119,35 @@ foreach ($sourceShared['analysis']['page_ids'] as $pageId) $sourceReceipts[] = $
 $sourceInline = $compiler->compile($sourceArtifact)->toArray();
 $sourceStaged = $compiler->compose($sourceShared, array_reverse($sourceReceipts))->toArray();
 $assert($canonical($sourceInline) === $canonical($sourceStaged), 'Compiled receipts exactly cover HTML, Markdown, and MDX sources and preserve their complete canonical result.');
+$rowArtifact = array('entrypoint' => 'pages/home.html', 'files' => array(
+    array('path' => 'pages/about.html', 'content' => '<main><h1>About</h1></main>'),
+    array('path' => 'pages/home.html', 'content' => '<title>Home metadata</title><main><h1>Home</h1></main>'),
+    array('path' => 'content/notes.md', 'content' => "---\ntitle: Notes\n---\n\n# Notes\n\nMarkdown body."),
+    array('path' => 'content/guide.mdx', 'content' => "# Guide\n\n<aside>MDX body.</aside>"),
+    array('path' => 'parts/header.html', 'role' => 'template-part', 'content' => '<title>Header metadata</title><header><p>Header</p></header>', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$rowInline = (new ArtifactCompiler())->compile($rowArtifact)->toArray();
+$rowShared = (new ArtifactCompiler())->prepareShared($rowArtifact);
+$rowReceipts = array();
+foreach ($rowShared['analysis']['page_ids'] as $pageId) {
+    $pagePlan = (new ArtifactCompiler())->preparePage($rowArtifact, $rowShared, $pageId);
+    $rowReceipts[] = (new ArtifactCompiler())->compilePreparedPage($rowShared, $pagePlan);
+}
+$rowStaged = (new ArtifactCompiler())->compose($rowShared, array_reverse($rowReceipts))->toArray();
+$assert($canonical($rowInline) === $canonical($rowStaged), 'Fresh page workers and a fresh reverse-order terminal worker preserve complete canonical HTML, Markdown, MDX, and template-part output.');
+$assert('pages/home.html' === ($rowStaged['source_reports']['compiled_site']['entry_path'] ?? null), 'Transformed rows select a non-root entry document by its immutable entry path.');
+$templatePart = current(array_filter($rowStaged['source_reports']['compiled_site']['template_parts'] ?? array(), static fn(array $part): bool => 'parts/header.html' === ($part['source_path'] ?? null)));
+$assert('Header metadata' === ($templatePart['document_metadata']['title'] ?? null) && 'header' === ($templatePart['area'] ?? null), 'Shared template-part rows retain compiled markup and document metadata.');
+$receiptHtmlTransforms = array_sum(array_column(array_column($rowReceipts, 'work'), 'html_document_transform_count'));
+$receiptSourceTransforms = array_sum(array_column(array_column($rowReceipts, 'work'), 'source_document_transform_count'));
+$assert(2 === $receiptHtmlTransforms && 2 === $receiptSourceTransforms, 'Each page-owned HTML, Markdown, and MDX source is transformed exactly once at its real worker call site.');
+$assert(0 === ($rowStaged['metrics']['html_document_transform_count'] ?? null) && 0 === ($rowStaged['metrics']['source_document_transform_count'] ?? null) && 0 === ($rowStaged['metrics']['terminal_compiled_site_raw_transform_count'] ?? null), 'Corrected v2 terminal compiled-site rendering performs zero raw HTML or source-document transformations.');
+foreach ($rowReceipts as $receipt) {
+    $assert(!isset($receipt['terminal_reduction']['entry_blocks']), 'Corrected v2 reductions select entry blocks from transformed rows instead of duplicating entry_blocks.');
+    foreach ($receipt['terminal_reduction']['transformed_documents'] as $row) {
+        if (in_array($row['kind'] ?? null, array('markdown', 'mdx'), true)) $assert(!array_key_exists('body', $row), 'Transformed Markdown and MDX rows omit raw source body text.');
+    }
+}
 $throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
