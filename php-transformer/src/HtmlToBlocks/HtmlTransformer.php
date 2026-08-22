@@ -2727,7 +2727,7 @@ final class HtmlTransformer
             }
         }
 
-		$authorAnalysisKey = hash('sha256', $this->combinedAuthorCss);
+		$authorAnalysisKey = hash('sha256', $this->combinedAuthorCss . "\0" . implode("\0", array_map(static fn (array $asset): string => (string) ($asset['source_path'] ?? '') . "\0" . (string) ($asset['source_hash'] ?? ''), $this->authorStylesheetAssets)));
         if ( isset($this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey]) ) {
             ++$this->analysisCache->authorSelectorHits;
             $authorAnalysis = $this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey];
@@ -2739,7 +2739,11 @@ final class HtmlTransformer
 			$sourceTagSelectorNames = array();
 			$authorSelectors = array();
 			$authorStyleRules = array();
-			( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use (&$sourceTagSelectorNames, &$authorSelectors, &$authorStyleRules): string {
+			$stylesheets = array() === $this->authorStylesheetAssets
+				? array( array( 'content' => $this->combinedAuthorCss, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $this->combinedAuthorCss) ) )
+				: $this->authorStylesheetAssets;
+			foreach ( $stylesheets as $stylesheet ) {
+				( new CssStylesheetTransformer() )->transform((string) $stylesheet['content'], function (string $prelude, string $body) use (&$sourceTagSelectorNames, &$authorSelectors, &$authorStyleRules, $stylesheet): string {
 				$ruleSelectors = array();
 				foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
 					$parsed = $this->parsedCssSelector($selector);
@@ -2754,10 +2758,11 @@ final class HtmlTransformer
 					}
 				}
 				if ( array() !== $ruleSelectors ) {
-					$authorStyleRules[] = array('order' => count($authorStyleRules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors);
+					$authorStyleRules[] = array('order' => count($authorStyleRules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors, 'source_path' => (string) $stylesheet['source_path'], 'source_hash' => (string) $stylesheet['source_hash']);
 				}
 				return $prelude;
-			});
+				});
+			}
 			++$this->analysisCache->authorStyleRuleBuilds;
             $this->analysisCache->rememberAuthorSelectors($authorAnalysisKey, array(
                 'source_tags' => $sourceTagSelectorNames,
@@ -5409,6 +5414,13 @@ final class HtmlTransformer
             $block['_source_provenance_id'] = $provenanceId;
         }
         if ($runtimeOwned) $block['_editability_runtime_owned'] = true;
+        if ( $sourceElement instanceof DOMElement && array() === $innerBlocks && 'core/group' === $name ) {
+            $visualTopologyEvidence = $this->emptyVisualTopologyEvidence($sourceElement);
+            if ( array() !== $visualTopologyEvidence ) {
+                $block['_editability_visual_owned'] = true;
+                $this->sourceProvenance[$provenanceId]['visual_topology_evidence'] = $visualTopologyEvidence;
+            }
+        }
 
         return $block;
     }
@@ -7444,6 +7456,58 @@ final class HtmlTransformer
         return false;
     }
 
+    /**
+     * Return resting stylesheet declarations which prove an otherwise empty group
+     * is authored layout, paint, or control topology. Stateful selectors never
+     * contribute: source capture has no interaction state to prove.
+     *
+     * @return list<array{selector: string, declarations: array<string, string>, specificity: int, order: int, source_path: string, source_hash: string}>
+     */
+    private function emptyVisualTopologyEvidence(DOMElement $element): array
+    {
+        $evidence = array();
+        $matchedRules = array();
+        foreach ( $this->authorStyleRuleCandidates($element) as $candidate ) {
+            $ruleOrder = (int) $candidate['rule_order'];
+            if ( isset($matchedRules[$ruleOrder])
+                || ! ($candidate['parsed']['supported'] ?? false)
+                || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
+                || ! ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                continue;
+            }
+            $matchedRules[$ruleOrder] = true;
+            $declarations = array_filter(
+                $candidate['declarations'],
+                fn (string $value, string $property): bool => $this->isNonNeutralVisualTopologyDeclaration($property, $value),
+                ARRAY_FILTER_USE_BOTH
+            );
+            if ( array() !== $declarations ) {
+                $evidence[] = array(
+                    'selector' => $candidate['selector'],
+                    'declarations' => $declarations,
+                    'specificity' => CssSelectorMatcher::specificity($candidate['parsed']),
+                    'order' => $ruleOrder,
+                    'source_path' => (string) ($candidate['source_path'] ?? ''),
+                    'source_hash' => (string) ($candidate['source_hash'] ?? ''),
+                );
+            }
+        }
+        return $evidence;
+    }
+
+    private function isNonNeutralVisualTopologyDeclaration(string $property, string $value): bool
+    {
+        $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        if ( '' === $value || in_array($value, array( 'auto', 'none', 'normal', 'static', 'visible', 'transparent', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true) ) {
+            return false;
+        }
+        if ( in_array($property, array( 'color', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration' ), true) ) {
+            return false;
+        }
+        return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
+    }
+
     private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
     {
         $declarations = $this->matchingAuthorDeclarations($element);
@@ -7515,7 +7579,7 @@ final class HtmlTransformer
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
                     'key' => $rule['order'] . ':' . $selectorIndex,
-                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex)),
+                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '')),
                 );
                 if ( 'universal' === $target ) {
                     $index['universal'][] = $entry;
