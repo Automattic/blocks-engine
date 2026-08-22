@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -948,11 +949,12 @@ $memoizedTransformer = new HtmlTransformer();
 $memoizedElement = $elementFromHtml('<section style="display:flex"><img src="memo.jpg"><div><p>Memo</p></div></section>');
 $mediaStyleMethod = new ReflectionMethod(HtmlTransformer::class, 'mediaTextPresentationStyle');
 $presentationKeyMethod = new ReflectionMethod(HtmlTransformer::class, 'presentationCacheKey');
-$mediaStyleCacheProperty = new ReflectionProperty(HtmlTransformer::class, 'mediaTextPresentationStyleCache');
+$sessionProperty = new ReflectionProperty(HtmlTransformer::class, 'session');
+$mediaStyleCacheProperty = new ReflectionProperty(HtmlTransformerSession::class, 'mediaTextPresentationStyleCache');
 $firstMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
 $memoizedElement->setAttribute('style', 'display:grid');
 $secondMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
-$mediaStyleCache = $mediaStyleCacheProperty->getValue($memoizedTransformer);
+$mediaStyleCache = $mediaStyleCacheProperty->getValue($sessionProperty->getValue($memoizedTransformer));
 $presentationKey = $presentationKeyMethod->invoke($memoizedTransformer, $memoizedElement);
 $assertSame('display:flex', $firstMediaStyle, 'Media-text presentation style resolves initial authored style.');
 $assertSame($firstMediaStyle, $secondMediaStyle, 'Media-text presentation style reuses cached value for same DOM node.');

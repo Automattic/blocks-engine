@@ -43,4 +43,13 @@ $wrappedContent = (string) ($wrapped['blocks'][0]['attrs']['content'] ?? '');
 $assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null), 'an image-only custom-element carrier inside a link uses responsive media');
 $assert(str_contains($wrappedContent, '<wow-image') && str_contains($wrappedContent, '<img') && str_contains($wrappedContent, 'href="/profile"'), 'the linked custom carrier retains its bounded source markup for SSI rendering');
 
+$nestedWrappedSource = '<a href="/profile" aria-label="Profile"><div class="crop" style="overflow:hidden"><wow-image data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></wow-image></div></a>';
+$nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
+$nestedWrappedContent = (string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null), 'a linked custom image behind one text-free presentation wrapper uses responsive media');
+$assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains($nestedWrappedContent, '<wow-image'), 'the nested carrier retains its presentation wrapper');
+
+$labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
+$assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
+
 fwrite(STDOUT, "Responsive media companion tests passed\n");

@@ -238,7 +238,7 @@ final class HtmlTransformer
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
     /** @var array<string, string> */
-    private array $reusableComponentFingerprints = array();
+    private HtmlTransformerSession $session;
 
     /**
      * Text the transformer SYNTHESIZES from form controls (label + value/
@@ -248,9 +248,7 @@ final class HtmlTransformer
      *
      * @var array<int, string>
      */
-    private array $formControlEchoTexts = array();
 
-    private readonly FallbackEmitter $fallbackEmitter;
 
     /**
      * Responsive image markup core/image cannot represent without invalidating
@@ -259,20 +257,16 @@ final class HtmlTransformer
      *
      * @var array<int, array<string, mixed>>
      */
-    private array $responsiveImageFallbacks = array();
 
     /** @var array<string, bool> */
-    private array $responsiveImageFallbackSelectors = array();
 
     /**
      * @var array<string, string>
      */
-    private array $fallbackProvenance = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $presentationProvenance = array();
 
     /**
      * Responsive/JS-revealed hidden base states normalized away during style
@@ -280,7 +274,6 @@ final class HtmlTransformer
      *
      * @var array<int, array<string, mixed>>
      */
-    private array $frozenHiddenStateFindings = array();
 
     /**
      * Whole-element link wrappers (an <a> wrapping block-level content) whose
@@ -291,33 +284,26 @@ final class HtmlTransformer
      *
      * @var array<int, array<string, mixed>>
      */
-    private array $droppedLinkWrapperFindings = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $sourceProvenance = array();
 
     /** @var array<int, bool> */
-    private array $sourceBaseHiddenStates = array();
 
     /** @var array<string,true> */
-    private array $formControlSlotPaths = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $structureProvenance = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $scriptMetadata = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $runtimeIslands = array();
 
     /**
      * Source elements whose subtree was folded into a native zero-JS disclosure
@@ -332,7 +318,6 @@ final class HtmlTransformer
      *
      * @var array<string, true>
      */
-    private array $nativeDisclosureRootIds = array();
 
     /**
      * Generated static-render custom-block definitions produced at `core/html`
@@ -342,17 +327,11 @@ final class HtmlTransformer
      *
      * @var array<int, array<string, mixed>>
      */
-    private array $generatedBlocks = array();
 
-    private bool $descriptionListBlockGenerated = false;
 
-    private bool $formSelectBlockGenerated = false;
 
-    private bool $formInputBlockGenerated = false;
 
-    private bool $responsiveMediaBlockGenerated = false;
 
-    private bool $capturedDialogBlockGenerated = false;
 
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
@@ -360,99 +339,75 @@ final class HtmlTransformer
      * emitted references match the blocks SSI registers; standalone transforms
      * fall back to a generic namespace.
      */
-    private string $generatedBlockNamespace = 'custom';
 
-    private string $generatedAssetRoot = '';
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $runtimeScriptMetadata = array();
 
     /**
      * @var array<string, array<string, mixed>>
      */
-    private array $assetMetadata = array();
 
     /**
      * @var array<string, array<string, mixed>>
      */
-    private array $generatedAssets = array();
 
     /** @var array<string, string> */
-    private array $nativeSearchTriggerCssRules = array();
 
     /** @var array<string, string> */
-    private array $nativeButtonStyleRules = array();
 
     /** @var array<string, string> Header anchor carriers keyed by generated class. */
-    private array $syntheticHeaderAnchorStyleRules = array();
 
     /** @var array<string, string> Header RichText carriers keyed by marker. */
-    private array $headerRichTextStyleRules = array();
 
     /**
      * @var array<int, array<string, mixed>>
      */
-    private array $gutenbergIncompatibilities = array();
 
     /**
      * @var array<string, string>
      */
-    private array $cssCustomProperties = array();
 
     /**
      * @var array<string, array<int, string>>
      */
-    private array $staticClassPromotions = array();
 
     /**
      * @var array<int, array{selector: string, declarations: array<string, string>}>
      */
-    private array $staticStyleRules = array();
 
     /**
      * @var array<int, array{selector: string, declarations: array<string, string>}>
      */
-    private array $conditionalStyleRules = array();
 
     /**
      * @var list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
      */
-    private array $navigationStateStyleRules = array();
 
     /** @var array<string, array<string, string>> */
-    private array $listNavigationPaddingFallbacks = array();
 
     /** @var array<string, string> */
-    private array $navigationLinkColorFallbacks = array();
 
     /** @var array<string, string> */
-    private array $navigationSubmenuBackgroundFallbacks = array();
 
     /** @var array<string, string> */
-    private array $navigationSpacingFallbacks = array();
 
     /** @var array<string, string> */
-    private array $buttonWrapperSpacingFallbacks = array();
 
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
-    private array $imageShapeStyleRules = array();
 
     /**
      * @var array<int, array{selector: string, pseudo: string, declarations: array<string, string>}>
      */
-    private array $staticPseudoElementStyleRules = array();
 
     /**
      * @var array<string, bool>
      */
-    private array $runtimeDomSelectors = array();
 
     /**
      * @var array<string, bool>
      */
-    private array $runtimeCanvasSelectors = array();
 
     /**
      * Source DOM selectors (id/class) the transformer intentionally removed
@@ -467,10 +422,8 @@ final class HtmlTransformer
      *
      * @var array<string, bool>
      */
-    private array $supersededRuntimeSelectors = array();
 
     /** @var array<string, string> Source tag names whose serialized blocks need provenance classes. */
-    private array $sourceTagMarkers = array();
 
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
@@ -534,123 +487,85 @@ final class HtmlTransformer
     private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
     /** @var array<string, string> Source control DOM paths mapped to core/button wrapper classes. */
-    private array $sourceControlMarkers = array();
 
     /** @var array<string, string> Direct flex-child controls mapped to synthetic wrapper bridge CSS. */
-    private array $directFlexButtonStyleRules = array();
 
     /** @var array<string, string> Full-width controls mapped to synthetic wrapper bridge CSS. */
-    private array $fullWidthButtonStyleRules = array();
 
     /** @var array<string, string> Source wrapper paths promoted into core/button. */
-    private array $sourceButtonPresentationMarkers = array();
 
     /** @var array<string, true> Source controls that need selector projection. */
-    private array $sourceControlPaths = array();
 
     /** @var array<string, string> CSS-addressed inline leaves keyed by stable source DOM path. */
-    private array $sourceSemanticMarkers = array();
 
     /** @var array<string, string> Structural elements addressed by non-serializable source data attributes. */
-    private array $sourceAttributeMarkers = array();
 
     /** @var array<string, string> Source body children that need wrapper-safe selector projection. */
-    private array $sourceRootChildMarkers = array();
 
     /** @var list<string> Source body-state classes referenced by authored CSS. */
-    private array $sourceBodyProjectionClasses = array();
 
     /** @var array<string, array{selector: string, min_width: string}> */
-    private array $responsiveGeometryAmbiguities = array();
 
     /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
-    private array $sourceTableMarkers = array();
 
     /** @var array<int, bool> */
-    private array $sourceTableRepresentability = array();
 
     /** @var array<int, array<int, string>> */
-    private array $sourceTableDescendantPaths = array();
 
     /** @var array<string, string> CSS-addressed RichText spans keyed by stable source DOM path. */
-    private array $sourceRichTextSemanticMarkers = array();
 
     /** @var array<int, array{selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
-    private array $authorLayoutTopologies = array();
 
-    private bool $authorLayoutBlockGenerated = false;
 
-    private string $combinedAuthorCss = '';
 
-    private ?DOMElement $authorStyleSourceBody = null;
 
     /** @var list<DOMElement> */
-    private array $authorStyleSourceElements = array();
 
 	/** @var array<string, list<DOMElement>> */
-	private array $authorStyleSourceElementsByTag = array();
 
 	/** @var array<string, list<DOMElement>> */
-	private array $authorStyleSourceElementsById = array();
 
 	/** @var array<string, list<DOMElement>> */
-	private array $authorStyleSourceElementsByClass = array();
 
 	/** @var array<string, true> */
-	private array $authorStyleSourceTags = array();
 
 	/** @var array<string, true> */
-	private array $authorStyleSourceIds = array();
 
 	/** @var array<string, true> */
-	private array $authorStyleSourceClasses = array();
 
     /** @var array<string, list<DOMElement>> */
-    private array $authorSourceSelectorMatches = array();
 
     /** @var array<string, array<string, mixed>> */
-    private array $parsedCssSelectors = array();
 
-    private ?CssSelectorMatchCache $authorSelectorMatchCache = null;
 
     /** @var list<array{selector:string,parsed:array<string,mixed>}> */
-    private array $authorSelectors = array();
 
     /** @var list<array{order: int, declarations: array<string, string>, selectors: list<array{selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>}>}> */
-    private array $authorStyleRules = array();
 
     /** @var array<string, array<string, mixed>> */
-    private array $authorStyleRuleCandidateIndexes = array();
 
-    private string $authorMarkerSeed = '';
 
-    private int $authorMarkerCounter = 0;
 
-    private string $authorMarkerCollisionText = '';
 
     /** @var list<array{path: string, content: string, source_hash: string}> */
-    private array $authorStylesheetAssets = array();
 
-    private string $formLayoutCss = '';
 
     /** A collision-checked custom element used solely to retain type specificity. */
-    private string $authorSpecificityShim = '';
 
-    private string $authorClassSpecificityShim = '';
 
-    private string $authorIdSpecificityShim = '';
 
-    private int $nextSourceProvenanceId = 1;
 
-    private bool $preserveShellLandmarks = false;
 
-    private bool $fallbackReductionMode = false;
 
     public function __construct(
         private readonly Runtime $runtime = new Runtime(),
         private readonly HtmlTransformerAnalysisCache $analysisCache = new HtmlTransformerAnalysisCache()
     )
     {
+        $this->session = new HtmlTransformerSession(
+            $this->runtime,
+            fn (DOMElement $element): array => $this->sourceContext($element)
+        );
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
         $this->buttonsPattern    = new ButtonsPattern();
@@ -678,10 +593,23 @@ final class HtmlTransformer
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
-        $this->fallbackEmitter = new FallbackEmitter(
-            $this->runtime,
-            fn (DOMElement $element): array => $this->sourceContext($element)
-        );
+    }
+
+    public function &__get(string $name): mixed
+    {
+        $value =& $this->session->{$name};
+
+        return $value;
+    }
+
+    public function __set(string $name, mixed $value): void
+    {
+        $this->session->{$name} = $value;
+    }
+
+    public function __isset(string $name): bool
+    {
+        return isset($this->session->{$name});
     }
 
     /**
@@ -689,87 +617,19 @@ final class HtmlTransformer
      */
     public function transform(string $html, array $options = array()): TransformerResult
     {
-        $context                  = TransformationOptions::context($options);
-        $startedAt                = hrtime(true);
+        $this->session = new HtmlTransformerSession(
+            $this->runtime,
+            fn (DOMElement $element): array => $this->sourceContext($element)
+        );
+        $context = TransformationOptions::context($options);
+        $startedAt = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
-        $this->presentationProvenance = array();
-        $this->frozenHiddenStateFindings = array();
-        $this->droppedLinkWrapperFindings = array();
-        $this->sourceProvenance = array();
-        $this->sourceBaseHiddenStates = array();
-        $this->formControlSlotPaths = array();
-        $this->structureProvenance = array();
-        $this->scriptMetadata = array();
-        $this->runtimeIslands = array();
-        $this->nativeDisclosureRootIds = array();
-        $this->generatedBlocks = array();
-        $this->responsiveMediaBlockGenerated = false;
-        $this->capturedDialogBlockGenerated = false;
-        $this->descriptionListBlockGenerated = false;
-        $this->formSelectBlockGenerated = false;
-        $this->formInputBlockGenerated = false;
-        $this->formControlEchoTexts = array();
-        $this->responsiveImageFallbacks = array();
-        $this->responsiveImageFallbackSelectors = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->generatedAssetRoot = trim((string) ($options['generated_asset_root'] ?? ''), '/');
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
-        $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
-        $this->generatedAssets = array();
-        $this->reusableComponentFingerprints = array();
-        $this->nativeSearchTriggerCssRules = array();
-        $this->nativeButtonStyleRules = array();
-        $this->listNavigationPaddingFallbacks = array();
-        $this->navigationLinkColorFallbacks = array();
-        $this->navigationSubmenuBackgroundFallbacks = array();
-        $this->navigationSpacingFallbacks = array();
-        $this->buttonWrapperSpacingFallbacks = array();
-        $this->syntheticHeaderAnchorStyleRules = array();
-        $this->headerRichTextStyleRules = array();
-        $this->gutenbergIncompatibilities = array();
-        $this->sourceTagMarkers = array();
-        $this->sourceControlMarkers = array();
-        $this->directFlexButtonStyleRules = array();
-        $this->fullWidthButtonStyleRules = array();
-        $this->sourceButtonPresentationMarkers = array();
-        $this->sourceControlPaths = array();
-        $this->sourceSemanticMarkers = array();
-        $this->sourceAttributeMarkers = array();
-        $this->sourceRootChildMarkers = array();
-        $this->sourceBodyProjectionClasses = array();
-        $this->responsiveGeometryAmbiguities = array();
-        $this->sourceTableMarkers = array();
-        $this->sourceTableRepresentability = array();
-        $this->sourceTableDescendantPaths = array();
-        $this->sourceRichTextSemanticMarkers = array();
-        $this->authorLayoutTopologies = array();
-        $this->authorLayoutBlockGenerated = false;
-        $this->combinedAuthorCss = '';
-        $this->authorStyleSourceBody = null;
-        $this->authorStyleSourceElements = array();
-		$this->authorStyleSourceElementsByTag = array();
-		$this->authorStyleSourceElementsById = array();
-		$this->authorStyleSourceElementsByClass = array();
-		$this->authorStyleSourceTags = array();
-		$this->authorStyleSourceIds = array();
-		$this->authorStyleSourceClasses = array();
-        $this->authorSourceSelectorMatches = array();
-        $this->parsedCssSelectors = array();
-        $this->authorSelectorMatchCache = null;
-        $this->authorSelectors = array();
-        $this->authorStyleRules = array();
-        $this->authorStyleRuleCandidateIndexes = array();
-        $this->authorMarkerSeed = '';
-        $this->authorMarkerCounter = 0;
-        $this->authorMarkerCollisionText = '';
-        $this->authorStylesheetAssets = array();
-        $this->formLayoutCss = '';
-        $this->authorSpecificityShim = '';
-        $this->authorClassSpecificityShim = '';
-        $this->authorIdSpecificityShim = '';
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysisKey = $this->styleAnalysisKey($html, $staticCss);
@@ -4533,7 +4393,7 @@ final class HtmlTransformer
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
             }
 
             if ( $this->isStructuredCardList($element) ) {
@@ -4845,14 +4705,10 @@ final class HtmlTransformer
                 // silently erased every shape — service icons collapsed to empty
                 // blocks and pipe/boiler diagrams to whitespace + comments.
                 //
-                // The exception is genuine decorative chrome the materialized
-                // source CSS recreates: a positioned visual layer (an absolutely
-                // positioned full-bleed background) or a stretched-to-fit band
-                // (preserveAspectRatio="none", which distorts geometry and so is
-                // never used for meaningful icons/diagrams). Those still collapse
-                // to a styleable group / are dropped below.
-                $isDecorativeChrome = $this->isVisualLayerElement($element)
-                    || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
+                // A proven positioned visual layer can collapse to its CSS-owned
+                // carrier. Stretching alone is not evidence that artwork is
+                // recreated elsewhere; preserve drawable stretched SVGs.
+                $isDecorativeChrome = $this->isVisualLayerElement($element);
                 if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
                     if ( $this->svgNeedsPhrasingHost($element) ) {
                         $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
@@ -4920,7 +4776,7 @@ final class HtmlTransformer
         if ( 'nav' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
             }
 
             $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
@@ -5031,7 +4887,7 @@ final class HtmlTransformer
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
                 $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
                 if ( null !== $navigation ) {
-                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                    return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
                 }
             }
 
@@ -13825,7 +13681,7 @@ final class HtmlTransformer
         if ( ! $image instanceof DOMElement ) {
             foreach ( $anchor->childNodes as $child ) {
                 if ( $child instanceof DOMElement ) {
-                    $image = $this->imageOnlyCustomElement($child);
+                    $image = $this->imageOnlyCarrierElement($child);
                     if ( $image instanceof DOMElement ) {
                         break;
                     }
@@ -13840,7 +13696,7 @@ final class HtmlTransformer
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCustomElement($child) instanceof DOMElement ) ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCarrierElement($child) instanceof DOMElement ) ) {
                     return false;
                 }
                 ++$imageChildren;
@@ -14090,6 +13946,35 @@ final class HtmlTransformer
         }
 
         return $images->item(0);
+    }
+
+    private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
+    {
+        $customImage = $this->imageOnlyCustomElement($element);
+        if ( $customImage instanceof DOMElement ) {
+            return $customImage;
+        }
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $image = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            $candidate = 'img' === strtolower($child->tagName) ? $child : $this->imageOnlyCarrierElement($child);
+            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
+                return null;
+            }
+            $image = $candidate;
+        }
+
+        return $image;
     }
 
     private function isImageCarrierButton(DOMElement $element): bool

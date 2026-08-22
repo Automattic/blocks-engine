@@ -35,22 +35,18 @@ trait StyleResolutionTrait
      *
      * @var array<string, array<string, mixed>>
      */
-    private array $presentationAttributesCache = array();
 
     /**
      * @var array<string, array<string, string>>
      */
-    private array $presentationDeclarationsCache = array();
 
     /**
      * @var array<string, string>
      */
-    private array $mergedPresentationStyleCache = array();
 
     /**
      * @var array<string, string>
      */
-    private array $mediaTextPresentationStyleCache = array();
 
     /**
      * Inline presentation declarations which core block supports cannot serialize
@@ -58,15 +54,11 @@ trait StyleResolutionTrait
      *
      * @var array<string, string>
      */
-    private array $generatedGeometryRules = array();
 
-    private ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
 
     /** Source-selector cache remains valid only between source-DOM mutations. */
-    private ?CssSelectorMatchCache $sourceSelectorMatchCache = null;
 
     /** @var array<string, array<string, mixed>> */
-    private array $styleRuleCandidateIndexes = array();
 
     /**
      * Author-declared values for the properties an element's inline style could
@@ -75,7 +67,6 @@ trait StyleResolutionTrait
      *
      * @var array<string, array<string, array<int, string>>>
      */
-    private array $authorDeclaredPropertyValuesCache = array();
 
     /**
      * @return list<string>
@@ -181,15 +172,7 @@ trait StyleResolutionTrait
 
     private function resetPresentationResolutionCache(): void
     {
-        $this->presentationAttributesCache = array();
-        $this->presentationDeclarationsCache = array();
-        $this->mergedPresentationStyleCache = array();
-        $this->mediaTextPresentationStyleCache = array();
-        $this->generatedGeometryRules = array();
-        $this->geometryCarrierClassAllocator = null;
-        $this->authorDeclaredPropertyValuesCache = array();
         $this->sourceSelectorMatchCache = new CssSelectorMatchCache();
-        $this->styleRuleCandidateIndexes = array();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper

@@ -7,8 +7,5 @@ use DOMElement;
 
 interface PatternRecognizerInterface
 {
-    /**
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, PatternContext $context): ?array;
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult;
 }

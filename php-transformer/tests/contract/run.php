@@ -17,9 +17,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolic
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
@@ -355,9 +355,9 @@ $registryDocument->loadHTML('<div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_N
 $registryElement = $registryDocument->getElementsByTagName('div')->item(0);
 $registry = new PatternRecognizerRegistry(array(
     new class implements PatternRecognizerInterface {
-        public function match(DOMElement $element, PatternContext $context): ?array
+        public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
         {
-            return 'div' === strtolower($element->tagName) ? array('blockName' => 'core/group') : null;
+            return 'div' === strtolower($element->tagName) ? new PatternRecognitionResult(array('blockName' => 'core/group')) : null;
         }
     },
 ));
@@ -367,7 +367,7 @@ $registryContext = new PatternContext(
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
-$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)['blockName'] ?? null), 'pattern registry returns the first recognizer match');
+$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)?->block()['blockName'] ?? null), 'pattern registry returns the first recognizer match');
 
 $tableElement = static function (string $html): DOMElement {
     $document = new DOMDocument();
@@ -1848,6 +1848,12 @@ $assert(str_contains($safeInlineSvgAssetUrl, 'assets/materialized-svg/'), 'safe 
 $assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its correct-case viewBox in the materialized SVG source');
 $assert(1 === count(array_filter($safeInlineSvgAsset['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'safe accessible inline SVG icon generates one image asset');
 
+$exportedSvgMetadata = ( new HtmlTransformer() )->transform('<svg preserveAspectRatio="none" data-bbox="0 0 200 200" data-type="color" viewBox="0 0 200 200" role="presentation" aria-hidden="true"><g><path data-color="1" d="M200 100c0 55-45 100-100 100S0 155 0 100 45 0 100 0s100 45 100 100z"></path></g></svg>')->toArray();
+$assert('core/image' === ($exportedSvgMetadata['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgMetadata['fallbacks'] ?? array()), 'passive exported SVG metadata and stretched artwork remain native image compatible');
+
+$exportedSvgFilter = ( new HtmlTransformer() )->transform('<svg viewBox="0 0 40 40" focusable="false"><defs><filter id="shadow"><feGaussianBlur stdDeviation="2" result="blur"></feGaussianBlur><feOffset in="blur" x="1" y="1" result="offset"></feOffset><feColorMatrix in="offset" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 .5 0"></feColorMatrix></filter></defs><rect data-testid="shape" width="40" height="40" filter="url(#shadow)"></rect></svg>')->toArray();
+$assert('core/image' === ($exportedSvgFilter['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgFilter['fallbacks'] ?? array()), 'passive exported SVG filter primitives materialize without raw HTML fallback');
+
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
@@ -2748,10 +2754,12 @@ $simple = $compiler->compile(
 TransformerResult::assertCanonicalEnvelope($simple);
 $assert('success' === $simple['status'], 'simple artifact compiles successfully', (string) $simple['status']);
 $simplePlanView = ( new WordPressSitePlanView() )->fromResult($simple);
-$simpleObjectPlanView = $compiler->compile(array('generated_html' => '<main><h1>Bounded handoff</h1></main>'))->toWordPressSitePlanView();
+$boundedHandoffResult = $compiler->compile(array('generated_html' => '<main><h1>Bounded handoff</h1></main>'));
+$simpleObjectPlanView = $boundedHandoffResult->toWordPressSitePlanView();
 $assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'WordPress site plan view exposes its own schema');
 $assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
 $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
+$assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
 $assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
 $assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
@@ -2767,7 +2775,7 @@ $assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics exp
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
-$assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact exposes canonical materialization plan');
+$assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact retains the legacy materialization plan report for compatibility');
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
 
 $artifactNavAnchorCss = $compiler->compile(
@@ -3523,28 +3531,6 @@ foreach ( $imageReferenceSite['source_reports']['materialization_plan']['assets'
 $assert('source' === ($imageReferencePlanAssets['assets/hero-small.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve picture source references');
 $assert('inline-style' === ($imageReferencePlanAssets['assets/panel.png']['references'][0]['context'] ?? ''), 'materialization plan image rows preserve inline background references');
 $assert('image' === ($imageReferencePlanAssets['assets/vector.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve SVG image href references');
-
-$materializationView = ( new MaterializationView() )->fromResult($staticSite);
-$assert(MaterializationView::SCHEMA === ($materializationView['schema'] ?? ''), 'materialization view exposes its own schema');
-$assert(TransformerResult::SCHEMA === ($materializationView['result_schema'] ?? ''), 'materialization view exposes transformer result schema');
-$assert($staticSite['status'] === ($materializationView['status'] ?? ''), 'materialization view exposes result status');
-$assert($staticSite['source_reports']['artifact'] === ($materializationView['artifact_summary'] ?? null), 'materialization view exposes artifact summary');
-$assert($staticPlan === ($materializationView['materialization_plan'] ?? null), 'materialization view exposes materialization plan');
-$assert($staticSite['source_reports']['compiled_site'] === ($materializationView['compiled_site'] ?? null), 'materialization view exposes compiled site report');
-$assert($staticSite['assets'] === ($materializationView['assets'] ?? null), 'materialization view exposes assets');
-$assert($staticSite['documents'] === ($materializationView['documents'] ?? null), 'materialization view exposes documents');
-$assert($staticSite['serialized_blocks'] === ($materializationView['block_markup'] ?? null), 'materialization view exposes block markup');
-$assert($staticSite['blocks'] === ($materializationView['blocks'] ?? null), 'materialization view exposes blocks');
-$assert($staticSite['block_types'] === ($materializationView['block_types'] ?? null), 'materialization view exposes block types');
-$assert($staticSite['components'] === ($materializationView['components'] ?? null), 'materialization view exposes components');
-$assert($staticSite['diagnostics'] === ($materializationView['diagnostics'] ?? null), 'materialization view exposes diagnostics');
-$assert($staticSite['provenance'] === ($materializationView['provenance'] ?? null), 'materialization view exposes provenance');
-$assert($staticSite['source_reports']['conversion_report'] === ($materializationView['conversion_report'] ?? null), 'materialization view exposes conversion report');
-
-$objectMaterializationView = ( new MaterializationView() )->fromResult($compiler->compile(array('generated_html' => '<main><h1>Object</h1></main>')));
-$assert('success' === ($objectMaterializationView['status'] ?? ''), 'materialization view accepts TransformerResult objects');
-$assert('index.html' === ($objectMaterializationView['materialization_plan']['entry_path'] ?? ''), 'materialization view exposes plans from TransformerResult objects');
-assertThrows(static fn () => ( new MaterializationView() )->fromResult((object) array('status' => 'success')), 'Materialization view expects a TransformerResult, result array, or object with toArray().');
 
 $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(
