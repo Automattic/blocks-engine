@@ -19,7 +19,7 @@ $blocks = array(array(
 
 $report = (new EditabilityReport())->fromBlocks($blocks, 'website/index.html', str_repeat('x', 120));
 $metrics = $report['metrics'];
-if ('blocks-engine/php-transformer/editability-report/v3' !== EditabilityReport::SCHEMA || EditabilityReport::SCHEMA !== $report['schema'] || isset($report['enforcement'], $report['status'])) throw new RuntimeException('The factual-only editability report uses a new schema version rather than changing the v2 contract.');
+if ('blocks-engine/php-transformer/editability-report/v2' !== EditabilityReport::SCHEMA || EditabilityReport::SCHEMA !== $report['schema'] || isset($report['enforcement'], $report['status'])) throw new RuntimeException('The unreleased v2 editability report measures facts while policy enforcement uses its own contract.');
 if ('passed' !== (new EditabilityPolicy())->evaluate($report)['status']) throw new RuntimeException('The versioned editability policy must accept ordinary editable output independently of parity.');
 if (4 !== $metrics['block_count'] || 2 !== $metrics['wrapper_block_count'] || 1 !== $metrics['empty_wrapper_count'] || 2 !== $metrics['max_nesting_depth']) throw new RuntimeException('Editability report must measure block-tree complexity deterministically.');
 if (1 !== $metrics['html_bearing_table_cell_count'] || 1 !== $metrics['source_marker_class_count'] || 1 !== $metrics['generated_geometry_class_count'] || 120 !== $metrics['serialized_bytes']) throw new RuntimeException('Editability report must expose opaque HTML and generated-class signals.');
