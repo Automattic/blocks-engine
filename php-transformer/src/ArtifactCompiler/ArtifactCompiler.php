@@ -26,6 +26,8 @@ use DOMElement;
 
 final class ArtifactCompiler
 {
+    private const MAX_PLAN_DIGEST_DEPTH = 512;
+
     public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
     // Plans are a published v1 transport contract. Receipts are additive: v2
     // carries terminal reductions while v1 receipts remain composable.
@@ -1296,7 +1298,7 @@ final class ArtifactCompiler
     /** @param array<string,mixed> $hashInput */
     private function planDigest(array $hashInput): string
     {
-        return RuntimeDeclarations::hash($hashInput);
+        return RuntimeDeclarations::hash($hashInput, self::MAX_PLAN_DIGEST_DEPTH);
     }
 
     /** @param array<string,mixed> $sharedPlan */

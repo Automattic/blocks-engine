@@ -360,4 +360,14 @@ $oversizedReference = array('entrypoint' => 'index.html', 'files' => array(array
 $throws(static fn() => (new ArtifactCompiler())->prepareShared($oversizedReference, $oversizedReads), 'Oversized declared references are rejected before payload hydration.');
 $assert(0 === $oversizedReads->reads, 'Oversized declared references invoke no payload reader calls.');
 
+$deepHtml = '<p>Deep receipt leaf</p>';
+for ($depth = 0; $depth < 40; ++$depth) $deepHtml = '<div class="depth-' . $depth . '">' . $deepHtml . '</div>';
+$deepArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $deepHtml)));
+$deepCompiler = new ArtifactCompiler();
+$deepShared = $deepCompiler->prepareShared($deepArtifact);
+$deepReceipt = $deepCompiler->compilePage($deepArtifact, $deepShared, 'index.html');
+$deepStaged = $deepCompiler->compose($deepShared, array($deepReceipt))->toArray();
+$deepWhole = $deepCompiler->compile($deepArtifact)->toArray();
+$assert(($deepWhole['source_reports']['wordpress_site_plan'] ?? null) === ($deepStaged['source_reports']['wordpress_site_plan'] ?? null), 'Compiled receipt digests support deeply nested canonical block trees without weakening runtime declaration depth limits.');
+
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");
