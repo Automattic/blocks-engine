@@ -632,6 +632,8 @@ final class HtmlTransformer
 
     private bool $preserveShellLandmarks = false;
 
+    private bool $fallbackReductionMode = false;
+
     public function __construct(
         private readonly Runtime $runtime = new Runtime(),
         private readonly HtmlTransformerAnalysisCache $analysisCache = new HtmlTransformerAnalysisCache()
@@ -696,6 +698,7 @@ final class HtmlTransformer
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->generatedAssetRoot = trim((string) ($options['generated_asset_root'] ?? ''), '/');
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
+        $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
         $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
@@ -871,6 +874,9 @@ final class HtmlTransformer
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
+        if (!$this->fallbackReductionMode) {
+            $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
+        }
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
@@ -1005,6 +1011,91 @@ final class HtmlTransformer
             context: $context,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Reduce safe legacy core/html islands through the producer's native block
+     * recognizers. An island is replaced only when its complete fragment maps
+     * to native blocks with no fallback diagnostics; otherwise its serialized
+     * payload remains untouched.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    public function reduceCoreHtmlFallbackBlocks(array $blocks): array
+    {
+        $reduced = array();
+        foreach ($blocks as $block) {
+            if (!is_array($block)) {
+                continue;
+            }
+
+            $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+            if (in_array($name, array('core/html', 'core/freeform'), true)) {
+                $html = is_string($block['attrs']['content'] ?? null)
+                    ? $block['attrs']['content']
+                    : (is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '');
+                $replacement = $this->safeFallbackFragmentBlocks($html);
+                array_push($reduced, ...($replacement ?? array($block)));
+                continue;
+            }
+
+            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            if (array() !== $children) {
+                $reducedChildren = array();
+                $childReplacements = array();
+                foreach ($children as $child) {
+                    $replacement = $this->reduceCoreHtmlFallbackBlocks(array($child));
+                    $childReplacements[] = $replacement;
+                    array_push($reducedChildren, ...$replacement);
+                }
+                $block['innerBlocks'] = $reducedChildren;
+                $innerContent = array();
+                $childIndex = 0;
+                foreach (is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array() as $content) {
+                    if (null !== $content) {
+                        $innerContent[] = $content;
+                        continue;
+                    }
+                    foreach ($childReplacements[$childIndex] ?? array() as $_) {
+                        $innerContent[] = null;
+                    }
+                    ++$childIndex;
+                }
+                $block['innerContent'] = $innerContent;
+                $block['innerHTML'] = implode('', array_filter($innerContent, 'is_string'));
+            }
+            $reduced[] = $block;
+        }
+
+        return $reduced;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>|null Null keeps the original island.
+     */
+    private function safeFallbackFragmentBlocks(string $html): ?array
+    {
+        if ('' === trim($html)) {
+            return array();
+        }
+        if (preg_match('/<\s*(?:script|style|iframe|canvas|svg|form|input|select|textarea)\b/i', $html)) {
+            return null;
+        }
+
+        $result = (new self($this->runtime, $this->analysisCache))->transform($html, array('extract_global_shell' => false, 'fallback_reduction_mode' => true));
+        $data = $result->toArray();
+        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : array();
+        if (array() === $blocks || array() !== ($data['fallbacks'] ?? array())) {
+            return null;
+        }
+        foreach ($blocks as $block) {
+            if (!is_array($block) || !str_starts_with((string) ($block['blockName'] ?? ''), 'core/') || in_array($block['blockName'] ?? '', array('core/html', 'core/freeform'), true)) {
+                return null;
+            }
+        }
+
+        return $blocks;
     }
 
     /**
@@ -4437,6 +4528,17 @@ final class HtmlTransformer
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
         if ( $mediaDispatch['handled'] ) {
             return $mediaDispatch['block'];
+        }
+
+        if ($this->fallbackReductionMode && in_array($tagName, array('a', 'button'), true)) {
+            $text = $this->innerHtml($element);
+            if ('' !== trim($this->runtime->stripAllTags($text))) {
+                $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));
+                if ('a' === $tagName && '' !== trim($this->attr($element, 'href'))) {
+                    $attrs['url'] = $this->attr($element, 'href');
+                }
+                return $this->createBlock('core/buttons', array(), array($this->createBlock('core/button', $attrs, array(), $element)), $element);
+            }
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
