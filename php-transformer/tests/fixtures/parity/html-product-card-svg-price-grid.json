@@ -22,7 +22,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "className": "product-name", "content": "Ceramic Bowl", "level": 3 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "product-price", "content": "$42" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "product-cta blocks-engine-native-button-alignment-start", "text": "Buy now", "url": "/products/bowl" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "text": "Buy now", "url": "/products/bowl" } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 },

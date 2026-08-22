@@ -17,14 +17,17 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "primary-button blocks-engine-native-button-alignment-start", "text": "Reserve now", "url": "/book" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Reserve now", "url": "/book" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary-button blocks-engine-native-button-alignment-start\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "primary-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\"" },
+    { "path": "assets.0.content", "assert": "contains", "value": "background-color:#135e96 !important" },
+    { "path": "assets.0.content", "assert": "contains", "value": "padding-top:10px !important" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/book\">Reserve now</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<h3>Reserve now</h3>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-hidden=\"true\"" },

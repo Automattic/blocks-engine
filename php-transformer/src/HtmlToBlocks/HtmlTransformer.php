@@ -418,6 +418,9 @@ final class HtmlTransformer
     /** @var array<string, string> */
     private array $navigationLinkColorFallbacks = array();
 
+    /** @var array<string, string> */
+    private array $navigationSubmenuBackgroundFallbacks = array();
+
     /** @var list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> Ordered crop declarations, including duplicates. */
     private array $imageShapeStyleRules = array();
 
@@ -696,6 +699,7 @@ final class HtmlTransformer
         $this->nativeButtonStyleRules = array();
         $this->listNavigationPaddingFallbacks = array();
         $this->navigationLinkColorFallbacks = array();
+        $this->navigationSubmenuBackgroundFallbacks = array();
         $this->syntheticHeaderAnchorStyleRules = array();
         $this->headerRichTextStyleRules = array();
         $this->gutenbergIncompatibilities = array();
@@ -1232,6 +1236,11 @@ final class HtmlTransformer
         }
         foreach ( $this->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
+        }
+        foreach ( $this->navigationSubmenuBackgroundFallbacks as $className => $color ) {
+            if ( str_contains($serializedBlocks, $className) ) {
+                $afterAuthorCssParts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';
+            }
         }
         foreach ( $this->syntheticHeaderAnchorStyleRules as $className => $rule ) {
             if ( str_contains($serializedBlocks, $className) ) {
@@ -5515,6 +5524,12 @@ final class HtmlTransformer
         $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
+        $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
+        if ( '' !== $submenuBackground && array() !== $this->cssDeclarations('background-color:' . $submenuBackground) ) {
+            $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
+            $this->navigationSubmenuBackgroundFallbacks[ $className ] = $submenuBackground;
+        }
         $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
         if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
             foreach ( $classes as $class ) {
@@ -5542,6 +5557,7 @@ final class HtmlTransformer
         $inlineDeclarations = $this->cssDeclarations($this->attr($sourceElement, 'style'));
         $inlineMapped = $this->styleAttributeMapper()->map($inlineDeclarations);
         $inlineFallbackDeclarations = $this->cssDeclarations($this->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
+        $preserveGeneratedLogoStyle = 'core/button' === $name && $this->hasLogoBrandSignal($sourceElement);
         foreach ( array_keys($fallbackDeclarations) as $property ) {
             if ( 'core/button' === $name
                 && 'border-radius' === $property
@@ -5552,7 +5568,7 @@ final class HtmlTransformer
                 // compatibility geometry, not a missing source declaration.
                 continue;
             }
-            if ( ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
+            if ( ! $preserveGeneratedLogoStyle && ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
                 unset($fallbackDeclarations[ $property ]);
             }
         }
