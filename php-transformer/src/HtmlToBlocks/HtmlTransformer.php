@@ -8282,19 +8282,13 @@ final class HtmlTransformer
             return null;
         }
 
-        // A pure-text styled wrapper whose CSS carries no block-level box chrome
-        // round-trips as a single styled `core/paragraph` carrying the wrapper
-        // class. The `core/group` + default inner paragraph form neither inherits
-        // the wrapper's typographic scale onto that inner paragraph nor suppresses
-        // default block spacing, so an eyebrow like `<div class="label">The Shop
-        // </div>` renders at the wrong size and pushes every following block down.
-        //
-        // Only real box chrome — padding, border, or explicit sizing — disqualifies
-        // the collapse, because a paragraph cannot reproduce that geometry. Flex
-        // layout (`display`/`gap`) does not: a childless text leaf has no flex
-        // items, so its `display:inline-flex;gap` only positions a `::before`
-        // decoration, which the wrapper class still applies to the paragraph. Real
-        // flex containers hold child elements and are already excluded above by the
+        // A childless styled text wrapper round-trips as a single styled
+        // `core/paragraph` carrying the wrapper class and presentation supports.
+        // Keeping its box chrome on that same element preserves the source paint
+        // structure; a core/group plus inner paragraph produces a separate text
+        // paint layer that can differ around rounded borders. Unsupported geometry
+        // remains on the generated CSS carrier attached to the paragraph. Real flex
+        // containers hold child elements and are already excluded above by the
         // `childElementCount === 0` guard (e.g. `.tier-price` wrapping a `<span>`).
         //
         // Descendant paragraph rules the source used a non-`p` tag to escape (e.g.
@@ -8302,7 +8296,7 @@ final class HtmlTransformer
         // authored as `<div class="label">` avoided it) do not capture the collapsed
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
-        if ( 0 === $this->childElementCount($element) && ! $this->hasBoxChromeWrapperStyling($element) ) {
+        if ( 0 === $this->childElementCount($element) ) {
             return $this->createBlock(
                 'core/paragraph',
                 array_merge($this->presentationAttributes($element), array( 'content' => $content )),
@@ -8329,10 +8323,8 @@ final class HtmlTransformer
     private const BOX_MODEL_WRAPPER_PROPERTIES = array( 'display', 'gap', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
 
     /**
-     * Box-chrome CSS declarations that a `core/paragraph` cannot reproduce, so a
-     * pure-text wrapper carrying any of them must stay a `core/group`. Excludes
-     * flex/grid layout properties, which only matter when the wrapper actually has
-     * child elements to lay out.
+     * Box chrome that requires a paragraph with empty visual inline children to
+     * retain a structural wrapper rather than flattening those children.
      *
      * @var array<int, string>
      */
