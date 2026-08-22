@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use RuntimeException;
 
 /**
@@ -13,23 +14,28 @@ final class CoreBlockCapabilityMatrix
 {
     public const SCHEMA = 'blocks-engine/php-transformer/core-block-capabilities/v1';
 
-    private const HTML_INFERABLE = array('core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/cover', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/icon', 'core/image', 'core/list', 'core/list-item', 'core/math', 'core/media-text', 'core/navigation', 'core/navigation-link', 'core/navigation-submenu', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/search', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video');
+    private const HTML_INFERABLE = array('core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/cover', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/math', 'core/media-text', 'core/navigation', 'core/navigation-link', 'core/navigation-submenu', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/search', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video');
     private const SEMANTIC_MODEL = array('core/accordion', 'core/accordion-heading', 'core/accordion-item', 'core/accordion-panel', 'core/block', 'core/breadcrumbs', 'core/comment-author-name', 'core/comment-content', 'core/comment-date', 'core/comment-edit-link', 'core/comment-reply-link', 'core/comment-template', 'core/comments', 'core/comments-pagination', 'core/comments-pagination-next', 'core/comments-pagination-numbers', 'core/comments-pagination-previous', 'core/comments-title', 'core/footnotes', 'core/home-link', 'core/navigation-overlay-close', 'core/page-list', 'core/page-list-item', 'core/pattern', 'core/post-author', 'core/post-author-biography', 'core/post-author-name', 'core/post-comments-count', 'core/post-comments-form', 'core/post-comments-link', 'core/post-content', 'core/post-date', 'core/post-excerpt', 'core/post-featured-image', 'core/post-navigation-link', 'core/post-template', 'core/post-terms', 'core/post-time-to-read', 'core/post-title', 'core/query', 'core/query-no-results', 'core/query-pagination', 'core/query-pagination-next', 'core/query-pagination-numbers', 'core/query-pagination-previous', 'core/query-title', 'core/query-total', 'core/read-more', 'core/site-logo', 'core/site-tagline', 'core/site-title', 'core/template-part', 'core/term-count', 'core/term-description', 'core/term-name', 'core/term-template', 'core/terms-query');
     private const PROVIDER_RUNTIME = array('core/archives', 'core/avatar', 'core/calendar', 'core/categories', 'core/latest-comments', 'core/latest-posts', 'core/loginout', 'core/more', 'core/nextpage', 'core/playlist', 'core/playlist-track', 'core/rss', 'core/social-link', 'core/social-links', 'core/tag-cloud');
+    private const RUNTIME_ONLY = array('core/icon');
     private const VERSION_GATED = array('core/tab-list', 'core/tab-panel', 'core/tab-panels', 'core/tabs');
     private const NON_TARGETED = array('core/freeform', 'core/html', 'core/legacy-widget', 'core/missing', 'core/text-columns', 'core/verse', 'core/widget-group');
-    // Preserve the established coverage order; later implementations append in name order.
-    private const TRANSFORMER_OUTPUT_ORDER = array('core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/icon', 'core/image', 'core/list', 'core/list-item', 'core/math', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/navigation-submenu', 'core/table', 'core/video', 'core/search');
-
     /** @return array<string,array<string,mixed>> */
     public function blocks(): array
     {
         $blocks = array();
-        foreach (self::HTML_INFERABLE as $name) $blocks[$name] = $this->entry('html_inferable', 'implemented', 'contract_tested');
+        foreach (self::HTML_INFERABLE as $name) $blocks[$name] = $this->entry('html_inferable', 'not_implemented', 'not_verified');
         foreach (self::SEMANTIC_MODEL as $name) $blocks[$name] = $this->entry('semantic_model_site_plan', 'not_implemented', 'not_verified');
         foreach (self::PROVIDER_RUNTIME as $name) $blocks[$name] = $this->entry('provider_runtime', 'not_implemented', 'not_verified');
+        foreach (self::RUNTIME_ONLY as $name) $blocks[$name] = $this->entry('runtime_only', 'not_implemented', 'not_verified');
         foreach (self::VERSION_GATED as $name) $blocks[$name] = $this->entry('version_gated', 'not_implemented', 'not_verified', '7.1', 'https://github.com/Automattic/blocks-engine/issues/924');
         foreach (self::NON_TARGETED as $name) $blocks[$name] = $this->entry('intentionally_non_targeted', 'not_applicable', 'not_applicable');
+        foreach (HtmlTransformer::emittedCoreBlockContracts() as $name => $contract) {
+            if (!isset($blocks[$name])) {
+                throw new RuntimeException('HTML transformer emitter has no core metadata classification: ' . $name);
+            }
+            $blocks[$name] = $this->entry($blocks[$name]['applicability'], 'implemented', 'contract_tested', (string) ($blocks[$name]['minimum_runtime'] ?? ''), (string) ($blocks[$name]['tracker'] ?? ''), $contract);
+        }
         ksort($blocks, SORT_STRING);
         return $blocks;
     }
@@ -82,11 +88,7 @@ final class CoreBlockCapabilityMatrix
     /** @param array<string,array<string,mixed>> $matrix @return array<int,string> */
     private function supportedBlocks(array $matrix): array
     {
-        $supported = array_keys(array_filter($matrix, static fn(array $entry): bool => 'implemented' === $entry['implementation'] && 'contract_tested' === $entry['verification']));
-        $ordered = array_values(array_filter(self::TRANSFORMER_OUTPUT_ORDER, static fn(string $name): bool => in_array($name, $supported, true)));
-        $remaining = array_values(array_diff($supported, $ordered));
-        sort($remaining, SORT_STRING);
-        return array_merge($ordered, $remaining);
+        return array_values(array_filter(array_keys(HtmlTransformer::emittedCoreBlockContracts()), static fn(string $name): bool => 'implemented' === ($matrix[$name]['implementation'] ?? null) && 'contract_tested' === ($matrix[$name]['verification'] ?? null)));
     }
 
     /** @return array<int,string> */
@@ -101,8 +103,8 @@ final class CoreBlockCapabilityMatrix
     }
 
     /** @return array<string,mixed> */
-    private function entry(string $applicability, string $implementation, string $verification, string $minimumRuntime = '', string $tracker = ''): array
+    private function entry(string $applicability, string $implementation, string $verification, string $minimumRuntime = '', string $tracker = '', string $contract = ''): array
     {
-        return array_filter(array('applicability' => $applicability, 'implementation' => $implementation, 'verification' => $verification, 'minimum_runtime' => $minimumRuntime, 'tracker' => $tracker), static fn(string $value): bool => '' !== $value);
+        return array_filter(array('applicability' => $applicability, 'implementation' => $implementation, 'verification' => $verification, 'minimum_runtime' => $minimumRuntime, 'tracker' => $tracker, 'contract' => $contract), static fn(string $value): bool => '' !== $value);
     }
 }

@@ -572,11 +572,12 @@ $assert(in_array('core/paragraph', $supportedBlocks, true), 'coverage derives im
 $assert(in_array('core/accordion', $runtimeAvailableBlocks, true), 'coverage exposes core/accordion as runtime availability rather than transformer support');
 $assert(in_array('core/icon', $runtimeAvailableBlocks, true), 'coverage exposes core/icon as runtime availability');
 $assert(in_array('core/math', $runtimeAvailableBlocks, true), 'coverage exposes core/math as runtime availability');
-$assert('semantic_model_site_plan' === ($capabilityMatrix['blocks']['core/accordion']['applicability'] ?? null), 'matrix explicitly classifies semantic-model blocks');
+$assert('implemented' === ($capabilityMatrix['blocks']['core/accordion']['implementation'] ?? null) && 'contract_tested' === ($capabilityMatrix['blocks']['core/accordion']['verification'] ?? null), 'coverage derives native accordion support from its emitter contract');
 $assert('7.1' === ($capabilityMatrix['blocks']['core/tabs']['minimum_runtime'] ?? null), 'matrix records the WordPress 7.1 Tabs runtime gate');
 $assert($runtimeAvailableBlocks === ($capabilityMatrix['runtime_available_blocks'] ?? array()), 'coverage records runtime availability separately inside the matrix');
 $assert($runtimeAvailableBlocks === $conversionReportNativeTargetBlocks, 'conversion report exposes runtime availability metadata');
-$assert(! in_array('core/accordion', $supportedBlocks, true), 'coverage does not claim unsupported native targets as converted support');
+$assert(in_array('core/accordion', $supportedBlocks, true), 'coverage reports the emitted native accordion family as converted support');
+$assert(! in_array('core/icon', $supportedBlocks, true), 'coverage does not report runtime-only core/icon as transformer output');
 $runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
 $assert('canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'HTML transform reports runtime-targeted canvas fallback as a runtime island');
 $assert('canvas_requires_runtime' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['preservation_reason'] ?? ''), 'runtime island exposes canvas preservation reason');

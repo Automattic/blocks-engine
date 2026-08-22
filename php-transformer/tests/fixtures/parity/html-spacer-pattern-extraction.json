@@ -32,6 +32,6 @@
     { "path": "blocks.0.innerBlocks.2.innerHTML", "assert": "contains", "value": "style=\"height:3rem\"" },
     { "path": "blocks.0.innerBlocks.2.innerHTML", "assert": "contains", "value": "aria-hidden=\"true\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "coverage.0.supported_blocks.25", "assert": "equals", "value": "core/spacer" }
+    { "path": "coverage.0.supported_blocks.32", "assert": "equals", "value": "core/spacer" }
   ]
 }
