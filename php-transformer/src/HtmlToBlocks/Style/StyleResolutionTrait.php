@@ -2578,11 +2578,19 @@ trait StyleResolutionTrait
         }
         $this->analysisCache->sourceSelectorMatchExecutions += $this->sourceSelectorMatchCache->matchExecutions;
         $this->analysisCache->sourceSelectorMatchHits += $this->sourceSelectorMatchCache->matchHits;
+        $this->analysisCache->sourceSelectorMatchMisses += $this->sourceSelectorMatchCache->matchMisses;
+        $this->analysisCache->sourceSelectorMatchEvictions += $this->sourceSelectorMatchCache->matchEvictions;
+        $this->analysisCache->sourceSelectorMatchPeakEntries = max($this->analysisCache->sourceSelectorMatchPeakEntries, $this->sourceSelectorMatchCache->matchPeakEntries);
         $this->analysisCache->sourceSelectorClassTokenBuilds += $this->sourceSelectorMatchCache->classTokenBuilds;
         $this->analysisCache->sourceSelectorClassTokenHits += $this->sourceSelectorMatchCache->classTokenHits;
         $this->analysisCache->sourceSelectorAttributeReads += $this->sourceSelectorMatchCache->attributeReads;
         $this->analysisCache->sourceStyleCandidateRuleChecks += $this->sourceSelectorMatchCache->candidateRuleChecks;
         $this->analysisCache->sourceStyleCandidateRulesSkipped += $this->sourceSelectorMatchCache->candidateRulesSkipped;
+        $this->analysisCache->sourceStyleCandidateRuleHits += $this->sourceSelectorMatchCache->candidateRuleHits;
+        $this->analysisCache->sourceStyleCandidateRuleMisses += $this->sourceSelectorMatchCache->candidateRuleMisses;
+        $this->analysisCache->sourceStyleCandidateRuleEvictions += $this->sourceSelectorMatchCache->candidateRuleEvictions;
+        $this->analysisCache->sourceStyleCandidateRulePeakEntries = max($this->analysisCache->sourceStyleCandidateRulePeakEntries, $this->sourceSelectorMatchCache->candidateRulePeakEntries);
+        $this->analysisCache->sourceStyleCandidateRulePeakRetained = max($this->analysisCache->sourceStyleCandidateRulePeakRetained, $this->sourceSelectorMatchCache->candidateRulePeakRetained);
     }
 
     /** @return list<array<string, mixed>> */

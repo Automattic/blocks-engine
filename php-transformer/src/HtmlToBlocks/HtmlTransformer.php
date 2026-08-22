@@ -1076,6 +1076,7 @@ final class HtmlTransformer
      */
     private function metrics(string $input, array $blocks, string $output, array $fallbacks, array $diagnostics, int $startedAt): array
     {
+        $selectorCache = $this->sourceSelectorMatchCache;
         return array(
             'input_bytes'           => strlen($input),
             'block_count'           => $this->countBlocks($blocks),
@@ -1083,6 +1084,15 @@ final class HtmlTransformer
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($output),
+            'selector_match_cache_hits' => $selectorCache?->matchHits ?? 0,
+            'selector_match_cache_misses' => $selectorCache?->matchMisses ?? 0,
+            'selector_match_cache_evictions' => $selectorCache?->matchEvictions ?? 0,
+            'selector_match_cache_peak_entries' => $selectorCache?->matchPeakEntries ?? 0,
+            'style_rule_candidate_cache_hits' => $selectorCache?->candidateRuleHits ?? 0,
+            'style_rule_candidate_cache_misses' => $selectorCache?->candidateRuleMisses ?? 0,
+            'style_rule_candidate_cache_evictions' => $selectorCache?->candidateRuleEvictions ?? 0,
+            'style_rule_candidate_cache_peak_entries' => $selectorCache?->candidateRulePeakEntries ?? 0,
+            'style_rule_candidate_cache_peak_rule_references' => $selectorCache?->candidateRulePeakRetained ?? 0,
         );
     }
 
