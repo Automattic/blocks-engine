@@ -110,9 +110,9 @@ final class CapturedDialogProjector
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
                 continue;
             }
-            $trigger = $this->findTrigger($document, $state['trigger']);
-            if (! $trigger instanceof DOMElement) {
-                $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match exactly one source element.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
+            $triggers = $this->findTriggers($document, $state['trigger']);
+            if (array() === $triggers) {
+                $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match a bounded source element set.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
                 continue;
             }
             $fragment = $this->safeDialogFragment($dialogHtml);
@@ -122,16 +122,20 @@ final class CapturedDialogProjector
             }
 
             $identity = substr(hash('sha256', $sourcePath . "\n" . ($state['trigger']['selector'] ?? '') . "\n" . $dialogHtml), 0, 16);
-            $triggerId = trim($trigger->getAttribute('id'));
-            if ('' === $triggerId) {
-                $triggerId = 'blocks-engine-dialog-trigger-' . $identity;
-                $trigger->setAttribute('id', $triggerId);
+            $triggerIds = array();
+            foreach ($triggers as $triggerIndex => $trigger) {
+                $triggerId = trim($trigger->getAttribute('id'));
+                if ('' === $triggerId) {
+                    $triggerId = 'blocks-engine-dialog-trigger-' . $identity . '-' . ($triggerIndex + 1);
+                    $trigger->setAttribute('id', $triggerId);
+                }
+                $triggerIds[] = $triggerId;
             }
             $dialogId = 'blocks-engine-dialog-' . $identity;
             $dialogElement = $document->createElement('dialog');
             $dialogElement->setAttribute('id', $dialogId);
             $dialogElement->setAttribute('data-blocks-engine-captured-dialog', 'true');
-            $dialogElement->setAttribute('data-blocks-engine-trigger', $triggerId);
+            $dialogElement->setAttribute('data-blocks-engine-triggers', implode(' ', $triggerIds));
             if (is_string($fragment['class']) && '' !== $fragment['class']) $dialogElement->setAttribute('class', $fragment['class']);
             if (is_string($fragment['aria_label']) && '' !== $fragment['aria_label']) $dialogElement->setAttribute('aria-label', $fragment['aria_label']);
             if (is_string($fragment['aria_labelledby']) && '' !== $fragment['aria_labelledby']) $dialogElement->setAttribute('aria-labelledby', $fragment['aria_labelledby']);
@@ -149,8 +153,8 @@ final class CapturedDialogProjector
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 
-    /** @param array<string, mixed> $trigger */
-    private function findTrigger(DOMDocument $document, array $trigger): ?DOMElement
+    /** @param array<string, mixed> $trigger @return array<int, DOMElement> */
+    private function findTriggers(DOMDocument $document, array $trigger): array
     {
         $xpath = new DOMXPath($document);
         $selector = is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '';
@@ -166,13 +170,18 @@ final class CapturedDialogProjector
                 }
             }
         }
-        if ('' === $query) return null;
+        if ('' === $query) return array();
         $matches = $xpath->query($query);
-        if (false === $matches || 1 !== $matches->length) return null;
-        $element = $matches->item(0);
-        if (! $element instanceof DOMElement) return null;
+        if (false === $matches || 0 === $matches->length || $matches->length > self::MAX_STATES_PER_PAGE) return array();
         $tag = is_string($trigger['tag'] ?? null) ? strtolower($trigger['tag']) : '';
-        return '' === $tag || $tag === strtolower($element->tagName) ? $element : null;
+        $elements = array();
+        foreach ($matches as $element) {
+            if (! $element instanceof DOMElement || ('' !== $tag && $tag !== strtolower($element->tagName))) continue;
+            $popup = strtolower(trim($element->getAttribute('aria-haspopup')));
+            if (! in_array($popup, array('dialog', 'true'), true)) continue;
+            $elements[] = $element;
+        }
+        return $elements;
     }
 
     /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool}|null */
