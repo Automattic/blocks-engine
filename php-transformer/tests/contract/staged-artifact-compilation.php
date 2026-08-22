@@ -135,6 +135,37 @@ $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
 $assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
+
+$inlineStyles = static function (string $prefix, int $count, string $media = ''): string {
+    $styles = array();
+    for ($index = 0; $index < $count; ++$index) $styles[] = '<style' . ('' === $media ? '' : ' media="' . $media . '"') . '>main{--' . $prefix . '-' . $index . ':' . $index . '}</style>';
+    return implode('', $styles);
+};
+$coalescingArtifact = array('entrypoints' => array('index.html', 'about.html', 'notes/post.html', 'shared.html', 'shared-two.html'), 'files' => array(
+    array('path' => 'index.html', 'content' => $inlineStyles('home-before', 12) . $inlineStyles('home-narrow', 12, '(max-width: 600px)') . $inlineStyles('home-after', 12) . '<main>Home</main>'),
+    array('path' => 'about.html', 'content' => $inlineStyles('about', 24) . '<main>About</main>'),
+    array('path' => 'notes/post.html', 'content' => $inlineStyles('post', 24) . '<main>Post</main>', 'metadata' => array('post_type' => 'post')),
+    array('path' => 'shared.html', 'content' => $inlineStyles('shared', 24) . '<main>Shared</main>', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+    array('path' => 'shared-two.html', 'content' => $inlineStyles('shared', 24) . '<main>Shared again</main>', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$coalescedWhole = $compiler->compile($coalescingArtifact)->toArray();
+$coalescedPlan = $coalescedWhole['source_reports']['wordpress_site_plan'] ?? array();
+$coalescedAssets = array_values(array_filter($coalescedPlan['assets'] ?? array(), static fn(array $asset): bool => 'inline-style' === ($asset['source'] ?? null)));
+$homeAssets = array_values(array_filter($coalescedAssets, static fn(array $asset): bool => 'index.html' === ($asset['scopes'][0]['source_path'] ?? null)));
+$aboutAssets = array_values(array_filter($coalescedAssets, static fn(array $asset): bool => 'about.html' === ($asset['scopes'][0]['source_path'] ?? null)));
+$postAssets = array_values(array_filter($coalescedAssets, static fn(array $asset): bool => 'notes/post.html' === ($asset['scopes'][0]['source_path'] ?? null)));
+$globalAssets = array_values(array_filter($coalescedAssets, static fn(array $asset): bool => 'global' === ($asset['scopes'][0]['kind'] ?? null)));
+$homeCss = implode("\n", array_column($homeAssets, 'content'));
+$coalescedWrites = array_column($coalescedPlan['writes'] ?? array(), null, 'target_path');
+$coalescedBootstrap = (string) ($coalescedWrites['functions.php']['payload']['data'] ?? '');
+$coalescedShared = $compiler->prepareShared($coalescingArtifact);
+$coalescedPages = array();
+foreach (array('index.html', 'about.html', 'notes/post.html') as $pageId) $coalescedPages[] = $compiler->preparePage($coalescingArtifact, $coalescedShared, $pageId);
+$coalescedStaged = $compiler->compose($coalescedShared, array_reverse($coalescedPages))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$assert(3 === count($homeAssets) && 1 === count($aboutAssets) && 1 === count($postAssets) && 1 === count($globalAssets) && 6 === count($coalescedAssets), 'Many inline styles and duplicate shared CSS coalesce into one asset per contiguous runtime media scope, rather than one asset per source style.');
+$assert(strpos($homeCss, '--home-before-0') < strpos($homeCss, '--home-before-11') && strpos($homeCss, '--home-before-11') < strpos($homeCss, '--home-narrow-0') && strpos($homeCss, '--home-narrow-11') < strpos($homeCss, '--home-after-0') && strpos($homeCss, '--home-after-0') < strpos($homeCss, '--home-after-11') && 'author' === ($homeAssets[0]['stylesheet_placement'] ?? null), 'Coalesced author CSS retains exact source cascade order and keeps media boundaries as separate runtime assets.');
+$frontendStyles = array_values(array_filter($coalescedPlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null) && 'editor' !== ($asset['stylesheet_target'] ?? 'both')));
+$assert('post' === ($postAssets[0]['scopes'][0]['kind'] ?? null) && 'global' === ($globalAssets[0]['scopes'][0]['kind'] ?? null) && count($frontendStyles) === substr_count($coalescedBootstrap, 'wp_enqueue_style(') && $coalescedPlan === $coalescedStaged, 'Coalescing preserves page, post, and global ownership while direct and staged compilation emit the same bounded bootstrap plan.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
 

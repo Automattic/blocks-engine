@@ -108,6 +108,11 @@ final class WordPressSitePlan
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
+        $assets = $this->coalesceInlineStylesheets($assets);
+        // Coalescing changes the asset set, so refresh the token catalog used by
+        // subsequent theme, template, and write projections.
+        $tokens = $this->tokens($assets);
+        $references = new AssetReferenceCanonicalizer($tokens, self::entryRootFromDocuments($documents));
         $projector = new ThemeJsonProjection();
         $themeProjection = $projector->project($assets);
         $assets = $themeProjection['assets'];
@@ -726,6 +731,55 @@ final class WordPressSitePlan
         }
         unset($asset);
         return $assets;
+    }
+
+    /**
+     * Inline style elements have no independently addressable browser resource
+     * after compilation. Bundle adjacent rows with the same runtime semantics
+     * so one source document cannot expand bootstrap work without bound.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @return array<int,array<string,mixed>>
+     */
+    private function coalesceInlineStylesheets(array $assets): array
+    {
+        $coalesced = array();
+        foreach ($assets as $asset) {
+            if (!$this->isCoalescibleInlineStylesheet($asset)) {
+                $coalesced[] = $asset;
+                continue;
+            }
+            $asset['stylesheet_placement'] = (string) ($asset['stylesheet_placement'] ?? 'author') ?: 'author';
+            $last = count($coalesced) - 1;
+            if ($last < 0 || !$this->sameStylesheetRuntime($coalesced[$last], $asset)) {
+                $coalesced[] = $asset;
+                continue;
+            }
+            $content = (string) $coalesced[$last]['content'] . "\n" . (string) $asset['content'];
+            $coalesced[$last]['content'] = $content;
+            $coalesced[$last]['bytes'] = strlen($content);
+            $coalesced[$last]['hash'] = self::contentHash($content);
+            $coalesced[$last]['content_hash'] = self::contentHash($content);
+        }
+        return $coalesced;
+    }
+
+    /** @param array<string,mixed> $asset */
+    private function isCoalescibleInlineStylesheet(array $asset): bool
+    {
+        return 'css' === ($asset['kind'] ?? null)
+            && 'inline-style' === ($asset['source'] ?? null)
+            && is_string($asset['content'] ?? null);
+    }
+
+    /** @param array<string,mixed> $left @param array<string,mixed> $right */
+    private function sameStylesheetRuntime(array $left, array $right): bool
+    {
+        return $this->isCoalescibleInlineStylesheet($left)
+            && ($left['scopes'] ?? null) === ($right['scopes'] ?? null)
+            && ($left['stylesheet_target'] ?? 'both') === ($right['stylesheet_target'] ?? 'both')
+            && ($left['stylesheet_placement'] ?? 'author') === ($right['stylesheet_placement'] ?? 'author')
+            && ($left['media'] ?? '') === ($right['media'] ?? '');
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,mixed> $declarations @return array<int,array<string,mixed>> */
