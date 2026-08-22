@@ -19,6 +19,7 @@ $definition = $generator->definition('ssi-example');
 $assert('ssi-example/responsive-media' === ($definition['block_json']['name'] ?? null), 'one namespaced responsive-media block type is defined');
 $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'the companion disables raw HTML editing');
 $assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'the companion declares its editor script');
+$assert(!isset($definition['block_json']['render']), 'the companion metadata does not reference a producer-authored render asset');
 $assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element') === ($definition['script_dependencies']['index.js'] ?? null), 'the companion declares editor dependencies');
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? null) && !isset($definition['render']), 'the companion delegates runtime rendering through an audited identifier without producer-authored PHP');
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
