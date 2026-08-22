@@ -511,4 +511,63 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     ));
     $outsideSubmitHtml = $fileContent($outsideSubmitResult, 'index.html');
     $assert(str_contains($outsideSubmitHtml, '<button class="figma-node-outside-submit-button-subscribe-button"') && str_contains($outsideSubmitHtml, 'type="button" data-figma-action-intent="submit"'), 'form-control-outside-submit-button-emits-safe-action-metadata');
+
+    $profileCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Profile Cards Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'profile-cards:root',
+                'type' => 'FRAME',
+                'name' => 'Team Profiles',
+                'width' => 720,
+                'children' => array(
+                    array('id' => 'profile-cards:name', 'type' => 'FRAME', 'name' => 'Profile card', 'width' => 300, 'height' => 120, 'cornerRadius' => 12, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'profile-cards:name-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Name', 'fontSize' => 16),
+                    )),
+                    array('id' => 'profile-cards:email', 'type' => 'FRAME', 'name' => 'Profile card', 'width' => 300, 'height' => 120, 'cornerRadius' => 12, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'profile-cards:email-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Email', 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $profileCardsHtml = $fileContent($profileCardsResult, 'index.html');
+    $assert(! str_contains($profileCardsHtml, '<input class="figma-node-profile-cards-name-profile-card"') && ! str_contains($profileCardsHtml, '<input class="figma-node-profile-cards-email-profile-card"'), 'form-control-direct-simple-labels-do-not-promote-rounded-cards');
+
+    $fseCommentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'FSE Comment Form Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'fse-comment:wrapper',
+                'type' => 'FRAME',
+                'name' => 'Group 138',
+                'width' => 720,
+                'children' => array(
+                    array('id' => 'fse-comment:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Leave a Reply', 'fontSize' => 28),
+                    array('id' => 'fse-comment:comment', 'type' => 'FRAME', 'name' => 'Field', 'width' => 640, 'height' => 128, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'fse-comment:comment-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Comment', 'fontSize' => 14),
+                    )),
+                    array('id' => 'fse-comment:name', 'type' => 'FRAME', 'name' => 'Field', 'width' => 300, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'fse-comment:name-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Name', 'fontSize' => 14),
+                    )),
+                    array('id' => 'fse-comment:email', 'type' => 'FRAME', 'name' => 'Field', 'width' => 300, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'fse-comment:email-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Email', 'fontSize' => 14),
+                    )),
+                    array('id' => 'fse-comment:website', 'type' => 'FRAME', 'name' => 'Field', 'width' => 300, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'fse-comment:website-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Website', 'fontSize' => 14),
+                    )),
+                    array('id' => 'fse-comment:submit', 'type' => 'FRAME', 'name' => 'Button', 'width' => 160, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                        array('id' => 'fse-comment:submit-label', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Post Comment', 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $fseCommentHtml = $fileContent($fseCommentResult, 'index.html');
+    $assert(str_contains($fseCommentHtml, '<form class="figma-node-fse-comment-wrapper-group-138"') && str_contains($fseCommentHtml, 'method="post"') && ! str_contains($fseCommentHtml, 'action="'), 'form-control-fse-generic-wrapper-emits-actionless-form');
+    $assert(str_contains($fseCommentHtml, '<textarea class="figma-node-fse-comment-comment-field"') && str_contains($fseCommentHtml, 'name="comment-fse-comment-comment"') && str_contains($fseCommentHtml, 'aria-label="Comment"'), 'form-control-fse-shaped-form-preserves-direct-child-comment-textarea');
+    $assert(str_contains($fseCommentHtml, 'data-figma-node-id="fse-comment:name"') && str_contains($fseCommentHtml, 'name="author"'), 'form-control-fse-direct-child-label-names-author-input');
+    $assert(str_contains($fseCommentHtml, 'data-figma-node-id="fse-comment:email"') && str_contains($fseCommentHtml, 'type="email" name="email"'), 'form-control-fse-direct-child-label-names-email-input');
+    $assert(str_contains($fseCommentHtml, 'data-figma-node-id="fse-comment:website"') && str_contains($fseCommentHtml, 'name="url"'), 'form-control-fse-direct-child-label-names-website-input');
+    $assert(str_contains($fseCommentHtml, 'data-figma-node-id="fse-comment:submit"') && str_contains($fseCommentHtml, 'type="submit"'), 'form-control-fse-post-comment-is-submit');
 }
