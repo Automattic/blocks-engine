@@ -553,11 +553,21 @@ trait SvgMaterializationTrait
             return false;
         }
 
-        // The materialized SVG renders in a separate image document. Color
-        // inheritance and custom properties are resolved before this gate; any
-        // unresolved value would still be document-context dependent.
-        if ( preg_match('/\bcurrentColor\b|var\s*\(/i', $html) ) {
+        // The materialized SVG renders in a separate image document. Paint and
+        // content custom properties must be resolved, but root box geometry is
+        // transferred to the native image carrier and may retain author vars.
+        if ( preg_match('/\bcurrentColor\b/i', $html) ) {
             return false;
+        }
+        $htmlWithoutRootStyle = preg_replace('/(<svg\b[^>]*?)\sstyle\s*=\s*(["\'])(.*?)\2/i', '$1', $html, 1) ?? $html;
+        if ( preg_match('/var\s*\(/i', $htmlWithoutRootStyle) ) {
+            return false;
+        }
+        $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
+        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+            if ( preg_match('/var\s*\(/i', $value) && ! isset($boxProperties[strtolower($property)]) ) {
+                return false;
+            }
         }
         if ( preg_match('/\s(?:href|xlink:href)\s*=\s*(["\'])(?!#)[^"\']+\1/i', $html) ) {
             return false;
@@ -839,6 +849,13 @@ trait SvgMaterializationTrait
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
+            // Inline styles are removed before either core/html preservation or
+            // SVG asset materialization. They cannot survive into the generated
+            // image document, so they must not disqualify otherwise passive,
+            // self-contained artwork from the native image path.
+            if ( 'style' === strtolower($child->tagName) ) {
+                continue;
+            }
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
                 return false;
             }

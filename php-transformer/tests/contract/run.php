@@ -1337,6 +1337,34 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeClockCss = '*{margin:0;padding:0}.site-footer{display:flex}.footer-left{display:flex;flex-direction:column}.clock-time{font-size:.75rem;font-weight:700}.clock-date{font-size:.7rem;min-height:1.2em}.blink-colon{animation:blink 1s infinite}#timezone{margin-left:.2rem;opacity:.6}';
+$runtimeClock = ( new HtmlTransformer() )->transform(
+    '<footer class="site-footer"><div id="clock-container" class="footer-left"><div id="clock-time" class="clock-time"><!-- Initial State: 00:00 --><span id="hours">12</span><span id="colon" class="blink-colon">:</span><span id="minutes">28</span><span id="ampm">PM</span><span id="timezone">(GMT -4)</span></div><div id="clock-date" class="clock-date">Saturday</div></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#clock-container', '#hours', '#colon', '#minutes', '#ampm', '#timezone', '#clock-date'),
+        'static_css' => $runtimeClockCss,
+        'author_stylesheet_assets' => array(array('path' => 'style.css', 'source_path' => 'style.css', 'content' => $runtimeClockCss, 'source_hash' => hash('sha256', $runtimeClockCss), 'media' => '', 'type' => '')),
+        'skip_author_stylesheet_materialization' => true,
+    )
+)->toArray();
+$runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
+$assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
+$assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
+$assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
+
+$emptyRuntimeText = ( new HtmlTransformer() )->transform(
+    '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#runtime-status'),
+        'static_css' => 'body{overflow:hidden;height:100dvh;width:100vw}.footer{display:flex}.runtime-status{min-height:1.2em}',
+    )
+)->toArray();
+$emptyRuntimeTextMarkup = (string) ($emptyRuntimeText['serialized_blocks'] ?? '');
+$emptyRuntimeTextEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor' === ($asset['stylesheet_target'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyRuntimeText['assets'] ?? array()));
+$assert(str_contains($emptyRuntimeTextMarkup, 'blocks-engine-empty-runtime-target'), 'empty script-owned text targets carry a dedicated editor placeholder class', $emptyRuntimeTextMarkup);
+$assert(str_contains($emptyRuntimeTextEditorCss, 'content:"Dynamic content"') && str_contains($emptyRuntimeTextEditorCss, '>*{display:none!important}'), 'empty script-owned text targets replace the Group inserter with an editor-only dynamic-content placeholder', $emptyRuntimeTextEditorCss);
+$assert(str_contains($emptyRuntimeTextEditorCss, ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}'), 'viewport-locked source documents remain scrollable inside the block editor', $emptyRuntimeTextEditorCss);
+
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
@@ -1853,6 +1881,12 @@ $assert('core/image' === ($exportedSvgMetadata['blocks'][0]['blockName'] ?? '') 
 
 $exportedSvgFilter = ( new HtmlTransformer() )->transform('<svg viewBox="0 0 40 40" focusable="false"><defs><filter id="shadow"><feGaussianBlur stdDeviation="2" result="blur"></feGaussianBlur><feOffset in="blur" x="1" y="1" result="offset"></feOffset><feColorMatrix in="offset" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 .5 0"></feColorMatrix></filter></defs><rect data-testid="shape" width="40" height="40" filter="url(#shadow)"></rect></svg>')->toArray();
 $assert('core/image' === ($exportedSvgFilter['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgFilter['fallbacks'] ?? array()), 'passive exported SVG filter primitives materialize without raw HTML fallback');
+
+$exportedSvgBoxVariables = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" width="24" height="24" style="height:1em;min-height:calc(var(--nav-icon-width)*1px);min-width:calc(var(--nav-icon-width)*1px);width:1em"><path fill-rule="evenodd" d="M15 5 L16 6 L9 12 L16 18 L15 19 L8 12 Z"></path></svg></div>')->toArray();
+$assert('core/image' === ($exportedSvgBoxVariables['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgBoxVariables['fallbacks'] ?? array()), 'passive SVG root box variables transfer to native image geometry without raw HTML fallback');
+
+$exportedSvgPaintVariable = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" style="fill:var(--icon-color)"><path d="M0 0h24v24H0z"></path></svg></div>')->toArray();
+$assert('core/html' === ($exportedSvgPaintVariable['blocks'][0]['blockName'] ?? ''), 'SVG paint variables remain inline because an image document cannot inherit the source custom property');
 
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
@@ -3978,6 +4012,31 @@ $assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? '
 $assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
 $assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
 
+$rootedScriptCompanion = $compiler->compile(
+    array(
+        'site' => array( 'name' => 'Rooted Runtime Site', 'slug' => 'rooted-runtime-site' ),
+        'root' => 'website',
+        'entrypoint' => 'website/index.html',
+        'files' => array(
+            array( 'path' => 'website/index.html', 'content' => '<main><canvas id="canvas"></canvas></main><script src="/script.js"></script><script src="/.netlify/scripts/rum.js"></script>' ),
+            array( 'path' => 'website/script.js', 'content' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); let totalAmplitude = 0; // Scale particles based on amplitude.' ),
+            array( 'path' => 'website/.netlify/scripts/rum.js', 'content' => 'window.netlifyRum=true;' ),
+        ),
+    )
+)->toArray();
+$rootedScriptPayload = $rootedScriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$rootedPreservedJs = $rootedScriptPayload['preserved_js'] ?? array();
+$assert(1 === count($rootedPreservedJs), 'root-relative first-party script is resolved against the artifact root and carried once');
+$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'totalAmplitude'), 'application identifiers containing a telemetry vendor name remain first-party companion code');
+$rootedPlan = $rootedScriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$rootedPageMarkup = (string) ($rootedPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(str_contains($rootedPageMarkup, '<canvas id="canvas"></canvas>'), 'root-relative first-party canvas runtime preserves its script-addressable markup');
+$rootedPlanWriteSources = array_column($rootedPlan['writes'] ?? array(), 'source_path');
+$assert(!in_array('website/script.js', $rootedPlanWriteSources, true), 'companion-owned first-party script is not duplicated into the theme plan');
+$assert(!in_array('website/.netlify/scripts/rum.js', $rootedPlanWriteSources, true), 'dropped telemetry script is not written into the theme plan');
+$rootedPlanScripts = array_merge(...array_map(static fn(array $page): array => $page['document_metadata']['scripts'] ?? array(), $rootedPlan['pages'] ?? array()));
+$assert(array() === $rootedPlanScripts, 'companion-owned and dropped script declarations are absent from theme loading');
+
 $companionNoSite = $compiler->compile(
     array(
         'files' => array(
@@ -4000,7 +4059,7 @@ $capturedDialog = $compiler->compile(array(
     'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>'),
+        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
             'schema' => 'data-liberation/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
@@ -4011,7 +4070,7 @@ $capturedDialog = $compiler->compile(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(array(
                     'status' => 'captured',
-                    'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+                    'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
                         'html' => '<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>',
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
@@ -4025,6 +4084,7 @@ $capturedDialog = $compiler->compile(array(
 $assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();

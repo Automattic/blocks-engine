@@ -75,6 +75,16 @@ final class RuntimeIslandPackageBuilder
         'cdn.heapanalytics',
     );
 
+    /** @var array<int, string> */
+    private const TELEMETRY_CONTENT_PATTERNS = array(
+        '/\bgtag\s*\(/i',
+        '/\bfbq\s*\(/i',
+        '/\b(?:dataLayer|_paq)\s*\.\s*push\s*\(/i',
+        '/\b(?:amplitude|mixpanel|Sentry)\s*\.\s*(?:init|track|capture|identify|setUserId)\s*\(/i',
+        '/\b(?:plausible|clarity)\s*\(/i',
+        '/\b_hjSettings\b/i',
+    );
+
     /**
      * Build the runtime-island package from preserved runtime-island metadata.
      *
@@ -227,13 +237,11 @@ final class RuntimeIslandPackageBuilder
         if ( 'external' === $script['source_kind'] && '' !== $src ) {
             $script['src'] = $src;
             $resolved = ArtifactPath::resolveRelativePath($src, $sourcePath);
-            $content = $this->externalScriptContent($src, $resolved, $files);
-            if ( '' !== $resolved ) {
-                $script['resolved_path'] = $resolved;
-            }
-            $script['materialized'] = null !== $content;
-            if ( null !== $content ) {
-                $script['content'] = $content;
+            $materialized = $this->externalScript($src, $resolved, $files, $sourcePath);
+            $script['materialized'] = null !== $materialized;
+            if ( null !== $materialized ) {
+                $script['resolved_path'] = $materialized['path'];
+                $script['content'] = $materialized['content'];
             }
         } elseif ( '' !== $inline ) {
             $script['content'] = $inline;
@@ -249,15 +257,21 @@ final class RuntimeIslandPackageBuilder
     }
 
     /**
-     * Locate the verbatim content of an external script that was materialized as
-     * an artifact file. Returns null when the script is third-party / not carried
-     * (so the consumer knows to reference the original src instead of inlining).
+     * Locate an external script that was materialized as an artifact file.
+     * Returns null when the script is third-party / not carried (so the consumer
+     * knows to reference the original src instead of inlining).
      *
      * @param array<int, array<string, mixed>> $files
+     * @return array{path: string, content: string}|null
      */
-    private function externalScriptContent(string $src, string $resolved, array $files): ?string
+    private function externalScript(string $src, string $resolved, array $files, string $sourcePath): ?array
     {
         $candidates = array_filter(array($resolved, ltrim($src, '/')), static fn (string $value): bool => '' !== $value);
+        $entryRoot = '.' === dirname($sourcePath) ? '' : trim(dirname($sourcePath), '/');
+        if ( '' !== $entryRoot && str_starts_with($src, '/') ) {
+            $candidates[] = $entryRoot . '/' . ltrim($src, '/');
+        }
+        $candidates = array_values(array_unique($candidates));
         foreach ( $files as $file ) {
             if ( ! is_array($file) || ! empty($file['binary']) ) {
                 continue;
@@ -267,7 +281,7 @@ final class RuntimeIslandPackageBuilder
                 continue;
             }
             if ( is_scalar($file['content'] ?? null) ) {
-                return (string) $file['content'];
+                return array('path' => $path, 'content' => (string) $file['content']);
             }
         }
 
@@ -303,9 +317,15 @@ final class RuntimeIslandPackageBuilder
             return 'data';
         }
 
-        $haystack = strtolower($src . "\n" . substr($content, 0, 4000));
+        $src = strtolower($src);
+        $content = strtolower(substr($content, 0, 4000));
         foreach ( self::TELEMETRY_SIGNALS as $signal ) {
-            if ( str_contains($haystack, $signal) ) {
+            if ( str_contains($src, $signal) ) {
+                return 'telemetry';
+            }
+        }
+        foreach ( self::TELEMETRY_CONTENT_PATTERNS as $pattern ) {
+            if ( 1 === preg_match($pattern, $content) ) {
                 return 'telemetry';
             }
         }
