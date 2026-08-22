@@ -349,6 +349,8 @@ final class HtmlTransformer
 
     private bool $responsiveMediaBlockGenerated = false;
 
+    private bool $emptyRuntimeTargetGenerated = false;
+
     /**
      * Block namespace for generated custom-block references. The ArtifactCompiler
      * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
@@ -480,6 +482,8 @@ final class HtmlTransformer
     private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
+
+    private const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -695,6 +699,7 @@ final class HtmlTransformer
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
         $this->responsiveMediaBlockGenerated = false;
+        $this->emptyRuntimeTargetGenerated = false;
         $this->descriptionListBlockGenerated = false;
         $this->formSelectBlockGenerated = false;
         $this->formInputBlockGenerated = false;
@@ -1539,6 +1544,12 @@ final class HtmlTransformer
         }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+        }
+        if ( $this->emptyRuntimeTargetGenerated ) {
+            $selector = ':root .' . self::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
+            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+                . $selector . '>*{display:none!important}'
+                . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
 
         $repairs = array();
@@ -7656,6 +7667,10 @@ final class HtmlTransformer
         }
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        if ( $this->isRuntimeDomTarget($element) ) {
+            $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
+            $this->emptyRuntimeTargetGenerated = true;
+        }
         return $attrs;
     }
 

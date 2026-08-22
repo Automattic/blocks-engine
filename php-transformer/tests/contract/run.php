@@ -1329,6 +1329,18 @@ $assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-
 $assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
 $assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
 
+$emptyRuntimeText = ( new HtmlTransformer() )->transform(
+    '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
+    array(
+        'runtime_dom_selectors' => array('#runtime-status'),
+        'static_css' => '.footer{display:flex}.runtime-status{min-height:1.2em}',
+    )
+)->toArray();
+$emptyRuntimeTextMarkup = (string) ($emptyRuntimeText['serialized_blocks'] ?? '');
+$emptyRuntimeTextEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor' === ($asset['stylesheet_target'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyRuntimeText['assets'] ?? array()));
+$assert(str_contains($emptyRuntimeTextMarkup, 'blocks-engine-empty-runtime-target'), 'empty script-owned text targets carry a dedicated editor placeholder class', $emptyRuntimeTextMarkup);
+$assert(str_contains($emptyRuntimeTextEditorCss, 'content:"Dynamic content"') && str_contains($emptyRuntimeTextEditorCss, '>*{display:none!important}'), 'empty script-owned text targets replace the Group inserter with an editor-only dynamic-content placeholder', $emptyRuntimeTextEditorCss);
+
 $labelWrappedRuntimeControls = ( new HtmlTransformer() )->transform(
     '<main><label class="tool"><span>Theme</span><select id="scheme-select"><option>Harbor</option></select></label><label class="tool"><input type="checkbox" id="crt-toggle"><span>CRT</span></label></main>',
     array('runtime_dom_selectors' => array('#scheme-select', '#crt-toggle'))
