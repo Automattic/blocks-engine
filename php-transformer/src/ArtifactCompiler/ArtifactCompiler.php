@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
@@ -287,6 +288,16 @@ final class ArtifactCompiler
             );
         }
         $sourceReports['editability_report'] = (new EditabilityReport())->fromDocuments($editabilityDocuments);
+        $sourceReports['editability_policy'] = (new EditabilityPolicy())->evaluate($sourceReports['editability_report']);
+        foreach ($sourceReports['editability_policy']['failures'] as $failure) {
+            $diagnostics[] = $this->diagnostic('editability_policy_failed', 'error', (string) $failure['message'], array(
+                'policy_schema' => EditabilityPolicy::SCHEMA,
+                'metric' => $failure['metric'],
+                'actual' => $failure['actual'],
+                'maximum' => $failure['maximum'],
+                'source_path' => $failure['source_path'] ?? '',
+            ));
+        }
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
@@ -322,8 +333,9 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        // Failed compilations have no materializable source identity and no site plan.
-        if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) ) {
+        // Editability failures retain a failed-quality plan as review evidence;
+        // all other failures have no materializable source identity or site plan.
+        if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) {
             $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(

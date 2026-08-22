@@ -74,6 +74,12 @@ $assert(count($plan['reference_tokens']) === count($plan['assets']), 'Every asse
 $assert(true === ($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null), 'Plan exposes dynamic client asset capability limits.');
 $assert($plan === ($second['source_reports']['wordpress_site_plan'] ?? null), 'Canonical WordPress site plans are deterministic.');
 $assert(true === ($plan['quality']['pass'] ?? null) && ($plan['quality']['pass'] ?? null) === ('failed' !== ($plan['quality']['status'] ?? null)), 'Quality exposes one canonical pass predicate consistent with status.');
+$pathologicalGroups = array(); for ($i = 0; $i < 22; $i++) $pathologicalGroups[] = '<div style="padding:1px">';
+$pathologicalGroups[] = '<p>Editable copy</p>';
+for ($i = 0; $i < 22; $i++) $pathologicalGroups[] = '</div>';
+$pathological = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => implode('', $pathologicalGroups))))->toArray();
+$pathologicalPolicy = $pathological['source_reports']['editability_policy'] ?? array();
+$assert('failed' === ($pathological['status'] ?? null) && 'failed' === ($pathologicalPolicy['status'] ?? null) && 'required' === ($pathologicalPolicy['enforcement'] ?? null) && 'index.html' === ($pathologicalPolicy['failures'][0]['source_path'] ?? null) && 'failed' === ($pathological['source_reports']['wordpress_site_plan']['quality']['status'] ?? null) && false === ($pathological['source_reports']['wordpress_site_plan']['quality']['pass'] ?? null) && 'editability_policy_failed' === ($pathological['diagnostics'][0]['code'] ?? null) && 'index.html' === ($pathological['diagnostics'][0]['context']['source_path'] ?? null), 'Pathological nesting fails the required editability gate with source attribution and emits only failed-quality site-plan evidence.');
 $fallbackPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><svg><script>secretToken()</script><path onclick="secretHandler()" d="M0 0"></path></svg></main>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $fallbackPlanEvidence = $fallbackPlan['quality']['core_html_fallback_evidence'] ?? array();
 $fallbackPlanEmission = $fallbackPlanEvidence['emissions'][0] ?? array();

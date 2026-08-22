@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -34,6 +35,10 @@ final class WordPressSitePlan
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
         TransformerResult::assertCanonicalEnvelope($data);
+        $editabilityPolicy = $data['source_reports']['editability_policy'] ?? null;
+        if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
+            throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
+        }
         $compiled = $data['source_reports']['compiled_site'] ?? null;
         $materialization = $data['source_reports']['materialization_plan'] ?? null;
         if ( ! is_array($compiled) || ! is_array($materialization) ) {
@@ -104,7 +109,7 @@ final class WordPressSitePlan
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
             'diagnostics' => array_merge($data['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
-            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array()),
+            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'editability_policy' => $editabilityPolicy ?? array()),
             'reporting' => $this->reporting($pages, $data, array_merge($shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
         self::assertValid($plan);
@@ -276,7 +281,8 @@ final class WordPressSitePlan
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
             throw new InvalidArgumentException('WordPress site plan theme is structurally invalid.');
         }
-        if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) ) {
+        $policyStatus = 'failed' === ($plan['quality']['status'] ?? null) ? 'failed' : 'passed';
+        if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) || EditabilityPolicy::SCHEMA !== ($plan['quality']['editability_policy']['schema'] ?? null) || 'required' !== ($plan['quality']['editability_policy']['enforcement'] ?? null) || $policyStatus !== ($plan['quality']['editability_policy']['status'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
         }
     }
