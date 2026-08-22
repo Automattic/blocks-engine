@@ -51,6 +51,31 @@ final class TableClassificationPolicy
     }
 
     /**
+     * A nested table can be lowered to responsive columns only when every table
+     * in its subtree is a single, headerless layout row. Data and spanning
+     * tables intentionally remain outside this narrow conversion.
+     */
+    public function isNestedLayoutTable(DOMElement $table): bool
+    {
+        if ( 'table' !== strtolower($table->tagName) || ! $this->hasDescendantTable($table) ) {
+            return false;
+        }
+
+        return $this->isSingleRowLayoutTable($table);
+    }
+
+    public function isNestedLayoutTableMember(DOMElement $table): bool
+    {
+        for ( $ancestor = $table; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'table' === strtolower($ancestor->tagName) && $this->isNestedLayoutTable($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function tableSignals(DOMElement $table): array
@@ -87,6 +112,35 @@ final class TableClassificationPolicy
             'rectangular'          => $rectangular,
             'data_signals'         => $hasHeaderCell || $hasCaption || $hasSection,
         );
+    }
+
+    private function isSingleRowLayoutTable(DOMElement $table): bool
+    {
+        $signals = $this->tableSignals($table);
+        if ( 1 !== $signals['row_count']
+            || true === $signals['data_signals']
+            || true === $signals['has_colspan']
+            || true === $signals['has_rowspan']
+            || false === $signals['rectangular']
+        ) {
+            return false;
+        }
+
+        foreach ( $this->rowsForTable($table) as $row ) {
+            foreach ( $this->cellsForRow($row) as $cell ) {
+                if ( 'th' === strtolower($cell->tagName) ) {
+                    return false;
+                }
+            }
+        }
+
+        foreach ( $table->getElementsByTagName('table') as $descendant ) {
+            if ( $descendant instanceof DOMElement && ! $descendant->isSameNode($table) && ! $this->isSingleRowLayoutTable($descendant) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
