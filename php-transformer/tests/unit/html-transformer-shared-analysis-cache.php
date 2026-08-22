@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -28,12 +29,12 @@ $withoutDurations = static function (array $value) use (&$withoutDurations): arr
 
 $css = ':root{--brand:#123456}.card{display:grid;color:var(--brand)}.card img{aspect-ratio:4/3;object-fit:cover}';
 $options = array('static_css' => $css, 'skip_author_stylesheet_materialization' => true);
-$pages = array(
-    '<main class="card"><h1>First</h1><img src="first.jpg" alt="First"></main>',
-    '<main class="card"><h1>Second</h1><img src="second.jpg" alt="Second"></main>',
-    '<main class="card"><h1>Third</h1><img src="third.jpg" alt="Third"></main>',
-);
+$pages = array();
+for ( $index = 0; $index < 54; ++$index ) {
+    $pages[] = '<style>.page-' . $index . '{padding:' . $index . 'px}</style><main class="card page-' . $index . '"><h1>Page ' . $index . '</h1><img src="page-' . $index . '.jpg" alt="Page ' . $index . '"></main>';
+}
 $cache = new HtmlTransformerAnalysisCache();
+$startedAt = hrtime(true);
 
 foreach ( $pages as $html ) {
     $shared = (new HtmlTransformer(analysisCache: $cache))->transform($html, $options)->toArray();
@@ -44,28 +45,63 @@ foreach ( $pages as $html ) {
     );
 }
 
-$assert(1 === $cache->styleBuilds, 'Identical static and inline CSS must be analyzed once across fresh page transformers.');
-$assert(1 === $cache->authorSelectorBuilds, 'Identical author selectors must be parsed once across fresh page transformers.');
-$assert(1 === $cache->authorStyleRuleBuilds, 'Author stylesheet rules and declaration maps must be built once rather than traversed per element.');
-$assert(2 === $cache->styleHits, 'Repeated stylesheet inputs must hit the shared analysis cache for every later document.');
-$assert(2 === $cache->authorSelectorHits, 'Repeated author stylesheet inputs must hit the shared selector cache for every later document.');
+$elapsedMs = (hrtime(true) - $startedAt) / 1_000_000;
+$assert(55 === $cache->styleBuilds && 53 === $cache->styleHits, '54 pages with one shared payload must analyze 55 unique payloads and hit the shared payload 53 times.');
+$assert(55 === $cache->authorSelectorBuilds && 53 === $cache->authorSelectorHits, 'Author selector analysis must reuse the shared payload independently of page-local CSS.');
+$assert(55 === $cache->authorStyleRuleBuilds, 'Author stylesheet rules and declaration maps must be built once per immutable payload.');
+$assert(16 === count($cache->styles) && 16 === count($cache->authorSelectorAnalyses), 'Payload analysis caches retain at most sixteen parsed graphs.');
+$assert(39 === $cache->styleEvictions && 39 === $cache->authorSelectorEvictions, 'Route-local payloads must evict only least-recently-used payload analyses.');
+$assert($cache->styleBytes > 0 && $cache->authorSelectorBytes > 0, 'Retained analysis byte estimates are observable.');
 
-$alternateCss = '.alternate{color:rebeccapurple}';
-(new HtmlTransformer(analysisCache: $cache))->transform('<main class="alternate">Alternate</main>', array('static_css' => $alternateCss, 'skip_author_stylesheet_materialization' => true));
-(new HtmlTransformer(analysisCache: $cache))->transform('<main class="card">Again</main>', $options);
-$assert(2 === $cache->styleBuilds && 3 === $cache->styleHits, 'A previously analyzed stylesheet must remain reusable after a different document stylesheet.');
-$assert(2 === $cache->authorSelectorBuilds && 3 === $cache->authorSelectorHits, 'A previously parsed author stylesheet must remain reusable after a different document stylesheet.');
-
-for ( $index = 0; $index < 7; ++$index ) {
-    $class = 'eviction-' . $index;
-    (new HtmlTransformer(analysisCache: $cache))->transform('<main class="' . $class . '">Eviction</main>', array('static_css' => '.' . $class . '{color:#' . $index . $index . $index . '}', 'skip_author_stylesheet_materialization' => true));
+$semanticCases = array(
+    array('html' => '<style>.card{color:blue}</style><main class="card">Cascade</main>', 'options' => array('static_css' => '.card{color:red}', 'stylesheet_payloads' => array(array('content' => '.card{color:red}')))),
+    array('html' => '<style>.scope{--tone:scoped}</style><main class="card scope">Variables</main>', 'options' => array('static_css' => ':root{--tone:root}.card{color:var(--tone)}', 'stylesheet_payloads' => array(array('content' => ':root{--tone:root}'), array('content' => '.card{color:var(--tone)}')))),
+    array('html' => '<style>@media (min-width:1px){.card{color:blue}}.card{color:green}</style><main class="card">Media</main>', 'options' => array('static_css' => '.card{color:red}', 'stylesheet_payloads' => array(array('content' => '.card{color:red}')))),
+    array('html' => '<style>.card{color:blue}</style><main class="card">Duplicate</main>', 'options' => array('static_css' => '.card{color:red}.card{color:purple}', 'stylesheet_payloads' => array(array('content' => '.card{color:red}'), array('content' => '.card{color:purple}')))),
+    array('html' => '<style>color:blue}</style><main class="card">Malformed</main>', 'options' => array('static_css' => '.card{', 'stylesheet_payloads' => array(array('content' => '.card{')))),
+);
+foreach ( $semanticCases as $case ) {
+    $caseCache = new HtmlTransformerAnalysisCache();
+    $cached = (new HtmlTransformer(analysisCache: $caseCache))->transform($case['html'], $case['options'])->toArray();
+    $isolated = (new HtmlTransformer())->transform($case['html'], $case['options'])->toArray();
+    $assert($withoutDurations($isolated) === $withoutDurations($cached), 'Payload composition must preserve cascade, variables, conditions, duplicate rules, provenance, and malformed-stream recovery.');
 }
-$evicted = (new HtmlTransformer(analysisCache: $cache))->transform('<main class="card">Evicted</main>', $options)->toArray();
-$isolated = (new HtmlTransformer())->transform('<main class="card">Evicted</main>', $options)->toArray();
-$assert($withoutDurations($isolated) === $withoutDurations($evicted), 'Rebuilt stylesheet analysis after eviction must preserve isolated transform output.');
-$assert(8 === count($cache->styles) && 8 === count($cache->authorSelectorAnalyses), 'Shared analysis caches retain at most eight stylesheet entries.');
-$assert(10 === $cache->styleBuilds && 3 === $cache->styleHits, 'The oldest stylesheet analysis is evicted after the eight-entry bound is reached.');
-$assert(10 === $cache->authorSelectorBuilds && 3 === $cache->authorSelectorHits, 'The oldest author selector analysis is evicted after the eight-entry bound is reached.');
+
+$artifactFiles = array('shared.css' => ':root{--brand:#123456}.card{display:grid;color:var(--brand)}@media (min-width:1px){.card{padding:1px}}');
+for ( $index = 0; $index < 54; ++$index ) {
+    $path = 0 === $index ? 'index.html' : 'pages/' . $index . '.html';
+    $artifactFiles[$path] = '<link rel="stylesheet" href="' . (0 === $index ? 'shared.css' : '../shared.css') . '"><style>.page-' . $index . '{padding:' . $index . 'px}</style><main class="card page-' . $index . '"><h1>Page ' . $index . '</h1></main>';
+}
+$artifact = array('entrypoint' => 'index.html', 'files' => $artifactFiles);
+$cachedCompiler = new ArtifactCompiler();
+$cachedPlan = $cachedCompiler->compile($artifact)->toArray();
+$isolatedPlan = (new ArtifactCompiler(cacheHtmlAnalysis: false))->compile($artifact)->toArray();
+$cachedSitePlan = $cachedPlan['source_reports']['wordpress_site_plan'] ?? array();
+$isolatedSitePlan = $isolatedPlan['source_reports']['wordpress_site_plan'] ?? array();
+$assert(array() !== $cachedSitePlan && array() !== $isolatedSitePlan, 'The repeated-CSS artifact must produce canonical WordPress site plans.');
+$assert($withoutDurations($isolatedSitePlan) === $withoutDurations($cachedSitePlan), 'A 54-page artifact must produce the same canonical WordPress site plan with cached and isolated stylesheet analysis.');
+$artifactMetrics = $cachedCompiler->htmlAnalysisCacheMetrics();
+$assert(($artifactMetrics['style_builds'] ?? 0) === 55 && ($artifactMetrics['style_hits'] ?? 0) >= 53 && ($artifactMetrics['style_bytes'] ?? 0) > 0, 'Artifact compiler exposes bounded source-payload cache build, hit, and byte counters.');
+
+$byteBudgetCache = new HtmlTransformerAnalysisCache();
+$byteBudgetPayloads = array();
+for ( $payloadIndex = 0; $payloadIndex < 8; ++$payloadIndex ) {
+    $rules = array();
+    for ( $ruleIndex = 0; $ruleIndex < 600; ++$ruleIndex ) {
+        $rules[] = '.budget-' . $payloadIndex . '-noise-' . $ruleIndex . '{color:#123456;padding:1px;margin:2px}';
+    }
+    $rules[] = '.budget-' . $payloadIndex . '-target{color:blue}';
+    $byteBudgetPayloads[] = implode('', $rules);
+}
+foreach ( $byteBudgetPayloads as $payloadIndex => $payload ) {
+    (new HtmlTransformer(analysisCache: $byteBudgetCache))->transform('<main class="budget-' . $payloadIndex . '-target">Budget</main>', array('static_css' => $payload, 'skip_author_stylesheet_materialization' => true));
+}
+$rebuild = (new HtmlTransformer(analysisCache: $byteBudgetCache))->transform('<main class="budget-0-target">Budget</main>', array('static_css' => $byteBudgetPayloads[0], 'skip_author_stylesheet_materialization' => true))->toArray();
+$isolatedRebuild = (new HtmlTransformer())->transform('<main class="budget-0-target">Budget</main>', array('static_css' => $byteBudgetPayloads[0], 'skip_author_stylesheet_materialization' => true))->toArray();
+$assert($withoutDurations($isolatedRebuild) === $withoutDurations($rebuild), 'Byte-budget eviction rebuilds must preserve isolated canonical output.');
+$assert(9 === $byteBudgetCache->styleBuilds && $byteBudgetCache->styleEvictions > 0, 'The byte-bound style LRU evicts the oldest payload and deterministically rebuilds it on a later miss.');
+$assert($byteBudgetCache->styleBytes <= 1048576 && $byteBudgetCache->authorSelectorBytes <= 1048576, 'Retained payload analysis bytes remain bounded by the 1 MiB cache budget.');
+$assert($byteBudgetCache->styleBytes + $byteBudgetCache->styleEvictedBytes > 1048576 && $byteBudgetCache->authorSelectorEvictedBytes > 0, 'Eviction counters report analysis graphs beyond the retained 1 MiB byte budget.');
 
 $selectorCache = new HtmlTransformerAnalysisCache();
 $selectorHtml = '<style>.card{color:red}.card.featured[data-state="ready"]{color:green}.card .title{font-weight:700}.card.featured .title{color:blue}</style><section class="card featured" data-state="ready"><h2 class="title">One</h2></section><section class="card featured" data-state="ready"><h2 class="title">Two</h2></section>';
@@ -91,4 +127,4 @@ $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transf
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
 $assert(4 === $candidateCache->sourceStyleCandidateRuleChecks && 305 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection walks check four relevant rule candidates while deterministically skipping 305 irrelevant candidates.');
 
-fwrite(STDOUT, "HTML transformer shared analysis cache passed\n");
+fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d bytes=%d; author builds=%d hits=%d evictions=%d entries=%d bytes=%d; byte budget style builds=%d evictions=%d retained=%d evicted=%d author builds=%d evictions=%d retained=%d evicted=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->styleBytes, $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses), $cache->authorSelectorBytes, $byteBudgetCache->styleBuilds, $byteBudgetCache->styleEvictions, $byteBudgetCache->styleBytes, $byteBudgetCache->styleEvictedBytes, $byteBudgetCache->authorSelectorBuilds, $byteBudgetCache->authorSelectorEvictions, $byteBudgetCache->authorSelectorBytes, $byteBudgetCache->authorSelectorEvictedBytes));
