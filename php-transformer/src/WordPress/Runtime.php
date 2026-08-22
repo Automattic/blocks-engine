@@ -329,7 +329,7 @@ final class Runtime
         $this->addDiagnostic('wordpress_parse_blocks_unavailable', 'parse_blocks() is unavailable; using the PHP transformer serialized-block fallback.');
 
         $blocks = $this->parseSerializedBlocks($content);
-        if ( array() !== $blocks ) {
+        if ( null !== $blocks && ( array() !== $blocks || '' === trim($content) ) ) {
             return $blocks;
         }
 
@@ -717,30 +717,53 @@ final class Runtime
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Parse only the canonical comment delimiters this transformer emits. This
+     * is deliberately not a replacement for WP_Block_Parser: WordPress returns
+     * a best-effort tree for malformed input, while this fallback preserves any
+     * malformed or unsupported document as one freeform block.
+     *
+     * @return array<int, array<string, mixed>>|null Null when the document is outside this bounded contract.
      */
-    private function parseSerializedBlocks(string $content): array
+    private function parseSerializedBlocks(string $content): ?array
     {
-        if ( ! preg_match_all('/<!--\s*(\/)?wp:([a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)?)(?:\s+(\{.*?\}))?\s*(\/)?\s*-->/s', $content, $matches, PREG_OFFSET_CAPTURE) ) {
-            return array();
-        }
-
         $blocks = array();
         $stack  = array();
         $cursor = 0;
+        $search = 0;
+        $found  = false;
 
-        foreach ( $matches[0] as $index => $match ) {
-            $raw     = $match[0];
-            $offset  = $match[1];
+        while ( false !== ( $offset = strpos($content, '<!--', $search) ) ) {
+            $end = strpos($content, '-->', $offset + 4);
+            if ( false === $end ) {
+                if ( preg_match('/^<!--\s*\/?wp:/', substr($content, $offset)) ) {
+                    return null;
+                }
+                $this->appendStandaloneFreeform($blocks, $content, $cursor);
+                return $blocks;
+            }
+
+            $raw       = substr($content, $offset, $end + 3 - $offset);
+            $delimiter = $this->parseStandaloneBlockDelimiter($raw);
+            if ( false === $delimiter ) {
+                return null;
+            }
+            if ( null === $delimiter ) {
+                $search = $end + 3;
+                continue;
+            }
+
+            $found   = true;
             $between = substr($content, $cursor, $offset - $cursor);
-            if ( '' !== $between && array() !== $stack ) {
+            if ( '' !== $between && array() === $stack ) {
+                $this->appendStandaloneFreeform($blocks, $between);
+            } elseif ( '' !== $between ) {
                 $stack[array_key_last($stack)]['innerContent'][] = $between;
             }
 
-            $isClose = '' !== ($matches[1][$index][0] ?? '');
-            $name    = $matches[2][$index][0];
-            $attrs   = $this->decodeBlockAttrs($matches[3][$index][0] ?? '');
-            $isVoid  = '' !== ($matches[4][$index][0] ?? '');
+            $isClose = $delimiter['close'];
+            $name    = $delimiter['name'];
+            $attrs   = $delimiter['attrs'];
+            $isVoid  = $delimiter['void'];
 
             if ( $isClose ) {
                 $frame = array_pop($stack);
@@ -761,28 +784,74 @@ final class Runtime
                 );
             }
 
-            $cursor = $offset + strlen($raw);
+            $cursor = $end + 3;
+            $search = $cursor;
         }
 
-        if ( array() !== $stack ) {
-            return array();
+        if ( ! $found || array() !== $stack ) {
+            return null;
         }
 
+        $this->appendStandaloneFreeform($blocks, substr($content, $cursor));
         return $blocks;
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{close: bool, name: string, attrs: array<string, mixed>, void: bool}|false|null
      */
-    private function decodeBlockAttrs(string $json): array
+    private function parseStandaloneBlockDelimiter(string $comment): array|false|null
     {
-        if ( '' === trim($json) ) {
-            return array();
+        if ( ! preg_match('/^<!--\s+.*(?:\s+|\/)-->$/s', $comment) ) {
+            return false;
         }
 
-        $attrs = json_decode($json, true);
+        $body = trim(substr($comment, 4, -3));
+        if ( ! str_starts_with($body, 'wp:') && ! str_starts_with($body, '/wp:') ) {
+            return null;
+        }
 
-        return is_array($attrs) ? $attrs : array();
+        if ( preg_match('/^\/wp:([a-z][a-z0-9_-]*(?:\/[a-z][a-z0-9_-]*)?)$/', $body, $match) ) {
+            return array( 'close' => true, 'name' => $match[1], 'attrs' => array(), 'void' => false );
+        }
+
+        if ( ! preg_match('/^wp:([a-z][a-z0-9_-]*(?:\/[a-z][a-z0-9_-]*)?)(?:\s+(.+?))?$/s', $body, $match) ) {
+            return false;
+        }
+
+        $payload = trim($match[2] ?? '');
+        $isVoid  = str_ends_with($payload, '/');
+        if ( $isVoid ) {
+            $payload = trim(substr($payload, 0, -1));
+        }
+
+        if ( '' === $payload ) {
+            return array( 'close' => false, 'name' => $match[1], 'attrs' => array(), 'void' => $isVoid );
+        }
+
+        if ( ! str_starts_with($payload, '{') || ! str_ends_with($payload, '}') ) {
+            return false;
+        }
+
+        $attrs = json_decode($payload, true);
+        if ( ! is_array($attrs) ) {
+            return false;
+        }
+
+        return array( 'close' => false, 'name' => $match[1], 'attrs' => $attrs, 'void' => $isVoid );
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function appendStandaloneFreeform(array &$blocks, string $html): void
+    {
+        if ( '' !== $html ) {
+            $blocks[] = array(
+                'blockName'    => null,
+                'attrs'        => array(),
+                'innerBlocks'  => array(),
+                'innerHTML'    => $html,
+                'innerContent' => array( $html ),
+            );
+        }
     }
 
     /**

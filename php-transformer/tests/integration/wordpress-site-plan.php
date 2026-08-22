@@ -154,6 +154,23 @@ $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
+$indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
+$queryPostIds = array();
+foreach (array('Query Loop First', 'Query Loop Second') as $title) {
+    $queryPostId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => $title, 'post_content' => '<!-- wp:paragraph --><p>' . $title . ' excerpt.</p><!-- /wp:paragraph -->'), true);
+    if (is_wp_error($queryPostId)) throw new RuntimeException($queryPostId->get_error_message());
+    $queryPostIds[] = $queryPostId;
+    $pageIds['query-loop-' . $queryPostId] = $queryPostId;
+}
+$indexBlocks = parse_blocks($indexTemplate);
+$indexQuery = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
+$indexPostTemplate = $indexQuery['innerBlocks'][0] ?? array();
+$previousQuery = $wp_query;
+$wp_query = new WP_Query(array('post_type' => 'post', 'post__in' => $queryPostIds, 'orderby' => 'post__in', 'posts_per_page' => 10));
+$indexRendered = do_blocks($indexTemplate);
+wp_reset_postdata();
+$wp_query = $previousQuery;
+$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

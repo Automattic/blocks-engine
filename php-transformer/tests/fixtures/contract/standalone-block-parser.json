@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/standalone-block-parser/v1",
+  "contract": "Parses only complete canonical block delimiters emitted by this transformer. WordPress parse_blocks() remains authoritative and performs best-effort recovery for malformed input.",
+  "cases": [
+    {
+      "name": "nested attributes",
+      "markup": "<!-- wp:group {\"layout\":{\"type\":\"constrained\"},\"style\":{\"spacing\":{\"padding\":{\"top\":\"2rem\"}}}} --><div><!-- wp:paragraph {\"dropCap\":true} --><p>Text</p><!-- /wp:paragraph --></div><!-- /wp:group -->",
+      "expectation": "parsed",
+      "top_level_block": "core/group",
+      "nested_block": "core/paragraph"
+    },
+    {
+      "name": "escaped delimiter text",
+      "markup": "<!-- wp:paragraph {\"content\":\"before \\u002d\\u002d\\u003e after\"} --><p>Text</p><!-- /wp:paragraph -->",
+      "expectation": "parsed",
+      "top_level_block": "core/paragraph",
+      "attribute": "before --> after"
+    },
+    {
+      "name": "freeform interleaving",
+      "markup": "before<!-- wp:separator /-->after",
+      "expectation": "parsed",
+      "top_level_block": "core/separator",
+      "freeform_segments": ["before", "after"]
+    },
+    {
+      "name": "custom namespace",
+      "markup": "<!-- wp:acme/card {\"featured\":true} /-->",
+      "expectation": "parsed",
+      "top_level_block": "acme/card"
+    },
+    {
+      "name": "malformed recovery is intentionally not core-equivalent",
+      "markup": "<!-- wp:group --><div><!-- wp:paragraph --><p>Text</p><!-- /wp:group -->",
+      "expectation": "freeform",
+      "wordpress_behavior": "best-effort recovery",
+      "standalone_behavior": "preserve the complete document as freeform"
+    }
+  ]
+}
