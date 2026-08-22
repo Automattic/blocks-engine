@@ -313,6 +313,20 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-responsive-covered-fixed-width-count');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $responsiveHtmlArtifact, array('fixed_width_over_desktop_uncovered_count'), 1, 'diagnostics-evidence-responsive-uncovered-fixed-width-count');
 
+    $unmatchedResponsiveSelectorArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><div class="fixed"></div></main>',
+        '.fixed{width:1800px}@media (max-width:767px){.unrelated .fixed{width:100%}.unrelated>.fixed{max-width:100%}}'
+    );
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $unmatchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_covered_count'), 0, 'diagnostics-evidence-unmatched-descendant-and-child-responsive-selectors-do-not-cover');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $unmatchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_uncovered_count'), 1, 'diagnostics-evidence-unmatched-descendant-and-child-responsive-selectors-remain-uncovered');
+
+    $matchedResponsiveSelectorArtifact = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmissionDiagnostics())->htmlArtifactDiagnostics(
+        '<main><section class="container"><div class="fixed fluid"></div></section></main>',
+        '.fixed{width:1800px}@media (max-width:767px){section.container>div.fixed.fluid{width:100%;max-width:100%}}'
+    );
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_covered_count'), 1, 'diagnostics-evidence-matched-direct-compound-responsive-selector-covers');
+    blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $matchedResponsiveSelectorArtifact, array('fixed_width_over_desktop_uncovered_count'), 0, 'diagnostics-evidence-matched-direct-compound-responsive-selector-has-no-uncovered-width');
+
     $responsiveQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array(),
         array(),

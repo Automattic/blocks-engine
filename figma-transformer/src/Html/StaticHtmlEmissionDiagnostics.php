@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
+use DOMDocument;
+use DOMElement;
+
 /**
  * Builds diagnostics derived from emitted static HTML artifacts.
  */
@@ -240,7 +243,6 @@ final class StaticHtmlEmissionDiagnostics
         $rules = $this->cssRuleDeclarations($css);
         $base = array();
         $responsive = array();
-        $overDesktop = array();
         $samples = array();
         $fixedWidthOverDesktopCount = 0;
 
@@ -249,9 +251,7 @@ final class StaticHtmlEmissionDiagnostics
             $declarations = (string) ($rule['declarations'] ?? '');
             $classes = $this->selectorClassNames($selector);
             if ( ! empty($rule['media']) && preg_match('/(?:^|;)\s*(?:width|max-width)\s*:/i', $declarations) ) {
-                foreach ( $classes as $class ) {
-                    $responsive[$class] = true;
-                }
+                $responsive[] = $selector;
                 continue;
             }
 
@@ -264,13 +264,16 @@ final class StaticHtmlEmissionDiagnostics
             }
 
             foreach ( $classes as $class ) {
-                $base[$class] = true;
+                $base[] = array(
+                    'class' => $class,
+                    'selector' => $selector,
+                    'over_desktop' => $width > 1440.0,
+                );
                 if ( $this->hasResponsiveWidthConstraint($declarations) ) {
-                    $responsive[$class] = true;
+                    $responsive[] = $selector;
                 }
                 if ( $width > 1440.0 ) {
                     ++$fixedWidthOverDesktopCount;
-                    $overDesktop[$class] = true;
                 }
                 if ( count($samples) < 25 ) {
                     $samples[] = array(
@@ -282,17 +285,21 @@ final class StaticHtmlEmissionDiagnostics
             }
         }
 
-        $classSets = $this->htmlClassSets($html);
+        $elements = $this->htmlElements($html);
         $totalCount = 0;
         $coveredCount = 0;
         $overDesktopCoveredClasses = array();
         $overDesktopUncoveredClasses = array();
-        foreach ( $base as $class => $_ ) {
-            foreach ( $classSets[$class] ?? array() as $classSet ) {
+        foreach ( $base as $baseContext ) {
+            $class = (string) $baseContext['class'];
+            foreach ( $elements as $element ) {
+                if ( ! $this->selectorMatchesElement((string) $baseContext['selector'], $element) ) {
+                    continue;
+                }
                 ++$totalCount;
                 $covered = false;
-                foreach ( $classSet as $elementClass ) {
-                    if ( isset($responsive[$elementClass]) ) {
+                foreach ( $responsive as $selector ) {
+                    if ( $this->selectorMatchesElement($selector, $element) ) {
                         $covered = true;
                         break;
                     }
@@ -300,7 +307,7 @@ final class StaticHtmlEmissionDiagnostics
                 if ( $covered ) {
                     ++$coveredCount;
                 }
-                if ( ! isset($overDesktop[$class]) ) {
+                if ( ! $baseContext['over_desktop'] ) {
                     continue;
                 }
                 if ( $covered ) {
@@ -327,26 +334,172 @@ final class StaticHtmlEmissionDiagnostics
     }
 
     /**
-     * @return array<string, array<int, array<int, string>>>
+     * @return array<int, DOMElement>
      */
-    private function htmlClassSets(string $html): array
+    private function htmlElements(string $html): array
     {
-        $classSets = array();
-        if ( ! preg_match_all('/\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches, PREG_SET_ORDER) ) {
-            return $classSets;
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
         }
 
-        foreach ( $matches as $match ) {
-            $classes = preg_split('/\s+/', trim((string) ($match[2] ?? ''))) ?: array();
-            foreach ( $classes as $class ) {
-                if ( '' === $class ) {
-                    continue;
-                }
-                $classSets[$class][] = $classes;
+        $elements = array();
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && 'html' !== $element->tagName && 'body' !== $element->tagName ) {
+                $elements[] = $element;
             }
         }
 
-        return $classSets;
+        return $elements;
+    }
+
+    private function selectorMatchesElement(string $selector, DOMElement $element): bool
+    {
+        foreach ( $this->splitSelectorList($selector) as $selectorPart ) {
+            $parts = $this->selectorParts($selectorPart);
+            if ( ! empty($parts) && $this->selectorPartMatchesElement($parts, count($parts) - 1, $element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitSelectorList(string $selector): array
+    {
+        $selectors = array();
+        $start = 0;
+        $depth = 0;
+        for ( $index = 0, $length = strlen($selector); $index < $length; ++$index ) {
+            if ( '(' === $selector[$index] || '[' === $selector[$index] ) {
+                ++$depth;
+            } elseif ( ')' === $selector[$index] || ']' === $selector[$index] ) {
+                --$depth;
+            } elseif ( ',' === $selector[$index] && 0 === $depth ) {
+                $selectors[] = trim(substr($selector, $start, $index - $start));
+                $start = $index + 1;
+            }
+        }
+        $selectors[] = trim(substr($selector, $start));
+
+        return array_values(array_filter($selectors));
+    }
+
+    /**
+     * @return array<int, array{compound: string, combinator: string}>
+     */
+    private function selectorParts(string $selector): array
+    {
+        $parts = array();
+        $compound = '';
+        $combinator = '';
+        $depth = 0;
+        $flush = static function () use (&$parts, &$compound, &$combinator): void {
+            $compound = trim($compound);
+            if ( '' !== $compound ) {
+                $parts[] = array('compound' => $compound, 'combinator' => $combinator);
+                $compound = '';
+                $combinator = ' ';
+            }
+        };
+        for ( $index = 0, $length = strlen($selector); $index < $length; ++$index ) {
+            $character = $selector[$index];
+            if ( '(' === $character || '[' === $character ) {
+                ++$depth;
+            } elseif ( ')' === $character || ']' === $character ) {
+                --$depth;
+            }
+            if ( 0 === $depth && ( '>' === $character || '+' === $character || '~' === $character ) ) {
+                $flush();
+                $combinator = $character;
+                continue;
+            }
+            if ( 0 === $depth && ctype_space($character) ) {
+                $flush();
+                continue;
+            }
+            $compound .= $character;
+        }
+        $flush();
+
+        return $parts;
+    }
+
+    /**
+     * @param array<int, array{compound: string, combinator: string}> $parts
+     */
+    private function selectorPartMatchesElement(array $parts, int $index, DOMElement $element): bool
+    {
+        if ( ! $this->compoundMatchesElement($parts[$index]['compound'], $element) ) {
+            return false;
+        }
+        if ( 0 === $index ) {
+            return true;
+        }
+
+        $combinator = $parts[$index]['combinator'];
+        if ( '>' === $combinator ) {
+            return $element->parentNode instanceof DOMElement && $this->selectorPartMatchesElement($parts, $index - 1, $element->parentNode);
+        }
+        $sibling = $element->previousSibling;
+        if ( '+' === $combinator || '~' === $combinator ) {
+            while ( null !== $sibling && ! $sibling instanceof DOMElement ) {
+                $sibling = $sibling->previousSibling;
+            }
+            if ( ! $sibling instanceof DOMElement ) {
+                return false;
+            }
+            if ( '+' === $combinator ) {
+                return $this->selectorPartMatchesElement($parts, $index - 1, $sibling);
+            }
+            while ( $sibling instanceof DOMElement ) {
+                if ( $this->selectorPartMatchesElement($parts, $index - 1, $sibling) ) {
+                    return true;
+                }
+                $sibling = $sibling->previousSibling;
+                while ( null !== $sibling && ! $sibling instanceof DOMElement ) {
+                    $sibling = $sibling->previousSibling;
+                }
+            }
+            return false;
+        }
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $this->selectorPartMatchesElement($parts, $index - 1, $ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function compoundMatchesElement(string $compound, DOMElement $element): bool
+    {
+        if ( 1 === preg_match('/^[a-z][a-z0-9:-]*/i', $compound, $tag) && strtolower($tag[0]) !== strtolower($element->tagName) ) {
+            return false;
+        }
+        if ( str_contains($compound, ':') || str_contains($compound, '[') ) {
+            return false;
+        }
+        if ( preg_match_all('/\.([a-zA-Z0-9_-]+)/', $compound, $classes) ) {
+            $elementClasses = preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array();
+            foreach ( $classes[1] as $class ) {
+                if ( ! in_array($class, $elementClasses, true) ) {
+                    return false;
+                }
+            }
+        }
+        if ( 1 === preg_match('/#([a-zA-Z0-9_-]+)/', $compound, $id) && $id[1] !== $element->getAttribute('id') ) {
+            return false;
+        }
+
+        return true;
     }
 
     private function hasResponsiveWidthConstraint(string $declarations): bool
