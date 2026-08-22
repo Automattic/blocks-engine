@@ -761,6 +761,7 @@ final class HtmlTransformer
             $this->scriptMetadata,
             $fallbacks,
             $this->runtimeIslands,
+            array_values($this->runtimeDomPreservations),
             $blockValidityReport,
             $semanticParityReport,
             $contentRoundTripReport
@@ -824,6 +825,7 @@ final class HtmlTransformer
             'core_block_capabilities' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeIslands,
+            'runtime_dom_contracts' => array_values($this->runtimeDomPreservations),
             'generated_blocks' => $this->generatedBlocks,
             'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
                 array(
@@ -5601,10 +5603,14 @@ final class HtmlTransformer
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
             if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
                 $runtimeOwned = true;
-                $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
-                    'events'          => $this->eventMetadata($sourceElement),
-                    'required_scripts' => $this->requiredScriptsForElement($sourceElement),
-                ));
+                if ( ! $this->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
+                    $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                        'events'          => $this->eventMetadata($sourceElement),
+                        'required_scripts' => $this->requiredScriptsForElement($sourceElement),
+                    ));
+                } else {
+                    $this->recordNativeRuntimeDomPreservation($sourceElement, $name);
+                }
             }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
             $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($sourceElement);
@@ -11932,6 +11938,46 @@ final class HtmlTransformer
     private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
         $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
+    }
+
+    private function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName): void
+    {
+        foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
+            $key = $blockName . "\n" . $selector;
+            if (isset($this->runtimeDomPreservations[$key])) {
+                continue;
+            }
+            $this->runtimeDomPreservations[$key] = array(
+                'block_name' => $blockName,
+                'tag' => strtolower($element->tagName),
+                'selector' => $selector,
+            );
+        }
+    }
+
+    private function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
+    {
+        if ( ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {
+            return false;
+        }
+
+        // Group can serialize these semantic wrappers exactly. Generic div app
+        // surfaces retain their existing bounded-island treatment.
+        if ('core/group' === $blockName && ! in_array(strtolower($element->tagName), array('article', 'aside', 'footer', 'header', 'main', 'section'), true)) {
+            return false;
+        }
+
+        if (array_intersect($this->runtimeAppShellSignals($element), array('app_root_token', 'workspace_surface'))) {
+            return false;
+        }
+
+        foreach ($this->descendantElements($element) as $descendant) {
+            if (in_array(strtolower($descendant->tagName), array('button', 'input', 'select', 'textarea', 'canvas', 'form', 'template'), true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

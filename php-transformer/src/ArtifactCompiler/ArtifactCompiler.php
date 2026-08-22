@@ -5585,7 +5585,7 @@ final class ArtifactCompiler
                 return 'failed';
             }
 
-            if ( 'preserved_runtime_island' === ($diagnostic['code'] ?? '') ) {
+            if ( in_array(($diagnostic['code'] ?? ''), array('preserved_runtime_island', 'runtime_dom_contract_preserved'), true) ) {
                 continue;
             }
 

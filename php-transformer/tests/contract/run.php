@@ -1351,6 +1351,43 @@ $runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
 $assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
 $assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
 $assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
+$runtimeClockRoundTrip = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+$runtimeClockEdited = $runtimeClockRoundTrip->parseBlocks($runtimeClockMarkup);
+$editRuntimeClock = static function (array &$blocks) use (&$editRuntimeClock): void {
+    foreach ($blocks as &$block) {
+        if (is_array($block['innerContent'] ?? null)) {
+            foreach ($block['innerContent'] as &$content) {
+                if (is_string($content)) {
+                    $content = str_replace('id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">12</mark>', 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>', $content);
+                }
+            }
+            unset($content);
+        }
+        if (is_array($block['innerBlocks'] ?? null)) {
+            $editRuntimeClock($block['innerBlocks']);
+        }
+    }
+    unset($block);
+};
+$editRuntimeClock($runtimeClockEdited);
+$runtimeClockEditedMarkup = $runtimeClockRoundTrip->serializeBlocks($runtimeClockEdited);
+$runtimeClockRendered = $runtimeClockRoundTrip->renderBlocks($runtimeClockEdited);
+$assert(str_contains($runtimeClockEditedMarkup, 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>') && str_contains($runtimeClockRendered, 'id="minutes"') && ! str_contains($runtimeClockEditedMarkup, '<!-- wp:html'), 'native runtime RichText survives parse, edit, serialize, and render without becoming Custom HTML', $runtimeClockEditedMarkup);
+
+$runtimeGroup = ( new HtmlTransformer() )->transform(
+    '<section id="scoreboard"><p>Score: <span id="score">0</span></p></section>',
+    array('runtime_dom_selectors' => array('#scoreboard', '#score'))
+)->toArray();
+$runtimeGroupMarkup = (string) ($runtimeGroup['serialized_blocks'] ?? '');
+$runtimeGroupDiagnostics = array_values(array_filter($runtimeGroup['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '')));
+$assert('core/group' === ($runtimeGroup['blocks'][0]['blockName'] ?? '') && str_contains($runtimeGroupMarkup, 'id="scoreboard"') && str_contains($runtimeGroupMarkup, 'id="score"') && ! str_contains($runtimeGroupMarkup, '<!-- wp:html') && 1 <= count($runtimeGroupDiagnostics), 'script-addressed container remains a native Group with a stable native-preservation diagnostic', $runtimeGroupMarkup);
+
+$mixedCanvasRuntime = ( new HtmlTransformer() )->transform(
+    '<section class="demo"><p>Editable <span id="count">0</span></p><canvas id="chart">Chart</canvas><p>Still editable</p></section>',
+    array('runtime_dom_selectors' => array('#count'), 'runtime_canvas_selectors' => array('#chart'))
+)->toArray();
+$mixedCanvasMarkup = (string) ($mixedCanvasRuntime['serialized_blocks'] ?? '');
+$assert(1 === substr_count($mixedCanvasMarkup, '<!-- wp:html') && str_contains($mixedCanvasMarkup, '<canvas id="chart">Chart</canvas>') && str_contains($mixedCanvasMarkup, 'Editable <span id="count">0</span>') && str_contains($mixedCanvasMarkup, 'Still editable'), 'an irreducible canvas remains one bounded runtime island without forcing editable siblings into Custom HTML', $mixedCanvasMarkup);
 
 $emptyRuntimeText = ( new HtmlTransformer() )->transform(
     '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
