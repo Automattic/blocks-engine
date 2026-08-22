@@ -28,10 +28,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const INLINE_NAVIGATION_CLASS = 'blocks-engine-inline-navigation';
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, PatternContext $context): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributesCallback();
         $innerHtml = $context->innerHtmlCallback();
@@ -73,7 +70,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // carrier declines, so nothing it protected loses that protection.
         $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates, $navigationOverlayMenu);
         if ( null !== $hoisted ) {
-            return $hoisted;
+            return new PatternRecognitionResult($hoisted);
         }
 
         if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
@@ -127,7 +124,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         if ( ! $label instanceof DOMElement ) {
-            return $navigation;
+            return new PatternRecognitionResult($navigation);
         }
 
         $labelTag = strtolower($label->tagName);
@@ -140,7 +137,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'content' => $innerHtml($label),
             )), array(), $label);
 
-        return $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element);
+        return new PatternRecognitionResult(
+            $createBlock('core/group', array_merge($presentationAttributes($element), array( 'tagName' => 'div' )), array( $labelBlock, $navigation ), $element)
+        );
     }
 
     /**
