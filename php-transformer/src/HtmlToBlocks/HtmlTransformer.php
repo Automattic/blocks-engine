@@ -940,6 +940,8 @@ final class HtmlTransformer
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
+        $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $generatedCarrierCss = $this->engineSupportCss();
         $sourceReports = array(
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
@@ -963,7 +965,7 @@ final class HtmlTransformer
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
-            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks),
+            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths),
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
@@ -1005,6 +1007,13 @@ final class HtmlTransformer
             context: $context,
             metrics: $metrics
         );
+    }
+
+    private function engineSupportCss(): string
+    {
+        $css = array();
+        foreach ($this->generatedAssets as $asset) if ('engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)) $css[] = $asset['content'];
+        return implode("\n", $css);
     }
 
     /**
@@ -5366,6 +5375,7 @@ final class HtmlTransformer
             }
         }
 
+        $runtimeOwned = false;
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
@@ -5453,6 +5463,7 @@ final class HtmlTransformer
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
             if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+                $runtimeOwned = true;
                 $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
                     'events'          => $this->eventMetadata($sourceElement),
                     'required_scripts' => $this->requiredScriptsForElement($sourceElement),
@@ -5472,6 +5483,7 @@ final class HtmlTransformer
         if ( isset($provenanceId) ) {
             $block['_source_provenance_id'] = $provenanceId;
         }
+        if ($runtimeOwned) $block['_editability_runtime_owned'] = true;
 
         return $block;
     }
@@ -6640,7 +6652,7 @@ final class HtmlTransformer
         }
 
         $content = (string) ($attrs['content'] ?? '');
-        if ( '' === $content || ! preg_match('/<(?:span|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|font|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $attrs;
         }
 
@@ -6679,6 +6691,10 @@ final class HtmlTransformer
         // Unwrap any remaining styling hooks (sibling / partial content) unless
         // their visual style can be carried by RichText's mark format.
         foreach ( $this->richTextStylingHookElements($body) as $inline ) {
+            if ( 'font' === strtolower($inline->tagName) && ! $inline->hasAttributes() ) {
+                $this->unwrapElement($inline);
+                continue;
+            }
             if ( $this->replaceRichTextStylingHookWithMark($inline) ) {
                 continue;
             }
@@ -6795,6 +6811,10 @@ final class HtmlTransformer
             return $this->isStylingHookSpan($element);
         }
 
+        if ( 'font' === $tagName ) {
+            return true;
+        }
+
         if ( ! in_array($tagName, array( 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
             return false;
         }
@@ -6893,7 +6913,7 @@ final class HtmlTransformer
     private function richTextContentWithMaterializedInlineStyles(DOMElement $element, array $excludedTags = array()): string
     {
         $content = array() === $excludedTags ? $this->innerHtml($element) : $this->innerHtmlWithoutTags($element, $excludedTags);
-        if ( '' === $content || ! preg_match('/<(?:span|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|font|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $content;
         }
 
@@ -6910,7 +6930,7 @@ final class HtmlTransformer
 
         $sourceInlines = array();
         foreach ( $element->getElementsByTagName('*') as $sourceInline ) {
-            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $sourceInline instanceof DOMElement && in_array(strtolower($sourceInline->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 for ( $parent = $sourceInline->parentNode; $parent instanceof DOMElement && $parent !== $element; $parent = $parent->parentNode ) {
                     if ( in_array(strtolower($parent->tagName), $excludedTags, true) ) {
                         continue 2;
@@ -6922,7 +6942,7 @@ final class HtmlTransformer
 
         $targetInlines = array();
         foreach ( $body->getElementsByTagName('*') as $targetInline ) {
-            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
+            if ( $targetInline instanceof DOMElement && in_array(strtolower($targetInline->tagName), array( 'span', 'font', 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
                 $targetInlines[] = $targetInline;
             }
         }
@@ -7007,6 +7027,15 @@ final class HtmlTransformer
         ));
 
         $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        if ('font' === strtolower($element->tagName)) {
+            $color = trim($this->attr($element, 'color'));
+            $face = trim($this->attr($element, 'face'));
+            $size = trim($this->attr($element, 'size'));
+            if ('' !== $color && !isset($declarations['color'])) $declarations['color'] = $color;
+            if ('' !== $face && !isset($declarations['font-family'])) $declarations['font-family'] = $face;
+            $resolvedSize = $this->legacyFontSize($element);
+            if ('' !== $resolvedSize && !isset($declarations['font-size'])) $declarations['font-size'] = $resolvedSize;
+        }
 
         if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
             $declarations['color'] = 'transparent';
@@ -7031,6 +7060,26 @@ final class HtmlTransformer
         }
 
         return $declarations;
+    }
+
+    private function legacyFontSize(DOMElement $element): string
+    {
+        $sizes = array('1' => '10px', '2' => '13px', '3' => '16px', '4' => '18px', '5' => '24px', '6' => '32px', '7' => '48px');
+        $level = 3;
+        $found = false;
+        $fonts = array();
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null) if ('font' === strtolower($node->tagName)) $fonts[] = $node;
+        foreach (array_reverse($fonts) as $font) {
+            $size = trim($this->attr($font, 'size'));
+            if (preg_match('/^[1-7]$/', $size)) {
+                $level = (int) $size;
+                $found = true;
+            } elseif (preg_match('/^[+-]\d+$/', $size)) {
+                $level = min(7, max(1, $level + (int) $size));
+                $found = true;
+            }
+        }
+        return $found ? $sizes[(string) $level] : '';
     }
 
     private function replaceRichTextStylingHookWithMark(DOMElement $element): bool
@@ -7079,7 +7128,7 @@ final class HtmlTransformer
             return false;
         }
 
-        if ( in_array(strtolower($element->tagName), array( 'span', 'mark' ), true) ) {
+        if ( in_array(strtolower($element->tagName), array( 'span', 'font', 'mark' ), true) ) {
             $parent->replaceChild($mark, $element);
             return true;
         }
@@ -7139,10 +7188,11 @@ final class HtmlTransformer
             $blockPath = $path . '.' . $index;
             $provenanceId = $block['_source_provenance_id'] ?? null;
             if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
-                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId]);
+                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array());
             }
             unset($block['_source_provenance_id']);
             unset($block['_binding_token']);
+            unset($block['_editability_runtime_owned']);
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
                 $this->resolveSourceProvenancePaths($block['innerBlocks'], $blockPath . '.innerBlocks', $resolved);

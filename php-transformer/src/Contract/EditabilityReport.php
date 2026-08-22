@@ -16,7 +16,7 @@ final class EditabilityReport
     );
 
     /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
-    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = ''): array
+    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array()): array
     {
         $metrics = array(
             'block_count' => 0,
@@ -24,6 +24,8 @@ final class EditabilityReport
             'content_block_count' => 0,
             'wrapper_block_count' => 0,
             'empty_wrapper_count' => 0,
+            'empty_visual_group_count' => 0,
+            'empty_runtime_group_count' => 0,
             'max_nesting_depth' => 0,
             'raw_html_block_count' => 0,
             'html_bearing_attribute_count' => 0,
@@ -36,11 +38,12 @@ final class EditabilityReport
         );
         $blockTypes = array();
         $signals = array();
-        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath);
+        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true));
         ksort($blockTypes, SORT_STRING);
+        $policyWrapperCount = $metrics['wrapper_block_count'] - $metrics['empty_visual_group_count'] - $metrics['empty_runtime_group_count'];
         $metrics['wrapper_to_content_ratio'] = 0 === $metrics['content_block_count']
-            ? (float) $metrics['wrapper_block_count']
-            : round($metrics['wrapper_block_count'] / $metrics['content_block_count'], 4);
+            ? (float) $policyWrapperCount
+            : round($policyWrapperCount / $metrics['content_block_count'], 4);
 
         $signalCount = count($signals);
         return array(
@@ -71,7 +74,9 @@ final class EditabilityReport
             $report = $this->fromBlocks(
                 is_array($document['blocks'] ?? null) ? $document['blocks'] : array(),
                 (string) $sourcePath,
-                is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : ''
+                is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : '',
+                is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
+                is_array($document['runtime_block_paths'] ?? null) ? $document['runtime_block_paths'] : array()
             );
             $reports[] = array(
                 'source_path' => (string) $sourcePath,
@@ -95,9 +100,10 @@ final class EditabilityReport
             $signalCount += $report['signal_totals']['observed'];
         }
         $totals['document_count'] = count($reports);
+        $policyWrapperCount = ($totals['wrapper_block_count'] ?? 0) - ($totals['empty_visual_group_count'] ?? 0) - ($totals['empty_runtime_group_count'] ?? 0);
         $totals['wrapper_to_content_ratio'] = 0 === ($totals['content_block_count'] ?? 0)
-            ? (float) ($totals['wrapper_block_count'] ?? 0)
-            : round($totals['wrapper_block_count'] / $totals['content_block_count'], 4);
+            ? (float) $policyWrapperCount
+            : round($policyWrapperCount / $totals['content_block_count'], 4);
         ksort($blockTypes, SORT_STRING);
 
         return array(
@@ -137,7 +143,7 @@ final class EditabilityReport
      * @param array<string,int> $blockTypes
      * @param array<int,array<string,mixed>> $signals
      */
-    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath): void
+    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths): void
     {
         foreach ($blocks as $index => $block) {
             if (!is_array($block)) continue;
@@ -152,8 +158,15 @@ final class EditabilityReport
             if ($this->isWrapper($name)) {
                 $metrics['wrapper_block_count']++;
                 if (array() === $innerBlocks && '' === trim(strip_tags((string) ($block['innerHTML'] ?? '')))) {
-                    $metrics['empty_wrapper_count']++;
-                    $signals[] = $this->signal('empty_wrapper', $sourcePath, $blockPath, $name);
+                    $emptyKind = $this->emptyGroupKind($name, $attrs, $generatedCarrierCss, isset($runtimeBlockPaths['blocks.' . implode('.', $blockPath)]));
+                    if ('empty_visual_group' === $emptyKind) {
+                        $metrics['empty_visual_group_count']++;
+                    } elseif ('empty_runtime_group' === $emptyKind) {
+                        $metrics['empty_runtime_group_count']++;
+                    } else {
+                        $metrics['empty_wrapper_count']++;
+                    }
+                    $signals[] = $this->signal($emptyKind, $sourcePath, $blockPath, $name);
                 }
             } else {
                 $metrics['content_block_count']++;
@@ -168,13 +181,36 @@ final class EditabilityReport
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
             }
             $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals);
-            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath);
+            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths);
         }
     }
 
     private function isWrapper(string $name): bool
     {
         return in_array($name, array('core/group', 'core/columns', 'core/column', 'core/buttons'), true);
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private function emptyGroupKind(string $name, array $attrs, string $generatedCarrierCss, bool $runtimeOwned): string
+    {
+        if ('core/group' !== $name) return 'empty_wrapper';
+        if ($runtimeOwned) return 'empty_runtime_group';
+        if ($this->hasVisualGroupAttributes($attrs)) return 'empty_visual_group';
+        $className = (string) ($attrs['className'] ?? '');
+        foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+            if (preg_match('/^be-inline-geometry-[a-f0-9]{64}(?:-[a-f0-9]{64})?$/', $class) && str_contains($generatedCarrierCss, '.' . $class . '{')) return 'empty_visual_group';
+        }
+        return 'empty_wrapper';
+    }
+
+    /** @param array<string,mixed> $attrs */
+    private function hasVisualGroupAttributes(array $attrs): bool
+    {
+        foreach (array('backgroundColor', 'gradient', 'layout') as $key) if (!empty($attrs[$key])) return true;
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        if (array_filter((array) ($style['color'] ?? array()), static fn (mixed $value, string $key): bool => in_array($key, array('background', 'gradient', 'duotone'), true) && !empty($value), ARRAY_FILTER_USE_BOTH)) return true;
+        foreach (array('background', 'border', 'dimensions', 'shadow', 'spacing') as $key) if (!empty($style[$key])) return true;
+        return false;
     }
 
     /** @param array<string,mixed> $attrs @param array<int,int> $path @param array<string,int|float> $metrics @param array<int,array<string,mixed>> $signals */
