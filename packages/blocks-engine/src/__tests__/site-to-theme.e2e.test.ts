@@ -302,12 +302,37 @@ function betweenChromeRefs(template: string): string {
   return template.slice(headerIndex + headerRef.length, footerIndex);
 }
 
-function expectGenericQueriedContentTemplate(template: string): void {
+function expectSingularContentTemplate(template: string): void {
   const { headerRef, footerRef } = homeChromeRefs();
 
   expect(template).toContain(headerRef);
   expect(template).toContain(footerRef);
   expect(template).toContain('<!-- wp:post-content {"layout":{"type":"constrained"}} /-->');
+  expect(template).not.toContain('wp:query');
+  expect(template).not.toContain('wp:post-template');
+  expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
+}
+
+function expectPostsIndexTemplate(template: string, hasSharedChrome = true): void {
+  const { headerRef, footerRef } = homeChromeRefs();
+
+  if (hasSharedChrome) {
+    expect(template).toContain(headerRef);
+    expect(template).toContain(footerRef);
+  } else {
+    expect(template).not.toContain('wp:template-part');
+  }
+  expect(template).toContain(
+    '<!-- wp:query {"queryId":1,"query":{"perPage":10,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","author":"","search":"","exclude":[],"sticky":"","inherit":true},"layout":{"type":"constrained"}} -->'
+  );
+  expect(template).toContain('<!-- wp:post-template -->');
+  expect(template).toContain('<!-- wp:post-title {"isLink":true} /-->');
+  expect(template).toContain('<!-- wp:post-excerpt /-->');
+  expect(template).toContain('<!-- wp:post-date {"isLink":true} /-->');
+  expect(template).toContain('<!-- wp:query-pagination');
+  expect(template).toContain('<!-- wp:query-no-results -->');
+  expect(template).toContain('<p>No posts found.</p>');
+  expect(template).not.toContain('wp:post-content');
   expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
 }
 
@@ -442,8 +467,8 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(model.templates['index.html']).not.toContain('About body.');
     expect(model.templates['page.html']).not.toContain('Home body.');
     expect(model.templates['page.html']).not.toContain('About body.');
-    expectGenericQueriedContentTemplate(model.templates['index.html']);
-    expectGenericQueriedContentTemplate(model.templates['page.html']);
+    expectPostsIndexTemplate(model.templates['index.html']);
+    expectSingularContentTemplate(model.templates['page.html']);
   });
 
   it('assemble-threads-assets adds copied assets, font CSS, and rewrites template images', async () => {
@@ -482,7 +507,7 @@ describe('site-to-theme P0-3 orchestration', () => {
       '/wp-content/themes/fixture-theme/assets/logo.png'
     );
     expect(model.templates['front-page.html']).not.toContain('src="assets/logo.png"');
-    expect(model.templates['index.html']).toContain('wp:post-content');
+    expectPostsIndexTemplate(model.templates['index.html'], false);
     expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
@@ -647,8 +672,8 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(template.indexOf(footerRef)).toBeGreaterThan(template.indexOf('<!-- /wp:group -->'));
     expect(body).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
     expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
-    expectGenericQueriedContentTemplate(model.templates['index.html']);
-    expectGenericQueriedContentTemplate(model.templates['page.html']);
+    expectPostsIndexTemplate(model.templates['index.html']);
+    expectSingularContentTemplate(model.templates['page.html']);
   });
 
   it('assemble-threads-chrome defaults missing home slugs to canonical header and footer', async () => {
@@ -677,8 +702,8 @@ describe('site-to-theme P0-3 orchestration', () => {
 
     expect(model.templates['front-page.html']).toContain(headerRef);
     expect(model.templates['front-page.html']).toContain(footerRef);
-    expectGenericQueriedContentTemplate(model.templates['index.html']);
-    expectGenericQueriedContentTemplate(model.templates['page.html']);
+    expectPostsIndexTemplate(model.templates['index.html']);
+    expectSingularContentTemplate(model.templates['page.html']);
   });
 
   it('assemble-threads-chrome does not reference chrome parts that were not emitted', async () => {
@@ -707,7 +732,7 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(model.templates['front-page.html']).not.toContain('wp:template-part');
     expect(model.templates['index.html']).not.toContain('wp:template-part');
     expect(model.templates['page.html']).not.toContain('wp:template-part');
-    expect(model.templates['index.html']).toContain('wp:post-content');
+    expectPostsIndexTemplate(model.templates['index.html'], false);
     expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
@@ -756,7 +781,7 @@ describe('site-to-theme P0-3 orchestration', () => {
       '<!-- wp:template-part {"slug":"home-footer","tagName":"footer"} /-->'
     );
     expect(model.templates['front-page.html']).not.toContain('"slug":"about-header"');
-    expect(model.templates['index.html']).toContain('wp:post-content');
+    expectPostsIndexTemplate(model.templates['index.html'], false);
   });
 
   it('assemble-threads-assets lets asset-stage entries win relPath collisions', async () => {
@@ -838,8 +863,8 @@ describe('site-to-theme P0-3 orchestration', () => {
         /<!-- wp:image -->\s*<figure class="wp-block-image"><img src="\/wp-content\/themes\/fixture-theme\/assets\/img\/logo\.png" alt="Blocks Engine mark"\/><\/figure>\s*<!-- \/wp:image -->/
       );
       expect(template).not.toContain('src="assets/logo.png"');
-      expectGenericQueriedContentTemplate(indexTemplate);
-      expectGenericQueriedContentTemplate(pageTemplate);
+      expectPostsIndexTemplate(indexTemplate);
+      expectSingularContentTemplate(pageTemplate);
       expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(headerPart).toContain('About');
@@ -1180,8 +1205,8 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
-      expectGenericQueriedContentTemplate(indexTemplate);
-      expectGenericQueriedContentTemplate(pageTemplate);
+      expectPostsIndexTemplate(indexTemplate);
+      expectSingularContentTemplate(pageTemplate);
     });
   });
 
@@ -1228,8 +1253,8 @@ describe('site-to-theme P0-3 orchestration', () => {
 
       expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(frontPage).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
-      expectGenericQueriedContentTemplate(indexTemplate);
-      expectGenericQueriedContentTemplate(pageTemplate);
+      expectPostsIndexTemplate(indexTemplate);
+      expectSingularContentTemplate(pageTemplate);
       expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
     });
@@ -1394,8 +1419,8 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(frontPage).toContain('<!-- wp:heading');
       expect(frontPage).toContain('<!-- wp:paragraph');
       expect(frontPage).not.toMatch(/^<!-- wp:html -->[\s\S]*<!-- \/wp:html -->$/);
-      expectGenericQueriedContentTemplate(indexTemplate);
-      expectGenericQueriedContentTemplate(pageTemplate);
+      expectPostsIndexTemplate(indexTemplate);
+      expectSingularContentTemplate(pageTemplate);
     });
   });
 
