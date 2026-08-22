@@ -16,7 +16,7 @@ final class EditabilityReport
     );
 
     /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
-    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $sourceProvenance = array()): array
+    public function fromBlocks(array $blocks, string $sourcePath = '', string $serializedBlocks = '', string $generatedCarrierCss = '', array $runtimeBlockPaths = array(), array $visualBlockPaths = array(), array $sourceProvenance = array()): array
     {
         $metrics = array(
             'block_count' => 0,
@@ -38,8 +38,10 @@ final class EditabilityReport
         );
         $blockTypes = array();
         $signals = array();
+        $runtimeBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $runtimeBlockPaths);
+        $visualBlockPaths = array_map(static fn (string $path): string => str_replace('.innerBlocks', '', $path), $visualBlockPaths);
         $deepestBlock = array();
-        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), $this->provenanceByBlockPath($sourceProvenance), $deepestBlock);
+        $this->walk($blocks, 1, array(), $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, array_fill_keys($runtimeBlockPaths, true), array_fill_keys($visualBlockPaths, true), $this->provenanceByBlockPath($sourceProvenance), $deepestBlock);
         ksort($blockTypes, SORT_STRING);
         $policyWrapperCount = $metrics['wrapper_block_count'] - $metrics['empty_visual_group_count'] - $metrics['empty_runtime_group_count'];
         $metrics['wrapper_to_content_ratio'] = 0 === $metrics['content_block_count']
@@ -79,6 +81,7 @@ final class EditabilityReport
                 is_string($document['serialized_blocks'] ?? null) ? $document['serialized_blocks'] : '',
                 is_string($document['generated_carrier_css'] ?? null) ? $document['generated_carrier_css'] : '',
                 is_array($document['runtime_block_paths'] ?? null) ? $document['runtime_block_paths'] : array(),
+                is_array($document['visual_block_paths'] ?? null) ? $document['visual_block_paths'] : array(),
                 is_array($document['source_provenance'] ?? null) ? $document['source_provenance'] : array()
             );
             $reports[] = array(
@@ -147,7 +150,7 @@ final class EditabilityReport
      * @param array<string,int> $blockTypes
      * @param array<int,array<string,mixed>> $signals
      */
-    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $provenanceByBlockPath, array &$deepestBlock): void
+    private function walk(array $blocks, int $depth, array $path, array &$metrics, array &$blockTypes, array &$signals, string $sourcePath, string $generatedCarrierCss, array $runtimeBlockPaths, array $visualBlockPaths, array $provenanceByBlockPath, array &$deepestBlock): void
     {
         foreach ($blocks as $index => $block) {
             if (!is_array($block)) continue;
@@ -169,7 +172,7 @@ final class EditabilityReport
             if ($this->isWrapper($name)) {
                 $metrics['wrapper_block_count']++;
                 if (array() === $innerBlocks && '' === trim(strip_tags((string) ($block['innerHTML'] ?? '')))) {
-                    $emptyKind = $this->emptyGroupKind($name, $attrs, $generatedCarrierCss, isset($runtimeBlockPaths['blocks.' . implode('.', $blockPath)]));
+                    $emptyKind = $this->emptyGroupKind($name, $attrs, $generatedCarrierCss, isset($runtimeBlockPaths['blocks.' . implode('.', $blockPath)]), isset($visualBlockPaths['blocks.' . implode('.', $blockPath)]));
                     if ('empty_visual_group' === $emptyKind) {
                         $metrics['empty_visual_group_count']++;
                     } elseif ('empty_runtime_group' === $emptyKind) {
@@ -192,7 +195,7 @@ final class EditabilityReport
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
             }
             $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals);
-            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $provenanceByBlockPath, $deepestBlock);
+            if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock);
         }
     }
 
@@ -215,10 +218,12 @@ final class EditabilityReport
     }
 
     /** @param array<string,mixed> $attrs */
-    private function emptyGroupKind(string $name, array $attrs, string $generatedCarrierCss, bool $runtimeOwned): string
+    private function emptyGroupKind(string $name, array $attrs, string $generatedCarrierCss, bool $runtimeOwned, bool $visualOwned): string
     {
+        if ($runtimeOwned || '' !== (string) ($attrs['anchor'] ?? '')) return 'empty_runtime_group';
+        if ($visualOwned) return 'empty_visual_group';
+        if ('core/column' === $name) return 'empty_visual_group';
         if ('core/group' !== $name) return 'empty_wrapper';
-        if ($runtimeOwned) return 'empty_runtime_group';
         if ($this->hasVisualGroupAttributes($attrs)) return 'empty_visual_group';
         $className = (string) ($attrs['className'] ?? '');
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
