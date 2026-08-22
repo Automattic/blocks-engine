@@ -691,12 +691,6 @@ final class ArtifactCompiler
         );
     }
 
-    /** @param array<int,array<string,mixed>> $files @return array<string,mixed> */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $blockNamespace): array
-    {
-        return $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $blockNamespace, true);
-    }
-
     /** @param array<int,array<string,mixed>> $assets */
     private function cssAssetContent(array $assets): string
     {
