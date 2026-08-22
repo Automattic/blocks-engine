@@ -439,6 +439,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    private const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
+
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
@@ -632,33 +634,13 @@ final class HtmlTransformer
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $staticCss = (string) ($options['static_css'] ?? '');
-        $styleAnalysisKey = $this->styleAnalysisKey($html, $staticCss);
-        if ( isset($this->analysisCache->styles[$styleAnalysisKey]) ) {
-            ++$this->analysisCache->styleHits;
-            $styleAnalysis = $this->analysisCache->styles[$styleAnalysisKey];
-            $this->staticStyleRules = $styleAnalysis['static'];
-            $this->conditionalStyleRules = $styleAnalysis['conditional'];
-            $this->navigationStateStyleRules = $styleAnalysis['navigation_state'];
-            $this->imageShapeStyleRules = $styleAnalysis['image_shape'];
-            $this->staticPseudoElementStyleRules = $styleAnalysis['pseudo'];
-            $this->cssCustomProperties = $styleAnalysis['custom_properties'];
-        } else {
-            ++$this->analysisCache->styleBuilds;
-            $this->staticStyleRules = $this->staticStyleRules($html, $staticCss);
-            $this->conditionalStyleRules = $this->conditionalStyleRules($html, $staticCss);
-            $this->navigationStateStyleRules = $this->navigationStateStyleRules($html, $staticCss);
-            $this->imageShapeStyleRules = $this->imageShapeStyleRules($html, $staticCss);
-            $this->staticPseudoElementStyleRules = $this->staticPseudoElementStyleRules($html, $staticCss);
-            $this->cssCustomProperties = $this->cssCustomProperties($html, $staticCss);
-            $this->analysisCache->rememberStyle($styleAnalysisKey, array(
-                'static' => $this->staticStyleRules,
-                'conditional' => $this->conditionalStyleRules,
-                'navigation_state' => $this->navigationStateStyleRules,
-                'image_shape' => $this->imageShapeStyleRules,
-                'pseudo' => $this->staticPseudoElementStyleRules,
-                'custom_properties' => $this->cssCustomProperties,
-            ));
-        }
+        $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
+        $this->staticStyleRules = $styleAnalysis['static'];
+        $this->conditionalStyleRules = $styleAnalysis['conditional'];
+        $this->navigationStateStyleRules = $styleAnalysis['navigation_state'];
+        $this->imageShapeStyleRules = $styleAnalysis['image_shape'];
+        $this->staticPseudoElementStyleRules = $styleAnalysis['pseudo'];
+        $this->cssCustomProperties = $styleAnalysis['custom_properties'];
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
@@ -859,7 +841,7 @@ final class HtmlTransformer
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'content_round_trip' => $contentRoundTripReport,
-            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths),
+            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
@@ -1440,6 +1422,15 @@ final class HtmlTransformer
         }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->combinedAuthorCss) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+        }
+        if ( $this->emptyRuntimeTargetGenerated ) {
+            $selector = ':root .' . self::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
+            $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
+                . $selector . '>*{display:none!important}'
+                . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
+        }
+        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->combinedAuthorCss) ) {
+            $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
 
         $repairs = array();
@@ -2737,44 +2728,10 @@ final class HtmlTransformer
             }
         }
 
-		$authorAnalysisKey = hash('sha256', $this->combinedAuthorCss);
-        if ( isset($this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey]) ) {
-            ++$this->analysisCache->authorSelectorHits;
-            $authorAnalysis = $this->analysisCache->authorSelectorAnalyses[$authorAnalysisKey];
-            $sourceTagSelectorNames = $authorAnalysis['source_tags'];
-            $authorSelectors = $authorAnalysis['selectors'];
-            $authorStyleRules = $authorAnalysis['rules'];
-        } else {
-			++$this->analysisCache->authorSelectorBuilds;
-			$sourceTagSelectorNames = array();
-			$authorSelectors = array();
-			$authorStyleRules = array();
-			( new CssStylesheetTransformer() )->transform($this->combinedAuthorCss, function (string $prelude, string $body) use (&$sourceTagSelectorNames, &$authorSelectors, &$authorStyleRules): string {
-				$ruleSelectors = array();
-				foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-					$parsed = $this->parsedCssSelector($selector);
-					$authorSelectors[] = array('selector' => $selector, 'parsed' => $parsed);
-					$directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
-					$ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => $this->parsedCssSelector($directSelector));
-					foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
-						$tagName = strtolower($typeSpan['name']);
-						if ( in_array($tagName, array( 'div', 'li', 'nav', 'p' ), true) ) {
-							$sourceTagSelectorNames[$tagName] = true;
-						}
-					}
-				}
-				if ( array() !== $ruleSelectors ) {
-					$authorStyleRules[] = array('order' => count($authorStyleRules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors);
-				}
-				return $prelude;
-			});
-			++$this->analysisCache->authorStyleRuleBuilds;
-            $this->analysisCache->rememberAuthorSelectors($authorAnalysisKey, array(
-                'source_tags' => $sourceTagSelectorNames,
-                'selectors' => $authorSelectors,
-				'rules' => $authorStyleRules,
-            ));
-        }
+        $authorAnalysis = $this->composedAuthorSelectorAnalysis($this->authorStylesheetPayloads($html, $staticCss));
+        $sourceTagSelectorNames = $authorAnalysis['source_tags'];
+        $authorSelectors = $authorAnalysis['selectors'];
+        $authorStyleRules = $authorAnalysis['rules'];
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
         }
@@ -2979,14 +2936,238 @@ final class HtmlTransformer
         return trim(implode("\n\n", $cssParts));
     }
 
-    private function styleAnalysisKey(string $html, string $staticCss): string
+    /** @return list<string> */
+    private function stylesheetPayloads(string $html, string $staticCss, array $options): array
     {
-        $inlineStyles = array();
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $inlineStyles = array_map('trim', $matches[1]);
+        $staticPayloads = $this->staticStylesheetPayloads($staticCss, $options);
+        $inlinePayloads = $this->inlineStylesheetPayloads($html);
+        $payloads = array_merge($staticPayloads, $inlinePayloads);
+        if ( ! $this->hasSafeStylesheetBoundaries($payloads) ) {
+            // Preserve the legacy parser's recovery across a concatenated stream.
+            $combined = trim($staticCss . ('' === trim($staticCss) || array() === $inlinePayloads ? '' : "\n") . implode("\n", $inlinePayloads));
+            return '' === $combined ? array() : array($combined);
         }
 
-        return hash('sha256', trim($staticCss) . "\0" . implode("\0", $inlineStyles));
+        return array_values(array_filter(array_map('trim', $payloads), static fn (string $payload): bool => '' !== $payload));
+    }
+
+    /** @param array<string, mixed> $options @return list<string> */
+    private function staticStylesheetPayloads(string $staticCss, array $options): array
+    {
+        if ( ! is_array($options['stylesheet_payloads'] ?? null) ) {
+            return array($staticCss);
+        }
+        $payloads = array();
+        foreach ( $options['stylesheet_payloads'] as $payload ) {
+            if ( is_array($payload) && is_string($payload['content'] ?? null) ) {
+                $payloads[] = $payload['content'];
+            }
+        }
+
+        return array() === $payloads ? array($staticCss) : $payloads;
+    }
+
+    /** @return list<string> */
+    private function authorStylesheetPayloads(string $html, string $staticCss): array
+    {
+        if ( array() !== $this->authorStylesheetAssets ) {
+            $payloads = array_values(array_filter(array_column($this->authorStylesheetAssets, 'content'), static fn (string $payload): bool => '' !== trim($payload)));
+            return $this->hasSafeStylesheetBoundaries($payloads) ? $payloads : array(implode("\n\n", $payloads));
+        }
+
+        $payloads = array();
+        // This order is intentionally distinct from presentation analysis: it
+        // matches combinedAuthorStylesheet(), which emits inline CSS first.
+        foreach ( array_merge($this->inlineStylesheetPayloads($html), array($staticCss)) as $payload ) {
+            $payload = trim(html_entity_decode($payload, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ( '' !== $payload ) {
+                $payloads[] = $payload;
+            }
+        }
+
+        return $this->hasSafeStylesheetBoundaries($payloads) ? $payloads : array(implode("\n\n", $payloads));
+    }
+
+    /** @return list<string> */
+    private function inlineStylesheetPayloads(string $html): array
+    {
+        if ( ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            return array();
+        }
+
+        return array_map(static fn (string $payload): string => trim($payload), $matches[1]);
+    }
+
+    /** @param list<string> $payloads */
+    private function hasSafeStylesheetBoundaries(array $payloads): bool
+    {
+        foreach ( $payloads as $payload ) {
+            $depth = 0;
+            $quote = '';
+            $comment = false;
+            for ( $index = 0, $length = strlen($payload); $index < $length; ++$index ) {
+                $character = $payload[$index];
+                $next = $index + 1 < $length ? $payload[$index + 1] : '';
+                if ( $comment ) {
+                    if ( '*' === $character && '/' === $next ) {
+                        $comment = false;
+                        ++$index;
+                    }
+                    continue;
+                }
+                if ( '' !== $quote ) {
+                    if ( '\\' === $character ) {
+                        ++$index;
+                    } elseif ( $quote === $character ) {
+                        $quote = '';
+                    }
+                    continue;
+                }
+                if ( '/' === $character && '*' === $next ) {
+                    $comment = true;
+                    ++$index;
+                } elseif ( '"' === $character || "'" === $character ) {
+                    $quote = $character;
+                } elseif ( '{' === $character ) {
+                    ++$depth;
+                } elseif ( '}' === $character ) {
+                    --$depth;
+                    if ( $depth < 0 ) {
+                        return false;
+                    }
+                }
+            }
+            if ( $comment || '' !== $quote || 0 !== $depth ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array} */
+    private function composedStyleAnalysis(array $payloads): array
+    {
+        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
+        foreach ( $payloads as $payload ) {
+            $key = hash('sha256', $payload);
+            $analysis = $this->analysisCache->style($key);
+            if ( null === $analysis ) {
+                ++$this->analysisCache->styleBuilds;
+                $analysis = array(
+                    'static' => $this->staticStyleRules('', $payload),
+                    'conditional' => $this->conditionalStyleRules('', $payload),
+                    'navigation_state' => $this->navigationStateStyleRules('', $payload),
+                    'image_shape' => $this->imageShapeStyleRules('', $payload),
+                    'pseudo' => $this->staticPseudoElementStyleRules('', $payload),
+                    'custom_properties' => $this->cssCustomPropertyAnalysis($payload),
+                );
+                $this->analysisCache->rememberStyle($key, $analysis);
+            } else {
+                ++$this->analysisCache->styleHits;
+            }
+            foreach ( array('static', 'conditional', 'navigation_state', 'pseudo') as $part ) {
+                $composed[$part] = array_merge($composed[$part], $analysis[$part]);
+            }
+            foreach ( $analysis['image_shape'] as $rule ) {
+                $rule['order'] = count($composed['image_shape']);
+                $composed['image_shape'][] = $rule;
+            }
+            $composed['custom_properties']['root'] = array_merge($composed['custom_properties']['root'], $analysis['custom_properties']['root']);
+            $composed['custom_properties']['fallback'] = array_merge($composed['custom_properties']['fallback'], $analysis['custom_properties']['fallback']);
+        }
+
+        $composed['custom_properties'] = array() !== $composed['custom_properties']['root']
+            ? $composed['custom_properties']['root']
+            : $composed['custom_properties']['fallback'];
+
+        return $composed;
+    }
+
+    /** @return array{root: array<string, string>, fallback: array<string, string>} */
+    private function cssCustomPropertyAnalysis(string $css): array
+    {
+        $root = array();
+        (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body) use (&$root): string {
+            $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+            if ( null === $selectors || ! array_filter($selectors, static function (string $selector): bool {
+                $selector = preg_replace('/\/\*.*?\*\//s', '', $selector) ?? $selector;
+                return in_array(strtolower(trim($selector)), array(':root', 'html'), true);
+            }) ) {
+                return $prelude;
+            }
+            if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                foreach ( $matches as $match ) {
+                    $root[(string) $match[1]] = trim((string) $match[2]);
+                }
+            }
+
+            return $prelude;
+        });
+        $fallback = array();
+        if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                $fallback[(string) $match[1]] = trim((string) $match[2]);
+            }
+        }
+
+        return array('root' => $root, 'fallback' => $fallback);
+    }
+
+    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    private function composedAuthorSelectorAnalysis(array $payloads): array
+    {
+        $composed = array('source_tags' => array(), 'selectors' => array(), 'rules' => array());
+        foreach ( $payloads as $payload ) {
+            $key = hash('sha256', $payload);
+            $analysis = $this->analysisCache->authorSelectors($key);
+            if ( null === $analysis ) {
+                ++$this->analysisCache->authorSelectorBuilds;
+                $analysis = $this->authorSelectorAnalysis($payload);
+                ++$this->analysisCache->authorStyleRuleBuilds;
+                $this->analysisCache->rememberAuthorSelectors($key, $analysis);
+            } else {
+                ++$this->analysisCache->authorSelectorHits;
+            }
+            $composed['source_tags'] += $analysis['source_tags'];
+            $composed['selectors'] = array_merge($composed['selectors'], $analysis['selectors']);
+            foreach ( $analysis['rules'] as $rule ) {
+                $rule['order'] = count($composed['rules']);
+                $composed['rules'][] = $rule;
+            }
+        }
+
+        return $composed;
+    }
+
+    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    private function authorSelectorAnalysis(string $css): array
+    {
+        $sourceTags = array();
+        $selectors = array();
+        $rules = array();
+        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$selectors, &$rules): string {
+            $ruleSelectors = array();
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $parsed = $this->parsedCssSelector($selector);
+                $selectors[] = array('selector' => $selector, 'parsed' => $parsed);
+                $directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
+                $ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => $this->parsedCssSelector($directSelector));
+                foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
+                    $tagName = strtolower($typeSpan['name']);
+                    if ( in_array($tagName, array('div', 'li', 'nav', 'p'), true) ) {
+                        $sourceTags[$tagName] = true;
+                    }
+                }
+            }
+            if ( array() !== $ruleSelectors ) {
+                $rules[] = array('order' => count($rules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors);
+            }
+
+            return $prelude;
+        });
+
+        return array('source_tags' => $sourceTags, 'selectors' => $selectors, 'rules' => $rules);
     }
 
     /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
@@ -4859,6 +5040,17 @@ final class HtmlTransformer
                 );
                 if ( null !== $mediaText ) {
                     return $mediaText;
+                }
+            }
+
+            // Keep safe phrasing runs together before generic flex/grid preservation can split
+            // selector-addressed inline targets into block-level children. The recognizer rejects
+            // children with independent layout geometry, so structural inline items still fall
+            // through to the author-owned layout path below.
+            if ( $this->hasMultipleRuntimeInlineTextTargets($element) ) {
+                $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+                if ( null !== $inlineContent ) {
+                    return $inlineContent;
                 }
             }
 
@@ -6912,6 +7104,14 @@ final class HtmlTransformer
             $targetInline->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
         }
 
+        // Source comments are authoring metadata, not RichText. Gutenberg exposes comments inside
+        // editable content as visible text, so remove them while retaining comments elsewhere in
+        // the document where they may delimit templates or runtime payloads.
+        $xpath = new \DOMXPath($document);
+        foreach ( $xpath->query('//body//comment()') ?: array() as $comment ) {
+            $comment->parentNode?->removeChild($comment);
+        }
+
         return $this->innerHtml($body);
     }
 
@@ -7341,12 +7541,12 @@ final class HtmlTransformer
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
         if ( 'div' !== strtolower($element->tagName)
-            || 'core/group' !== ($childBlock['blockName'] ?? null)
+            || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
             || $this->isRuntimeDomTarget($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || '' !== trim($this->attr($element, 'style'))
+            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
@@ -7356,17 +7556,19 @@ final class HtmlTransformer
         }
 
         $attrs = $this->presentationAttributes($element);
-        if ( array_diff(array_keys($attrs), array( 'className' )) ) {
+        if ( array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
             return null;
         }
 
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
         $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->sourceProvenance[$provenanceId]['source_digest'] ?? '')) : null;
+        if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
         if ( ! $sourceChild instanceof DOMElement
+            || ('core/image' === ($childBlock['blockName'] ?? null) && 'img' !== strtolower($sourceChild->tagName))
             || $this->hasMotionStructureToken($sourceChild)
-            || $this->hasBoxAffectingAuthorDeclarations($element)
-            || $this->hasContainingBlockDependentAuthorDeclarations($sourceChild)
-            || ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild)
+            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
+            || ('core/image' !== ($childBlock['blockName'] ?? null) && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
+            || (! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild))
         ) {
             return null;
         }
@@ -7375,7 +7577,7 @@ final class HtmlTransformer
         $childAttrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
 
-        return $this->createBlock('core/group', $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+        return $this->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }
 
     private function sameSourceGroupChainLeaf(DOMElement $element, string $sourceDigest): ?DOMElement
@@ -7386,6 +7588,16 @@ final class HtmlTransformer
 
         $child = $this->soleElementChild($element);
         while ( $child instanceof DOMElement && hash('sha256', $this->safeFallbackHtml($child)) !== $sourceDigest ) {
+            // A native image block may take its source provenance from the img
+            // while retaining an image-only anchor as block attributes.
+            $anchorChild = 'a' === strtolower($child->tagName) ? $this->soleElementChild($child) : null;
+            if ( $anchorChild instanceof DOMElement
+                && 'a' === strtolower($child->tagName)
+                && ($this->isImageOnlyAnchor($child) || in_array(strtolower($anchorChild->tagName), array('img', 'picture'), true))
+            ) {
+                $child = $anchorChild;
+                continue;
+            }
             if ( ! $this->isNeutralGroupChainWrapper($child) ) {
                 return null;
             }
@@ -7395,6 +7607,24 @@ final class HtmlTransformer
         return $child;
     }
 
+    /** @param array<string,mixed> $block */
+    private function syntheticImageGeometryLeaf(array $block): bool
+    {
+        $className = (string) ($block['attrs']['className'] ?? '');
+        return 'core/image' === ($block['blockName'] ?? null)
+            && str_contains($className, self::SYNTHETIC_IMAGE_FIGURE_CLASS)
+            && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
+    }
+
+    private function imageLeafInGroupChain(DOMElement $element): ?DOMElement
+    {
+        for ($child = $this->soleElementChild($element); $child instanceof DOMElement; $child = $this->soleElementChild($child)) {
+            if ('img' === strtolower($child->tagName)) return $child;
+            if (! in_array(strtolower($child->tagName), array('div', 'a'), true)) return null;
+        }
+        return null;
+    }
+
     private function isNeutralGroupChainWrapper(DOMElement $element): bool
     {
         if ( 'div' !== strtolower($element->tagName)
@@ -7402,18 +7632,18 @@ final class HtmlTransformer
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || '' !== trim($this->attr($element, 'style'))
+            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
             || $this->hasMotionStructureToken($element)
-            || $this->hasBoxAffectingAuthorDeclarations($element)
+            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
         ) {
             return false;
         }
 
         $attrs = $this->presentationAttributes($element);
-        return ! array_diff(array_keys($attrs), array( 'className' )) && $this->soleElementChild($element) instanceof DOMElement;
+        return ! array_diff(array_keys($attrs), array( 'className', 'style' )) && $this->soleElementChild($element) instanceof DOMElement;
     }
 
     private function soleElementChild(DOMElement $element): ?DOMElement
@@ -7427,6 +7657,9 @@ final class HtmlTransformer
             // Treating them as transparent lets generated exports shed an otherwise
             // inert authoring wrapper without interpreting product-specific markup.
             if ( XML_COMMENT_NODE === $node->nodeType ) {
+                continue;
+            }
+            if ( $node instanceof DOMElement && ($this->isInertHiddenEmptyElement($node) || $this->isExplicitlyDisplayNoneEmptyElement($node)) ) {
                 continue;
             }
             if ( ! $node instanceof DOMElement || $child instanceof DOMElement ) {
@@ -7452,6 +7685,38 @@ final class HtmlTransformer
             }
         }
         return false;
+    }
+
+    private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
+    {
+        foreach ($this->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
+            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        }
+        return true;
+    }
+
+    private function hasOnlyRenderNeutralBoxAffectingDeclarations(DOMElement $element): bool
+    {
+        foreach ($this->matchingAuthorDeclarations($element) as $property => $value) {
+            if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
+            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        }
+        return true;
+    }
+
+    private function isRenderNeutralGeometryDeclaration(string $property, string $value): bool
+    {
+        $value = strtolower(trim($this->cssValueWithoutImportant($value)));
+        if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
+        if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);
+        return 'text-align' === $property && 'left' === $value;
+    }
+
+    /** @param array<string,string> $declarations */
+    private function hasOnlyRenderNeutralDeclarations(array $declarations): bool
+    {
+        foreach ($declarations as $property => $value) if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
+        return array() !== $declarations;
     }
 
     private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
@@ -7589,7 +7854,7 @@ final class HtmlTransformer
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
                 && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
-            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter ) {
+            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations']) ) {
                 $survives = false;
                 break;
             }
@@ -7720,6 +7985,18 @@ final class HtmlTransformer
         return true;
     }
 
+    private function isExplicitlyDisplayNoneEmptyElement(DOMElement $element): bool
+    {
+        return 0 === $this->childElementCount($element)
+            && '' === trim($element->textContent ?? '')
+            && 'none' === strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')))
+            && '' === trim($this->attr($element, 'class'))
+            && '' === trim($this->attr($element, 'id'))
+            && '' === trim($this->attr($element, 'role'))
+            && array() === $this->interactiveAttributes($element)
+            && array() === $this->safeDataAttributes($element);
+    }
+
     private function renderedTextContent(DOMElement $element): string
     {
         $text = '';
@@ -7770,6 +8047,10 @@ final class HtmlTransformer
         }
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        if ( $this->isRuntimeDomTarget($element) ) {
+            $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
+            $this->emptyRuntimeTargetGenerated = true;
+        }
         return $attrs;
     }
 
@@ -8433,6 +8714,25 @@ final class HtmlTransformer
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
+    }
+
+    private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool
+    {
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->hasOnlyPhrasingChildren($element) ) {
+            return false;
+        }
+
+        $targets = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isRuntimeDomTarget($child) ) {
+                ++$targets;
+            }
+        }
+
+        return 1 < $targets;
     }
 
     private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array

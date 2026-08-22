@@ -17,9 +17,10 @@ final class CssUrlRewriter
             }
             $cursor = $start + 4;
             while (isset($content[$cursor]) && str_contains(" \t\r\n\f", $content[$cursor])) ++$cursor;
-            $quote = $content[$cursor] ?? '';
-            $quoted = '"' === $quote || "'" === $quote;
-            $valueStart = $quoted ? ++$cursor : $cursor;
+            $quote = self::quoteAt($content, $cursor);
+            $quoted = null !== $quote;
+            $valueStart = $quoted ? $cursor + $quote[1] : $cursor;
+            $cursor = $valueStart;
             $value = '';
             $valid = false;
             while (isset($content[$cursor])) {
@@ -29,8 +30,9 @@ final class CssUrlRewriter
                     ++$cursor;
                     continue;
                 }
-                if ($quoted && $character === $quote) {
-                    ++$cursor;
+                $closingQuote = $quoted ? self::quoteAt($content, $cursor) : null;
+                if (null !== $closingQuote && $closingQuote[0] === $quote[0]) {
+                    $cursor += $closingQuote[1];
                     while (isset($content[$cursor]) && str_contains(" \t\r\n\f", $content[$cursor])) ++$cursor;
                     $valid = ')' === ($content[$cursor] ?? '');
                     break;
@@ -67,5 +69,15 @@ final class CssUrlRewriter
             }
             return $escape;
         }, $value) ?? $value;
+    }
+
+    /** @return array{string,int}|null */
+    private static function quoteAt(string $content, int $offset): ?array
+    {
+        $character = $content[$offset] ?? '';
+        if ('"' === $character || "'" === $character) return array($character, 1);
+        if (!preg_match('/\A&(?:[A-Za-z][A-Za-z0-9]{0,30}|#[0-9]{1,8}|#x[0-9A-Fa-f]{1,8});/', substr($content, $offset, 40), $match)) return null;
+        $character = html_entity_decode($match[0], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return '"' === $character || "'" === $character ? array($character, strlen($match[0])) : null;
     }
 }

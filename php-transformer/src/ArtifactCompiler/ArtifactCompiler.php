@@ -45,6 +45,30 @@ final class ArtifactCompiler
 
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
+    public function __construct(private readonly bool $cacheHtmlAnalysis = true)
+    {
+    }
+
+    /** @return array<string, int> */
+    public function htmlAnalysisCacheMetrics(): array
+    {
+        $cache = $this->htmlTransformerAnalysisCache;
+        if ( ! $cache instanceof HtmlTransformerAnalysisCache ) {
+            return array();
+        }
+
+        return array(
+            'style_builds' => $cache->styleBuilds,
+            'style_hits' => $cache->styleHits,
+            'style_evictions' => $cache->styleEvictions,
+            'style_bytes' => $cache->styleBytes,
+            'author_builds' => $cache->authorSelectorBuilds,
+            'author_hits' => $cache->authorSelectorHits,
+            'author_evictions' => $cache->authorSelectorEvictions,
+            'author_bytes' => $cache->authorSelectorBytes,
+        );
+    }
+
     private string $generatedAssetRoot = '';
 
     /** @var array<string, array<string, mixed>> */
@@ -182,7 +206,7 @@ final class ArtifactCompiler
         $startedAt = hrtime(true);
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
-        $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
+        $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $capturedDialogs = ( new CapturedDialogProjector() )->project($normalized['files']);
         $normalized['files'] = $capturedDialogs['files'];
@@ -285,7 +309,7 @@ final class ArtifactCompiler
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'editability_report' => $entryBlocks['editability_report'] ?? null, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
             $editabilityDocuments[(string) $sourcePath] = array(
@@ -294,6 +318,7 @@ final class ArtifactCompiler
                 'generated_carrier_css' => $this->cssAssetContent(is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array()),
                 'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'] ?? array(),
                 'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'] ?? array(),
+                'editability_report' => $compiledHtmlDocument['editability_report'] ?? null,
                 'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
                 'provenance' => $sourceFile['provenance'] ?? null,
             );
@@ -1061,6 +1086,35 @@ final class ArtifactCompiler
         ), $options));
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
+     */
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
+    {
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace, true);
+
+        return array(
+            'blocks'            => $result['blocks'],
+            'serialized_blocks' => $result['serialized_blocks'],
+            'diagnostics'       => $result['diagnostics'],
+            'fallbacks'         => $result['fallbacks'],
+            'assets'            => $result['assets'],
+            'runtime_islands'   => $result['runtime_islands'],
+            'generated_blocks'  => $result['generated_blocks'],
+            'gutenberg_gaps'    => $result['gutenberg_gaps'],
+            'interaction_candidates' => $result['interaction_candidates'],
+            'superseded_selectors' => $result['superseded_selectors'],
+            'author_stylesheet_projections' => $result['author_stylesheet_projections'],
+            'shell_artifacts' => $result['shell_artifacts'],
+            'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
+            'runtime_block_paths' => $result['runtime_block_paths'] ?? array(),
+            'visual_block_paths' => $result['visual_block_paths'] ?? array(),
+            'editability_report' => $result['editability_report'] ?? null,
+            'reusable_components' => $result['reusable_components'],
+        );
+    }
+
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
         if ( $this->containsBlockMarkup($html) ) {
@@ -1101,11 +1155,16 @@ final class ArtifactCompiler
             );
         }
 
-        $result = (new HtmlTransformer(analysisCache: $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+        $stylesheetPayloads = $this->linkedStylesheetPayloads($html, $sourcePath, $files);
+        $analysisCache = $this->cacheHtmlAnalysis
+            ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
+            : new HtmlTransformerAnalysisCache();
+        $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'stylesheet_payloads'       => $stylesheetPayloads,
             'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
@@ -1125,6 +1184,7 @@ final class ArtifactCompiler
             'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
             'runtime_block_paths' => $this->runtimeBlockPaths($result),
             'visual_block_paths' => $this->visualBlockPaths($result),
+            'editability_report' => is_array($result['source_reports']['editability_report'] ?? null) ? $result['source_reports']['editability_report'] : null,
             'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
@@ -1491,15 +1551,29 @@ final class ArtifactCompiler
      */
     private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
     {
-        $css = array();
+        return trim(implode("\n", array_column($this->linkedStylesheetPayloads($html, $sourcePath, $files), 'content')));
+    }
+
+    /**
+     * Keep source stylesheet boundaries intact for payload-addressed analysis.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return list<array{content: string, source_hash: string}>
+     */
+    private function linkedStylesheetPayloads(string $html, string $sourcePath, array $files): array
+    {
+        $payloads = array();
         foreach ( $this->stylesheetAssetsForSource($html, $sourcePath, $files) as $stylesheet ) {
             $content = (string) ($stylesheet['content'] ?? '');
             if ( '' !== trim($content) ) {
-                $css[] = $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files);
+                $payloads[] = array(
+                    'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
+                    'source_hash' => (string) ($stylesheet['source_hash'] ?? hash('sha256', $content)),
+                );
             }
         }
 
-        return trim(implode("\n", $css));
+        return $payloads;
     }
 
     /**
@@ -4087,17 +4161,23 @@ final class ArtifactCompiler
             return null;
         }
 
-        $path = $this->resolveHtmlReferencePath($reference, $entryPath);
-        if ( '' === $path ) {
+        $paths = array_filter(array(
+            $this->resolveHtmlReferencePath($reference, $entryPath),
+            str_starts_with($reference, '/') ? $this->resolveHtmlReferencePath(ltrim($reference, '/'), $entryPath) : '',
+        ), static fn (string $path): bool => '' !== $path);
+        $paths = array_values(array_unique($paths));
+        if ( array() === $paths ) {
             return null;
         }
 
-        if ( isset($this->filesByPath[$path]) ) {
-            return $this->filesByPath[$path];
+        foreach ( $paths as $path ) {
+            if ( isset($this->filesByPath[$path]) ) {
+                return $this->filesByPath[$path];
+            }
         }
 
         foreach ( $files as $file ) {
-            if ( $path === ($file['path'] ?? '') ) {
+            if ( in_array($file['path'] ?? '', $paths, true) ) {
                 return $file;
             }
         }
