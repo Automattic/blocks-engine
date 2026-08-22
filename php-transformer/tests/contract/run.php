@@ -3976,7 +3976,7 @@ $rootedScriptCompanion = $compiler->compile(
         'entrypoint' => 'website/index.html',
         'files' => array(
             array( 'path' => 'website/index.html', 'content' => '<main><canvas id="canvas"></canvas></main><script src="/script.js"></script><script src="/.netlify/scripts/rum.js"></script>' ),
-            array( 'path' => 'website/script.js', 'content' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); let totalAmplitude = 0;' ),
+            array( 'path' => 'website/script.js', 'content' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); let totalAmplitude = 0; // Scale particles based on amplitude.' ),
             array( 'path' => 'website/.netlify/scripts/rum.js', 'content' => 'window.netlifyRum=true;' ),
         ),
     )

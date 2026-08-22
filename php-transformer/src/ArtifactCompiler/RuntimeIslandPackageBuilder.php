@@ -75,6 +75,16 @@ final class RuntimeIslandPackageBuilder
         'cdn.heapanalytics',
     );
 
+    /** @var array<int, string> */
+    private const TELEMETRY_CONTENT_PATTERNS = array(
+        '/\bgtag\s*\(/i',
+        '/\bfbq\s*\(/i',
+        '/\b(?:dataLayer|_paq)\s*\.\s*push\s*\(/i',
+        '/\b(?:amplitude|mixpanel|Sentry)\s*\.\s*(?:init|track|capture|identify|setUserId)\s*\(/i',
+        '/\b(?:plausible|clarity)\s*\(/i',
+        '/\b_hjSettings\b/i',
+    );
+
     /**
      * Build the runtime-island package from preserved runtime-island metadata.
      *
@@ -310,7 +320,12 @@ final class RuntimeIslandPackageBuilder
         $src = strtolower($src);
         $content = strtolower(substr($content, 0, 4000));
         foreach ( self::TELEMETRY_SIGNALS as $signal ) {
-            if ( str_contains($src, $signal) || 1 === preg_match('/(?<![a-z0-9])' . preg_quote($signal, '/') . '(?![a-z0-9])/i', $content) ) {
+            if ( str_contains($src, $signal) ) {
+                return 'telemetry';
+            }
+        }
+        foreach ( self::TELEMETRY_CONTENT_PATTERNS as $pattern ) {
+            if ( 1 === preg_match($pattern, $content) ) {
                 return 'telemetry';
             }
         }
