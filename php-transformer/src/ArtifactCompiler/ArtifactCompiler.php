@@ -129,6 +129,7 @@ final class ArtifactCompiler
      */
     public function prepareShared(array $artifact, ?PayloadReader $payloadReader = null): array
     {
+        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
         }
@@ -180,6 +181,7 @@ final class ArtifactCompiler
     public function preparePage(array $artifact, array $sharedPlan, string $pageId, ?PayloadReader $payloadReader = null): array
     {
         $this->assertSharedPlan($sharedPlan);
+        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'page', $pageId, $payloadReader, (string) $sharedPlan['digest']);
         }
@@ -450,7 +452,7 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $this->htmlDocumentTransformCount = 0;
-        return $this->compileArtifact($artifact);
+        return $this->compileArtifact((new ResponsiveDocumentVariants())->compose($artifact));
     }
 
     /**
