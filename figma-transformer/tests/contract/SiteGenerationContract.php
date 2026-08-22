@@ -3460,7 +3460,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! str_contains($semanticArchive, 'href="archive.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-archive-title-not-self-linked');
     $assert(! str_contains($semanticAbout, 'href="page.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-page-title-not-self-linked');
     $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="get" action="index.html" role="search"'), 'semantic-route-search-form-action');
-    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post" action="index.html"'), 'semantic-route-newsletter-form-action');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post"') && ! str_contains($semanticHome, 'method="post" action="'), 'semantic-route-newsletter-form-does-not-invent-action');
     $assert(str_contains($semanticHome, 'type="search" name="s"'), 'semantic-route-search-input-name');
     $assert(str_contains($semanticHome, 'type="email" name="email"'), 'semantic-route-email-input-name');
     
@@ -3574,4 +3574,44 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert('' !== $singleFrameLiveStyle, 'single-frame-live-stylesheet-emitted');
     $assert(str_contains($singleFrameLiveStyle, '@media (max-width:767px)'), 'single-frame-live-desktop-fallback-media-block');
     $assert(false === ($singleFrameLiveResult['source_reports']['figma']['pages']['pages'][0]['responsive'] ?? true), 'single-frame-live-plan-not-responsive');
+
+    $responsiveBoundaryResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Responsive intrinsic boundary fixture',
+        'nodes' => array(
+            array('id' => 'boundary:desktop', 'type' => 'FRAME', 'name' => 'Landing Desktop', 'width' => 1440, 'height' => 600, 'children' => array(
+                array('id' => 'boundary:desktop:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240, 'maxWidth' => 360),
+            )),
+            array('id' => 'boundary:mobile', 'type' => 'FRAME', 'name' => 'Landing Mobile', 'width' => 390, 'height' => 600, 'children' => array(
+                array('id' => 'boundary:mobile:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240, 'maxWidth' => 360),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'boundary:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'boundary:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsiveBoundaryCss = $fileContent($responsiveBoundaryResult, 'style.css');
+    $assert(str_contains($responsiveBoundaryCss, '.figma-node-boundary-desktop-card-intrinsic-card{width:376px;height:240px;max-width:360px'), 'responsive-boundary-base-preserves-intrinsic-width-constraint');
+    $assert(0 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-boundary-desktop-card-intrinsic-card\{[^}]*max-width:100%/', $responsiveBoundaryCss), 'responsive-boundary-mobile-keeps-existing-max-width-constraint');
+
+    $variantOnlyBoundaryResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Responsive variant-only intrinsic boundary fixture',
+        'nodes' => array(
+            array('id' => 'variant-boundary:desktop', 'type' => 'FRAME', 'name' => 'Landing Desktop', 'width' => 1440, 'height' => 600, 'children' => array(
+                array('id' => 'variant-boundary:desktop:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240),
+            )),
+            array('id' => 'variant-boundary:mobile', 'type' => 'FRAME', 'name' => 'Landing Mobile', 'width' => 390, 'height' => 600, 'children' => array(
+                array('id' => 'variant-boundary:mobile:card', 'type' => 'FRAME', 'name' => 'Intrinsic card', 'width' => 376, 'height' => 240, 'maxWidth' => 360),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'variant-boundary:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'variant-boundary:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $variantOnlyBoundaryCss = $fileContent($variantOnlyBoundaryResult, 'style.css');
+    $assert(1 === preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-variant-boundary-desktop-card-intrinsic-card\{[^}]*max-width:360px/', $variantOnlyBoundaryCss), 'responsive-boundary-mobile-introduces-intrinsic-max-width-constraint');
+    $assert(0 === preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-variant-boundary-desktop-card-intrinsic-card\{[^}]*\b(?:width|max-width):100%/', $variantOnlyBoundaryCss), 'responsive-boundary-mobile-preserves-variant-only-max-width-constraint');
 }

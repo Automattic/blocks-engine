@@ -2501,12 +2501,7 @@ final class StaticHtmlEmitter
             return ' method="get" action="' . $this->sanitizeAttribute($this->linkState->entrypointPath()) . '" role="search"';
         }
 
-        $action = $this->currentPagePath;
-        if ( str_contains($haystack, 'comment') || str_contains($haystack, 'reply') ) {
-            return ' method="post" action="' . $this->sanitizeAttribute($action) . '"';
-        }
-
-        return ' method="post" action="' . $this->sanitizeAttribute($action) . '"';
+        return ' method="post"';
     }
 
     /**
