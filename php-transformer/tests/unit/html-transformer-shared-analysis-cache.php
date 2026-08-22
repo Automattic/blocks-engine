@@ -83,6 +83,26 @@ $assert($withoutDurations($isolatedSitePlan) === $withoutDurations($cachedSitePl
 $artifactMetrics = $cachedCompiler->htmlAnalysisCacheMetrics();
 $assert(($artifactMetrics['style_builds'] ?? 0) === 55 && ($artifactMetrics['style_hits'] ?? 0) >= 53 && ($artifactMetrics['style_bytes'] ?? 0) > 0, 'Artifact compiler exposes bounded source-payload cache build, hit, and byte counters.');
 
+$byteBudgetCache = new HtmlTransformerAnalysisCache();
+$byteBudgetPayloads = array();
+for ( $payloadIndex = 0; $payloadIndex < 8; ++$payloadIndex ) {
+    $rules = array();
+    for ( $ruleIndex = 0; $ruleIndex < 600; ++$ruleIndex ) {
+        $rules[] = '.budget-' . $payloadIndex . '-noise-' . $ruleIndex . '{color:#123456;padding:1px;margin:2px}';
+    }
+    $rules[] = '.budget-' . $payloadIndex . '-target{color:blue}';
+    $byteBudgetPayloads[] = implode('', $rules);
+}
+foreach ( $byteBudgetPayloads as $payloadIndex => $payload ) {
+    (new HtmlTransformer(analysisCache: $byteBudgetCache))->transform('<main class="budget-' . $payloadIndex . '-target">Budget</main>', array('static_css' => $payload, 'skip_author_stylesheet_materialization' => true));
+}
+$rebuild = (new HtmlTransformer(analysisCache: $byteBudgetCache))->transform('<main class="budget-0-target">Budget</main>', array('static_css' => $byteBudgetPayloads[0], 'skip_author_stylesheet_materialization' => true))->toArray();
+$isolatedRebuild = (new HtmlTransformer())->transform('<main class="budget-0-target">Budget</main>', array('static_css' => $byteBudgetPayloads[0], 'skip_author_stylesheet_materialization' => true))->toArray();
+$assert($withoutDurations($isolatedRebuild) === $withoutDurations($rebuild), 'Byte-budget eviction rebuilds must preserve isolated canonical output.');
+$assert(9 === $byteBudgetCache->styleBuilds && $byteBudgetCache->styleEvictions > 0, 'The byte-bound style LRU evicts the oldest payload and deterministically rebuilds it on a later miss.');
+$assert($byteBudgetCache->styleBytes <= 1048576 && $byteBudgetCache->authorSelectorBytes <= 1048576, 'Retained payload analysis bytes remain bounded by the 1 MiB cache budget.');
+$assert($byteBudgetCache->styleBytes + $byteBudgetCache->styleEvictedBytes > 1048576 && $byteBudgetCache->authorSelectorEvictedBytes > 0, 'Eviction counters report analysis graphs beyond the retained 1 MiB byte budget.');
+
 $selectorCache = new HtmlTransformerAnalysisCache();
 $selectorHtml = '<style>.card{color:red}.card.featured[data-state="ready"]{color:green}.card .title{font-weight:700}.card.featured .title{color:blue}</style><section class="card featured" data-state="ready"><h2 class="title">One</h2></section><section class="card featured" data-state="ready"><h2 class="title">Two</h2></section>';
 (new HtmlTransformer(analysisCache: $selectorCache))->transform($selectorHtml);
@@ -107,4 +127,4 @@ $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transf
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
 $assert(4 === $candidateCache->sourceStyleCandidateRuleChecks && 305 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection walks check four relevant rule candidates while deterministically skipping 305 irrelevant candidates.');
 
-fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d bytes=%d; author builds=%d hits=%d evictions=%d entries=%d bytes=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->styleBytes, $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses), $cache->authorSelectorBytes));
+fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d bytes=%d; author builds=%d hits=%d evictions=%d entries=%d bytes=%d; byte budget style builds=%d evictions=%d retained=%d evicted=%d author builds=%d evictions=%d retained=%d evicted=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->styleBytes, $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses), $cache->authorSelectorBytes, $byteBudgetCache->styleBuilds, $byteBudgetCache->styleEvictions, $byteBudgetCache->styleBytes, $byteBudgetCache->styleEvictedBytes, $byteBudgetCache->authorSelectorBuilds, $byteBudgetCache->authorSelectorEvictions, $byteBudgetCache->authorSelectorBytes, $byteBudgetCache->authorSelectorEvictedBytes));
