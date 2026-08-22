@@ -517,12 +517,14 @@ $assert(! str_contains($geometryCustomPropertyMarkup, '--card-width:') && ! str_
 $customPropertyRoundTrip = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),var(--accent))}</style><div class="tour-card" style="--tone:#315b74;border-color:var(--line);border-width:1px;border-style:solid;border-radius:var(--radius);padding:1.2rem;min-height:430px;--accent:#d9b86c">Card</div>');
 $customPropertyRoundTripMarkup = (string) ($customPropertyRoundTrip['serialized_blocks'] ?? '');
 $assert(
-    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);min-height:430px;padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem"')
+    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem"')
+    && ! str_contains($customPropertyRoundTripMarkup, 'min-height:430px')
     && ! str_contains($customPropertyRoundTripMarkup, '--accent:')
     && str_contains($css($customPropertyRoundTrip), '--tone:#315b74 !important')
     && str_contains($css($customPropertyRoundTrip), '--accent:#d9b86c !important')
+    && str_contains($css($customPropertyRoundTrip), 'min-height:430px !important')
     && 'pass' === ($customPropertyRoundTrip['source_reports']['wp_block_validity']['status'] ?? ''),
-    'multiple retained custom properties move to generated carrier CSS while supported styles retain a valid core block round trip',
+    'unsupported custom properties and dimensions move to generated carrier CSS while supported styles retain a valid core block round trip',
     $customPropertyRoundTripMarkup
 );
 
