@@ -13,7 +13,7 @@ final class CapturedDialogBlockGenerator
     {
         $attributes = array(
             'dialogId' => array('type' => 'string', 'default' => ''),
-            'triggerId' => array('type' => 'string', 'default' => ''),
+            'triggerIds' => array('type' => 'array', 'default' => array(), 'items' => array('type' => 'string')),
             'ariaLabel' => array('type' => 'string', 'default' => ''),
             'ariaLabelledby' => array('type' => 'string', 'default' => ''),
             'ariaDescribedby' => array('type' => 'string', 'default' => ''),
@@ -25,7 +25,7 @@ final class CapturedDialogBlockGenerator
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
     function dialogProps( attrs ) {
-        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-trigger': attrs.triggerId || undefined };
+        return { id: attrs.dialogId || undefined, className: attrs.className || undefined, 'aria-label': attrs.ariaLabel || undefined, 'aria-labelledby': attrs.ariaLabelledby || undefined, 'aria-describedby': attrs.ariaDescribedby || undefined, 'data-blocks-engine-triggers': ( attrs.triggerIds || [] ).join( ' ' ) || undefined };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -39,13 +39,13 @@ JS;
 ( function() {
     function mount( dialog ) {
         if ( dialog.dataset.blocksEngineMounted ) return;
-        var trigger = document.getElementById( dialog.getAttribute( 'data-blocks-engine-trigger' ) || '' );
-        if ( ! trigger ) return;
+        var triggers = ( dialog.getAttribute( 'data-blocks-engine-triggers' ) || '' ).split( /\s+/ ).map( function( id ) { return document.getElementById( id ); } ).filter( Boolean );
+        if ( ! triggers.length ) return;
         dialog.dataset.blocksEngineMounted = 'true';
-        trigger.addEventListener( 'click', function( event ) { event.preventDefault(); if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' ); } );
+        triggers.forEach( function( trigger ) { trigger.addEventListener( 'click', function( event ) { event.preventDefault(); if ( dialog.showModal ) dialog.showModal(); else dialog.setAttribute( 'open', '' ); } ); } );
         dialog.addEventListener( 'click', function( event ) { if ( event.target === dialog || event.target.closest( '[data-blocks-engine-dialog-close]' ) ) dialog.close ? dialog.close() : dialog.removeAttribute( 'open' ); } );
     }
-    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-trigger]' ).forEach( mount ); }
+    function mountAll() { document.querySelectorAll( 'dialog[data-blocks-engine-triggers]' ).forEach( mount ); }
     if ( 'loading' === document.readyState ) document.addEventListener( 'DOMContentLoaded', mountAll ); else mountAll();
 } )();
 JS;

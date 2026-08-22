@@ -5362,19 +5362,20 @@ final class HtmlTransformer
 
         $attrs = array_filter(array(
             'dialogId' => trim($this->attr($element, 'id')),
-            'triggerId' => trim($this->attr($element, 'data-blocks-engine-trigger')),
+            'triggerIds' => array_values(array_filter(preg_split('/\s+/', trim($this->attr($element, 'data-blocks-engine-triggers'))) ?: array())),
             'ariaLabel' => trim($this->attr($element, 'aria-label')),
             'ariaLabelledby' => trim($this->attr($element, 'aria-labelledby')),
             'ariaDescribedby' => trim($this->attr($element, 'aria-describedby')),
             'className' => trim($this->attr($element, 'class')),
             'addCloseButton' => 'true' === $this->attr($element, 'data-blocks-engine-add-close'),
-        ), static fn(mixed $value): bool => false !== $value && '' !== $value);
+        ), static fn(mixed $value): bool => false !== $value && '' !== $value && array() !== $value);
         $children = $this->convertChildren($element, $fallbacks, true);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $opening = '<dialog';
-        foreach (array('dialogId' => 'id', 'className' => 'class', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby', 'triggerId' => 'data-blocks-engine-trigger') as $key => $attribute) {
+        foreach (array('dialogId' => 'id', 'className' => 'class', 'ariaLabel' => 'aria-label', 'ariaLabelledby' => 'aria-labelledby', 'ariaDescribedby' => 'aria-describedby') as $key => $attribute) {
             if (isset($attrs[$key])) $opening .= ' ' . $attribute . '="' . $escape((string) $attrs[$key]) . '"';
         }
+        if (isset($attrs['triggerIds'])) $opening .= ' data-blocks-engine-triggers="' . $escape(implode(' ', $attrs['triggerIds'])) . '"';
         $opening .= '>';
         if (! empty($attrs['addCloseButton'])) $opening .= '<button type="button" data-blocks-engine-dialog-close="true" aria-label="Close">Close</button>';
         $innerContent = array($opening);
