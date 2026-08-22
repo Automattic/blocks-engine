@@ -45,11 +45,15 @@ final class WordPressSitePlan
             throw new InvalidArgumentException('WordPress site plan requires compiled-site and materialization-plan reports.');
         }
 
-        $assets = $this->assets($compiled['assets'] ?? null);
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
+        $runtimeScriptOwnership = $this->runtimeScriptOwnership($data['source_reports'], $runtimeDeclarations);
+        $assets = array_values(array_filter(
+            $this->assets($compiled['assets'] ?? null),
+            static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')])
+        ));
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
-        $documents = $this->decideDocuments($compiled['pages'] ?? null);
+        $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
@@ -1015,6 +1019,49 @@ final class WordPressSitePlan
         foreach ($pages as $page) $operations[] = array('kind' => 'create_page', 'order' => count($operations), 'source_path' => $page['source_path'], 'reconciliation_identity' => $page['reconciliation_identity'], 'post_type' => $page['post_type'], 'slug' => $page['slug'], 'route_path' => $page['route']['path'], 'parent_source_path' => $page['parent_source_path'], 'synthetic' => !empty($page['synthetic']));
         foreach ($pages as $page) if (!empty($page['entrypoint'])) { $operations[] = array('kind' => 'site_reading', 'order' => count($operations), 'show_on_front' => 'page', 'front_page_source_path' => $page['source_path'], 'front_page_reconciliation_identity' => $page['reconciliation_identity']); break; }
         return $operations;
+    }
+
+    /** @param array<string,mixed> $sourceReports @param array<int,array<string,mixed>> $runtimeDeclarations @return array{documents:array<string,bool>,assets:array<string,bool>} */
+    private function runtimeScriptOwnership(array $sourceReports, array $runtimeDeclarations): array
+    {
+        $documents = array();
+        $assets = array();
+        $superseded = array();
+        foreach ( $runtimeDeclarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) foreach ( $entity['superseded_scripts'] ?? array() as $script ) {
+            if ( is_array($script) && is_string($script['source_path'] ?? null) && is_string($script['selector'] ?? null) ) $superseded[$script['source_path'] . "\n" . $script['selector']] = true;
+        }
+        $package = is_array($sourceReports['runtime_island_package'] ?? null) ? $sourceReports['runtime_island_package'] : array();
+        foreach ( $package['islands'] ?? array() as $island ) {
+            if ( !is_array($island) || 'script' !== ($island['kind'] ?? null) ) continue;
+            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
+            $selector = is_string($island['selector'] ?? null) ? $island['selector'] : '';
+            if ( isset($superseded[$sourcePath . "\n" . $selector]) ) continue;
+            $drop = 'drop' === ($island['disposition'] ?? null);
+            $carried = false;
+            foreach ( $island['scripts'] ?? array() as $script ) {
+                if ( !is_array($script) ) continue;
+                $scriptCarried = 'telemetry' !== ($script['role'] ?? null) && is_string($script['content'] ?? null) && '' !== trim($script['content']);
+                $carried = $carried || $scriptCarried;
+                if ( ($drop || $scriptCarried) && is_string($script['resolved_path'] ?? null) ) $assets[$script['resolved_path']] = true;
+            }
+            if ( ($drop || $carried) && '' !== $sourcePath && '' !== $selector ) $documents[$sourcePath . "\n" . $selector] = true;
+        }
+        return array('documents' => $documents, 'assets' => $assets);
+    }
+
+    /** @param array<int,array<string,mixed>> $documents @param array<string,bool> $owned @return array<int,array<string,mixed>> */
+    private function withoutOwnedRuntimeScripts(array $documents, array $owned): array
+    {
+        foreach ( $documents as &$document ) {
+            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            if ( !is_array($document['document_metadata']['scripts'] ?? null) ) continue;
+            $document['document_metadata']['scripts'] = array_values(array_filter(
+                $document['document_metadata']['scripts'],
+                static fn(mixed $script): bool => !is_array($script) || !isset($owned[$sourcePath . "\n" . (string) ($script['selector'] ?? '')])
+            ));
+        }
+        unset($document);
+        return $documents;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */

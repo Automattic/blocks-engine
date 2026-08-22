@@ -227,7 +227,7 @@ final class RuntimeIslandPackageBuilder
         if ( 'external' === $script['source_kind'] && '' !== $src ) {
             $script['src'] = $src;
             $resolved = ArtifactPath::resolveRelativePath($src, $sourcePath);
-            $content = $this->externalScriptContent($src, $resolved, $files);
+            $content = $this->externalScriptContent($src, $resolved, $files, $sourcePath);
             if ( '' !== $resolved ) {
                 $script['resolved_path'] = $resolved;
             }
@@ -255,9 +255,14 @@ final class RuntimeIslandPackageBuilder
      *
      * @param array<int, array<string, mixed>> $files
      */
-    private function externalScriptContent(string $src, string $resolved, array $files): ?string
+    private function externalScriptContent(string $src, string $resolved, array $files, string $sourcePath): ?string
     {
         $candidates = array_filter(array($resolved, ltrim($src, '/')), static fn (string $value): bool => '' !== $value);
+        $entryRoot = '.' === dirname($sourcePath) ? '' : trim(dirname($sourcePath), '/');
+        if ( '' !== $entryRoot && str_starts_with($src, '/') ) {
+            $candidates[] = $entryRoot . '/' . ltrim($src, '/');
+        }
+        $candidates = array_values(array_unique($candidates));
         foreach ( $files as $file ) {
             if ( ! is_array($file) || ! empty($file['binary']) ) {
                 continue;

@@ -3969,6 +3969,29 @@ $assert(str_contains((string) ($scriptPayload['preserved_js'][0]['content'] ?? '
 $assert('script:nth-of-type(1)' === ($scriptPayload['preserved_js'][0]['selector'] ?? ''), 'companion payload carries the source script selector');
 $assert('index.html' === ($scriptPayload['preserved_js'][0]['source_path'] ?? ''), 'companion payload carries the source document path');
 
+$rootedScriptCompanion = $compiler->compile(
+    array(
+        'site' => array( 'name' => 'Rooted Runtime Site', 'slug' => 'rooted-runtime-site' ),
+        'root' => 'website',
+        'entrypoint' => 'website/index.html',
+        'files' => array(
+            array( 'path' => 'website/index.html', 'content' => '<main><canvas id="canvas"></canvas></main><script src="/script.js"></script><script src="/.netlify/scripts/rum.js"></script>' ),
+            array( 'path' => 'website/script.js', 'content' => 'document.getElementById("canvas").dataset.ready="true";' ),
+            array( 'path' => 'website/.netlify/scripts/rum.js', 'content' => 'window.netlifyRum=true;' ),
+        ),
+    )
+)->toArray();
+$rootedScriptPayload = $rootedScriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
+$rootedPreservedJs = $rootedScriptPayload['preserved_js'] ?? array();
+$assert(1 === count($rootedPreservedJs), 'root-relative first-party script is resolved against the artifact root and carried once');
+$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'dataset.ready'), 'root-relative first-party script content reaches the companion payload');
+$rootedPlan = $rootedScriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$rootedPlanWriteSources = array_column($rootedPlan['writes'] ?? array(), 'source_path');
+$assert(!in_array('website/script.js', $rootedPlanWriteSources, true), 'companion-owned first-party script is not duplicated into the theme plan');
+$assert(!in_array('website/.netlify/scripts/rum.js', $rootedPlanWriteSources, true), 'dropped telemetry script is not written into the theme plan');
+$rootedPlanScripts = array_merge(...array_map(static fn(array $page): array => $page['document_metadata']['scripts'] ?? array(), $rootedPlan['pages'] ?? array()));
+$assert(array() === $rootedPlanScripts, 'companion-owned and dropped script declarations are absent from theme loading');
+
 $companionNoSite = $compiler->compile(
     array(
         'files' => array(
