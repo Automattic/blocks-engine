@@ -63,6 +63,7 @@
       "php tests/unit/runtime-declarations-streaming-hash.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
+      "php tests/unit/responsive-media-block.php",
       "php tests/unit/editability-report.php",
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/list-item-lowering.php",
