@@ -135,6 +135,29 @@ $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $inlineAssets = array_column($inlineSitePlan['assets'] ?? array(), null, 'source_path');
 $assert('about.html' === ($inlineAssets['about.inline.css']['scopes'][0]['source_path'] ?? null) && false === ($inlineAssets['about.inline.css']['scopes'][0]['front_page'] ?? null), 'Inferred inline stylesheet ownership follows its canonical non-root route even when that page is the compiler entrypoint.');
+$bundledPages = array();
+foreach (array('index.html', 'about.html', 'posts/news.html') as $page) {
+    $styles = '';
+    for ($index = 0; $index < 8; ++$index) {
+        $styles .= '<style>.cascade-' . $index . '{color:#' . $index . $index . $index . '}</style>';
+    }
+    $styles .= '<style media="(max-width: 48rem)">.responsive-' . str_replace(array('/', '.'), '-', $page) . '{display:block}</style>';
+    $bundledPages[] = array('path' => $page, 'content' => '<link rel="stylesheet" href="' . ('index.html' === $page ? 'assets/shared.css' : str_repeat('../', substr_count($page, '/')) . 'assets/shared.css') . '">' . $styles . '<main>Bundled ' . $page . '</main>');
+}
+$bundledArtifact = array('entrypoint' => 'index.html', 'files' => array_merge(array(array('path' => 'assets/shared.css', 'content' => '.shared{display:grid}', 'metadata' => array('compilation' => array('scope' => 'shared')))), $bundledPages));
+$bundleCompiler = new ArtifactCompiler();
+$bundledWhole = $bundleCompiler->compile($bundledArtifact)->toArray();
+$bundledShared = $bundleCompiler->prepareShared($bundledArtifact);
+$bundledReceipts = array();
+foreach ($bundledShared['analysis']['page_ids'] as $pageId) $bundledReceipts[] = $bundleCompiler->compilePage($bundledArtifact, $bundledShared, $pageId);
+$bundledStaged = $bundleCompiler->compose($bundledShared, array_reverse($bundledReceipts))->toArray();
+$bundledPlan = $bundledWhole['source_reports']['wordpress_site_plan'] ?? array();
+$bundledCss = array_values(array_filter($bundledPlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)));
+$bundledBootstrap = (string) ((array_column($bundledPlan['writes'] ?? array(), null, 'target_path')['functions.php']['payload']['data'] ?? ''));
+$assert(8 === count($bundledCss) && 8 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 2 === substr_count($bundledBootstrap, 'is_front_page()'), 'Three-page inline-style fragmentation coalesces into one shared and two bounded stylesheet records per route, plus the existing global engine-support stylesheet.');
+$indexBundle = current(array_filter($bundledCss, static fn(array $asset): bool => 'page' === ($asset['scopes'][0]['kind'] ?? null) && true === ($asset['scopes'][0]['front_page'] ?? null) && '' === ($asset['media'] ?? '')));
+$assert(is_array($indexBundle) && str_contains((string) ($indexBundle['content'] ?? ''), '.cascade-0{color:#000}') && strpos((string) $indexBundle['content'], '.cascade-0{color:#000}') < strpos((string) $indexBundle['content'], '.cascade-7{color:#777}') && hash('sha256', (string) $indexBundle['content']) === ($indexBundle['content_hash'] ?? null), 'A coalesced route bundle preserves author cascade order and content-addressed identity.');
+$assert($canonical($bundledWhole['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($bundledStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($bundledWhole['diagnostics'] ?? array()) === $canonical($bundledStaged['diagnostics'] ?? array()), 'Bounded stylesheet bundles preserve direct and staged canonical plans and diagnostics.');
 $formsDeclaration = current(array_filter($whole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(29 === count($formsDeclaration['payload']['entities'] ?? array()) && $formsPayloadBytes === strlen(RuntimeDeclarations::canonicalJson($formsDeclaration['payload'] ?? null)), 'Compilation retains the complete bounded 29-form runtime declaration.');
 
