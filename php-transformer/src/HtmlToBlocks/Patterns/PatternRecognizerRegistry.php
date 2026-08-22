@@ -14,15 +14,12 @@ final class PatternRecognizerRegistry
     {
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    public function firstMatch(DOMElement $element, PatternContext $context): ?array
+    public function firstMatch(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         foreach ( $this->recognizers as $recognizer ) {
-            $block = $recognizer->match($element, $context);
-            if ( null !== $block ) {
-                return $block;
+            $result = $recognizer->recognize($element, $context);
+            if ( null !== $result ) {
+                return $result;
             }
         }
 
