@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 /** Measures bounded editability risks independently of visual-parity evidence. */
 final class EditabilityReport
 {
-    public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v3';
+    public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v2';
     private const MAX_REPORTED_SIGNALS = 100;
     private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u');
     private const RICH_TEXT_ATTRIBUTES = array(
