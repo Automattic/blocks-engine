@@ -13734,7 +13734,7 @@ final class HtmlTransformer
         if ( ! $image instanceof DOMElement ) {
             foreach ( $anchor->childNodes as $child ) {
                 if ( $child instanceof DOMElement ) {
-                    $image = $this->imageOnlyCustomElement($child);
+                    $image = $this->imageOnlyCarrierElement($child);
                     if ( $image instanceof DOMElement ) {
                         break;
                     }
@@ -13749,7 +13749,7 @@ final class HtmlTransformer
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCustomElement($child) instanceof DOMElement ) ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCarrierElement($child) instanceof DOMElement ) ) {
                     return false;
                 }
                 ++$imageChildren;
@@ -13999,6 +13999,35 @@ final class HtmlTransformer
         }
 
         return $images->item(0);
+    }
+
+    private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement
+    {
+        $customImage = $this->imageOnlyCustomElement($element);
+        if ( $customImage instanceof DOMElement ) {
+            return $customImage;
+        }
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || '' !== trim($element->textContent ?? '') ) {
+            return null;
+        }
+
+        $image = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            $candidate = 'img' === strtolower($child->tagName) ? $child : $this->imageOnlyCarrierElement($child);
+            if ( ! $candidate instanceof DOMElement || $image instanceof DOMElement ) {
+                return null;
+            }
+            $image = $candidate;
+        }
+
+        return $image;
     }
 
     private function isImageCarrierButton(DOMElement $element): bool

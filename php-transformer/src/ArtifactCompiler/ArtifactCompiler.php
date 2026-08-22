@@ -323,6 +323,13 @@ final class ArtifactCompiler
                 'source_hash'   => $normalized['source_hash'],
             ),
         );
+        $sourceUrl = is_array($artifact['provenance'] ?? null) && is_string($artifact['provenance']['source_url'] ?? null)
+            ? trim($artifact['provenance']['source_url'])
+            : '';
+        $sourceUrlParts = '' !== $sourceUrl ? parse_url($sourceUrl) : false;
+        if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
+            $provenance[0]['source_url'] = $sourceUrl;
+        }
         // WordPressSitePlan consumes a canonical result envelope, so give it a
         // provisional report before final diagnostics and metrics are projected.
         $metrics = array(

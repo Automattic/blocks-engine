@@ -16,6 +16,7 @@ final class WordPressSitePlan
 {
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
+    private string $sourceUrl = '';
 
     /**
      * Stable canonical bytes for an approval system to bind externally.
@@ -35,6 +36,7 @@ final class WordPressSitePlan
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
         TransformerResult::assertCanonicalEnvelope($data);
+        $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
         $editabilityPolicy = $data['source_reports']['editability_policy'] ?? null;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -1334,9 +1336,24 @@ final class WordPressSitePlan
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string
     {
-        if ('' === $value || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $value)) return null;
+        if ('' === $value || preg_match('~^(?://|#|\?)~', $value)) return null;
         $suffix = ''; if (preg_match('/^([^?#]*)(.*)$/', $value, $match)) { $value = $match[1]; $suffix = $match[2]; }
+        if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $value)) {
+            if (!$this->isSameOriginSourceUrl($value)) return null;
+            $absolute = parse_url($value);
+            $value = is_array($absolute) && is_string($absolute['path'] ?? null) && '' !== $absolute['path'] ? $absolute['path'] : '/';
+        }
         if (str_contains($value, '%') || str_contains($value, '\\')) return null;
+        if (str_starts_with($value, '/')) {
+            $routePath = '/' . trim($value, '/');
+            if ('/' === $value) $routePath = '/';
+            foreach ($routes as $route) {
+                if (!is_array($route)) continue;
+                $targetPath = (string) ($route['target_path'] ?? '');
+                $normalizedTarget = '/' === $targetPath ? '/' : '/' . trim($targetPath, '/');
+                if ($routePath === $normalizedTarget) return $targetPath . $suffix;
+            }
+        }
         // A root-relative link (e.g. /contact.html) targets the site web root,
         // which is the entrypoint's packaging directory. Resolve it against that
         // root so it matches the document source path (website/contact.html)
@@ -1346,6 +1363,26 @@ final class WordPressSitePlan
         if (null === $path) return null;
         foreach ($routes as $route) if (is_array($route) && $path === ($route['source_path'] ?? null)) return $route['target_path'] . $suffix;
         return null;
+    }
+    /** @param array<int,mixed> $provenance */
+    private function sourceUrlFromProvenance(array $provenance): string
+    {
+        foreach ($provenance as $entry) {
+            if (!is_array($entry) || !is_string($entry['source_url'] ?? null)) continue;
+            $url = trim($entry['source_url']);
+            $parts = parse_url($url);
+            if (is_array($parts) && in_array(strtolower((string) ($parts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($parts['host'] ?? '') && !isset($parts['user'], $parts['pass'])) return $url;
+        }
+        return '';
+    }
+    private function isSameOriginSourceUrl(string $url): bool
+    {
+        if ('' === $this->sourceUrl) return false;
+        $source = parse_url($this->sourceUrl);
+        $candidate = parse_url($url);
+        if (!is_array($source) || !is_array($candidate)) return false;
+        $origin = static fn(array $parts): string => strtolower((string) ($parts['scheme'] ?? '')) . '://' . strtolower((string) ($parts['host'] ?? '')) . ':' . (string) ($parts['port'] ?? ('https' === strtolower((string) ($parts['scheme'] ?? '')) ? 443 : 80));
+        return $origin($source) === $origin($candidate) && !isset($candidate['user'], $candidate['pass']);
     }
     private static function resolveRouteSource(string $origin, string $value): ?string { $segments = array_filter(explode('/', dirname($origin)), static fn(string $segment): bool => '' !== $segment && '.' !== $segment); foreach (explode('/', $value) as $segment) { if ('' === $segment || '.' === $segment) continue; if ('..' === $segment) { if (array() === $segments) return null; array_pop($segments); continue; } $segments[] = $segment; } return implode('/', $segments); }
     /** @param array<string,mixed> $plan @param array<string,array<string,mixed>> $writes */
