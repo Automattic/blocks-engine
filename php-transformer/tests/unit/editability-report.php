@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 
 $blocks = array(array(
     'blockName' => 'core/group',
-    'attrs' => array('className' => 'blocks-engine-source-div-a be-inline-geometry-b'),
+    'attrs' => array('className' => 'blocks-engine-source-div-a be-inline-geometry-' . str_repeat('b', 64)),
     'innerBlocks' => array(
         array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
         array('blockName' => 'core/paragraph', 'attrs' => array('content' => 'Editable <strong>copy</strong>'), 'innerBlocks' => array(), 'innerHTML' => '<p>Editable <strong>copy</strong></p>'),
@@ -61,5 +61,19 @@ if (1 !== $richTextReport['metrics']['structural_rich_text_attribute_count'] || 
 if ('structural_rich_text_attribute' !== ($richTextReport['signals'][0]['kind'] ?? null) || 'core/list-item' !== ($richTextReport['signals'][0]['block_name'] ?? null)) throw new RuntimeException('Structural RichText evidence must retain block attribution.');
 $richTextPolicy = (new EditabilityPolicy())->evaluate($richTextReport);
 if ('failed' !== $richTextPolicy['status'] || 'required' !== $richTextPolicy['enforcement'] || 'structural_rich_text_attribute_count' !== ($richTextPolicy['failures'][0]['metric'] ?? null) || 'standalone.html' !== ($richTextPolicy['failures'][0]['source_path'] ?? null)) throw new RuntimeException('Standalone reports fail the bounded meaningful-editability policy with source-path attribution.');
+
+$intentionalEmpties = (new EditabilityReport())->fromBlocks(array(
+    array('blockName' => 'core/group', 'attrs' => array('className' => 'be-inline-geometry-deadbeef'), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('background' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array('style' => array('shadow' => '0 1px 2px #000')), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array('className' => 'be-inline-geometry-' . str_repeat('a', 64)), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
+    array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => ''),
+), '', '', '.be-inline-geometry-' . str_repeat('a', 64) . '{height:1px}', array('blocks.5'));
+if (3 !== $intentionalEmpties['metrics']['empty_visual_group_count'] || 1 !== $intentionalEmpties['metrics']['empty_runtime_group_count'] || 3 !== $intentionalEmpties['metrics']['empty_wrapper_count'] || 2 !== $intentionalEmpties['metrics']['generated_geometry_class_count'] || array('empty_wrapper', 'empty_wrapper', 'empty_visual_group', 'empty_visual_group', 'empty_visual_group', 'empty_runtime_group', 'empty_wrapper') !== array_column($intentionalEmpties['signals'], 'kind')) throw new RuntimeException('Text-only color, spoofed tokens, visual styles, verified carriers, and explicit runtime ownership remain distinct while geometry-prefix metrics remain compatible.');
+
+$textOnlyPolicy = (new EditabilityPolicy())->evaluate((new EditabilityReport())->fromBlocks(array_fill(0, 11, array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''))));
+if ('failed' !== $textOnlyPolicy['status'] || 11 !== ($textOnlyPolicy['failures'][0]['actual'] ?? null)) throw new RuntimeException('Eleven text-only empty Groups remain policy-counted neutral wrappers.');
 
 fwrite(STDOUT, "editability report contract passed\n");
