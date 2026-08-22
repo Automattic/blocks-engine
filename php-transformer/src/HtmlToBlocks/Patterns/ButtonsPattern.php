@@ -26,13 +26,20 @@ final class ButtonsPattern
      * @param callable(DOMElement, string): ?string $materializeSvgImages
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(DOMElement): array<string, mixed> $accessibleNameFallback
      * @return array<string, mixed>|null
      */
-    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock): ?array
+    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $materializeSvgImages, callable $attr, callable $createBlock, callable $accessibleNameFallback): ?array
     {
         $fileBlock = $fileBlockFromAnchor($anchor);
         if ( null !== $fileBlock ) {
             return $fileBlock;
+        }
+
+        // A native button cannot faithfully retain nested controls or runtime
+        // handlers. Let the normal fallback path retain those diagnostics.
+        if ( $this->hasUnsafeButtonContent($anchor) || $this->hasRuntimeBehaviorSignal($anchor) ) {
+            return null;
         }
 
         if ( $this->isPositionedFragmentNavigation($anchor, (string) $resolvedStyle($anchor)) ) {
@@ -40,8 +47,13 @@ final class ButtonsPattern
         }
 
         $surface = $this->buttonSurfaceElement($anchor);
-        if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
+        if ( ! $this->hasButtonSignal($anchor, (string) $resolvedStyle($anchor), null !== $surface ? (string) $resolvedStyle($surface) : '', $resolvedStyle) ) {
             return null;
+        }
+
+        $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
+        if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+            return $accessibleNameFallback($anchor);
         }
 
         return $createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $presentationAttributes, $resolvedStyle), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock) ), $anchor);
@@ -75,7 +87,7 @@ final class ButtonsPattern
                 array(
                     'tagName' => 'button',
                     'text'    => $text,
-                    'title'   => $this->buttonAccessibleTitle($button, $text),
+                    'title'   => $this->buttonAccessibleTitle($button),
                 )
             ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $button),
         ), $button);
@@ -100,7 +112,7 @@ final class ButtonsPattern
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
             $surface = $child instanceof DOMElement ? $this->buttonSurfaceElement($child) : null;
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, (string) $resolvedStyle($child)) && $this->hasButtonSignal($child, (string) $resolvedStyle($child), null !== $surface ? (string) $resolvedStyle($surface) : '') ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, (string) $resolvedStyle($child)) && $this->hasButtonSignal($child, (string) $resolvedStyle($child), null !== $surface ? (string) $resolvedStyle($surface) : '', $resolvedStyle) ) {
                 $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $materializeSvgImages, $attr, $createBlock);
             }
         }
@@ -143,9 +155,11 @@ final class ButtonsPattern
         $text = $this->buttonText($anchor, $innerHtml($anchor), $materializeSvgImages);
 
         return $createBlock('core/button', array_filter(array_merge($attrs, array(
-            'text'  => $text,
-            'url'   => $attr($anchor, 'href'),
-            'title' => $this->buttonAccessibleTitle($anchor, $text),
+            'text'       => $text,
+            'url'        => $attr($anchor, 'href'),
+            'title'      => $this->buttonTitleForAnchor($anchor, $text),
+            'linkTarget' => $attr($anchor, 'target'),
+            'rel'        => $attr($anchor, 'rel'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $presentationElement, $anchor);
     }
 
@@ -225,9 +239,30 @@ final class ButtonsPattern
         return '';
     }
 
-    private function buttonAccessibleTitle(DOMElement $element, string $text): string
+    private function buttonTitle(DOMElement $element): string
     {
-        return html_entity_decode($this->accessibleFallbackLabel($element), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return html_entity_decode(trim($element->getAttribute('title')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
+    private function buttonTitleForAnchor(DOMElement $anchor, string $text): string
+    {
+        // An icon-only core/button has no visible accessible name. `title` is
+        // its supported content attribute and retains the source aria label.
+        return '' === $this->normalizedAccessibleText($this->plainText($text))
+            ? $this->buttonAccessibleTitle($anchor)
+            : $this->buttonTitle($anchor);
+    }
+
+    private function buttonAccessibleTitle(DOMElement $element): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = trim($element->getAttribute($attribute));
+            if ( '' !== $label ) {
+                return html_entity_decode($label, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+        }
+
+        return '';
     }
 
     private function plainText(string $html): string
@@ -235,29 +270,16 @@ final class ButtonsPattern
         return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
     }
 
-    private function accessibleFallbackLabel(DOMElement $element): string
+    private function hasMateriallyDifferentAccessibleLabel(DOMElement $anchor, string $text): bool
     {
-        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $label = trim($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
-            if ( '' !== $label ) {
-                return htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
+        $ariaLabel = $this->normalizedAccessibleText($anchor->getAttribute('aria-label'));
+        $visibleLabel = $this->normalizedAccessibleText($this->plainText($text));
+        return '' !== $ariaLabel && '' !== $visibleLabel && $ariaLabel !== $visibleLabel;
+    }
 
-        $image = $element->getElementsByTagName('img')->item(0);
-        if ( $image instanceof DOMElement ) {
-            $alt = trim($image->hasAttribute('alt') ? $image->getAttribute('alt') : '');
-            if ( '' !== $alt ) {
-                return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
-
-        $title = $element->getElementsByTagName('title')->item(0);
-        if ( $title instanceof DOMElement && '' !== trim($title->textContent ?? '') ) {
-            return htmlspecialchars(trim($title->textContent ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        }
-
-        return '';
+    private function normalizedAccessibleText(string $text): string
+    {
+        return strtolower(trim(preg_replace('/\s+/', ' ', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? ''));
     }
 
     /**
@@ -472,14 +494,35 @@ final class ButtonsPattern
         return preg_match('/^(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*$/i', trim((string) ($matches[1] ?? ''))) === 1;
     }
 
-    private function hasButtonSignal(DOMElement $anchor, string $resolvedStyle = '', string $surfaceStyle = ''): bool
+    /** @param callable(DOMElement): string $resolvedStyle */
+    private function hasButtonSignal(DOMElement $anchor, string $resolvedStyle = '', string $surfaceStyle = '', ?callable $resolvedStyleForElement = null): bool
     {
-        if ( $this->signalClassifier->hasTransformSignal($anchor, $resolvedStyle) ) {
+        $hasNestedLabelAndSvg = $this->hasNestedLabelAndSvg($anchor);
+        if ( $this->signalClassifier->hasTransformSignal($anchor, $resolvedStyle) || ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($anchor) ) ) {
             return true;
         }
 
         $surface = $this->buttonSurfaceElement($anchor);
-        return null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $surfaceStyle);
+        if ( null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $surfaceStyle) ) {
+            return true;
+        }
+
+        // Wix-style controls commonly put the visual surface on a nested label
+        // span and add a sibling decorative SVG. The single-child surface rule
+        // above intentionally rejects that topology, so inspect safe phrasing
+        // descendants without treating arbitrary nested content as a button.
+        foreach ( $anchor->getElementsByTagName('span') as $label ) {
+            if ( $label instanceof DOMElement && ( ( $hasNestedLabelAndSvg && $this->signalClassifier->hasClassSignal($label) ) || ( null !== $resolvedStyleForElement && $this->signalClassifier->hasTransformSignal($label, (string) $resolvedStyleForElement($label)) ) ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasNestedLabelAndSvg(DOMElement $anchor): bool
+    {
+        return $anchor->getElementsByTagName('span')->length > 0 && $anchor->getElementsByTagName('svg')->length > 0;
     }
 
     private function isPositionedFragmentNavigation(DOMElement $anchor, string $resolvedStyle): bool
@@ -523,6 +566,10 @@ final class ButtonsPattern
 
 	private function isSimpleAnchor(DOMElement $anchor): bool
 	{
+		if ( $this->hasRuntimeBehaviorSignal($anchor) ) {
+			return false;
+		}
+
 		foreach ( $anchor->childNodes as $child ) {
 			if ( ! $child instanceof DOMElement ) {
 				continue;
@@ -534,6 +581,9 @@ final class ButtonsPattern
 			}
 
 			if ( 'svg' === $tagName ) {
+				if ( $this->svgHasRuntimeBehaviorSignal($child) ) {
+					return false;
+				}
 				continue;
 			}
 
@@ -544,6 +594,33 @@ final class ButtonsPattern
 
 		return true;
 	}
+
+    private function svgHasRuntimeBehaviorSignal(DOMElement $svg): bool
+    {
+        foreach ( $svg->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->hasRuntimeBehaviorSignal($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasUnsafeButtonContent(DOMElement $anchor): bool
+    {
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($descendant->tagName), array( 'a', 'audio', 'button', 'details', 'embed', 'form', 'iframe', 'img', 'input', 'picture', 'select', 'textarea', 'video' ), true)
+                || $this->hasRuntimeBehaviorSignal($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /**
      * @param array<int, string> $tokens

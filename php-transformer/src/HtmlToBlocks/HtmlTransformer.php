@@ -4421,7 +4421,7 @@ final class HtmlTransformer
             return $mediaDispatch['block'];
         }
 
-        if ($this->fallbackReductionMode && in_array($tagName, array('a', 'button'), true)) {
+        if ($this->fallbackReductionMode && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));
@@ -4430,6 +4430,13 @@ final class HtmlTransformer
                 }
                 return $this->createBlock('core/buttons', array(), array($this->createBlock('core/button', $attrs, array(), $element)), $element);
             }
+        }
+
+        // Anchors are phrasing content, but button-like anchors must be offered
+        // to the button dispatcher before generic inline lowering splits their
+        // label and decorative SVG into separate paragraph blocks.
+        if ( 'a' === $tagName ) {
+            return $this->convertAnchorDispatchElement($element, $fallbacks);
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
