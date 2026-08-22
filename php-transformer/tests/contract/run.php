@@ -831,6 +831,12 @@ $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful i
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
+$exportedSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<main><svg version="1.1" class="quote-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 25.666 20.188" enable-background="new 0 0 25.666 20.188" xml:space="preserve"><g><path d="M9.33,9.33H4.814V0h9.33V9.33z"></path></g></svg></main>'
+)->toArray();
+$exportedSvgMarkup = (string) ($exportedSvgArtwork['serialized_blocks'] ?? '');
+$assert('core/image' === ($exportedSvgArtwork['blocks'][0]['blockName'] ?? '') && ! str_contains($exportedSvgMarkup, '<!-- wp:html'), 'passive exported SVG metadata remains native core/image artwork');
+
 $positionedFillSvg = ( new HtmlTransformer() )->transform(
     '<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>'
 )->toArray();
