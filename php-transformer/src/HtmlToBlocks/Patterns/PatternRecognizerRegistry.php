@@ -14,9 +14,14 @@ final class PatternRecognizerRegistry
     {
     }
 
-    public function firstMatch(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    /** @param list<class-string<PatternRecognizerInterface>|string> $allowed */
+    public function firstMatch(DOMElement $element, PatternContext $context, array $allowed = array()): ?PatternRecognitionResult
     {
         foreach ( $this->recognizers as $recognizer ) {
+            $name = $recognizer instanceof CallbackPatternRecognizer ? $recognizer->name() : $recognizer::class;
+            if ( array() !== $allowed && ! in_array($name, $allowed, true) ) {
+                continue;
+            }
             $result = $recognizer->recognize($element, $context);
             if ( null !== $result ) {
                 return $result;

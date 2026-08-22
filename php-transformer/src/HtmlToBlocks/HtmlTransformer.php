@@ -16,6 +16,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CallbackPatternRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
@@ -29,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
@@ -585,6 +587,33 @@ final class HtmlTransformer
         $this->quotePattern      = new QuotePattern();
         $this->spacerPattern     = new SpacerPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
+            $this->mediaTextPattern,
+            $this->coverPattern,
+            $this->columnsPattern,
+            new CallbackPatternRecognizer('math', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->mathPattern->match($element, fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement), fn (string $text): string => $this->runtime->escapeHtml($text), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('parameter-table', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->parameterTablePattern->match($element, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('spacer', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->spacerPattern->match($element, fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className), $context->presentationAttributesCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('code-window', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->codeWindowPattern->match($element, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode), fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('logo', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->logoPattern->match($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('placeholder-media', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->placeholderMediaPattern->match($element, $context->presentationAttributesCallback(), fn (string $value): string => $this->runtime->escapeHtml($value), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
             new AccordionPattern(),
             new SocialLinksPattern(),
             new NavigationPattern(),
@@ -2967,12 +2996,16 @@ final class HtmlTransformer
         return array() === $payloads ? array($staticCss) : $payloads;
     }
 
-    /** @return list<string> */
+    /** @return list<array{content: string, source_path: string, source_hash: string}> */
     private function authorStylesheetPayloads(string $html, string $staticCss): array
     {
         if ( array() !== $this->authorStylesheetAssets ) {
-            $payloads = array_values(array_filter(array_column($this->authorStylesheetAssets, 'content'), static fn (string $payload): bool => '' !== trim($payload)));
-            return $this->hasSafeStylesheetBoundaries($payloads) ? $payloads : array(implode("\n\n", $payloads));
+            $payloads = array_values(array_filter($this->authorStylesheetAssets, static fn (array $asset): bool => '' !== trim($asset['content'])));
+            if ( $this->hasSafeStylesheetBoundaries(array_column($payloads, 'content')) ) {
+                return array_map(static fn (array $asset): array => array('content' => $asset['content'], 'source_path' => $asset['source_path'], 'source_hash' => $asset['source_hash']), $payloads);
+            }
+            $content = implode("\n\n", array_column($payloads, 'content'));
+            return array(array('content' => $content, 'source_path' => 'combined-stylesheets', 'source_hash' => hash('sha256', $content)));
         }
 
         $payloads = array();
@@ -2985,7 +3018,11 @@ final class HtmlTransformer
             }
         }
 
-        return $this->hasSafeStylesheetBoundaries($payloads) ? $payloads : array(implode("\n\n", $payloads));
+        if ( $this->hasSafeStylesheetBoundaries($payloads) ) {
+            return array_map(static fn (string $content): array => array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)), $payloads);
+        }
+        $content = implode("\n\n", $payloads);
+        return array(array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)));
     }
 
     /** @return list<string> */
@@ -3119,11 +3156,11 @@ final class HtmlTransformer
     {
         $composed = array('source_tags' => array(), 'selectors' => array(), 'rules' => array());
         foreach ( $payloads as $payload ) {
-            $key = hash('sha256', $payload);
+            $key = hash('sha256', $payload['content']);
             $analysis = $this->analysisCache->authorSelectors($key);
             if ( null === $analysis ) {
                 ++$this->analysisCache->authorSelectorBuilds;
-                $analysis = $this->authorSelectorAnalysis($payload);
+                $analysis = $this->authorSelectorAnalysis($payload['content']);
                 ++$this->analysisCache->authorStyleRuleBuilds;
                 $this->analysisCache->rememberAuthorSelectors($key, $analysis);
             } else {
@@ -3133,6 +3170,8 @@ final class HtmlTransformer
             $composed['selectors'] = array_merge($composed['selectors'], $analysis['selectors']);
             foreach ( $analysis['rules'] as $rule ) {
                 $rule['order'] = count($composed['rules']);
+                $rule['source_path'] = $payload['source_path'];
+                $rule['source_hash'] = $payload['source_hash'];
                 $composed['rules'][] = $rule;
             }
         }
@@ -4295,8 +4334,35 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
             fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
+            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
+            function (DOMElement $sourceElement, bool $captureUnsupported): \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult {
+                $fallbacks = array();
+                return new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult($this->convertChildren($sourceElement, $fallbacks, $captureUnsupported), $fallbacks);
+            },
+            function (DOMElement $sourceElement, bool $captureUnsupported): \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult {
+                $fallbacks = array();
+                $block = $this->convertElement($sourceElement, $fallbacks, $captureUnsupported);
+                return new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult(null === $block ? array() : array($block), $fallbacks);
+            },
+            fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+            fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
+            fn (string $url): string => $this->resolvedAssetImageUrl($url),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+            fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement))
         );
+    }
+
+    /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
+    private function recognizePatterns(DOMElement $element, array &$fallbacks, array $allowed, bool $includeRuntimeDomTarget = true): ?array
+    {
+        $result = $this->patternRecognizers->firstMatch($element, $this->patternContext($includeRuntimeDomTarget), $allowed);
+        if (null === $result) return null;
+        // Results own fallback payloads until their block wins the ordered stage.
+        // Assign rather than mutating a variadic argument so reference-backed
+        // child conversion diagnostics retain their exact order.
+        $fallbacks = array_merge($fallbacks, $result->fallbacks());
+        return $result->block();
     }
 
     /**
@@ -4415,15 +4481,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $mathBlock = $this->mathPattern->match(
-            $element,
-            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-            fn (string $text): string => $this->runtime->escapeHtml($text),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
+        $mathBlock = $this->recognizePatterns($element, $fallbacks, array('math'));
         if ( null !== $mathBlock ) {
             return $mathBlock;
         }
@@ -4596,9 +4654,9 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
+            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
 
             if ( $this->isStructuredCardList($element) ) {
@@ -4838,12 +4896,7 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
-        $parameterTable = $this->parameterTablePattern->match(
-            $element,
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
+        $parameterTable = $this->recognizePatterns($element, $fallbacks, array('parameter-table'));
         if ( null !== $parameterTable ) {
             return $parameterTable;
         }
@@ -4979,9 +5032,9 @@ final class HtmlTransformer
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
+            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class), false);
             if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
 
             $inlineNavigation = $this->inlineNavigationGroupBlockFromElement($element);
@@ -5027,17 +5080,7 @@ final class HtmlTransformer
                 // media-text candidates are by definition authored flex/grid
                 // containers, so they must be recognized before the layout is
                 // demoted to a css-owned core/group.
-                $mediaText = $this->mediaTextPattern->match(
-                    $element,
-                    $fallbacks,
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
-                    fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
-                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
-                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-                );
+                $mediaText = $this->recognizePatterns($element, $fallbacks, array(MediaTextPattern::class));
                 if ( null !== $mediaText ) {
                     return $mediaText;
                 }
@@ -5071,26 +5114,12 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            $logo = $this->logoPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
-                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $logo = $this->recognizePatterns($element, $fallbacks, array('logo'));
             if ( null !== $logo ) {
                 return $logo;
             }
 
-            $spacer = $this->spacerPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $spacer = $this->recognizePatterns($element, $fallbacks, array('spacer'));
             if ( null !== $spacer ) {
                 return $spacer;
             }
@@ -5101,9 +5130,9 @@ final class HtmlTransformer
             }
 
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
-                $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
+                $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
                 if ( null !== $navigation ) {
-                    return $this->rememberAccordionDisclosureRoot($navigation->block(), $element);
+                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
                 }
             }
 
@@ -5126,16 +5155,7 @@ final class HtmlTransformer
                     return $disclosure;
                 }
 
-                $cover = $this->coverPattern->match(
-                    $element,
-                    $fallbacks,
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
-                    fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                    fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
-                    fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
-                    fn (string $url): string => $this->resolvedAssetImageUrl($url),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-                );
+                $cover = $this->recognizePatterns($element, $fallbacks, array(CoverPattern::class));
                 if ( null !== $cover ) {
                     return $cover;
                 }
@@ -5145,15 +5165,7 @@ final class HtmlTransformer
                 // definition authored flex/grid containers.
             }
 
-            $columns = $this->columnsPattern->match(
-                $element,
-                $fallbacks,
-                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
-                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $columns = $this->recognizePatterns($element, $fallbacks, array(ColumnsPattern::class));
             if ( null !== $columns ) {
                 return $columns;
             }
@@ -5163,14 +5175,7 @@ final class HtmlTransformer
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
-                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $codeWindow = $this->recognizePatterns($element, $fallbacks, array('code-window'));
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -5306,12 +5311,7 @@ final class HtmlTransformer
      */
     private function convertMediaDispatchElement(DOMElement $element, string $tagName, array &$fallbacks): array
     {
-        $placeholderMedia = $this->placeholderMediaPattern->match(
-            $element,
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (string $value): string => $this->runtime->escapeHtml($value),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
+        $placeholderMedia = $this->recognizePatterns($element, $fallbacks, array('placeholder-media'));
         if ( null !== $placeholderMedia ) {
             return array( 'handled' => true, 'block' => $placeholderMedia );
         }
@@ -5611,6 +5611,13 @@ final class HtmlTransformer
             $block['_source_provenance_id'] = $provenanceId;
         }
         if ($runtimeOwned) $block['_editability_runtime_owned'] = true;
+        if ( $sourceElement instanceof DOMElement && array() === $innerBlocks && 'core/group' === $name ) {
+            $visualTopologyEvidence = $this->emptyVisualTopologyEvidence($sourceElement);
+            if ( array() !== $visualTopologyEvidence ) {
+                $block['_editability_visual_owned'] = true;
+                $this->sourceProvenance[$provenanceId]['visual_topology_evidence'] = $visualTopologyEvidence;
+            }
+        }
 
         return $block;
     }
@@ -7690,6 +7697,58 @@ final class HtmlTransformer
         return false;
     }
 
+    /**
+     * Return resting stylesheet declarations which prove an otherwise empty group
+     * is authored layout, paint, or control topology. Stateful selectors never
+     * contribute: source capture has no interaction state to prove.
+     *
+     * @return list<array{selector: string, declarations: array<string, string>, specificity: int, order: int, source_path: string, source_hash: string}>
+     */
+    private function emptyVisualTopologyEvidence(DOMElement $element): array
+    {
+        $evidence = array();
+        $matchedRules = array();
+        foreach ( $this->authorStyleRuleCandidates($element) as $candidate ) {
+            $ruleOrder = (int) $candidate['rule_order'];
+            if ( isset($matchedRules[$ruleOrder])
+                || ! ($candidate['parsed']['supported'] ?? false)
+                || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
+                || ! ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+            ) {
+                continue;
+            }
+            $matchedRules[$ruleOrder] = true;
+            $declarations = array_filter(
+                $candidate['declarations'],
+                fn (string $value, string $property): bool => $this->isNonNeutralVisualTopologyDeclaration($property, $value),
+                ARRAY_FILTER_USE_BOTH
+            );
+            if ( array() !== $declarations ) {
+                $evidence[] = array(
+                    'selector' => $candidate['selector'],
+                    'declarations' => $declarations,
+                    'specificity' => CssSelectorMatcher::specificity($candidate['parsed']),
+                    'order' => $ruleOrder,
+                    'source_path' => (string) ($candidate['source_path'] ?? ''),
+                    'source_hash' => (string) ($candidate['source_hash'] ?? ''),
+                );
+            }
+        }
+        return $evidence;
+    }
+
+    private function isNonNeutralVisualTopologyDeclaration(string $property, string $value): bool
+    {
+        $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        if ( '' === $value || in_array($value, array( 'auto', 'none', 'normal', 'static', 'visible', 'transparent', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true) ) {
+            return false;
+        }
+        if ( in_array($property, array( 'color', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration' ), true) ) {
+            return false;
+        }
+        return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
+    }
+
     private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
         foreach ($this->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
@@ -7835,7 +7894,7 @@ final class HtmlTransformer
                     'order' => $rule['order'],
                     'sequence' => $sequence++,
                     'key' => $rule['order'] . ':' . $selectorIndex,
-                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex)),
+                    'rule' => array_merge($selector, array('declarations' => $rule['declarations'], 'rule_order' => $rule['order'], 'key' => $rule['order'] . ':' . $selectorIndex, 'source_path' => $rule['source_path'] ?? '', 'source_hash' => $rule['source_hash'] ?? '')),
                 );
                 if ( 'universal' === $target ) {
                     $index['universal'][] = $entry;

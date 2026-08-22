@@ -89,6 +89,22 @@ $runtimeEmpty = ( new HtmlTransformer() )->transform('<div id="runtime-empty"></
 $runtimeEmptyMetrics = $runtimeEmpty['source_reports']['editability_report']['metrics'] ?? array();
 $assert(1 === ($runtimeEmptyMetrics['empty_runtime_group_count'] ?? null) && 0 === ($runtimeEmptyMetrics['empty_wrapper_count'] ?? null) && ! str_contains(serialize($runtimeEmpty['blocks'] ?? array()), '_editability_runtime_owned') && ! str_contains((string) ($runtimeEmpty['serialized_blocks'] ?? ''), '_editability_runtime_owned'), 'Runtime ownership follows explicit selector provenance into direct editability reporting without leaking markers into public blocks.');
 
+$selectorEvidence = ( new HtmlTransformer() )->transform('<style>.canvas .surface.card[data-kind="feature"]{display:flex;padding:12px;background:#123}.canvas .surface.card[data-kind="feature"]{position:relative}.canvas .surface.card:hover{height:40px}.class-only{}.color-only{color:#123}.wrong-token{display:flex;padding:12px}</style><main class="canvas"><div class="surface card" data-kind="feature"></div><div class="class-only"></div><div class="color-only"></div><div class="wrong-token-extra"></div><div class="surface card" data-kind="other"></div></main>')->toArray();
+$selectorProvenance = $selectorEvidence['source_reports']['html']['source_provenance'] ?? array();
+$positiveEvidence = array_values(array_filter($selectorProvenance, static fn (array $entry): bool => str_contains((string) ($entry['source_fragment'] ?? ''), 'data-kind="feature"') && ! empty($entry['visual_topology_evidence'])));
+$negativeEvidence = array_values(array_filter($selectorProvenance, static fn (array $entry): bool => (in_array(($entry['source_attributes']['class'] ?? ''), array('class-only', 'color-only', 'wrong-token-extra'), true) || str_contains((string) ($entry['source_fragment'] ?? ''), 'data-kind="other"')) && ! empty($entry['visual_topology_evidence'])));
+$assert(1 === count($positiveEvidence) && array() === $negativeEvidence && '.canvas .surface.card[data-kind="feature"]' === ($positiveEvidence[0]['visual_topology_evidence'][0]['selector'] ?? null) && array('display' => 'flex', 'padding' => '12px', 'background' => '#123') === ($positiveEvidence[0]['visual_topology_evidence'][0]['declarations'] ?? null) && 40 === ($positiveEvidence[0]['visual_topology_evidence'][0]['specificity'] ?? null) && 0 === ($positiveEvidence[0]['visual_topology_evidence'][0]['order'] ?? null) && 'inline-style' === ($positiveEvidence[0]['visual_topology_evidence'][0]['source_path'] ?? null), 'Compound descendant selector evidence carries resting non-neutral declarations with specificity, order, and stylesheet provenance while class-only, color-only, exact-token mismatch, attribute mismatch, and dynamic pseudo rules remain negative.');
+
+$productArtifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'product.html',
+    'files' => array(
+        'product.html' => '<link rel="stylesheet" href="assets/product.css"><main class="product"><div class="search-shell"><div class="search-control" data-control="search"></div></div><div id="slideshow"><div class="slide-surface"></div></div><div class="dot-nav"><button class="dot-control" type="button"></button></div></main>',
+        'assets/product.css' => '.product .search-shell > .search-control[data-control="search"]{position:absolute;inset:0;padding:8px}.product #slideshow .slide-surface{display:table-cell;width:100%;height:100%;padding:12px}.product .dot-nav > .dot-control{appearance:none;width:10px;height:10px;background:#123}',
+    ),
+))->toArray();
+$productMetrics = $productArtifact['source_reports']['editability_report']['documents'][0]['metrics'] ?? array();
+$assert(0 === ($productMetrics['empty_wrapper_count'] ?? null) && 0 === ($productMetrics['structural_rich_text_attribute_count'] ?? null) && 0 === ($productMetrics['raw_html_block_count'] ?? null), 'Product artifact regression preserves compound descendant search, slideshow, and control topology as visual ownership without structural RichText or HTML fallback.');
+
 $fullBleedCss = '.hero{display:flex;position:relative}.hero-grid{position:absolute;inset:0;background-image:linear-gradient(#fff 1px,transparent 1px);background-size:64px 64px}';
 $fullBleedHtml = '<header class="hero"><div class="hero-grid" aria-hidden="true"></div><p>Content</p></header>';
 $fullBleed = ( new HtmlTransformer() )->transform('<style>' . $fullBleedCss . '</style>' . $fullBleedHtml)->toArray();
