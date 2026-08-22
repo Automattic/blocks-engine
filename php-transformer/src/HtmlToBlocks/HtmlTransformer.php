@@ -555,6 +555,9 @@ final class HtmlTransformer
     /** @var list<string> Source body-state classes referenced by authored CSS. */
     private array $sourceBodyProjectionClasses = array();
 
+    /** @var array<string, array{selector: string, min_width: string}> */
+    private array $responsiveGeometryAmbiguities = array();
+
     /** @var array<string, string> Native tables whose descendant selectors need structural projection. */
     private array $sourceTableMarkers = array();
 
@@ -730,6 +733,7 @@ final class HtmlTransformer
         $this->sourceAttributeMarkers = array();
         $this->sourceRootChildMarkers = array();
         $this->sourceBodyProjectionClasses = array();
+        $this->responsiveGeometryAmbiguities = array();
         $this->sourceTableMarkers = array();
         $this->sourceTableRepresentability = array();
         $this->sourceTableDescendantPaths = array();
@@ -912,6 +916,16 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
+        foreach ( $this->responsiveGeometryAmbiguities as $ambiguity ) {
+            $diagnostics[] = array(
+                'code' => 'responsive_geometry_ambiguous_min_width',
+                'message' => 'A wide minimum-width rule matches both page-shell and authored content surfaces, so it was retained without a responsive projection.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $ambiguity['selector'],
+                'min_width' => $ambiguity['min_width'],
+            );
+        }
         $headMetadata = $this->headMetadataReport($html);
         if ( array() !== $headMetadata ) {
             $diagnostics[] = array(
@@ -3133,6 +3147,7 @@ final class HtmlTransformer
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
+            $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
             $declarations = $this->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -3153,6 +3168,102 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
+    }
+
+    /**
+     * Captured builders commonly impose a desktop canvas minimum on a document
+     * root and its immediate section strips. That is runtime viewport scaffolding,
+     * not an authored content constraint: retaining it forces a desktop-wide
+     * WordPress document on narrow viewports. Only project broad absolute values
+     * when every matched source element is a structural shell or section surface.
+     */
+    private function projectResponsiveCanvasMinimumWidth(string $prelude, string $body): string
+    {
+        $declarations = $this->cssDeclarations($body);
+        $minimumWidth = (string) ($declarations['min-width'] ?? '');
+        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! $this->authorStyleSourceBody instanceof DOMElement ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element));
+            if ( count($shellMatches) !== count($matches) ) {
+                if ( array() !== $shellMatches ) {
+                    $this->responsiveGeometryAmbiguities[$selector . "\0" . $minimumWidth] = array('selector' => $selector, 'min_width' => $minimumWidth);
+                }
+                return $body;
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($minimumWidth) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'min-width' !== strtolower(trim(strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'min-width:0' . $important;
+        $retained[] = 'max-width:100%' . $important;
+        return implode(';', $retained);
+    }
+
+    private function isWideAbsoluteMinimumWidth(string $value): bool
+    {
+        $value = $this->cssValueWithoutImportant($value);
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(px|r?em)$/i', $value, $matches) ) {
+            return false;
+        }
+        $pixels = (float) $matches[1];
+        if ( 'px' !== strtolower($matches[2]) ) {
+            $pixels *= self::ROOT_FONT_SIZE_PX;
+        }
+        return $pixels >= 640;
+    }
+
+    private function isPageShellOrSectionSurface(DOMElement $element): bool
+    {
+        if ( $element->parentNode === $this->authorStyleSourceBody ) {
+            return true;
+        }
+
+        if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {
+            return true;
+        }
+
+        $parent = $element->parentNode;
+        return $parent instanceof DOMElement
+            && $parent->parentNode === $this->authorStyleSourceBody
+            && $this->elementChildCount($parent) > 1;
+    }
+
+    private function elementChildCount(DOMElement $element): int
+    {
+        $count = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$count;
+            }
+        }
+        return $count;
     }
 
     private function rewriteAuthorStyleRule(string $prelude, string $body): string
