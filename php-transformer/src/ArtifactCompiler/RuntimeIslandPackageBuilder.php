@@ -227,13 +227,11 @@ final class RuntimeIslandPackageBuilder
         if ( 'external' === $script['source_kind'] && '' !== $src ) {
             $script['src'] = $src;
             $resolved = ArtifactPath::resolveRelativePath($src, $sourcePath);
-            $content = $this->externalScriptContent($src, $resolved, $files, $sourcePath);
-            if ( '' !== $resolved ) {
-                $script['resolved_path'] = $resolved;
-            }
-            $script['materialized'] = null !== $content;
-            if ( null !== $content ) {
-                $script['content'] = $content;
+            $materialized = $this->externalScript($src, $resolved, $files, $sourcePath);
+            $script['materialized'] = null !== $materialized;
+            if ( null !== $materialized ) {
+                $script['resolved_path'] = $materialized['path'];
+                $script['content'] = $materialized['content'];
             }
         } elseif ( '' !== $inline ) {
             $script['content'] = $inline;
@@ -249,13 +247,14 @@ final class RuntimeIslandPackageBuilder
     }
 
     /**
-     * Locate the verbatim content of an external script that was materialized as
-     * an artifact file. Returns null when the script is third-party / not carried
-     * (so the consumer knows to reference the original src instead of inlining).
+     * Locate an external script that was materialized as an artifact file.
+     * Returns null when the script is third-party / not carried (so the consumer
+     * knows to reference the original src instead of inlining).
      *
      * @param array<int, array<string, mixed>> $files
+     * @return array{path: string, content: string}|null
      */
-    private function externalScriptContent(string $src, string $resolved, array $files, string $sourcePath): ?string
+    private function externalScript(string $src, string $resolved, array $files, string $sourcePath): ?array
     {
         $candidates = array_filter(array($resolved, ltrim($src, '/')), static fn (string $value): bool => '' !== $value);
         $entryRoot = '.' === dirname($sourcePath) ? '' : trim(dirname($sourcePath), '/');
@@ -272,7 +271,7 @@ final class RuntimeIslandPackageBuilder
                 continue;
             }
             if ( is_scalar($file['content'] ?? null) ) {
-                return (string) $file['content'];
+                return array('path' => $path, 'content' => (string) $file['content']);
             }
         }
 
@@ -308,9 +307,10 @@ final class RuntimeIslandPackageBuilder
             return 'data';
         }
 
-        $haystack = strtolower($src . "\n" . substr($content, 0, 4000));
+        $src = strtolower($src);
+        $content = strtolower(substr($content, 0, 4000));
         foreach ( self::TELEMETRY_SIGNALS as $signal ) {
-            if ( str_contains($haystack, $signal) ) {
+            if ( str_contains($src, $signal) || 1 === preg_match('/(?<![a-z0-9])' . preg_quote($signal, '/') . '(?![a-z0-9])/i', $content) ) {
                 return 'telemetry';
             }
         }

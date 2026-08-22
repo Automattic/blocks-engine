@@ -3976,7 +3976,7 @@ $rootedScriptCompanion = $compiler->compile(
         'entrypoint' => 'website/index.html',
         'files' => array(
             array( 'path' => 'website/index.html', 'content' => '<main><canvas id="canvas"></canvas></main><script src="/script.js"></script><script src="/.netlify/scripts/rum.js"></script>' ),
-            array( 'path' => 'website/script.js', 'content' => 'document.getElementById("canvas").dataset.ready="true";' ),
+            array( 'path' => 'website/script.js', 'content' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); let totalAmplitude = 0;' ),
             array( 'path' => 'website/.netlify/scripts/rum.js', 'content' => 'window.netlifyRum=true;' ),
         ),
     )
@@ -3984,8 +3984,10 @@ $rootedScriptCompanion = $compiler->compile(
 $rootedScriptPayload = $rootedScriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
 $rootedPreservedJs = $rootedScriptPayload['preserved_js'] ?? array();
 $assert(1 === count($rootedPreservedJs), 'root-relative first-party script is resolved against the artifact root and carried once');
-$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'dataset.ready'), 'root-relative first-party script content reaches the companion payload');
+$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'totalAmplitude'), 'application identifiers containing a telemetry vendor name remain first-party companion code');
 $rootedPlan = $rootedScriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
+$rootedPageMarkup = (string) ($rootedPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert(str_contains($rootedPageMarkup, '<canvas id="canvas"></canvas>'), 'root-relative first-party canvas runtime preserves its script-addressable markup');
 $rootedPlanWriteSources = array_column($rootedPlan['writes'] ?? array(), 'source_path');
 $assert(!in_array('website/script.js', $rootedPlanWriteSources, true), 'companion-owned first-party script is not duplicated into the theme plan');
 $assert(!in_array('website/.netlify/scripts/rum.js', $rootedPlanWriteSources, true), 'dropped telemetry script is not written into the theme plan');

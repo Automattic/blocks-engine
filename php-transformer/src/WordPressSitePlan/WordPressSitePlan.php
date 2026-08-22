@@ -47,13 +47,14 @@ final class WordPressSitePlan
 
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeScriptOwnership = $this->runtimeScriptOwnership($data['source_reports'], $runtimeDeclarations);
+        $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
+        $documentScriptAssets = $this->documentScriptAssets($documents);
         $assets = array_values(array_filter(
             $this->assets($compiled['assets'] ?? null),
-            static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')])
+            static fn(array $asset): bool => !isset($runtimeScriptOwnership['assets'][(string) ($asset['source_path'] ?? '')]) || isset($documentScriptAssets[(string) ($asset['source_path'] ?? '')])
         ));
         $assets = $this->applyDeclaredAssetTransformations($assets, $runtimeDeclarations);
         $tokens = $this->tokens($assets);
-        $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $surfaces = $this->templateSurfaces($documents);
         $documents = array_values(array_filter($documents, static fn(array $document): bool => !isset($document['template_surface'])));
         $routeMap = $this->canonicalRoutes($documents, is_array($materialization['routes'] ?? null) ? $materialization['routes'] : array());
@@ -1032,7 +1033,7 @@ final class WordPressSitePlan
         }
         $package = is_array($sourceReports['runtime_island_package'] ?? null) ? $sourceReports['runtime_island_package'] : array();
         foreach ( $package['islands'] ?? array() as $island ) {
-            if ( !is_array($island) || 'script' !== ($island['kind'] ?? null) ) continue;
+            if ( !is_array($island) ) continue;
             $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
             $selector = is_string($island['selector'] ?? null) ? $island['selector'] : '';
             if ( isset($superseded[$sourcePath . "\n" . $selector]) ) continue;
@@ -1040,9 +1041,11 @@ final class WordPressSitePlan
             $carried = false;
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) ) continue;
-                $scriptCarried = 'telemetry' !== ($script['role'] ?? null) && is_string($script['content'] ?? null) && '' !== trim($script['content']);
+                $scriptDropped = 'telemetry' === ($script['role'] ?? null);
+                $scriptCarried = !$scriptDropped && is_string($script['content'] ?? null) && '' !== trim($script['content']);
                 $carried = $carried || $scriptCarried;
-                if ( ($drop || $scriptCarried) && is_string($script['resolved_path'] ?? null) ) $assets[$script['resolved_path']] = true;
+                if ( ($drop || $scriptDropped || $scriptCarried) && is_string($script['resolved_path'] ?? null) ) $assets[$script['resolved_path']] = true;
+                if ( ($drop || $scriptDropped || $scriptCarried) && '' !== $sourcePath && is_string($script['src'] ?? null) ) $documents[$sourcePath . "\n" . $script['src']] = true;
             }
             if ( ($drop || $carried) && '' !== $sourcePath && '' !== $selector ) $documents[$sourcePath . "\n" . $selector] = true;
         }
@@ -1057,11 +1060,28 @@ final class WordPressSitePlan
             if ( !is_array($document['document_metadata']['scripts'] ?? null) ) continue;
             $document['document_metadata']['scripts'] = array_values(array_filter(
                 $document['document_metadata']['scripts'],
-                static fn(mixed $script): bool => !is_array($script) || !isset($owned[$sourcePath . "\n" . (string) ($script['selector'] ?? '')])
+                static fn(mixed $script): bool => !is_array($script) || (!isset($owned[$sourcePath . "\n" . (string) ($script['selector'] ?? '')]) && !isset($owned[$sourcePath . "\n" . (string) ($script['url'] ?? '')]))
             ));
         }
         unset($document);
         return $documents;
+    }
+
+    /** @param array<int,array<string,mixed>> $documents @return array<string,bool> */
+    private function documentScriptAssets(array $documents): array
+    {
+        $assets = array();
+        foreach ( $documents as $document ) {
+            $sourcePath = is_string($document['source_path'] ?? null) ? $document['source_path'] : '';
+            foreach ( $document['document_metadata']['scripts'] ?? array() as $script ) {
+                if ( !is_array($script) || !is_string($script['url'] ?? null) ) continue;
+                $url = $script['url'];
+                $resolved = ArtifactPath::resolveRelativePath($url, $sourcePath);
+                if ( '' !== $resolved ) $assets[$resolved] = true;
+                if ( str_starts_with($url, '/') && '.' !== dirname($sourcePath) ) $assets[trim(dirname($sourcePath), '/') . '/' . ltrim($url, '/')] = true;
+            }
+        }
+        return $assets;
     }
 
     /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
