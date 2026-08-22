@@ -106,14 +106,11 @@ final class ArtifactCompiler
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'shared', '', $payloadReader, null);
         }
-        $partition = $this->partitionArtifact($artifact);
-        $terminal = $partition['normalized'];
-        $entry = $this->entryFile($terminal['files'], $terminal['entrypoints']);
-        $entryPath = is_array($entry) ? (string) $entry['path'] : '';
-        $entryHtml = is_array($entry) ? (string) $entry['content'] : '';
-        $terminal['files'] = $this->withStylesheetOccurrenceAssets($entryHtml, $entryPath, $terminal['files']);
-        $sharedArtifact = $this->artifactEnvelope($partition, array_values(array_filter($terminal['files'], fn(array $file): bool => 'shared' === $this->fileOwnership($file)['scope'])));
+        $partition = $this->stagePartition($artifact, 'shared');
+        $entryPath = (string) ($partition['entrypoints'][0] ?? '');
+        $sharedArtifact = $this->artifactEnvelope($partition, $partition['shared']);
         $normalized = (new ArtifactNormalizer())->normalize($sharedArtifact);
+        $sharedArtifact['files'] = $normalized['files'];
 
         $plan = array(
             'schema' => self::SHARED_PLAN_SCHEMA,
@@ -125,9 +122,15 @@ final class ArtifactCompiler
                 'entry_path' => $entryPath,
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
+                'source_paths' => $partition['source_paths'],
             )),
             'compiler_options' => $this->receiptCompilerOptions(),
         );
+        $plan['shared_reduction'] = array(
+            'files' => $sharedArtifact['files'],
+            'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+        );
+        $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
         return $plan;
     }
@@ -145,12 +148,13 @@ final class ArtifactCompiler
         if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
             return $this->prepareReferencedStage($artifact, 'page', $pageId, $payloadReader, (string) $sharedPlan['digest']);
         }
-        $partition = $this->partitionArtifact($artifact);
+        $partition = $this->stagePartition($artifact, 'page', $pageId);
         if (!isset($partition['pages'][$pageId])) {
             throw new \InvalidArgumentException('The requested page ownership id is not present in the artifact.');
         }
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
         $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
+        $pageArtifact['files'] = $normalized['files'];
 
         $plan = array(
             'schema' => self::PAGE_PLAN_SCHEMA,
@@ -188,7 +192,9 @@ final class ArtifactCompiler
         $startedAt = hrtime(true);
         $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
-        $sharedArtifact = $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
+        $sharedArtifact = isset($sharedPlan['shared_reduction'])
+            ? array_merge($sharedPlan['artifact'], array('files' => $sharedPlan['shared_reduction']['files']))
+            : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
 
@@ -221,6 +227,12 @@ final class ArtifactCompiler
             $documentFiles = $hasSharedStylesheetOccurrences
                 ? $files
                 : $stageCompiler->withStylesheetOccurrenceAssets((string) ($file['content'] ?? ''), $path, $files);
+            if (!$hasSharedStylesheetOccurrences) {
+                foreach ($documentFiles as &$documentFile) {
+                    if (isset($documentFile['stylesheet_occurrence']) && 'page' === $stageCompiler->fileOwnership($documentFile)['scope']) unset($documentFile['stylesheet_occurrence']);
+                }
+                unset($documentFile);
+            }
             $stageCompiler->indexFiles($documentFiles);
             $compiledDocuments[$path] = $stageCompiler->compileHtmlDocumentBlocks(
                 (string) ($file['content'] ?? ''),
@@ -242,31 +254,81 @@ final class ArtifactCompiler
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = self::COMPILED_RECEIPT_SCHEMA;
+        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction']) ? self::COMPILED_RECEIPT_SCHEMA : self::PAGE_RECEIPT_SCHEMA;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
-        $pagePlan['terminal_reduction'] = array(
-            'shared_files' => $sharedArtifact['files'],
-            'files' => $pageArtifact['files'],
-            'normalized' => (new ArtifactNormalizer())->normalize($pageArtifact),
-            'source_documents' => $pageDocuments,
-            'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
-            'entry_blocks' => $entryBlocks,
-            'components' => $stageCompiler->detectComponents($files, $entryPath, $pageDocuments['components']),
-            'block_types' => $stageCompiler->detectBlockTypes($files, $pageDocuments['diagnostics']),
+        if (!isset($sharedPlan['shared_reduction'])) {
+            $pagePlan['work'] = array(
+                'compiled_document_count' => count($compiledDocuments),
+                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+                'normalization_count' => 0,
+                'analysis_count' => 0,
+                'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+            );
+            $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
+            return $pagePlan;
+        }
+        $pagePlan['shared_reduction_digest'] = $sharedPlan['shared_reduction_digest'];
+        $pagePlan['terminal_reduction'] = $stageCompiler->collectPageReduction(
+            $pagePlan,
+            $pageArtifact,
+            $pageDocuments,
+            $compiledDocuments,
+            $entryBlocks,
+            $files,
+            $entryPath
         );
-        // Observational work data is deliberately excluded from the receipt
-        // digest so independently resumed work has stable canonical identity.
+        /*
+         * Observational work data is deliberately excluded from the receipt
+         * digest so independently resumed work has stable canonical identity.
+         */
         $pagePlan['work'] = array(
             'compiled_document_count' => count($compiledDocuments),
             'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
             'normalization_count' => 0,
-            'analysis_count' => 1,
+            'analysis_count' => 3,
             'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
         );
         $pagePlan['digest'] = $this->planDigest($this->pagePlanDigestInput($pagePlan));
 
         return $pagePlan;
+    }
+
+    /**
+     * Collect the uncapped, serializable facts produced by exactly one page
+     * worker. No terminal ordering or result-level caps are applied here.
+     *
+     * @param array<string,mixed> $pagePlan
+     * @param array<string,mixed> $pageArtifact
+     * @param array<string,mixed> $pageDocuments
+     * @param array<string,array<string,mixed>> $compiledDocuments
+     * @param array<string,mixed>|null $entryBlocks
+     * @param array<int,array<string,mixed>> $files
+     * @return array<string,mixed>
+     */
+    private function collectPageReduction(array $pagePlan, array $pageArtifact, array $pageDocuments, array $compiledDocuments, ?array $entryBlocks, array $files, string $entryPath): array
+    {
+        $stylesheetOccurrenceFiles = array();
+        if (is_array($entryBlocks)) {
+            $pageFilesByPath = array_column($pageArtifact['files'], null, 'path');
+            foreach ($this->withStylesheetOccurrenceAssets((string) ($pageFilesByPath[$entryPath]['content'] ?? ''), $entryPath, $files) as $file) {
+                if (isset($file['stylesheet_occurrence'])) $stylesheetOccurrenceFiles[] = $file;
+            }
+        }
+        return array(
+            'files' => $pageArtifact['files'],
+            'normalization' => array(
+                'diagnostics' => $pagePlan['diagnostics'] ?? array(),
+                'rejected_count' => (int) ($pagePlan['summary']['rejected_count'] ?? 0),
+                'bytes' => (int) ($pagePlan['summary']['bytes'] ?? 0),
+            ),
+            'source_documents' => $pageDocuments,
+            'owned_transformable_paths' => $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']),
+            'entry_blocks' => $entryBlocks,
+            'stylesheet_occurrence_files' => $stylesheetOccurrenceFiles,
+            'component_facts' => $this->collectComponentFacts($pageArtifact['files'], $pageDocuments['components']),
+            'block_types' => $this->detectBlockTypes($files, $pageDocuments['diagnostics']),
+        );
     }
 
     /**
@@ -284,7 +346,6 @@ final class ArtifactCompiler
             ? array_merge($sharedPlan['artifact'], array('files' => array()))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $files = $sharedArtifact['files'];
-        $receiptSharedFiles = null;
         $seen = array();
         usort($pagePlans, static fn(array $left, array $right): int => strcmp((string) ($left['page_id'] ?? ''), (string) ($right['page_id'] ?? '')));
         $compiledDocuments = array();
@@ -302,15 +363,10 @@ final class ArtifactCompiler
                 $files = array_merge($files, $pageArtifact['files']);
                 continue;
             }
+            if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled v2 receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            if (!is_array($reduction) || !is_array($reduction['shared_files'] ?? null) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
-            if (null === $receiptSharedFiles) {
-                $receiptSharedFiles = $reduction['shared_files'];
-                $files = $reduction['shared_files'];
-                $sharedArtifact['files'] = $files;
-            } elseif ($receiptSharedFiles !== $reduction['shared_files']) {
-                throw new \InvalidArgumentException('Compiled page receipts disagree about their shared payload reduction.');
-            }
+            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
+            if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
             $pageArtifact = array('files' => $reduction['files']);
             $files = array_merge($files, $reduction['files']);
             $expected = $this->ownedHtmlPaths($pageArtifact['files'], (string) $pagePlan['page_id']);
@@ -335,13 +391,17 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('Composition requires exactly one compiled page plan for every page declared by the shared plan.');
         }
         $artifact = $sharedArtifact;
-        $artifact['files'] = self::sortedByPath($files);
+        $artifact['files'] = self::sortedBySourcePaths(
+            $files,
+            is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array()
+        );
         if (!$hasReceipts) {
             // Legacy prepared envelopes intentionally retain their existing
             // fallback semantics; v2 receipts always use bounded assembly.
-            return $this->assembleArtifact($artifact);
+            return $this->compileArtifact($artifact);
         }
-        return $this->assembleCompiledReceipts($sharedPlan, $sharedArtifact, $reductions, $compiledDocuments);
+        $terminalReduction = $this->reduceCompiledReceipts($sharedPlan, $sharedArtifact, $reductions, $compiledDocuments);
+        return $this->finalizeArtifact($terminalReduction['artifact'], $terminalReduction);
     }
 
     /**
@@ -350,7 +410,7 @@ final class ArtifactCompiler
     public function compile(array $artifact): TransformerResult
     {
         $this->htmlDocumentTransformCount = 0;
-        return $this->assembleArtifact($artifact);
+        return $this->compileArtifact($artifact);
     }
 
     /**
@@ -360,15 +420,33 @@ final class ArtifactCompiler
      *
      * @param array<string, mixed> $artifact
      */
-    private function assembleArtifact(array $artifact, ?array $reduction = null): TransformerResult
+    private function compileArtifact(array $artifact): TransformerResult
     {
-        $startedAt = hrtime(true);
 		$this->themeStaticCssCache = array();
 		$this->wordpressCompatCssCache = array();
         $this->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
-        $normalized = is_array($reduction['normalized'] ?? null) ? $reduction['normalized'] : ( new ArtifactNormalizer() )->normalize($artifact);
-        $capturedDialogs = null === $reduction ? ( new CapturedDialogProjector() )->project($normalized['files']) : array('files' => $normalized['files'], 'diagnostics' => array(), 'projected_count' => 0);
+        $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $normalized['files'] = $capturedDialogs['files'];
+        return $this->finalizeArtifact($artifact, array(
+            'normalized' => $normalized,
+            'inline_compilation' => true,
+            'captured_dialogs' => $capturedDialogs,
+        ));
+    }
+
+    /**
+     * Finalize collected facts into the canonical result. Receipt composition
+     * enters here only after all page payload access and content work is done.
+     *
+     * @param array<string,mixed> $artifact
+     * @param array<string,mixed> $reduction
+     */
+    private function finalizeArtifact(array $artifact, array $reduction): TransformerResult
+    {
+        $startedAt = hrtime(true);
+        $normalized = $reduction['normalized'];
+        $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
         $diagnostics = array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
@@ -383,7 +461,7 @@ final class ArtifactCompiler
         $components = is_array($reduction['components'] ?? null) ? $reduction['components'] : $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = is_array($reduction['block_types'] ?? null) ? $reduction['block_types'] : $this->detectBlockTypes($normalized['files'], $diagnostics);
         $companionPluginPayloadBuilder = new CompanionPluginPayload();
-        if (null === $reduction) $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
+        if (!empty($reduction['inline_compilation'])) $normalized['files'] = $this->withStylesheetOccurrenceAssets($html, $entryPath, $normalized['files']);
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
@@ -572,8 +650,9 @@ final class ArtifactCompiler
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
         // These counters describe process work and intentionally remain out of
         // canonical reports and WordPress site-plan equality.
-        $metrics['normalization_count'] = null === $reduction ? 1 : 0;
-        $metrics['analysis_count'] = null === $reduction ? 1 : 0;
+        $metrics['normalization_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
+        $metrics['analysis_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
+        $metrics['terminal_reduction_count'] = 1;
         $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_')));
         if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
             unset($sourceReports['wordpress_site_plan_diagnostics']);
@@ -627,24 +706,28 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $reductions
      * @param array<string,array<string,mixed>> $compiledDocuments
      */
-    private function assembleCompiledReceipts(array $sharedPlan, array $sharedArtifact, array $reductions, array $compiledDocuments): TransformerResult
+    private function reduceCompiledReceipts(array $sharedPlan, array $sharedArtifact, array $reductions, array $compiledDocuments): array
     {
-        $files = $sharedArtifact['files'];
+        $sharedReduction = $sharedPlan['shared_reduction'];
+        $files = $sharedReduction['files'];
+        $sharedArtifact['files'] = $files;
         $documents = array('documents' => array(), 'components' => array(), 'diagnostics' => array());
-        $components = array();
+        $componentFacts = array($sharedReduction['component_facts']);
         $blockTypes = array();
         $entryBlocks = null;
+        $stylesheetOccurrenceFiles = array();
         foreach ($reductions as $reduction) {
             $files = array_merge($files, $reduction['files']);
             foreach ($reduction['source_documents']['documents'] as $document) $documents['documents'][] = $document;
             $documents['components'] = array_merge($documents['components'], $reduction['source_documents']['components']);
             $documents['diagnostics'] = array_merge($documents['diagnostics'], $reduction['source_documents']['diagnostics']);
-            $components = array_merge($components, $reduction['components'] ?? array());
+            $componentFacts[] = $reduction['component_facts'];
             $blockTypes = array_merge($blockTypes, $reduction['block_types'] ?? array());
             if (is_array($reduction['entry_blocks'] ?? null)) $entryBlocks = $reduction['entry_blocks'];
+            $stylesheetOccurrenceFiles = array_merge($stylesheetOccurrenceFiles, $reduction['stylesheet_occurrence_files'] ?? array());
         }
-        $files = self::sortedByPath($files);
-        $entry = $this->entryFile($files, $sharedArtifact['entrypoints']);
+        $sourcePaths = is_array($sharedPlan['analysis']['source_paths'] ?? null) ? $sharedPlan['analysis']['source_paths'] : array();
+        $files = self::sortedBySourcePaths($files, $sourcePaths);
         $hasSharedStylesheetOccurrences = false;
         foreach ($sharedArtifact['files'] as $file) {
             if (isset($file['stylesheet_occurrence'])) {
@@ -652,9 +735,13 @@ final class ArtifactCompiler
                 break;
             }
         }
-        if (!$hasSharedStylesheetOccurrences && is_array($entry)) {
-            $files = $this->withStylesheetOccurrenceAssets((string) $entry['content'], (string) $entry['path'], $files);
+        if (!$hasSharedStylesheetOccurrences && array() !== $stylesheetOccurrenceFiles) {
+            $occurrencePaths = array_fill_keys(array_column($stylesheetOccurrenceFiles, 'path'), true);
+            $files = array_values(array_filter($files, static fn(array $file): bool => !isset($occurrencePaths[$file['path'] ?? ''])));
+            $files = self::sortedBySourcePaths(array_merge($files, $stylesheetOccurrenceFiles), $sourcePaths);
         }
+        $documents['documents'] = self::sortedBySourcePaths($documents['documents'], $sourcePaths, 'source_path');
+        $compiledDocuments = self::orderedMapBySourcePaths($compiledDocuments, $sourcePaths);
         // Shared preparation already supplied this bounded normalization. Page
         // normalizations were performed by their individual receipt workers.
         $sharedNormalized = array(
@@ -669,8 +756,8 @@ final class ArtifactCompiler
         $diagnostics = $sharedNormalized['diagnostics'];
         $rejected = $sharedNormalized['rejected_count'];
         foreach ($reductions as $reduction) {
-            $diagnostics = array_merge($diagnostics, $reduction['normalized']['diagnostics'] ?? array());
-            $rejected += (int) ($reduction['normalized']['rejected_count'] ?? 0);
+            $diagnostics = array_merge($diagnostics, $reduction['normalization']['diagnostics'] ?? array());
+            $rejected += (int) ($reduction['normalization']['rejected_count'] ?? 0);
         }
         $normalized = array_merge($sharedNormalized, array(
             'files' => $files,
@@ -682,14 +769,15 @@ final class ArtifactCompiler
         ));
         $artifact = $sharedArtifact;
         $artifact['files'] = $files;
-        return $this->assembleArtifact($artifact, array(
+        return array(
+            'artifact' => $artifact,
             'normalized' => $normalized,
             'source_documents' => $documents,
-            'components' => $this->dedupeRows($components),
+            'components' => $this->finalizeComponentFacts($this->mergeComponentFacts($componentFacts), (string) ($sharedPlan['analysis']['entry_path'] ?? '')),
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
-        ));
+        );
     }
 
     /** @param array<int,array<string,mixed>> $files @param array<int,array<string,mixed>> $runtimeDeclarations */
@@ -738,7 +826,66 @@ final class ArtifactCompiler
             'runtime_declarations' => $normalized['runtime_declarations'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
+            'identity' => array_filter(array(
+                'site_slug' => is_string($artifact['site_slug'] ?? null) ? $artifact['site_slug'] : null,
+                'site_name' => is_string($artifact['site_name'] ?? null) ? $artifact['site_name'] : null,
+                'block_namespace' => is_string($artifact['block_namespace'] ?? null) ? $artifact['block_namespace'] : null,
+            ), static fn(mixed $value): bool => null !== $value),
             'normalized' => $normalized,
+        );
+    }
+
+    /**
+     * Partition an envelope before normalization so preparing one stage never
+     * parses, expands, or transforms payloads owned by another stage.
+     *
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
+     */
+    private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
+    {
+        $rawFiles = array();
+        foreach (array('files', 'artifacts', 'outputs') as $key) {
+            if (!is_array($artifact[$key] ?? null)) continue;
+            foreach ($artifact[$key] as $path => $file) {
+                if (is_string($file)) $file = array('path' => is_string($path) ? $path : '', 'content' => $file);
+                if (!is_array($file)) continue;
+                if (!is_string($file['path'] ?? null) && is_string($path)) $file['path'] = $path;
+                $rawFiles[] = $file;
+            }
+        }
+        $shared = array();
+        $pages = array();
+        $sourcePaths = array();
+        foreach ($rawFiles as $file) {
+            $path = (string) ($file['path'] ?? '');
+            $safePath = ArtifactPath::safeRelativePath($path);
+            if ('' !== $safePath && !in_array($safePath, $sourcePaths, true)) $sourcePaths[] = $safePath;
+            $ownership = $file['metadata']['compilation'] ?? null;
+            $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            $fileScope = is_array($ownership) && is_string($ownership['scope'] ?? null)
+                ? $ownership['scope']
+                : (in_array($extension, array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
+            $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
+            if ('page' === $fileScope) $pages[$filePageId][] = $file;
+            else $shared[] = $file;
+        }
+        ksort($pages, SORT_STRING);
+        $entrypoints = array();
+        foreach (array('entrypoint', 'entry', 'main') as $key) if (is_string($artifact[$key] ?? null)) $entrypoints[] = $artifact[$key];
+        foreach (is_array($artifact['entrypoints'] ?? null) ? $artifact['entrypoints'] : array() as $entrypoint) if (is_string($entrypoint)) $entrypoints[] = $entrypoint;
+        $limits = is_array($artifact['compiler_limits'] ?? null) ? $artifact['compiler_limits'] : array();
+        $identity = array();
+        foreach (array('site_slug', 'site_name', 'block_namespace') as $key) if (is_string($artifact[$key] ?? null)) $identity[$key] = $artifact[$key];
+        return array(
+            'shared' => 'shared' === $scope ? $shared : array(),
+            'pages' => 'page' === $scope ? (isset($pages[$pageId]) ? array($pageId => $pages[$pageId]) : array()) : $pages,
+            'entrypoints' => array_values(array_unique($entrypoints)),
+            'limits' => $limits,
+            'runtime_declarations' => RuntimeDeclarations::normalize($artifact),
+            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
+            'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
+            'identity' => $identity,
+            'source_paths' => $sourcePaths,
         );
     }
 
@@ -747,7 +894,7 @@ final class ArtifactCompiler
     {
         $ownership = $file['metadata']['compilation'] ?? null;
         if (null === $ownership) {
-            if ('html' === ($file['kind'] ?? null)) {
+            if (in_array(($file['kind'] ?? null), array('html', 'markdown', 'mdx'), true)) {
                 return array('scope' => 'page', 'id' => (string) $file['path']);
             }
             // Inline styles/scripts expanded out of an unannotated page must
@@ -940,6 +1087,7 @@ final class ArtifactCompiler
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
         }
+        foreach (is_array($partition['identity'] ?? null) ? $partition['identity'] : array() as $key => $value) $artifact[$key] = $value;
         return $artifact;
     }
 
@@ -964,11 +1112,14 @@ final class ArtifactCompiler
         $stageArtifact['files'] = array();
         $references = array();
         $pageIds = array();
+        $sourcePaths = array();
         foreach (is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $key => $file) {
             if (!is_array($file)) continue;
             $path = is_string($file['path'] ?? null) ? $file['path'] : (is_string($key) ? $key : '');
+            $safePath = ArtifactPath::safeRelativePath($path);
+            if ('' !== $safePath && !in_array($safePath, $sourcePaths, true)) $sourcePaths[] = $safePath;
             $ownership = $file['metadata']['compilation'] ?? null;
-            $fileScope = is_array($ownership) && isset($ownership['scope']) ? $ownership['scope'] : (str_ends_with(strtolower($path), '.html') ? 'page' : 'shared');
+            $fileScope = is_array($ownership) && isset($ownership['scope']) ? $ownership['scope'] : (in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), array('html', 'htm', 'md', 'markdown', 'mdx'), true) ? 'page' : 'shared');
             $filePageId = is_array($ownership) && is_string($ownership['id'] ?? null) ? $ownership['id'] : $path;
             if ('page' === $fileScope) $pageIds[$filePageId] = true;
             if ($scope !== $fileScope || ('page' === $scope && $pageId !== $filePageId)) continue;
@@ -1003,7 +1154,13 @@ final class ArtifactCompiler
                 'entry_path' => $entryPath,
                 'generated_asset_root' => '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/'),
                 'block_namespace' => (new CompanionPluginPayload())->blockNamespace($artifact),
+                'source_paths' => $sourcePaths,
             ));
+            $plan['shared_reduction'] = array(
+                'files' => $planArtifact['files'],
+                'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+            );
+            $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
         if ('page' === $scope) {
             $plan['shared_digest'] = $sharedDigest;
@@ -1016,6 +1173,16 @@ final class ArtifactCompiler
             $file['payload_reference'] = $references[$file['path']];
         }
         unset($file);
+        if ('shared' === $scope) {
+            foreach ($plan['shared_reduction']['files'] as &$file) {
+                if (!isset($references[$file['path']]) || !isset($file['payload_reference'])) continue;
+                // Binary reductions retain their portable publication reference;
+                // text reductions retain the hydrated bytes needed by workers.
+                $file['payload_reference'] = $references[$file['path']];
+            }
+            unset($file);
+            $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
+        }
         $plan['digest'] = $this->planDigest('shared' === $scope ? $this->sharedPlanDigestInput($plan) : $this->pagePlanDigestInput($plan));
         return $plan;
     }
@@ -1085,6 +1252,11 @@ final class ArtifactCompiler
         if (!is_array($sharedPlan['artifact'] ?? null) || !is_array($sharedPlan['artifact']['files'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
+        if (isset($sharedPlan['shared_reduction'])) {
+            if (!is_array($sharedPlan['shared_reduction']['files'] ?? null) || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+                throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
+            }
+        }
         if (!$this->compatibleReceiptOptions($sharedPlan['compiler_options'] ?? null)) {
             throw new \InvalidArgumentException('A staged shared plan was prepared with incompatible compiler options.');
         }
@@ -1137,6 +1309,7 @@ final class ArtifactCompiler
             $input['receipt_schema'] = $pagePlan['receipt_schema'] ?? null;
             $input['compiled_documents'] = $pagePlan['compiled_documents'];
             $input['owned_document_paths'] = $pagePlan['owned_document_paths'] ?? null;
+            $input['shared_reduction_digest'] = $pagePlan['shared_reduction_digest'] ?? null;
             if (($pagePlan['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) $input['terminal_reduction'] = $pagePlan['terminal_reduction'] ?? null;
         }
         $input['compiler_options'] = $pagePlan['compiler_options'] ?? null;
@@ -1149,6 +1322,10 @@ final class ArtifactCompiler
     {
         $input = array('artifact' => $sharedPlan['artifact']);
         $input['analysis'] = $sharedPlan['analysis'] ?? null;
+        if (isset($sharedPlan['shared_reduction'])) {
+            $input['shared_reduction'] = $sharedPlan['shared_reduction'];
+            $input['shared_reduction_digest'] = $sharedPlan['shared_reduction_digest'] ?? null;
+        }
         $input['compiler_options'] = $sharedPlan['compiler_options'] ?? null;
         return $input;
     }
@@ -1249,6 +1426,36 @@ final class ArtifactCompiler
     {
         usort($files, static fn(array $left, array $right): int => strcmp((string) ($left['path'] ?? ''), (string) ($right['path'] ?? '')));
         return $files;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @param array<int,string> $sourcePaths @return array<int,array<string,mixed>> */
+    private static function sortedBySourcePaths(array $rows, array $sourcePaths, string $pathField = 'path'): array
+    {
+        if (array() === $sourcePaths) return 'path' === $pathField ? self::sortedByPath($rows) : array_values($rows);
+        $order = array_flip($sourcePaths);
+        $fallback = count($order) * 2;
+        $decorated = array();
+        foreach (array_values($rows) as $index => $row) {
+            $path = (string) ($row[$pathField] ?? '');
+            if (isset($order[$path])) {
+                $rank = $order[$path] * 2;
+            } else {
+                $expansionSource = 'path' === $pathField ? ArtifactNormalizer::inlineExpansionSourcePath($row) : '';
+                $rank = isset($order[$expansionSource]) ? $order[$expansionSource] * 2 + 1 : $fallback + $index;
+            }
+            $decorated[] = array('rank' => $rank, 'index' => $index, 'row' => $row);
+        }
+        usort($decorated, static fn(array $left, array $right): int => $left['rank'] <=> $right['rank'] ?: $left['index'] <=> $right['index']);
+        return array_column($decorated, 'row');
+    }
+
+    /** @param array<string,array<string,mixed>> $rows @param array<int,string> $sourcePaths @return array<string,array<string,mixed>> */
+    private static function orderedMapBySourcePaths(array $rows, array $sourcePaths): array
+    {
+        $ordered = array();
+        foreach ($sourcePaths as $path) if (isset($rows[$path])) $ordered[$path] = $rows[$path];
+        foreach ($rows as $path => $row) if (!isset($ordered[$path])) $ordered[$path] = $row;
+        return $ordered;
     }
 
     /** @param array<string,mixed> $artifact @return array<int,string> */
@@ -4539,6 +4746,18 @@ final class ArtifactCompiler
      */
     private function detectComponents(array $files, string $entryPath, array $sourceDocumentComponents = array()): array
     {
+        return $this->finalizeComponentFacts($this->collectComponentFacts($files, $sourceDocumentComponents), $entryPath);
+    }
+
+    /**
+     * Collect the uncapped sufficient statistics used by component detection.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @param array<int,array<string,mixed>> $sourceDocumentComponents
+     * @return array{components:array<int,array<string,mixed>>,classes:array<string,int>}
+     */
+    private function collectComponentFacts(array $files, array $sourceDocumentComponents = array()): array
+    {
         $components = array();
         $classes = array();
         foreach ( $sourceDocumentComponents as $component ) {
@@ -4588,12 +4807,40 @@ final class ArtifactCompiler
             }
         }
 
-        foreach ( $classes as $class => $count ) {
+        return array('components' => array_values($components), 'classes' => $classes);
+    }
+
+    /**
+     * @param array<int,array{components:array<int,array<string,mixed>>,classes:array<string,int>}> $facts
+     * @return array{components:array<int,array<string,mixed>>,classes:array<string,int>}
+     */
+    private function mergeComponentFacts(array $facts): array
+    {
+        $components = array();
+        $classes = array();
+        foreach ($facts as $fact) {
+            foreach ($fact['components'] as $component) {
+                $identity = (string) ($component['signal'] ?? '') . ':' . (string) ($component['source'] ?? '') . ':' . (string) ($component['name'] ?? '');
+                if ('data-component' === ($component['signal'] ?? null)) $identity = 'data-component:' . (string) ($component['name'] ?? '');
+                if (isset($components[$identity])) $component['occurrences'] = (int) ($components[$identity]['occurrences'] ?? 1) + (int) ($component['occurrences'] ?? 1);
+                $components[$identity] = $component;
+            }
+            foreach ($fact['classes'] as $class => $count) $classes[$class] = (int) ($classes[$class] ?? 0) + (int) $count;
+        }
+        return array('components' => array_values($components), 'classes' => $classes);
+    }
+
+    /** @param array{components:array<int,array<string,mixed>>,classes:array<string,int>} $facts @return array<int,array<string,mixed>> */
+    private function finalizeComponentFacts(array $facts, string $entryPath): array
+    {
+        $components = $facts['components'];
+
+        foreach ( $facts['classes'] as $class => $count ) {
             if ( $count < 2 && ! preg_match('/(?:card|grid|hero|nav|header|footer|feature|testimonial|pricing|product|gallery|section)/', $class) ) {
                 continue;
             }
 
-            $components['class:' . $class] = array(
+            $components[] = array(
                 'name'        => $class,
                 'source'      => $entryPath,
                 'signal'      => 'class-token',
