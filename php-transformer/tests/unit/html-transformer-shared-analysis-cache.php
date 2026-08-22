@@ -28,12 +28,12 @@ $withoutDurations = static function (array $value) use (&$withoutDurations): arr
 
 $css = ':root{--brand:#123456}.card{display:grid;color:var(--brand)}.card img{aspect-ratio:4/3;object-fit:cover}';
 $options = array('static_css' => $css, 'skip_author_stylesheet_materialization' => true);
-$pages = array(
-    '<main class="card"><h1>First</h1><img src="first.jpg" alt="First"></main>',
-    '<main class="card"><h1>Second</h1><img src="second.jpg" alt="Second"></main>',
-    '<main class="card"><h1>Third</h1><img src="third.jpg" alt="Third"></main>',
-);
+$pages = array();
+for ( $index = 0; $index < 54; ++$index ) {
+    $pages[] = '<style>.page-' . $index . '{padding:' . $index . 'px}</style><main class="card page-' . $index . '"><h1>Page ' . $index . '</h1><img src="page-' . $index . '.jpg" alt="Page ' . $index . '"></main>';
+}
 $cache = new HtmlTransformerAnalysisCache();
+$startedAt = hrtime(true);
 
 foreach ( $pages as $html ) {
     $shared = (new HtmlTransformer(analysisCache: $cache))->transform($html, $options)->toArray();
@@ -44,28 +44,12 @@ foreach ( $pages as $html ) {
     );
 }
 
-$assert(1 === $cache->styleBuilds, 'Identical static and inline CSS must be analyzed once across fresh page transformers.');
-$assert(1 === $cache->authorSelectorBuilds, 'Identical author selectors must be parsed once across fresh page transformers.');
-$assert(1 === $cache->authorStyleRuleBuilds, 'Author stylesheet rules and declaration maps must be built once rather than traversed per element.');
-$assert(2 === $cache->styleHits, 'Repeated stylesheet inputs must hit the shared analysis cache for every later document.');
-$assert(2 === $cache->authorSelectorHits, 'Repeated author stylesheet inputs must hit the shared selector cache for every later document.');
-
-$alternateCss = '.alternate{color:rebeccapurple}';
-(new HtmlTransformer(analysisCache: $cache))->transform('<main class="alternate">Alternate</main>', array('static_css' => $alternateCss, 'skip_author_stylesheet_materialization' => true));
-(new HtmlTransformer(analysisCache: $cache))->transform('<main class="card">Again</main>', $options);
-$assert(2 === $cache->styleBuilds && 3 === $cache->styleHits, 'A previously analyzed stylesheet must remain reusable after a different document stylesheet.');
-$assert(2 === $cache->authorSelectorBuilds && 3 === $cache->authorSelectorHits, 'A previously parsed author stylesheet must remain reusable after a different document stylesheet.');
-
-for ( $index = 0; $index < 7; ++$index ) {
-    $class = 'eviction-' . $index;
-    (new HtmlTransformer(analysisCache: $cache))->transform('<main class="' . $class . '">Eviction</main>', array('static_css' => '.' . $class . '{color:#' . $index . $index . $index . '}', 'skip_author_stylesheet_materialization' => true));
-}
-$evicted = (new HtmlTransformer(analysisCache: $cache))->transform('<main class="card">Evicted</main>', $options)->toArray();
-$isolated = (new HtmlTransformer())->transform('<main class="card">Evicted</main>', $options)->toArray();
-$assert($withoutDurations($isolated) === $withoutDurations($evicted), 'Rebuilt stylesheet analysis after eviction must preserve isolated transform output.');
-$assert(8 === count($cache->styles) && 8 === count($cache->authorSelectorAnalyses), 'Shared analysis caches retain at most eight stylesheet entries.');
-$assert(10 === $cache->styleBuilds && 3 === $cache->styleHits, 'The oldest stylesheet analysis is evicted after the eight-entry bound is reached.');
-$assert(10 === $cache->authorSelectorBuilds && 3 === $cache->authorSelectorHits, 'The oldest author selector analysis is evicted after the eight-entry bound is reached.');
+$elapsedMs = (hrtime(true) - $startedAt) / 1_000_000;
+$assert(55 === $cache->styleBuilds && 53 === $cache->styleHits, '54 pages with one shared payload must analyze 55 unique payloads and hit the shared payload 53 times.');
+$assert(55 === $cache->authorSelectorBuilds && 53 === $cache->authorSelectorHits, 'Author selector analysis must reuse the shared payload independently of page-local CSS.');
+$assert(55 === $cache->authorStyleRuleBuilds, 'Author stylesheet rules and declaration maps must be built once per immutable payload.');
+$assert(16 === count($cache->styles) && 16 === count($cache->authorSelectorAnalyses), 'Payload analysis caches retain at most sixteen parsed graphs.');
+$assert(39 === $cache->styleEvictions && 39 === $cache->authorSelectorEvictions, 'Route-local payloads must evict only least-recently-used payload analyses.');
 
 $selectorCache = new HtmlTransformerAnalysisCache();
 $selectorHtml = '<style>.card{color:red}.card.featured[data-state="ready"]{color:green}.card .title{font-weight:700}.card.featured .title{color:blue}</style><section class="card featured" data-state="ready"><h2 class="title">One</h2></section><section class="card featured" data-state="ready"><h2 class="title">Two</h2></section>';
@@ -91,4 +75,4 @@ $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transf
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
 $assert(4 === $candidateCache->sourceStyleCandidateRuleChecks && 305 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection walks check four relevant rule candidates while deterministically skipping 305 irrelevant candidates.');
 
-fwrite(STDOUT, "HTML transformer shared analysis cache passed\n");
+fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d; author builds=%d hits=%d evictions=%d entries=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses)));
