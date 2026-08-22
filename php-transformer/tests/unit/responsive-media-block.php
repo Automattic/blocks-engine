@@ -36,4 +36,10 @@ foreach (array('media="(min-width: 800px)"', 'type="image/webp"', 'hero,wide.web
     $assert(str_contains($content, $fragment), 'responsive companion preserves ' . $fragment);
 }
 
+$wrappedSource = '<a href="/profile" aria-label="Profile"><wow-image data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></wow-image></a>';
+$wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
+$wrappedContent = (string) ($wrapped['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null), 'an image-only custom-element carrier inside a link uses responsive media');
+$assert(str_contains($wrappedContent, '<wow-image') && str_contains($wrappedContent, '<img') && str_contains($wrappedContent, 'href="/profile"'), 'the linked custom carrier retains its bounded source markup for SSI rendering');
+
 fwrite(STDOUT, "Responsive media companion tests passed\n");

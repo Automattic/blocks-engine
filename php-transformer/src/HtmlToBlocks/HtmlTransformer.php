@@ -13721,6 +13721,16 @@ final class HtmlTransformer
         }
 
         $image = $this->firstChildElement($anchor, 'img');
+        if ( ! $image instanceof DOMElement ) {
+            foreach ( $anchor->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $image = $this->imageOnlyCustomElement($child);
+                    if ( $image instanceof DOMElement ) {
+                        break;
+                    }
+                }
+            }
+        }
         return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
     }
 
@@ -13729,7 +13739,7 @@ final class HtmlTransformer
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCustomElement($child) instanceof DOMElement ) ) {
                     return false;
                 }
                 ++$imageChildren;
