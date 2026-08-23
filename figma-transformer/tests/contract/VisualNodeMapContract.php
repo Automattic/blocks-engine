@@ -1259,4 +1259,48 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $staleNestedInstanceImage = blocks_engine_figma_transformer_contract_find_visual_node($staleNestedInstanceGeometryResult, 'instance:nested-card/source:nested-card/image');
     $assert(str_contains($staleNestedInstanceGeometryCss, 'width:376px;height:282px;position:absolute;left:0px;top:0px'), 'visual-map-nested-instance-stale-definition-transform-css-parent-local');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $staleNestedInstanceImage, array('x' => 112.0, 'y' => 198.0, 'width' => 376.0, 'height' => 282.0), 'visual-map-nested-instance-stale-definition-transform-rect-parent-local');
+
+    $reusedEmitter = new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter();
+    $reusedEmitter->emit(array(
+        'name' => 'Prior emission',
+        'nodes' => array(array('id' => 'reuse:prior', 'type' => 'FRAME', 'name' => 'Prior root', 'width' => 320, 'height' => 160)),
+    ));
+    $reusedSite = $reusedEmitter->emitSite(array(
+        'name' => 'Reused emitter site',
+        'nodes' => array(
+            array('id' => 'reuse:home', 'type' => 'FRAME', 'name' => 'Home', 'width' => 320, 'height' => 160, 'children' => array(array('id' => 'reuse:home-title', 'type' => 'TEXT', 'name' => 'Home title', 'text' => 'Home'))),
+            array('id' => 'reuse:about', 'type' => 'FRAME', 'name' => 'About', 'width' => 320, 'height' => 160, 'children' => array(array('id' => 'reuse:about-title', 'type' => 'TEXT', 'name' => 'About title', 'text' => 'About'))),
+        ),
+    ), array(
+        'pages' => array(
+            array('frame_id' => 'reuse:home', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true),
+            array('frame_id' => 'reuse:about', 'name' => 'About', 'path' => 'about.html'),
+        ),
+    ));
+    $reusedCss = blocks_engine_figma_transformer_contract_file_content($reusedSite, 'style.css');
+    $reusedHomeHtml = blocks_engine_figma_transformer_contract_file_content($reusedSite, 'index.html');
+    $reusedAboutHtml = blocks_engine_figma_transformer_contract_file_content($reusedSite, 'about.html');
+    $assert(! str_contains($reusedCss, 'figma-node-reuse-prior-prior-root'), 'visual-map-emitter-reuse-clears-prior-emission-css');
+    $assert(str_contains($reusedHomeHtml, 'data-page-path="index.html"') && str_contains($reusedAboutHtml, 'data-page-path="about.html"'), 'visual-map-emitter-reuse-resets-page-local-state');
+    $assert(null === blocks_engine_figma_transformer_contract_find_visual_node_in_map($reusedSite['source_report']['visual_node_map'] ?? array(), 'reuse:prior'), 'visual-map-emitter-reuse-clears-prior-report-state');
+
+    $reusedSinglePage = $reusedEmitter->emit(array(
+        'name' => 'Reused single page',
+        'nodes' => array(array('id' => 'reuse:single', 'type' => 'FRAME', 'name' => 'Single page', 'width' => 320, 'height' => 160)),
+    ), array('static_site_page_path' => 'single.html'));
+    $reusedSingleCss = blocks_engine_figma_transformer_contract_file_content($reusedSinglePage, 'style.css');
+    $reusedSingleHtml = blocks_engine_figma_transformer_contract_file_content($reusedSinglePage, 'index.html');
+    $assert(! str_contains($reusedSingleCss, 'figma-node-reuse-home-home') && ! str_contains($reusedSingleCss, 'figma-node-reuse-about-about'), 'visual-map-emitter-reuse-clears-prior-site-css');
+    $assert(str_contains($reusedSingleHtml, 'data-page-path="single.html"') && null === blocks_engine_figma_transformer_contract_find_visual_node_in_map($reusedSinglePage['source_report']['visual_node_map'] ?? array(), 'reuse:home'), 'visual-map-emitter-reuse-clears-prior-site-page-state');
+
+    $inlineSite = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter())->emitSite(array(
+        'name' => 'Inline diagnostics site',
+        'nodes' => array(array('id' => 'inline:home', 'type' => 'FRAME', 'name' => 'Inline home', 'width' => 320, 'height' => 160)),
+    ), array(
+        'pages' => array(array('frame_id' => 'inline:home', 'name' => 'Inline home', 'path' => 'index.html', 'entrypoint' => true)),
+    ), array('inline_css' => true));
+    $inlineSiteHtml = blocks_engine_figma_transformer_contract_file_content($inlineSite, 'index.html');
+    $inlineSiteDiagnostics = $inlineSite['source_report']['transform_diagnostics']['html_artifact'] ?? array();
+    $assert(str_contains($inlineSiteHtml, '<style data-figma-transformer-css="true">'), 'visual-map-site-inline-css-injected-before-diagnostics');
+    $assert(strlen("\n" . $inlineSiteHtml) === ($inlineSiteDiagnostics['html_bytes'] ?? null), 'visual-map-site-inline-css-diagnostics-use-final-html');
 }

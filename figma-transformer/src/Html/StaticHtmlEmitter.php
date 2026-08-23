@@ -399,11 +399,11 @@ final class StaticHtmlEmitter
     private array $decisionTraces = array();
 
     /**
-     * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
-     * @param array<string, mixed> $options Transformation options.
-     * @return array<string, mixed>
+     * Reset state whose lifetime is one public emission call.
+     *
+     * @param array<string, mixed> $options
      */
-    public function emit(array $scenegraph, array $options = array()): array
+    private function beginEmission(array $options): void
     {
         $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
         $this->usedAssetPaths = array();
@@ -417,101 +417,196 @@ final class StaticHtmlEmitter
         $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
-        $this->linkState->resetForSinglePage($this->normalizeLinkTargetPaths($options));
-        $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
-        $nodes = $this->nodeList($scenegraph);
-        $pagePath = (string) ($options['static_site_page_path'] ?? 'index.html');
-        $this->currentTemplateType = is_scalar($options['static_site_template_type'] ?? null) ? (string) $options['static_site_template_type'] : '';
-        $this->currentTemplateSlug = is_scalar($options['static_site_template_slug'] ?? null) ? (string) $options['static_site_template_slug'] : $this->templateSlugFromPath($pagePath);
-        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
+        $this->cssPositioningResolver = null;
+    }
+
+    /**
+     * Prepare state whose lifetime is one emitted HTML page.
+     *
+     * @param array<int, mixed> $nodes
+     */
+    private function beginPage(array $nodes, string $path, string $templateType, string $templateSlug, int $sectionDepth): void
+    {
         $this->listItemIdCache = array();
         $this->formControlNameCounts = array();
+        $this->currentTemplateType = $templateType;
+        $this->currentTemplateSlug = $templateSlug;
         $this->prepareHeadingRanking($nodes);
-        $this->prepareHeadingAnchors($nodes, $pagePath);
+        $this->prepareHeadingAnchors($nodes, $path);
+        $this->sectionDepth = $sectionDepth;
+        $this->inlineVectorSvgBytes = 0;
+    }
+
+    /**
+     * Set up artifact-wide state shared by single-page and site emission.
+     *
+     * @param array<string, mixed> $scenegraph
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function prepareArtifactEmission(array $scenegraph, array $options): array
+    {
         $diagnostics = array();
-        $nodeStyleDiagnostics = array();
-        $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
-        $this->cssPositioningResolver = null;
-
-        $this->sectionDepth = $this->sectionDepthFor($nodes);
-
-        $body = '';
-        $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
-        $operatorFontCss = $this->fontCss($options);
-        $familyOverrides = $this->fontFamilyOverrides($options);
         $designSystem = $this->designSystemExtractor()->extract($scenegraph);
         $this->typographyTokenVars = is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array();
+        $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
 
+        return array(
+            'diagnostics'         => $diagnostics,
+            'asset_files'         => $assetFiles,
+            'css_rules'           => $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths),
+            'operator_font_css'   => $this->fontCss($options),
+            'family_overrides'    => $this->fontFamilyOverrides($options),
+            'design_system'       => $designSystem,
+        );
+    }
+
+    /**
+     * Emit one HTML document root. Both public entrypoints use this so page
+     * state cannot leak between site pages or diverge from single-page output.
+     *
+     * @param array<int, mixed> $nodes
+     * @param array<int, string> $cssRules
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
+     * @param array<string, mixed> $options
+     * @return array{body: string, content: string}
+     */
+    private function emitPageDocument(array $nodes, string $path, string $documentTitle, string $metadataTitle, string $templateType, string $templateSlug, int $sectionDepth, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, array $options): array
+    {
+        $this->beginPage($nodes, $path, $templateType, $templateSlug, $sectionDepth);
+        $body = $this->emitPageBody($nodes, $cssRules, $diagnostics, $nodeStyleDiagnostics);
+
+        return $this->assemblePageDocument($body, $path, $documentTitle, $metadataTitle, $options);
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @param array<int, string> $cssRules
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
+     */
+    private function emitPageBody(array $nodes, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics): string
+    {
+        $body = '';
         foreach ( $nodes as $node ) {
-            if ( ! is_array($node) ) {
-                continue;
+            if ( is_array($node) ) {
+                $body .= $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
             }
-            $body .= $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
         }
 
-        $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
+        return $body;
+    }
 
-        $shared   = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($cssRules);
+    /**
+     * @return array{body: string, content: string}
+     */
+    private function assemblePageDocument(string $body, string $path, string $documentTitle, string $metadataTitle, array $options): array
+    {
+        return array(
+            'body'    => $body,
+            'content' => $this->htmlArtifactAssembler()->htmlDocument($documentTitle, $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $metadataTitle, $this->currentTemplateType, $this->currentTemplateSlug)),
+        );
+    }
+
+    /**
+     * Apply shared CSS, resolve fonts, append assets, and build diagnostics.
+     *
+     * @param array<string, mixed> $scenegraph
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $emission
+     * @return array<string, mixed>
+     */
+    private function finalizeArtifactEmission(array $scenegraph, array $options, array $emission): array
+    {
+        $assetFiles = array_merge($this->referencedAssetFiles($emission['asset_files']), array_values($this->generatedAssetFiles));
+        $shared = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($emission['css_rules'], $emission['complete_shared_styles']);
         $cssRules = $shared['rules'];
-        $body     = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($body, $shared['class_map']);
+        $files = $emission['files'];
+        if ( ! empty($shared['class_map']) ) {
+            foreach ( $files as $fileIndex => $file ) {
+                if ( 'text/html' === ($file['mime_type'] ?? '') && isset($file['content']) ) {
+                    $files[$fileIndex]['content'] = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml((string) $file['content'], $shared['class_map']);
+                }
+            }
+        }
 
-        $mediaBlocks = $this->desktopOnlyFallbackMediaBlocks($scenegraph, $nodes);
-        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules, $mediaBlocks);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $body);
+        $htmlForFontUsage = $emission['html_for_font_usage'] ?? $this->htmlArtifactAssembler()->htmlFilesContent($files);
+        if ( ! empty($shared['class_map']) && isset($emission['html_for_font_usage']) ) {
+            $htmlForFontUsage = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($htmlForFontUsage, $shared['class_map']);
+        }
+        $transformHtml = null;
+        if ( isset($emission['transform_html']) ) {
+            $transformHtml = (string) $emission['transform_html'];
+            if ( ! empty($shared['class_map']) ) {
+                $transformHtml = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($transformHtml, $shared['class_map']);
+            }
+        }
+        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $emission['design_system']['css'], $cssRules, $emission['media_blocks'], $emission['site_stylesheet']);
+        $fontUsage = $this->fontUsage($emission['node_style_diagnostics'], $cssWithoutFontCss, $htmlForFontUsage);
         $fontFamilies = array_column($fontUsage, 'family');
-        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
-        $fontCss = (string) $fontResolution['css'];
-
-        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $emission['operator_font_css'], $emission['family_overrides']);
+        $css = $this->htmlArtifactAssembler()->stylesheet((string) $fontResolution['css'], (string) $emission['design_system']['css'], $cssRules, $emission['media_blocks'], $emission['site_stylesheet']);
+        $diagnostics = $emission['diagnostics'];
+        foreach ( $this->designSystemDiagnostics($emission['design_system']) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
-
-        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules, $mediaBlocks);
-        $files = array(
-            array(
-                'path'      => 'index.html',
-                'role'      => 'entrypoint',
-                'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, $pagePath, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $this->currentTemplateType, $this->currentTemplateSlug)),
-            ),
-            array(
-                'path'      => 'style.css',
-                'role'      => 'stylesheet',
-                'mime_type' => 'text/css',
-                'content'   => $css,
-            ),
-        );
-
+        $files[] = array('path' => 'style.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $css);
         foreach ( $assetFiles as $assetFile ) {
             $files[] = $assetFile;
         }
-
-        if ( false !== ($options['inline_css'] ?? true) ) {
+        if ( $emission['inline_css'] ) {
             $files = (new InlineCssFileInjector())->inject($files, $css);
         }
+        if ( null === $transformHtml ) {
+            $transformHtml = $this->htmlArtifactAssembler()->htmlFilesContent($files);
+        }
 
-        $visualNodeMap = $this->visualNodeMap($nodes);
-        $transformDiagnostics = $this->transformDiagnostics(
-            $nodes,
-            $visualNodeMap,
-            $assetFiles,
-            $fontFamilies,
-            $fontUsage,
-            $fontResolution,
-            $css,
-            array_merge(is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(), $diagnostics),
-            $body,
-            is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array()
-        );
+        $visualNodeMap = $this->visualNodeMap($emission['rendered_nodes']);
+        $transformDiagnostics = $this->transformDiagnostics($emission['rendered_nodes'], $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, array_merge(is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(), $diagnostics), $transformHtml, is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array());
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
 
+        return array('diagnostics' => $diagnostics, 'files' => $files, 'asset_files' => $assetFiles, 'font_families' => $fontFamilies, 'font_usage' => $fontUsage, 'font_resolution' => $fontResolution, 'visual_node_map' => $visualNodeMap, 'transform_diagnostics' => $transformDiagnostics, 'design_system' => $emission['design_system']);
+    }
+
+    /**
+     * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
+     * @param array<string, mixed> $options Transformation options.
+     * @return array<string, mixed>
+     */
+    public function emit(array $scenegraph, array $options = array()): array
+    {
+        $this->beginEmission($options);
+        $this->linkState->resetForSinglePage($this->normalizeLinkTargetPaths($options));
+        $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
+        $nodes = $this->nodeList($scenegraph);
+        $pagePath = (string) ($options['static_site_page_path'] ?? 'index.html');
+        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
+        $templateType = is_scalar($options['static_site_template_type'] ?? null) ? (string) $options['static_site_template_type'] : '';
+        $templateSlug = is_scalar($options['static_site_template_slug'] ?? null) ? (string) $options['static_site_template_slug'] : $this->templateSlugFromPath($pagePath);
+        $emission = $this->prepareArtifactEmission($scenegraph, $options);
+        $diagnostics = $emission['diagnostics'];
+        $nodeStyleDiagnostics = array();
+        $page = $this->emitPageDocument($nodes, $pagePath, $title, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $templateType, $templateSlug, $this->sectionDepthFor($nodes), $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics, $options);
+        $emission['diagnostics'] = $diagnostics;
+        $emission['node_style_diagnostics'] = $nodeStyleDiagnostics;
+        $emission['rendered_nodes'] = $nodes;
+        $emission['files'] = array(array('path' => 'index.html', 'role' => 'entrypoint', 'mime_type' => 'text/html', 'content' => $page['content']));
+        $emission['html_for_font_usage'] = $page['body'];
+        $emission['transform_html'] = $page['body'];
+        $emission['media_blocks'] = $this->desktopOnlyFallbackMediaBlocks($scenegraph, $nodes);
+        $emission['complete_shared_styles'] = false;
+        $emission['site_stylesheet'] = false;
+        $emission['inline_css'] = false !== ($options['inline_css'] ?? true);
+        $result = $this->finalizeArtifactEmission($scenegraph, $options, $emission);
+
         return array(
             'status'        => 'success',
-            'diagnostics'   => $diagnostics,
-            'files'         => $files,
-            'assets'        => $this->assetReport($assetFiles),
+            'diagnostics'   => $result['diagnostics'],
+            'files'         => $result['files'],
+            'assets'        => $this->assetReport($result['asset_files']),
             'source_report' => array(
                 'name'                         => $title,
                 'node_count'                   => $this->countNodes($nodes),
@@ -519,23 +614,23 @@ final class StaticHtmlEmitter
                 'node_style_diagnostic_count'  => count($nodeStyleDiagnostics),
                 'node_style_mismatch_count'    => $this->countNodeStyleMismatches($nodeStyleDiagnostics),
                 'node_style_diagnostics'       => $nodeStyleDiagnostics,
-                'visual_node_count'            => count($visualNodeMap),
-                'visual_node_map'              => $visualNodeMap,
-                'font_families'                => $fontFamilies,
-                'font_usage'                   => $fontUsage,
-                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
+                'visual_node_count'            => count($result['visual_node_map']),
+                'visual_node_map'              => $result['visual_node_map'],
+                'font_families'                => $result['font_families'],
+                'font_usage'                   => $result['font_usage'],
+                'font_css_supplied'            => (bool) $result['font_resolution']['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'design_system'                => array(
-                    'coverage'                  => $designSystem['coverage'],
-                    'frame_names'               => $designSystem['frame_names'],
-                    'type_token_map'            => $designSystem['type_token_map'] ?? array(),
-                    'materialized_node_classes' => $designSystem['materialized_node_classes'] ?? array(),
+                    'coverage'                  => $result['design_system']['coverage'],
+                    'frame_names'               => $result['design_system']['frame_names'],
+                    'type_token_map'            => $result['design_system']['type_token_map'] ?? array(),
+                    'materialized_node_classes' => $result['design_system']['materialized_node_classes'] ?? array(),
                 ),
-                'transform_diagnostics'        => $transformDiagnostics,
+                'transform_diagnostics'        => $result['transform_diagnostics'],
             ),
             'metrics'       => array(
                 'node_count'  => $this->countNodes($nodes),
-                'asset_count' => count($assetFiles),
+                'asset_count' => count($result['asset_files']),
             ),
         );
     }
@@ -577,18 +672,7 @@ final class StaticHtmlEmitter
      */
     public function emitSite(array $scenegraph, array $pagePlan, array $options = array()): array
     {
-        $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
-        $this->usedAssetPaths = array();
-        $this->generatedAssetFiles = array();
-        $this->generatedVectorSvgPathsByHash = array();
-        $this->inlineVectorSvgBytes = 0;
-        $this->staticHtmlCssRuleSet()->resetReadableNames();
-        $this->emittedNodeMetadata = array();
-        $this->suppressedVisualNodeIds = array();
-        $this->decisionTraces = array();
-        $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
-        $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
-        $this->stickyLayoutCoordinator()->reset();
+        $this->beginEmission($options);
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
         $implicitRouteData = $this->implicitRouteDataFromPagePlan($implicitRoutePagePlan, $scenegraph);
         $this->linkState->resetForSite(
@@ -598,16 +682,10 @@ final class StaticHtmlEmitter
             $implicitRouteData['targets']
         );
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
-        $diagnostics = array();
+        $emission = $this->prepareArtifactEmission($scenegraph, $options);
+        $diagnostics = $emission['diagnostics'];
         $nodeStyleDiagnostics = array();
-        $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
         $nodeMap = $this->nodeMap($scenegraph);
-
-        $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
-        $operatorFontCss = $this->fontCss($options);
-        $familyOverrides = $this->fontFamilyOverrides($options);
-        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
-        $this->typographyTokenVars = is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array();
         $files = array();
         $pages = array();
         $renderedNodes = array();
@@ -671,23 +749,13 @@ final class StaticHtmlEmitter
             }
             $seenPaths[$path] = true;
 
-            $this->listItemIdCache = array();
-            $this->formControlNameCounts = array();
-            $this->currentTemplateType = is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '';
-            $this->currentTemplateSlug = is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path);
-            $this->prepareHeadingRanking(array($frameNode));
-            $this->prepareHeadingAnchors(array($frameNode), $path);
-            // A planned page is a single wrapping frame; its bands are its
-            // direct children one level down.
-            $this->sectionDepth = 1;
-            $this->inlineVectorSvgBytes = 0;
-            $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
-            $pageHtml = $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $pageName, $this->currentTemplateType, $this->currentTemplateSlug));
+            $pageDocument = $this->emitPageDocument(array($frameNode), $path, $this->sanitizeText($pageName), $pageName, is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '', is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path), 1, $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics, $options);
+            $body = $pageDocument['body'];
             $files[] = array(
                 'path'      => $path,
                 'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
                 'mime_type' => 'text/html',
-                'content'   => $pageHtml,
+                'content'   => $pageDocument['content'],
             );
             $canonicalTemplatePath = $this->canonicalTemplatePath($this->currentTemplateType);
             $templateAliases = array();
@@ -721,89 +789,39 @@ final class StaticHtmlEmitter
         }
 
         if ( empty($files) ) {
-            $this->currentPagePath = 'index.html';
-            $this->currentTemplateType = '';
-            $this->currentTemplateSlug = 'index';
-            $this->formControlNameCounts = array();
             $fallbackNodes = $this->nodeList($scenegraph);
-            $this->prepareHeadingRanking($fallbackNodes);
-            $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
-            $this->sectionDepth = $this->sectionDepthFor($fallbackNodes);
-            $this->inlineVectorSvgBytes = 0;
+            $this->beginPage($fallbackNodes, 'index.html', '', 'index', $this->sectionDepthFor($fallbackNodes));
             foreach ( $fallbackNodes as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
                 }
-                $body = $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
+                $body = $this->emitPageBody(array($node), $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics);
+                $pageDocument = $this->assemblePageDocument($body, 'index.html', $title, html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $options);
                 $files[] = array(
                     'path'      => 'index.html',
                     'role'      => 'entrypoint',
                     'mime_type' => 'text/html',
-                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, 'index.html', html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $this->currentTemplateType, $this->currentTemplateSlug)),
+                    'content'   => $pageDocument['content'],
                 );
                 $renderedNodes[] = $node;
             }
         }
 
-        $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
-
-        $shared   = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($cssRules, true);
-        $cssRules = $shared['rules'];
-        if ( ! empty($shared['class_map']) ) {
-            foreach ( $files as $fileIndex => $file ) {
-                if ( 'text/html' === ($file['mime_type'] ?? '') && isset($file['content']) ) {
-                    $files[$fileIndex]['content'] = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml((string) $file['content'], $shared['class_map']);
-                }
-            }
-        }
-
-        $htmlForFontUsage = $this->htmlArtifactAssembler()->htmlFilesContent($files);
-        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules, $mediaBlocks, true);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $htmlForFontUsage);
-        $fontFamilies = array_column($fontUsage, 'family');
-        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
-        $fontCss = (string) $fontResolution['css'];
-        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
-            $diagnostics[] = $diagnostic;
-        }
-        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules, $mediaBlocks, true);
-        $files[] = array(
-            'path'      => 'style.css',
-            'role'      => 'stylesheet',
-            'mime_type' => 'text/css',
-            'content'   => $css,
-        );
-
-        foreach ( $assetFiles as $assetFile ) {
-            $files[] = $assetFile;
-        }
-
-        if ( true === ($options['inline_css'] ?? false) ) {
-            $files = (new InlineCssFileInjector())->inject($files, $css);
-        }
-
-        $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $transformDiagnostics = $this->transformDiagnostics(
-            $renderedNodes,
-            $visualNodeMap,
-            $assetFiles,
-            $fontFamilies,
-            $fontUsage,
-            $fontResolution,
-            $css,
-            array_merge(is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(), $diagnostics),
-            $this->htmlArtifactAssembler()->htmlFilesContent($files),
-            is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array()
-        );
-        foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
-            $diagnostics[] = $diagnostic;
-        }
+        $emission['diagnostics'] = $diagnostics;
+        $emission['node_style_diagnostics'] = $nodeStyleDiagnostics;
+        $emission['rendered_nodes'] = $renderedNodes;
+        $emission['files'] = $files;
+        $emission['media_blocks'] = $mediaBlocks;
+        $emission['complete_shared_styles'] = true;
+        $emission['site_stylesheet'] = true;
+        $emission['inline_css'] = true === ($options['inline_css'] ?? false);
+        $result = $this->finalizeArtifactEmission($scenegraph, $options, $emission);
 
         return array(
             'status'        => 'success',
-            'diagnostics'   => $diagnostics,
-            'files'         => $files,
-            'assets'        => $this->assetReport($assetFiles),
+            'diagnostics'   => $result['diagnostics'],
+            'files'         => $result['files'],
+            'assets'        => $this->assetReport($result['asset_files']),
             'source_report' => array(
                 'name'                         => $title,
                 'node_count'                   => $this->countNodes($renderedNodes),
@@ -812,23 +830,23 @@ final class StaticHtmlEmitter
                 'node_style_diagnostic_count'  => count($nodeStyleDiagnostics),
                 'node_style_mismatch_count'    => $this->countNodeStyleMismatches($nodeStyleDiagnostics),
                 'node_style_diagnostics'       => $nodeStyleDiagnostics,
-                'visual_node_count'            => count($visualNodeMap),
-                'visual_node_map'              => $visualNodeMap,
-                'font_families'                => $fontFamilies,
-                'font_usage'                   => $fontUsage,
-                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
+                'visual_node_count'            => count($result['visual_node_map']),
+                'visual_node_map'              => $result['visual_node_map'],
+                'font_families'                => $result['font_families'],
+                'font_usage'                   => $result['font_usage'],
+                'font_css_supplied'            => (bool) $result['font_resolution']['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'design_system'                => array(
-                    'coverage'                  => $designSystem['coverage'],
-                    'frame_names'               => $designSystem['frame_names'],
-                    'type_token_map'            => $designSystem['type_token_map'] ?? array(),
-                    'materialized_node_classes' => $designSystem['materialized_node_classes'] ?? array(),
+                    'coverage'                  => $result['design_system']['coverage'],
+                    'frame_names'               => $result['design_system']['frame_names'],
+                    'type_token_map'            => $result['design_system']['type_token_map'] ?? array(),
+                    'materialized_node_classes' => $result['design_system']['materialized_node_classes'] ?? array(),
                 ),
-                'transform_diagnostics'        => $transformDiagnostics,
+                'transform_diagnostics'        => $result['transform_diagnostics'],
             ),
             'metrics'       => array(
                 'node_count'  => $this->countNodes($renderedNodes),
-                'asset_count' => count($assetFiles),
+                'asset_count' => count($result['asset_files']),
                 'page_count'  => count($pages),
             ),
         );
