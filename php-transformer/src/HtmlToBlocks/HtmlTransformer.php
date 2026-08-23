@@ -60,6 +60,7 @@ use DOMNode;
 
 final class HtmlTransformer
 {
+    private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
     use ButtonLinkDispatchTrait;
     use DomHelpersTrait;
     use FormDispatchTrait;
@@ -823,7 +824,9 @@ final class HtmlTransformer
         $interactionCandidates = $this->interactionCandidates($body);
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
+        $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
+        $blocks = $this->compressProjectedGroupChains($blocks);
         $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
         if (!$this->fallbackReductionMode) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
@@ -1196,6 +1199,59 @@ final class HtmlTransformer
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
         return $this->reusableComponentFingerprints[$element->getNodePath()] ?? null;
+    }
+
+    private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
+    {
+        if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
+            && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
+            && ($this->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
+            && ($this->fallbackEmitter->isRepeatableContentComponent($element) || $this->fallbackEmitter->isSafeCustomElementHost($element))
+        ) {
+            $this->generatedComponentCandidates[$element->getNodePath()] = true;
+            return;
+        }
+
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $this->collectGeneratedComponentCandidates($child, $depth + 1);
+            }
+        }
+    }
+
+    private function hasRepeatedDirectChildTags(DOMElement $element): bool
+    {
+        $counts = array();
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+            $tag = strtolower($child->tagName);
+            $counts[$tag] = ($counts[$tag] ?? 0) + 1;
+            if (2 <= $counts[$tag]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isGeneratedComponentCandidate(DOMElement $element): bool
+    {
+        return isset($this->generatedComponentCandidates[$element->getNodePath()]);
+    }
+
+    /** @param array{blockName: string, attrs: array<string, mixed>} $generated @return array<string, mixed> */
+    private function generatedComponentBlock(array $generated, DOMElement $element): array
+    {
+        $block = $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
+        foreach (array_merge(array($element), $this->descendantElements($element)) as $target) {
+            if (! $this->isRuntimeDomTarget($target)) {
+                continue;
+            }
+            $block['_editability_runtime_owned'] = true;
+            $this->recordNativeRuntimeDomPreservation($target, $generated['blockName']);
+        }
+        return $block;
     }
 
     /** @param array<string, mixed> $recognition @return array<string, mixed> */
@@ -5236,6 +5292,7 @@ final class HtmlTransformer
 
             if ( 'button' !== strtolower($this->attr($element, 'role'))
                 && ! $this->hasClass($element, 'wp-block-columns')
+                && ! $this->isGeneratedComponentCandidate($element)
                 && $this->isAuthorOwnedLayout($element)
             ) {
                 $proofBacked = $this->proofBackedWrapperCoalescing($element, $fallbacks);
@@ -5246,7 +5303,7 @@ final class HtmlTransformer
             // A direct child of an author-owned layout is itself a layout item.
             // Keep its semantic container instead of allowing a core Group to
             // contribute flow layout defaults to the author-owned parent.
-            if ( $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
+            if ( ! $this->isGeneratedComponentCandidate($element) && $this->isDirectChildOfAuthorOwnedLayout($element) && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true) ) {
                 if ( 0 === $this->childElementCount($element) && '' === trim($element->textContent) && $this->shouldPreserveEmptyVisualElement($element) ) {
                     return $this->createBlock('core/group', $this->emptyVisualElementAttributes($element), array(), $element);
                 }
@@ -5352,6 +5409,13 @@ final class HtmlTransformer
                 }
             }
 
+            if ( $this->isGeneratedComponentCandidate($element) ) {
+                $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace, true, true);
+                if ( null !== $generated ) {
+                    return $this->generatedComponentBlock($generated, $element);
+                }
+            }
+
             $textFlow = $this->textFlowBlockFromElement($element);
             if ( null !== $textFlow ) {
                 return $textFlow;
@@ -5383,6 +5447,13 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->isGeneratedComponentCandidate($element) ) {
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace, true, true);
+            if ( null !== $generated ) {
+                return $this->generatedComponentBlock($generated, $element);
+            }
+        }
+
         $readableControlBlock = $this->readableFormControlBlockFromElement($element);
         if ( null !== $readableControlBlock ) {
             return $readableControlBlock;
@@ -5405,7 +5476,7 @@ final class HtmlTransformer
             // core/html. Otherwise keep the existing fallback diagnostic.
             $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
             if ( null !== $generated ) {
-                return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
+                return $this->generatedComponentBlock($generated, $element);
             }
 
             $fallback = array(
@@ -7556,6 +7627,140 @@ final class HtmlTransformer
         return in_array($landmark, array('header', 'footer'), true) ? $landmark : null;
     }
 
+    /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
+    private function compressProjectedGroupChains(array $blocks): array
+    {
+        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block), $blocks));
+    }
+
+    /** @param array<string, mixed> $block @return array<string, mixed> */
+    private function compressProjectedGroupBlock(array $block): array
+    {
+        $chain = array();
+        $cursor = $block;
+        while ($this->isSingleGroupShellCandidate($cursor)) {
+            $descriptor = $this->groupWrapperDescriptor($cursor);
+            if (null === $descriptor) {
+                break;
+            }
+            $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $cursor = $cursor['innerBlocks'][0];
+        }
+
+        $branchEndpoint = false;
+        $cursorChildren = is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array();
+        if ('core/group' === ($cursor['blockName'] ?? null)
+            && 1 < count($cursorChildren)
+            && !isset($cursor['_binding_token'])
+            && !in_array(strtolower((string) ($cursor['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
+            && null !== ($branchDescriptor = $this->groupWrapperDescriptor($cursor))
+        ) {
+            $chain[] = array('block' => $cursor, 'descriptor' => $branchDescriptor);
+            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren);
+            $terminal = array();
+            $terminalIsShell = false;
+            $branchEndpoint = true;
+        } else {
+            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
+            $terminalIsShell = $this->isLayoutShellBlock($terminal);
+            $terminalBlocks = $terminalIsShell
+                ? $terminal['innerBlocks']
+                : array($terminal);
+        }
+        $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceProjectionClass($entry['block'])));
+        $minimumLength = $branchEndpoint ? 3 : ($projectedCount === count($chain) ? 2 : 3);
+        if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
+            $wrappers = array_column($chain, 'descriptor');
+            $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
+            $terminalVisualOwned = $terminalIsShell && !empty($terminal['_editability_visual_owned']);
+            if ($terminalIsShell) {
+                $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+            }
+            $opening = implode('', array_column($wrappers, 'opening'));
+            $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+            $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
+            if ($terminalIsShell) {
+                $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
+            }
+            $blockName = $this->generatedBlockNamespace . '/layout-shell';
+            if (! $this->layoutShellBlockGenerated) {
+                $this->generatedBlocks[] = (new LayoutShellBlockGenerator())->definition($blockName);
+                $this->layoutShellBlockGenerated = true;
+            }
+            return array_filter(array(
+                'blockName' => $blockName,
+                'attrs' => array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
+                'innerBlocks' => $terminalBlocks,
+                'innerHTML' => $opening . $closing,
+                'innerContent' => array_merge(array($opening), array_fill(0, count($terminalBlocks), null), array($closing)),
+                '_source_provenance_ids' => $provenanceIds,
+                '_layout_shell_wrappers' => $wrappers,
+                '_editability_runtime_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_runtime_owned'])) || $terminalRuntimeOwned,
+                '_editability_visual_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_visual_owned'])) || $terminalVisualOwned,
+            ), static fn (mixed $value): bool => false !== $value && array() !== $value);
+        }
+
+        if (is_array($block['innerBlocks'] ?? null)) {
+            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
+        }
+        return $block;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isLayoutShellBlock(array $block): bool
+    {
+        return str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')
+            && 0 < count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isSingleGroupShellCandidate(array $block): bool
+    {
+        if ('core/group' !== ($block['blockName'] ?? null)
+            || 1 !== count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array())
+            || isset($block['_binding_token'])
+            || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function hasSourceProjectionClass(array $block): bool
+    {
+        return (bool) preg_match('/(?:^|\s)blocks-engine-(?:attribute|css-owned|editor-anchor|semantic|source)-/', (string) ($block['attrs']['className'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
+    private function groupWrapperDescriptor(array $block): ?array
+    {
+        $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
+        $opening = is_string($content[0] ?? null) ? $content[0] : '';
+        $closing = is_string($content[array_key_last($content)] ?? null) ? $content[array_key_last($content)] : '';
+        if (! preg_match('/^<([a-z][a-z0-9-]*)\b/i', $opening, $match) || '' === $closing) {
+            return null;
+        }
+        $tagName = strtolower($match[1]);
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
+        if (! $element instanceof DOMElement) {
+            return null;
+        }
+        $attributes = array();
+        foreach ($element->attributes ?? array() as $attribute) {
+            $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
+        }
+        if (1 === preg_match('/!\s*important\b/i', (string) ($attributes['style'] ?? ''))) {
+            return null;
+        }
+        return array('tagName' => $tagName, 'attributes' => $attributes, 'opening' => $opening, 'closing' => $closing);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
@@ -7575,11 +7780,15 @@ final class HtmlTransformer
     {
         foreach ( $blocks as $index => &$block ) {
             $blockPath = $path . '.' . $index;
-            $provenanceId = $block['_source_provenance_id'] ?? null;
-            if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
-                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array(), !empty($block['_editability_visual_owned']) ? array('editability_visual_owned' => true) : array());
+            $provenanceIds = is_array($block['_source_provenance_ids'] ?? null) ? $block['_source_provenance_ids'] : array($block['_source_provenance_id'] ?? null);
+            foreach ($provenanceIds as $provenanceId) {
+                if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
+                    $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array(), !empty($block['_editability_visual_owned']) ? array('editability_visual_owned' => true) : array());
+                }
             }
             unset($block['_source_provenance_id']);
+            unset($block['_source_provenance_ids']);
+            unset($block['_layout_shell_wrappers']);
             unset($block['_binding_token']);
             unset($block['_editability_runtime_owned']);
             unset($block['_editability_visual_owned']);
