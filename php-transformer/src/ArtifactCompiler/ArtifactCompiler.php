@@ -191,6 +191,45 @@ final class ArtifactCompiler
         if (!isset($partition['pages'][$pageId])) {
             throw new \InvalidArgumentException('The requested page ownership id is not present in the artifact.');
         }
+        return $this->pagePlanFromPartition($partition, $sharedPlan, $pageId);
+    }
+
+    /**
+     * Prepare every page plan after one whole-artifact normalization and
+     * ownership partition. The returned plans remain independently
+     * serializable and compilable by separate workers.
+     *
+     * @param array<string,mixed> $artifact
+     * @param array<string,mixed> $sharedPlan
+     * @return array<string,array<string,mixed>>
+     */
+    public function preparePages(array $artifact, array $sharedPlan, ?PayloadReader $payloadReader = null): array
+    {
+        $this->assertSharedPlan($sharedPlan);
+        $artifact = (new ResponsiveDocumentVariants())->compose($artifact);
+        if (null !== $payloadReader && $this->containsPayloadReferences($artifact)) {
+            $plans = array();
+            foreach ($sharedPlan['analysis']['page_ids'] ?? array() as $pageId) {
+                $plans[$pageId] = $this->prepareReferencedStage($artifact, 'page', (string) $pageId, $payloadReader, (string) $sharedPlan['digest']);
+            }
+            return $plans;
+        }
+
+        $partition = $this->stagePartition($artifact, 'pages');
+        $plans = array();
+        foreach (array_keys($partition['pages']) as $pageId) {
+            $plans[$pageId] = $this->pagePlanFromPartition($partition, $sharedPlan, $pageId);
+        }
+        return $plans;
+    }
+
+    /**
+     * @param array<string,mixed> $partition
+     * @param array<string,mixed> $sharedPlan
+     * @return array<string,mixed>
+     */
+    private function pagePlanFromPartition(array $partition, array $sharedPlan, string $pageId): array
+    {
         $pageArtifact = $this->artifactEnvelope($partition, $partition['pages'][$pageId]);
         $normalized = (new ArtifactNormalizer())->normalize($pageArtifact);
         foreach ($normalized['files'] as &$file) if (isset($partition['canonical_provenance_hashes'][$file['path']])) $file['provenance']['hash'] = $partition['canonical_provenance_hashes'][$file['path']];

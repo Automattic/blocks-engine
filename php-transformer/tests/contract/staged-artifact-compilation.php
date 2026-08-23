@@ -44,6 +44,8 @@ $pageIds = array('index.html', 'about.html', 'contact.html');
 $pages = array();
 foreach ($pageIds as $pageId) $pages[$pageId] = $compiler->preparePage($artifact, $shared, $pageId);
 $assert(array('index.html', 'about.html', 'contact.html') === array_keys($pages), 'Three independent page plans are addressable by canonical page ownership ids.');
+$batchPages = $compiler->preparePages($artifact, $shared);
+$assert(array('about.html', 'contact.html', 'index.html') === array_keys($batchPages) && $pages['index.html'] === $batchPages['index.html'] && $pages['about.html'] === $batchPages['about.html'] && $pages['contact.html'] === $batchPages['contact.html'], 'Batch preparation partitions once while preserving every independently prepared page plan byte for byte.');
 
 $compiledPages = array();
 foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($artifact, $shared, $pageId);
@@ -72,8 +74,8 @@ $manyShared = $compiler->prepareShared($manyArtifact);
 $assert(50 === count($manyShared['analysis']['page_ids'] ?? array()) && 'assets/site.css' === ($manyShared['analysis']['stylesheets'][0]['path'] ?? null), 'Shared preparation persists immutable stylesheet and source analysis for all page receipts.');
 $manyInline = $compiler->compile($manyArtifact)->toArray();
 $serializedShared = json_decode(json_encode($manyShared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
-$preparedPages = array();
-foreach ($manyShared['analysis']['page_ids'] as $pageId) $preparedPages[$pageId] = $compiler->preparePage($manyArtifact, $manyShared, $pageId);
+$preparedPages = $compiler->preparePages($manyArtifact, $manyShared);
+$assert(50 === count($preparedPages), 'Batch preparation emits every page plan from one bounded whole-artifact partition.');
 $serializedPages = json_decode(json_encode($preparedPages, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 // Resume from serialized plans in fresh workers. Page compilation receives no
 // source artifact, so a worker cannot normalize or retain all fifty pages.
