@@ -8,8 +8,8 @@
   </style>
 </head>
 <body>
-  <fluid-columns-repeater class="fluid-columns-repeater" role="list">
-    <repeater-card role="listitem"><a href="/one"><img src="one.jpg" alt="One"><h3>One</h3></a></repeater-card>
+  <fluid-columns-repeater class="fluid-columns-repeater" role="list" horizontal-gap="0" vertical-gap="10" justify-content="space-between" container-id="cards" items="8" direction="ltr">
+    <div id="card-one" data-testid="card" role="listitem"><a href="/one"><img src="one.jpg" alt="One"><h3>One</h3></a></div>
     <repeater-card role="listitem"><a href="/two"><img src="two.jpg" alt="Two"><h3>Two</h3></a></repeater-card>
     <repeater-card role="listitem"><a href="/three"><img src="three.jpg" alt="Three"><h3>Three</h3></a></repeater-card>
     <repeater-card role="listitem"><a href="/four"><img src="four.jpg" alt="Four"><h3>Four</h3></a></repeater-card>

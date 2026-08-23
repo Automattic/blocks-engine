@@ -5390,12 +5390,6 @@ final class HtmlTransformer
             return false;
         }
 
-        foreach ( array_keys($this->htmlAttributes($element)) as $attribute ) {
-            if ( ! in_array($attribute, array( 'class', 'style', 'role' ), true) ) {
-                return false;
-            }
-        }
-
         return true;
     }
 
