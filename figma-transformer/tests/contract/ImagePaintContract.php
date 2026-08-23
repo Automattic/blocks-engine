@@ -12,6 +12,8 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $html = $fileContent($result, 'index.html');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-4-hero-image-rectangle', array('width:320px', 'height:180px', 'position:absolute', 'left:10px', 'top:20px', 'background:#ff0000', 'background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-5-nested-image-paint', array('background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
+    $assert(str_contains($html, 'src="assets/hero-image.svg"') && str_contains($html, 'style="object-fit:cover;object-position:center;background-image:none"'), 'css-rectangle-semantic-image-disables-duplicate-paint');
+    $assert(str_contains($html, 'src="assets/fixture-photo.jpg"') && str_contains($html, 'background-image:none'), 'css-nested-semantic-image-disables-duplicate-paint');
     $assert(str_contains($html, '<img class="figma-node-1-4-hero-image-rectangle figma-image-asset"') && str_contains($html, 'src="assets/hero-image.svg"') && str_contains($html, 'data-figma-image-fill="true"') && str_contains($html, 'data-figma-image-rendering="semantic-img"'), 'asset-backed-rectangle-emits-img-element');
     $assert(str_contains($html, '<img class="figma-node-1-5-nested-image-paint figma-image-asset"') && str_contains($html, 'src="assets/fixture-photo.jpg"') && str_contains($html, 'data-figma-image-scale-mode="FILL"') && str_contains($html, 'data-figma-image-background-size=') && str_contains($html, 'data-figma-image-object-fit="cover"'), 'image-paint-emits-img-with-crop-metadata');
     $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
@@ -777,6 +779,8 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
         ),
     ));
     $layeredImageCss = $fileContent($layeredImageResult, 'style.css');
+    $layeredImageHtml = $fileContent($layeredImageResult, 'index.html');
+    $assert(! str_contains($layeredImageHtml, '<img class="figma-node-image-layered-paints-layered-image-paints figma-image-asset"'), 'image-layered-paints-remain-css-composition');
     $assert(str_contains($layeredImageCss, 'background-image:url("assets/photo-layer.png"),url("assets/wash-layer.png"),url("assets/photo-layer.png")'), 'image-layered-paints-preserve-duplicate-top-to-bottom-order');
     $assert(str_contains($layeredImageCss, 'background-blend-mode:screen,multiply,normal'), 'image-layered-paints-align-blend-modes');
     $assert(str_contains($layeredImageCss, 'background-size:200px 320px,400px 160px,200px 100px'), 'image-layered-paints-align-background-size');
@@ -809,6 +813,8 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
         ),
     ));
     $imageGradientStackCss = $fileContent($imageGradientStackResult, 'style.css');
+    $imageGradientStackHtml = $fileContent($imageGradientStackResult, 'index.html');
+    $assert(! str_contains($imageGradientStackHtml, '<img class="figma-node-image-gradient-stack-image-plus-gradient-stack figma-image-asset"'), 'image-gradient-stack-remains-css-composition');
     $assert(str_contains($imageGradientStackCss, 'background-image:linear-gradient(') && str_contains($imageGradientStackCss, '),url("assets/photo-layer.png")'), 'image-gradient-stack-preserves-gradient-and-image-layers');
     $assert(str_contains($imageGradientStackCss, 'background-size:100% 100%,cover'), 'image-gradient-stack-aligns-background-size-layers');
 

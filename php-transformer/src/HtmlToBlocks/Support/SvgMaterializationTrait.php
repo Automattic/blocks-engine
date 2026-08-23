@@ -287,26 +287,33 @@ trait SvgMaterializationTrait
      */
     private function richTextSvgDimensions(DOMElement $element, array $dimensions): array
     {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'div', 'span', 'i', 'b' ), true) ) {
-            return $dimensions;
-        }
-
-        $parentDimensions = $this->presentationDeclarations($parent);
         foreach ( array( 'width', 'height' ) as $dimension ) {
-            if ( ! preg_match('/^\s*(?:\d+(?:\.\d+)?|\.\d+)%\s*$/', (string) ($dimensions[$dimension] ?? '')) ) {
+            if ( ! preg_match('/^\s*((?:\d+(?:\.\d+)?|\.\d+))%\s*$/', (string) ($dimensions[$dimension] ?? ''), $match) ) {
                 continue;
             }
 
-            $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
-            if ( '' === $parentDimension ) {
+            $scale = (float) $match[1] / 100.0;
+            $fallback = '';
+            for ( $parent = $element->parentNode; $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array( 'div', 'span', 'i', 'b' ), true); $parent = $parent->parentNode ) {
+                $parentDimensions = $this->cssDeclarations($this->specificityResolvedPresentationStyle($parent));
+                $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
+                if ( preg_match('/^\s*((?:\d+(?:\.\d+)?|\.\d+))%\s*$/', $parentDimension, $parentMatch) ) {
+                    $scale *= (float) $parentMatch[1] / 100.0;
+                } elseif ( preg_match('/^\s*((?:\d+(?:\.\d+)?|\.\d+))px\s*$/i', $parentDimension, $parentMatch) ) {
+                    $dimensions[$dimension] = $this->normalizedSvgDimension((float) $parentMatch[1] * $scale) . 'px';
+                    continue 2;
+                } elseif ( '' !== $parentDimension && abs($scale - 1.0) < 0.0001 ) {
+                    $dimensions[$dimension] = $parentDimension;
+                    continue 2;
+                }
+
                 $sourceVisualDimension = trim($this->attr($parent, 'data-source-visual-' . $dimension));
-                if ( is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
-                    $parentDimension = $this->normalizedSvgDimension((float) $sourceVisualDimension) . 'px';
+                if ( '' === $fallback && is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
+                    $fallback = $this->normalizedSvgDimension((float) $sourceVisualDimension * $scale) . 'px';
                 }
             }
-            if ( '' !== $parentDimension && ! str_ends_with($parentDimension, '%') ) {
-                $dimensions[$dimension] = $parentDimension;
+            if ( '' !== $fallback ) {
+                $dimensions[$dimension] = $fallback;
             }
         }
 

@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class BreakpointMediaDiffBuilder
 {
+    private const MAX_DESKTOP_ONLY_FALLBACK_BREAKPOINT = 1599;
+
     private const RESPONSIVE_CONTAINER_TYPES = array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL', 'SECTION');
 
     private readonly ResponsiveNodeMatcher $responsiveNodeMatcher;
@@ -188,7 +190,11 @@ final class BreakpointMediaDiffBuilder
         $mobileRules[] = '.figma-root [data-source-node-type="TEXT"]{max-width:calc(100vw - 48px)}';
         $blocks = array();
         if ( $rootWidth > 1200.0 && ! empty($desktopRules) ) {
-            $blocks[] = $this->mediaBlock('max-width', (int) floor($rootWidth - 1.0), $desktopRules);
+            $blocks[] = $this->mediaBlock(
+                'max-width',
+                min((int) floor($rootWidth - 1.0), self::MAX_DESKTOP_ONLY_FALLBACK_BREAKPOINT),
+                $desktopRules
+            );
         }
         $blocks[] = $this->mediaBlock('max-width', 767, ! empty($mobileRules) ? $mobileRules : $desktopRules);
 

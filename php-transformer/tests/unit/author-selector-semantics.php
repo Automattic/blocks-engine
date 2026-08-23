@@ -475,6 +475,21 @@ $mediaLayout = $transform('<style>@media (min-width:700px){@supports (display:gr
 $flowLayout = $transform('<style>.flow-row{display:flex}@media (max-width:700px){.flow-row{display:block}}</style><div class="flow-row"><div>One</div><div>Two</div></div>');
 $assert('core/group' === ($mediaLayout['blocks'][0]['blockName'] ?? '') && 'core/group' === ($flowLayout['blocks'][0]['blockName'] ?? ''), 'media-only, nested-condition, and flow-reverting CSS layouts retain core/group');
 
+$responsiveMinHeight = $transform('<style>.responsive-section{display:flex;min-height:1000px}@media(max-width:1600px){.responsive-section{min-height:0}}</style><section class="responsive-section"><p>Copy</p></section>');
+$responsiveMinHeightMarkup = (string) ($responsiveMinHeight['serialized_blocks'] ?? '');
+$responsiveMinHeightCss = $css($responsiveMinHeight);
+$assert(
+    ! str_contains($responsiveMinHeightMarkup, 'be-inline-geometry-')
+    && str_contains($responsiveMinHeightCss, '.responsive-section{display:flex;min-height:1000px}')
+    && str_contains($responsiveMinHeightCss, '@media(max-width:1600px){.responsive-section{min-height:0}}'),
+    'class-owned min-height with a responsive variant remains under author stylesheet ownership'
+);
+$inlineResponsiveMinHeight = $transform('<style>.responsive-section{display:flex}@media(max-width:1600px){.responsive-section{min-height:0}}</style><section class="responsive-section" style="min-height:1000px"><p>Copy</p></section>');
+$assert(
+    str_contains($css($inlineResponsiveMinHeight), 'min-height:1000px !important'),
+    'source inline min-height retains inline priority over a normal responsive author rule'
+);
+
 $articleLayout = $transform('<style>.article-row{display:flex}</style><div class="article-row"><article>One</article><article>Two</article></div>');
 $assert('core/group' === ($articleLayout['blocks'][0]['blockName'] ?? '') && 2 === substr_count((string) ($articleLayout['serialized_blocks'] ?? ''), '<article '), 'CSS-owned groups preserve div to article direct-child topology');
 

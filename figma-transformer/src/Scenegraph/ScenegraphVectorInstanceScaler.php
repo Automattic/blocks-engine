@@ -85,6 +85,20 @@ final class ScenegraphVectorInstanceScaler
     }
 
     /**
+     * @param array<int, mixed> $children
+     * @param array<string, mixed> $component
+     * @return array<int, mixed>
+     */
+    public function scaleComponentChildren(array $children, array $component, float $scaleX, float $scaleY): array
+    {
+        if ( ! $this->isVectorOnlyComponent($component) ) {
+            return $children;
+        }
+
+        return $this->scaleVectorChildren($children, $scaleX, $scaleY);
+    }
+
+    /**
      * @param array<string, mixed> $component
      */
     private function isVectorOnlyComponent(array $component): bool

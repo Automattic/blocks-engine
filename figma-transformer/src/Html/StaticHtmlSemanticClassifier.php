@@ -465,17 +465,16 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
         $width = ($this->boxValue)($node, 'width');
-        if ( null !== $width && $width > 480.0 ) {
+        if ( null !== $width && $width > ($nameHint ? 640.0 : 480.0) ) {
             return false;
         }
         $height = ($this->boxValue)($node, 'height');
         if ( null !== $height && $height > 160.0 ) {
             return false;
         }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
 
         return $nameHint || null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0;
     }
