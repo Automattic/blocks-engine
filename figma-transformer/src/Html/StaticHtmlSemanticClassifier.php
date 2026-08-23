@@ -14,38 +14,17 @@ use Closure;
  */
 final class StaticHtmlSemanticClassifier
 {
-    /** @var Closure(array<string, mixed>): array<int, mixed> */
-    private Closure $nodeList;
-
     /** @var Closure(array<string, mixed>, array<string, mixed>|null=): string */
     private Closure $textContent;
 
-    /** @var Closure(array<string, mixed>): int */
-    private Closure $textDescendantCount;
-
-    /** @var Closure(array<string, mixed>): string */
-    private Closure $subtreePlainText;
-
-    /** @var Closure(array<string, mixed>): string */
-    private Closure $nodePlainText;
-
-    /** @var Closure(array<string, mixed>, string): float|null */
-    private Closure $boxValue;
-
     /** @var Closure(array<string, mixed>): string|null */
     private Closure $backgroundColor;
-
-    /** @var Closure(array<string, mixed>): float */
-    private Closure $cornerRadius;
 
     /** @var Closure(array<string, mixed>): bool */
     private Closure $hasStrokePaint;
 
     /** @var Closure(array<string, mixed>): string|null */
     private Closure $nodeAssetPath;
-
-    /** @var Closure(array<string, mixed>): bool */
-    private Closure $subtreeHasRenderableVector;
 
     /** @var Closure(array<string, mixed>): array<int, string> */
     private Closure $listItemIds;
@@ -64,19 +43,13 @@ final class StaticHtmlSemanticClassifier
      */
     public function __construct(
         private readonly LayoutIntentClassifier $layoutIntentClassifier,
+        private readonly StaticHtmlNodeInspector $nodeInspector,
         array $callbacks
     ) {
-        $this->nodeList = $callbacks['nodeList'];
         $this->textContent = $callbacks['textContent'];
-        $this->textDescendantCount = $callbacks['textDescendantCount'];
-        $this->subtreePlainText = $callbacks['subtreePlainText'];
-        $this->nodePlainText = $callbacks['nodePlainText'];
-        $this->boxValue = $callbacks['boxValue'];
         $this->backgroundColor = $callbacks['backgroundColor'];
-        $this->cornerRadius = $callbacks['cornerRadius'];
         $this->hasStrokePaint = $callbacks['hasStrokePaint'];
         $this->nodeAssetPath = $callbacks['nodeAssetPath'];
-        $this->subtreeHasRenderableVector = $callbacks['subtreeHasRenderableVector'];
         $this->listItemIds = $callbacks['listItemIds'];
         $this->listLooksOrdered = $callbacks['listLooksOrdered'];
         $this->headingLevel = $callbacks['headingLevel'];
@@ -132,7 +105,7 @@ final class StaticHtmlSemanticClassifier
             return 'p';
         }
 
-        $children = array_values(array_filter(($this->nodeList)($node), 'is_array'));
+        $children = array_values(array_filter($this->nodeInspector->nodeList($node), 'is_array'));
 
         if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) && ! $this->isTopLevelSection($parentNode, $depth - 1, $sectionDepth, $grandParentNode, $this->children($parentNode)) ) {
             return 'li';
@@ -208,7 +181,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $placeholder = strtolower(trim(($this->subtreePlainText)($node)));
+        $placeholder = strtolower(trim($this->nodeInspector->subtreePlainText($node)));
         $label = strtolower($this->nearbyFormControlLabel($node, $parentNode));
         $haystack = $name . ' ' . $placeholder . ' ' . $label;
         $hasInputName = str_contains($name, 'input')
@@ -228,18 +201,18 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $textCount = ($this->textDescendantCount)($node);
+        $textCount = $this->nodeInspector->textDescendantCount($node);
         if ( $textCount < 1 || $textCount > 2 ) {
             return false;
         }
 
-        $width = ($this->boxValue)($node, 'width');
-        $height = ($this->boxValue)($node, 'height');
+        $width = $this->nodeInspector->boxValue($node, 'width');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( (null !== $width && $width > 640.0) || (null !== $height && $height > 120.0) ) {
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
+        return null !== ($this->backgroundColor)($node) || $this->nodeInspector->cornerRadius($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
     }
 
     /**
@@ -257,7 +230,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $placeholder = strtolower(trim(($this->subtreePlainText)($node)));
+        $placeholder = strtolower(trim($this->nodeInspector->subtreePlainText($node)));
         $label = strtolower($this->nearbyFormControlLabel($node, $parentNode));
         $haystack = $name . ' ' . $placeholder . ' ' . $label;
         $hasTextareaIntent = str_contains($haystack, 'textarea')
@@ -269,22 +242,22 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $isMultilineCommentOrMessage = null !== ($this->boxValue)($node, 'height')
-            && ($this->boxValue)($node, 'height') >= 72.0
+        $isMultilineCommentOrMessage = null !== $this->nodeInspector->boxValue($node, 'height')
+            && $this->nodeInspector->boxValue($node, 'height') >= 72.0
             && 1 === preg_match('/\b(?:comment|message|reply)\b/', $label);
         if ( ! $this->hasFormContextIntent($parentNode) && ! $isMultilineCommentOrMessage ) {
             return false;
         }
 
-        $textCount = ($this->textDescendantCount)($node);
+        $textCount = $this->nodeInspector->textDescendantCount($node);
         // Component-backed field shells include their direct label plus nested
         // placeholder layers, so allow that bounded structure when labeled.
         if ( $textCount < 1 || $textCount > ($this->hasDirectFormFieldLabel($node) ? 6 : 3) ) {
             return false;
         }
 
-        $width = ($this->boxValue)($node, 'width');
-        $height = ($this->boxValue)($node, 'height');
+        $width = $this->nodeInspector->boxValue($node, 'width');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( null !== $width && $width > 900.0 ) {
             return false;
         }
@@ -292,7 +265,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
+        return null !== ($this->backgroundColor)($node) || $this->nodeInspector->cornerRadius($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node) || $this->hasDirectFormFieldLabel($node);
     }
 
     /**
@@ -306,7 +279,7 @@ final class StaticHtmlSemanticClassifier
         }
 
         $name = strtolower((string) ($node['name'] ?? ''));
-        $text = strtolower(($this->subtreePlainText)($node));
+        $text = strtolower($this->nodeInspector->subtreePlainText($node));
         $haystack = $name . ' ' . $text;
         $hasNamedFormIntent = str_contains($name, 'search')
             || str_contains($name, 'newsletter')
@@ -319,14 +292,14 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $height = ($this->boxValue)($node, 'height');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( null !== $height && $height > 800.0 ) {
             return false;
         }
 
         $hasField = false;
         $hasSubmit = false;
-        $children = array_values(array_filter(($this->nodeList)($node), 'is_array'));
+        $children = array_values(array_filter($this->nodeInspector->nodeList($node), 'is_array'));
         $relevantChildren = 0;
         foreach ( $children as $child ) {
             $childHasField = $this->isInputLike($child, $node) || $this->isTextareaLike($child, $node) || $this->subtreeHasInputLike($child) || $this->subtreeHasTextareaLike($child);
@@ -357,7 +330,7 @@ final class StaticHtmlSemanticClassifier
         }
 
         $name = strtolower((string) ($parentNode['name'] ?? ''));
-        $text = strtolower(($this->subtreePlainText)($parentNode));
+        $text = strtolower($this->nodeInspector->subtreePlainText($parentNode));
 
         return str_contains($name, 'search')
             || str_contains($name, 'newsletter')
@@ -376,25 +349,25 @@ final class StaticHtmlSemanticClassifier
             return true;
         }
 
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) || $this->isFormControlPlaceholderChild($child) ) {
                 continue;
             }
 
-            if ( ($this->subtreeHasRenderableVector)($child) || null !== ($this->nodeAssetPath)($child) ) {
+            if ( $this->nodeInspector->subtreeHasRenderableVector($child) || null !== ($this->nodeAssetPath)($child) ) {
                 return true;
             }
         }
 
         if ( $this->hasDirectFormFieldLabel($node) ) {
-            foreach ( ($this->nodeList)($node) as $child ) {
+            foreach ( $this->nodeInspector->nodeList($node) as $child ) {
                 if ( ! is_array($child) || 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
                     continue;
                 }
 
                 $childName = strtolower((string) ($child['name'] ?? ''));
-                $childWidth = ($this->boxValue)($child, 'width');
-                $childHeight = ($this->boxValue)($child, 'height');
+                $childWidth = $this->nodeInspector->boxValue($child, 'width');
+                $childHeight = $this->nodeInspector->boxValue($child, 'height');
                 if ((str_contains($childName, 'input') || str_contains($childName, 'field'))
                     && null !== $childWidth && $childWidth >= 80.0 && $childWidth <= 640.0
                     && null !== $childHeight && $childHeight >= 24.0 && $childHeight <= 160.0) {
@@ -409,26 +382,26 @@ final class StaticHtmlSemanticClassifier
     /** @param array<string, mixed> $node */
     private function hasFormControlChromeChild(array $node): bool
     {
-        $width = ($this->boxValue)($node, 'width');
-        $height = ($this->boxValue)($node, 'height');
+        $width = $this->nodeInspector->boxValue($node, 'width');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( null === $width || null === $height || $width < 80.0 || $width > 640.0 || $height < 24.0 || $height > 160.0 ) {
             return false;
         }
 
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) || 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
                 continue;
             }
 
-            $childWidth = ($this->boxValue)($child, 'width');
-            $childHeight = ($this->boxValue)($child, 'height');
+            $childWidth = $this->nodeInspector->boxValue($child, 'width');
+            $childHeight = $this->nodeInspector->boxValue($child, 'height');
             if ( null === $childWidth || null === $childHeight ) {
                 continue;
             }
             if ( abs($childWidth - $width) > 8.0 || abs($childHeight - $height) > 8.0 ) {
                 continue;
             }
-            if ( null !== ($this->backgroundColor)($child) || ($this->cornerRadius)($child) > 0.0 || ($this->hasStrokePaint)($child) || ($this->subtreeHasRenderableVector)($child) ) {
+            if ( null !== ($this->backgroundColor)($child) || $this->nodeInspector->cornerRadius($child) > 0.0 || ($this->hasStrokePaint)($child) || $this->nodeInspector->subtreeHasRenderableVector($child) ) {
                 return true;
             }
         }
@@ -439,17 +412,17 @@ final class StaticHtmlSemanticClassifier
     /** @param array<string, mixed> $node */
     public function isFormControlPlaceholderChild(array $node): bool
     {
-        if ( '' === trim(($this->subtreePlainText)($node)) ) {
+        if ( '' === trim($this->nodeInspector->subtreePlainText($node)) ) {
             return false;
         }
 
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( is_array($child) && ! $this->isFormControlPlaceholderChild($child) ) {
                 return false;
             }
         }
 
-        return ! ($this->subtreeHasRenderableVector)($node) && null === ($this->nodeAssetPath)($node);
+        return ! $this->nodeInspector->subtreeHasRenderableVector($node) && null === ($this->nodeAssetPath)($node);
     }
 
     /** @param array<string, mixed> $node */
@@ -461,28 +434,28 @@ final class StaticHtmlSemanticClassifier
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
             return false;
         }
-        if ( 1 !== ($this->textDescendantCount)($node) ) {
+        if ( 1 !== $this->nodeInspector->textDescendantCount($node) ) {
             return false;
         }
 
         $name = strtolower((string) ($node['name'] ?? ''));
         $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
-        $width = ($this->boxValue)($node, 'width');
+        $width = $this->nodeInspector->boxValue($node, 'width');
         if ( null !== $width && $width > ($nameHint ? 640.0 : 480.0) ) {
             return false;
         }
-        $height = ($this->boxValue)($node, 'height');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( null !== $height && $height > 160.0 ) {
             return false;
         }
 
-        return $nameHint || null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0;
+        return $nameHint || null !== ($this->backgroundColor)($node) || $this->nodeInspector->cornerRadius($node) > 0.0;
     }
 
     /** @param array<string, mixed> $node */
     public function formControlAttributes(array $node, string $tag, ?array $parentNode = null): string
     {
-        $placeholder = trim(($this->subtreePlainText)($node));
+        $placeholder = trim($this->nodeInspector->subtreePlainText($node));
         $label = $this->nearbyFormControlLabel($node, $parentNode);
         $name = (string) ($node['name'] ?? '');
         $haystack = strtolower($name . ' ' . $placeholder . ' ' . $label);
@@ -536,12 +509,12 @@ final class StaticHtmlSemanticClassifier
      */
     public function nearbyFormControlLabel(array $node, ?array $parentNode): string
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) || 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
                 continue;
             }
 
-            $text = trim(($this->nodePlainText)($child));
+            $text = trim($this->nodeInspector->nodePlainText($child));
             if ( $this->isSimpleFormFieldLabel($text) ) {
                 return $text;
             }
@@ -552,7 +525,7 @@ final class StaticHtmlSemanticClassifier
         }
 
         $nodeId = (string) ($node['id'] ?? '');
-        foreach ( ($this->nodeList)($parentNode) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($parentNode) as $child ) {
             if ( ! is_array($child) || $nodeId === (string) ($child['id'] ?? '') ) {
                 continue;
             }
@@ -565,7 +538,7 @@ final class StaticHtmlSemanticClassifier
                 continue;
             }
 
-            $text = trim(($this->nodePlainText)($child));
+            $text = trim($this->nodeInspector->nodePlainText($child));
             if ( '' !== $text ) {
                 return $text;
             }
@@ -577,8 +550,8 @@ final class StaticHtmlSemanticClassifier
     /** @param array<string, mixed> $node */
     private function hasDirectFormFieldLabel(array $node): bool
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
-            if ( is_array($child) && 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && $this->isSimpleFormFieldLabel(trim(($this->nodePlainText)($child))) ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
+            if ( is_array($child) && 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && $this->isSimpleFormFieldLabel(trim($this->nodeInspector->nodePlainText($child))) ) {
                 return true;
             }
         }
@@ -596,12 +569,12 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $text = trim(($this->nodePlainText)($node));
+        $text = trim($this->nodeInspector->nodePlainText($node));
         if ( ! $this->isSimpleFormFieldLabel($text) ) {
             return false;
         }
 
-        foreach ( ($this->nodeList)($parentNode) as $sibling ) {
+        foreach ( $this->nodeInspector->nodeList($parentNode) as $sibling ) {
             if ( is_array($sibling) && $this->isSpatiallyLabeledInputRectangle($sibling, $parentNode, $node) ) {
                 return true;
             }
@@ -616,7 +589,7 @@ final class StaticHtmlSemanticClassifier
         if ( $this->isInputLike($node) ) {
             return true;
         }
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( is_array($child) && $this->subtreeHasInputLike($child) ) {
                 return true;
             }
@@ -630,7 +603,7 @@ final class StaticHtmlSemanticClassifier
         if ( $this->isTextareaLike($node) ) {
             return true;
         }
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( is_array($child) && $this->subtreeHasTextareaLike($child) ) {
                 return true;
             }
@@ -642,10 +615,10 @@ final class StaticHtmlSemanticClassifier
     private function subtreeHasSubmitButtonLike(array $node): bool
     {
         if ( $this->isButtonLike($node) ) {
-            $text = strtolower(($this->subtreePlainText)($node));
+            $text = strtolower($this->nodeInspector->subtreePlainText($node));
             return 1 === preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $text);
         }
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( is_array($child) && $this->subtreeHasSubmitButtonLike($child) ) {
                 return true;
             }
@@ -668,31 +641,31 @@ final class StaticHtmlSemanticClassifier
         if ( ! in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE', 'FRAME', 'INSTANCE'), true) ) {
             return false;
         }
-        if ( ($this->textDescendantCount)($node) > 0 || null === ($this->backgroundColor)($node) && ! ($this->hasStrokePaint)($node) && 0.0 === ($this->cornerRadius)($node) ) {
+        if ( $this->nodeInspector->textDescendantCount($node) > 0 || null === ($this->backgroundColor)($node) && ! ($this->hasStrokePaint)($node) && 0.0 === $this->nodeInspector->cornerRadius($node) ) {
             return false;
         }
 
-        $width = ($this->boxValue)($node, 'width');
-        $height = ($this->boxValue)($node, 'height');
+        $width = $this->nodeInspector->boxValue($node, 'width');
+        $height = $this->nodeInspector->boxValue($node, 'height');
         if ( null === $width || null === $height || $width < 80.0 || $width > 640.0 || $height < 24.0 || $height > 96.0 ) {
             return false;
         }
 
         $parentName = strtolower((string) ($parentNode['name'] ?? ''));
-        $parentText = strtolower(($this->subtreePlainText)($parentNode));
+        $parentText = strtolower($this->nodeInspector->subtreePlainText($parentNode));
         $parentHaystack = $parentName . ' ' . $parentText;
         if ( ! str_contains($parentHaystack, 'newsletter') && ! str_contains($parentHaystack, 'subscribe') && ! str_contains($parentHaystack, 'sign up') && ! str_contains($parentHaystack, 'contact') && ! str_contains($parentHaystack, 'comment') && ! str_contains($parentHaystack, 'search') && ! str_contains($parentName, 'form') ) {
             return false;
         }
 
-        foreach ( ($this->nodeList)($parentNode) as $sibling ) {
+        foreach ( $this->nodeInspector->nodeList($parentNode) as $sibling ) {
             if ( ! is_array($sibling) || 'TEXT' !== strtoupper((string) ($sibling['type'] ?? '')) ) {
                 continue;
             }
             if ( null !== $requiredLabel && (string) ($requiredLabel['id'] ?? '') !== (string) ($sibling['id'] ?? '') ) {
                 continue;
             }
-            $label = trim(($this->nodePlainText)($sibling));
+            $label = trim($this->nodeInspector->nodePlainText($sibling));
             if ( ! $this->isSimpleFormFieldLabel($label) ) {
                 continue;
             }
@@ -718,14 +691,14 @@ final class StaticHtmlSemanticClassifier
      */
     private function boxContainsCenter(array $container, array $child): bool
     {
-        $containerX = ($this->boxValue)($container, 'x');
-        $containerY = ($this->boxValue)($container, 'y');
-        $containerWidth = ($this->boxValue)($container, 'width');
-        $containerHeight = ($this->boxValue)($container, 'height');
-        $childX = ($this->boxValue)($child, 'x');
-        $childY = ($this->boxValue)($child, 'y');
-        $childWidth = ($this->boxValue)($child, 'width');
-        $childHeight = ($this->boxValue)($child, 'height');
+        $containerX = $this->nodeInspector->boxValue($container, 'x');
+        $containerY = $this->nodeInspector->boxValue($container, 'y');
+        $containerWidth = $this->nodeInspector->boxValue($container, 'width');
+        $containerHeight = $this->nodeInspector->boxValue($container, 'height');
+        $childX = $this->nodeInspector->boxValue($child, 'x');
+        $childY = $this->nodeInspector->boxValue($child, 'y');
+        $childWidth = $this->nodeInspector->boxValue($child, 'width');
+        $childHeight = $this->nodeInspector->boxValue($child, 'height');
         if ( null === $containerX || null === $containerY || null === $containerWidth || null === $containerHeight || null === $childX || null === $childY || null === $childWidth || null === $childHeight ) {
             return false;
         }
@@ -773,11 +746,11 @@ final class StaticHtmlSemanticClassifier
     private function isArticleLikeContainer(array $node, string $lowerName): bool
     {
         if ( str_contains($lowerName, 'article') || str_contains($lowerName, 'comment') ) {
-            return ($this->textDescendantCount)($node) >= 2;
+            return $this->nodeInspector->textDescendantCount($node) >= 2;
         }
 
         if ( preg_match('/(^|\s)(post|preview|card)(\s|$)/', $lowerName) ) {
-            $textCount = ($this->textDescendantCount)($node);
+            $textCount = $this->nodeInspector->textDescendantCount($node);
             if ( $textCount >= 3 ) {
                 return true;
             }
@@ -803,14 +776,14 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        $textRuns = ($this->textDescendantCount)($node);
+        $textRuns = $this->nodeInspector->textDescendantCount($node);
         if ( $textRuns < 2 && count($children) < 2 ) {
             return false;
         }
 
         if ( null !== $parentNode ) {
-            $width = ($this->boxValue)($node, 'width');
-            $parentWidth = ($this->boxValue)($parentNode, 'width');
+            $width = $this->nodeInspector->boxValue($node, 'width');
+            $parentWidth = $this->nodeInspector->boxValue($parentNode, 'width');
             if ( null !== $width && null !== $parentWidth && $parentWidth > 0.0 ) {
                 return ( $width / $parentWidth ) >= 0.6;
             }
@@ -878,7 +851,7 @@ final class StaticHtmlSemanticClassifier
      */
     private function children(array $node): array
     {
-        return array_values(array_filter(($this->nodeList)($node), 'is_array'));
+        return array_values(array_filter($this->nodeInspector->nodeList($node), 'is_array'));
     }
 
     /**
