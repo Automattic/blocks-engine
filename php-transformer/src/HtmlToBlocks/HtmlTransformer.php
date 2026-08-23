@@ -1170,7 +1170,7 @@ final class HtmlTransformer
      */
     private function metrics(string $input, array $blocks, string $output, array $fallbacks, array $diagnostics, int $startedAt): array
     {
-        $selectorCache = $this->sourceSelectorMatchCache;
+        $selectorCache = $this->session->sourceStyleResolutionState->selectorMatchCache;
         return array(
             'input_bytes'           => strlen($input),
             'block_count'           => $this->countBlocks($blocks),
@@ -6327,7 +6327,7 @@ final class HtmlTransformer
                 $parsed = $selector['direct_child_parsed'];
                 $last = count($parsed['compounds'] ?? array()) - 1;
                 if ( $parsed['supported'] && $last >= 1 && '>' === ($parsed['combinators'][$last - 1] ?? '')
-                    && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
+                    && ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
                     return true;
                 }
             }
@@ -7929,7 +7929,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder])
                 || ! ($candidate['parsed']['supported'] ?? false)
                 || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
-                || ! ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+                || ! ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
             ) {
                 continue;
             }
@@ -8061,7 +8061,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
                 continue;
             }
-            if ( ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
+            if ( ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $selector['declarations']);
             }
@@ -8073,7 +8073,7 @@ final class HtmlTransformer
     private function authorStyleRuleCandidates(DOMElement $element): array
     {
         $index = $this->authorStyleRuleCandidateIndexes['rules'] ??= $this->authorStyleRuleCandidateIndex();
-        return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
+        return ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
     }
 
     /** @return array{universal: list<array<string, mixed>>, ids: array<string, list<array<string, mixed>>>, classes: array<string, list<array<string, mixed>>>, tags: array<string, list<array<string, mixed>>>, attributes: array<string, list<array<string, mixed>>>, total: int} */
@@ -8152,7 +8152,7 @@ final class HtmlTransformer
         foreach ( $beforeCandidates as $selector ) {
             $matchesBefore[$selector['key']] = $selector['parsed']['supported'] && (bool) array_filter(
                 $chain,
-                fn (DOMElement $node): bool => ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
+                fn (DOMElement $node): bool => ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
         }
 
@@ -8173,7 +8173,7 @@ final class HtmlTransformer
         }
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
-                && ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
+                && ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;

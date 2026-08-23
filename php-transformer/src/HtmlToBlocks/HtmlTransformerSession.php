@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmit
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -114,11 +115,9 @@ final class HtmlTransformerSession
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
     public readonly PresentationResolutionCache $presentationResolutionCache;
+    public readonly SourceStyleResolutionState $sourceStyleResolutionState;
     public array $generatedGeometryRules = array();
     public ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
-    public ?CssSelectorMatchCache $sourceSelectorMatchCache = null;
-    public array $styleRuleCandidateIndexes = array();
-    public array $authorDeclaredPropertyValuesCache = array();
     public readonly FallbackEmitter $fallbackEmitter;
 
     /** @param Closure(DOMElement): array<string, mixed> $sourceContextResolver */
@@ -126,5 +125,6 @@ final class HtmlTransformerSession
     {
         $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceContextResolver);
         $this->presentationResolutionCache = new PresentationResolutionCache();
+        $this->sourceStyleResolutionState = new SourceStyleResolutionState();
     }
 }

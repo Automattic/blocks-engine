@@ -172,7 +172,7 @@ trait StyleResolutionTrait
 
     private function resetPresentationResolutionCache(): void
     {
-        $this->sourceSelectorMatchCache = new CssSelectorMatchCache();
+        $this->session->sourceStyleResolutionState->selectorMatchCache = new CssSelectorMatchCache();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -763,10 +763,11 @@ trait StyleResolutionTrait
      */
     private function authorDeclaredPropertyValues(DOMElement $element, array $properties): array
     {
+        $cache = $this->session->sourceStyleResolutionState;
         sort($properties, SORT_STRING);
         $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $properties);
-        if ( isset($this->authorDeclaredPropertyValuesCache[ $cacheKey ]) ) {
-            return $this->authorDeclaredPropertyValuesCache[ $cacheKey ];
+        if ( isset($cache->authorDeclaredPropertyValues[ $cacheKey ]) ) {
+            return $cache->authorDeclaredPropertyValues[ $cacheKey ];
         }
 
         $wanted = array_fill_keys($properties, true);
@@ -782,7 +783,7 @@ trait StyleResolutionTrait
             }
         }
 
-        $this->authorDeclaredPropertyValuesCache[ $cacheKey ] = $declared;
+        $cache->authorDeclaredPropertyValues[ $cacheKey ] = $declared;
 
         return $declared;
     }
@@ -2571,42 +2572,45 @@ trait StyleResolutionTrait
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $match = ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
+        $cache = $this->session->sourceStyleResolutionState;
+        $match = ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 
     private function invalidateSourceSelectorMatchCache(): void
     {
-        $this->sourceSelectorMatchCache?->clear();
+        $this->session->sourceStyleResolutionState->selectorMatchCache?->clear();
     }
 
     private function recordSourceSelectorMatchWork(): void
     {
-        if ( ! $this->sourceSelectorMatchCache instanceof CssSelectorMatchCache ) {
+        $selectorCache = $this->session->sourceStyleResolutionState->selectorMatchCache;
+        if ( ! $selectorCache instanceof CssSelectorMatchCache ) {
             return;
         }
-        $this->analysisCache->sourceSelectorMatchExecutions += $this->sourceSelectorMatchCache->matchExecutions;
-        $this->analysisCache->sourceSelectorMatchHits += $this->sourceSelectorMatchCache->matchHits;
-        $this->analysisCache->sourceSelectorMatchMisses += $this->sourceSelectorMatchCache->matchMisses;
-        $this->analysisCache->sourceSelectorMatchEvictions += $this->sourceSelectorMatchCache->matchEvictions;
-        $this->analysisCache->sourceSelectorMatchPeakEntries = max($this->analysisCache->sourceSelectorMatchPeakEntries, $this->sourceSelectorMatchCache->matchPeakEntries);
-        $this->analysisCache->sourceSelectorClassTokenBuilds += $this->sourceSelectorMatchCache->classTokenBuilds;
-        $this->analysisCache->sourceSelectorClassTokenHits += $this->sourceSelectorMatchCache->classTokenHits;
-        $this->analysisCache->sourceSelectorAttributeReads += $this->sourceSelectorMatchCache->attributeReads;
-        $this->analysisCache->sourceStyleCandidateRuleChecks += $this->sourceSelectorMatchCache->candidateRuleChecks;
-        $this->analysisCache->sourceStyleCandidateRulesSkipped += $this->sourceSelectorMatchCache->candidateRulesSkipped;
-        $this->analysisCache->sourceStyleCandidateRuleHits += $this->sourceSelectorMatchCache->candidateRuleHits;
-        $this->analysisCache->sourceStyleCandidateRuleMisses += $this->sourceSelectorMatchCache->candidateRuleMisses;
-        $this->analysisCache->sourceStyleCandidateRuleEvictions += $this->sourceSelectorMatchCache->candidateRuleEvictions;
-        $this->analysisCache->sourceStyleCandidateRulePeakEntries = max($this->analysisCache->sourceStyleCandidateRulePeakEntries, $this->sourceSelectorMatchCache->candidateRulePeakEntries);
-        $this->analysisCache->sourceStyleCandidateRulePeakRetained = max($this->analysisCache->sourceStyleCandidateRulePeakRetained, $this->sourceSelectorMatchCache->candidateRulePeakRetained);
+        $this->analysisCache->sourceSelectorMatchExecutions += $selectorCache->matchExecutions;
+        $this->analysisCache->sourceSelectorMatchHits += $selectorCache->matchHits;
+        $this->analysisCache->sourceSelectorMatchMisses += $selectorCache->matchMisses;
+        $this->analysisCache->sourceSelectorMatchEvictions += $selectorCache->matchEvictions;
+        $this->analysisCache->sourceSelectorMatchPeakEntries = max($this->analysisCache->sourceSelectorMatchPeakEntries, $selectorCache->matchPeakEntries);
+        $this->analysisCache->sourceSelectorClassTokenBuilds += $selectorCache->classTokenBuilds;
+        $this->analysisCache->sourceSelectorClassTokenHits += $selectorCache->classTokenHits;
+        $this->analysisCache->sourceSelectorAttributeReads += $selectorCache->attributeReads;
+        $this->analysisCache->sourceStyleCandidateRuleChecks += $selectorCache->candidateRuleChecks;
+        $this->analysisCache->sourceStyleCandidateRulesSkipped += $selectorCache->candidateRulesSkipped;
+        $this->analysisCache->sourceStyleCandidateRuleHits += $selectorCache->candidateRuleHits;
+        $this->analysisCache->sourceStyleCandidateRuleMisses += $selectorCache->candidateRuleMisses;
+        $this->analysisCache->sourceStyleCandidateRuleEvictions += $selectorCache->candidateRuleEvictions;
+        $this->analysisCache->sourceStyleCandidateRulePeakEntries = max($this->analysisCache->sourceStyleCandidateRulePeakEntries, $selectorCache->candidateRulePeakEntries);
+        $this->analysisCache->sourceStyleCandidateRulePeakRetained = max($this->analysisCache->sourceStyleCandidateRulePeakRetained, $selectorCache->candidateRulePeakRetained);
     }
 
     /** @return list<array<string, mixed>> */
     private function styleRuleCandidates(DOMElement $element, string $collection): array
     {
-        $index = $this->styleRuleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
-        return ($this->sourceSelectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
+        $cache = $this->session->sourceStyleResolutionState;
+        $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
+        return ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
     }
 
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
