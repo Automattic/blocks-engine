@@ -299,6 +299,12 @@ trait SvgMaterializationTrait
             }
 
             $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
+            if ( '' === $parentDimension ) {
+                $sourceVisualDimension = trim($this->attr($parent, 'data-source-visual-' . $dimension));
+                if ( is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
+                    $parentDimension = $this->normalizedSvgDimension((float) $sourceVisualDimension) . 'px';
+                }
+            }
             if ( '' !== $parentDimension && ! str_ends_with($parentDimension, '%') ) {
                 $dimensions[$dimension] = $parentDimension;
             }
