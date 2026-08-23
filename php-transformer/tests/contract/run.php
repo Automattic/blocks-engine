@@ -862,6 +862,11 @@ $exportedSvgArtwork = ( new HtmlTransformer() )->transform(
 $exportedSvgMarkup = (string) ($exportedSvgArtwork['serialized_blocks'] ?? '');
 $assert('core/image' === ($exportedSvgArtwork['blocks'][0]['blockName'] ?? '') && ! str_contains($exportedSvgMarkup, '<!-- wp:html'), 'passive exported SVG metadata remains native core/image artwork');
 
+$annotatedSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<main><svg viewBox="0 0 24 24" data-producer-node="vector" data-source-node-id="icon:1"><path d="M2 12h20"></path></svg></main>'
+)->toArray();
+$assert('core/image' === ($annotatedSvgArtwork['blocks'][0]['blockName'] ?? '') && array() === ($annotatedSvgArtwork['fallbacks'] ?? array()), 'passive SVG producer data attributes remain native core/image metadata');
+
 $positionedFillSvg = ( new HtmlTransformer() )->transform(
     '<style>.hero-media{position:relative;width:1280px;height:760px}@media(max-width:700px){.hero-media{width:320px;height:240px}}</style><main><div class="hero-media"><svg class="hero-art" width="100%" height="100%" style="object-fit:cover" viewBox="0 0 1280 728.88"><rect width="1280" height="728.88" fill="#111"/></svg></div></main>'
 )->toArray();
