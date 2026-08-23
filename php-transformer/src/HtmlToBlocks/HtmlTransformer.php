@@ -4052,6 +4052,45 @@ final class HtmlTransformer
         return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private function mediaLayoutTableColumnsBlock(DOMElement $table, array &$fallbacks): array
+    {
+        $rows = array();
+        foreach ($table->getElementsByTagName('tr') as $row) {
+            if (! $row instanceof DOMElement || ! $this->belongsToTable($row, $table)) {
+                continue;
+            }
+
+            $columns = array();
+            foreach ($row->childNodes as $cell) {
+                if (! $cell instanceof DOMElement || 'td' !== strtolower($cell->tagName)) {
+                    continue;
+                }
+                $columns[] = $this->createBlock(
+                    'core/column',
+                    $this->presentationAttributes($cell),
+                    $this->convertChildren($cell, $fallbacks, true),
+                    $cell
+                );
+            }
+            if (array() !== $columns) {
+                $rows[] = $this->createBlock('core/columns', array(), $columns, $row);
+            }
+        }
+
+        $tableAttributes = $this->presentationAttributes($table);
+        if (1 === count($rows)) {
+            return array() === $tableAttributes
+                ? $rows[0]
+                : $this->createBlock('core/group', $tableAttributes, $rows, $table);
+        }
+
+        return $this->createBlock('core/group', $tableAttributes, $rows, $table);
+    }
+
     private function serializedTableSection(DOMElement $element): string
     {
         $section = $this->ancestorElement($element, 'thead') instanceof DOMElement
@@ -4818,6 +4857,10 @@ final class HtmlTransformer
         if ( 'table' === $tagName ) {
             if ( $this->tableClassificationPolicy->isNestedLayoutTableMember($element) ) {
                 return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
+            }
+
+            if ( $this->tableClassificationPolicy->isMediaLayoutTable($element) ) {
+                return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             }
 
             $classification = $this->tableClassificationPolicy->classify($element);
