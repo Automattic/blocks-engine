@@ -967,6 +967,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
         ),
     ), array('multi_page' => true, 'frame_ids' => array('diag:aggregation-home', 'diag:aggregation-about'), 'entry_frame_id' => 'diag:aggregation-home'));
     $multiPageDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($multiPageResult);
+    $multiPageReports = $multiPageResult['source_reports']['figma']['html']['pages'] ?? array();
     blocks_engine_figma_transformer_contract_assert_diagnostic_envelope($assert, $multiPageDiagnostics, 'blocks-engine/figma-transformer/transform-diagnostics/v1', 'diagnostics-evidence-multi-page-envelope');
     $missingAssets = $multiPageDiagnostics['images']['missing_assets'] ?? array();
     $placeholderNodes = $multiPageDiagnostics['vectors']['placeholder_nodes'] ?? array();
@@ -986,6 +987,10 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
     $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
     $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
+    $assert(1 === ($multiPageReports[0]['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-home-diagnostic-code-page-scoped');
+    $assert(1 === ($multiPageReports[1]['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-about-diagnostic-code-page-scoped');
+    $assert(1 === ($multiPageReports[0]['transform_diagnostics']['images']['node_refs'] ?? null), 'diagnostics-evidence-multi-page-home-image-diagnostics-page-scoped');
+    $assert(1 === ($multiPageReports[1]['transform_diagnostics']['vectors']['placeholders'] ?? null), 'diagnostics-evidence-multi-page-about-vector-diagnostics-page-scoped');
     $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['empty_decoded_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-empty-text-count-aggregated');
     $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['missing_emitted_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-missing-text-count-aggregated');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('decision_traces', 'schema'), 'blocks-engine/figma-transformer/decision-traces/v1', 'diagnostics-evidence-multi-page-decision-traces-schema');

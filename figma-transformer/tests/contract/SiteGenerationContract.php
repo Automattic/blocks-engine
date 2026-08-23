@@ -3304,9 +3304,12 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(3 === ($multiPageResult['source_reports']['compiled_site']['totals']['asset_count'] ?? null), 'multi-page-compiled-site-asset-count');
     $assert(array('Example Sans') === ($multiPageResult['source_reports']['figma']['html']['font_families'] ?? null), 'multi-page-font-families-aggregated');
     $multiPageFontUsage = $multiPageResult['source_reports']['figma']['html']['font_usage'] ?? array();
+    $multiPageReports = $multiPageResult['source_reports']['figma']['html']['pages'] ?? array();
     $multiPageCompiledFontUsage = $multiPageResult['source_reports']['compiled_site']['theme']['font_usage'] ?? array();
     $assert('Example Sans' === ($multiPageFontUsage[0]['family'] ?? null) && array(400, 700) === ($multiPageFontUsage[0]['weights'] ?? null), 'multi-page-font-usage-aggregated');
     $assert(2 === ($multiPageFontUsage[0]['text_node_count'] ?? null), 'multi-page-font-usage-node-count-aggregated');
+    $assert(array(400) === ($multiPageReports[0]['font_usage'][0]['weights'] ?? null) && 1 === ($multiPageReports[0]['font_usage'][0]['text_node_count'] ?? null), 'multi-page-font-usage-home-page-scoped');
+    $assert(array(700) === ($multiPageReports[1]['font_usage'][0]['weights'] ?? null) && 1 === ($multiPageReports[1]['font_usage'][0]['text_node_count'] ?? null), 'multi-page-font-usage-about-page-scoped');
     $assert('Example Sans' === ($multiPageCompiledFontUsage[0]['family'] ?? null) && array(400, 700) === ($multiPageCompiledFontUsage[0]['weights'] ?? null), 'multi-page-compiled-site-font-usage');
     $assert(in_array('assets/home-image.png', $multiPageAssetPaths, true), 'multi-page-home-asset');
     $assert(in_array('assets/about-image.png', $multiPageAssetPaths, true), 'multi-page-about-asset');

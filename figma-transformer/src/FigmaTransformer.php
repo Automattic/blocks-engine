@@ -626,241 +626,32 @@ final class FigmaTransformer
         $pagePlan = $this->pagePlanner->plan($scenegraph, $options);
         $diagnostics = is_array($pagePlan['diagnostics'] ?? null) ? $pagePlan['diagnostics'] : array();
         $pages = is_array($pagePlan['pages'] ?? null) ? $pagePlan['pages'] : array();
-        $files = array();
-        $assetsByPath = array();
-        $cssChunks = array();
-        $cssChunkIndexesByPath = array();
-        $pageReports = array();
-        $emitTemplateAliases = count($pages) > 1;
-        $visualNodeMap = array();
-        $fontFamilies = array();
-        $fontUsage = array();
-        $fontCssSupplied = false;
-        $nodeCount = 0;
-        $textNodeCount = 0;
-        $assetReferenceCount = 0;
-        $linkTargetPaths = $this->linkTargetPathsFromPages($pages, $scenegraph);
         $normalized = empty($pages) ? null : $this->normalizeScenegraphForPagePlan($scenegraph, $pagePlan, $options);
-
-        foreach ( $pages as $page ) {
-            if ( ! is_array($page) ) {
-                continue;
-            }
-
-            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
-            if ( '' === $frameId ) {
-                continue;
-            }
-
-            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
-            $pageOptions = $options;
-            $pageOptions['frame_id'] = $frameId;
-            $pageOptions['layout_mismatch_options'] = is_array($pageOptions['layout_mismatch_options'] ?? null) ? $pageOptions['layout_mismatch_options'] : array();
-            $pageOptions['layout_mismatch_options']['page_path'] = $path;
-            $pageOptions['layout_mismatch_options']['source_frame_id'] = $frameId;
-            $pageOptions['layout_mismatch_options']['source_frame_width'] = $page['width'] ?? null;
-            $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
-            $pageOptions['render_style_mismatch_options']['page_path'] = $path;
-            $pageOptions['static_site_page_path'] = $path;
-            $pageType = isset($page['page_type']) && is_scalar($page['page_type']) ? (string) $page['page_type'] : '';
-            $pageOptions['static_site_template_type'] = $pageType;
-            $pageOptions['static_site_template_slug'] = $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? '');
-            $pageOptions['implicit_route_page_plan'] = $pagePlan;
-            $pageOptions['inline_css'] = false;
-            unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map'], $pageOptions['responsive_variants'], $pageOptions['page_name']);
-            $pageOptions['link_target_paths'] = $linkTargetPaths;
-
-            // When the planner collapsed responsive sibling frames into this one
-            // page (#251), forward the ordered breakpoint variants so the live
-            // transform emits ONE `@media`-aware page (primary base layout +
-            // narrower `max-width` overrides) instead of just the primary frame.
-            // Single-variant pages carry no `responsive_variants`, so they keep
-            // the existing one-frame emission path unchanged.
-            $pageVariants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
-            if ( true === ($page['responsive'] ?? false) && count($pageVariants) > 1 ) {
-                $pageOptions['responsive_variants'] = $pageVariants;
-                $pageOptions['page_name'] = (string) ($page['name'] ?? $frameId);
-            }
-
-            $pageResult = null !== $normalized
-                ? $this->transformNormalizedScenegraphPage($normalized, $page, $pageOptions)->toArray()
-                : $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
-            $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
-            $diagnostics = array_merge($diagnostics, $pageDiagnostics);
-            $nodeCount += (int) ($pageResult['metrics']['node_count'] ?? 0);
-            $textNodeCount += (int) ($pageResult['metrics']['text_node_count'] ?? 0);
-            $assetReferenceCount += (int) ($pageResult['metrics']['asset_reference_count'] ?? 0);
-            $pageHtmlReport = is_array($pageResult['source_reports']['figma']['html'] ?? null) ? $pageResult['source_reports']['figma']['html'] : array();
-            $pageFontFamilies = is_array($pageHtmlReport['font_families'] ?? null) ? $pageHtmlReport['font_families'] : array();
-            $pageFontUsage = is_array($pageHtmlReport['font_usage'] ?? null) ? $pageHtmlReport['font_usage'] : array();
-            $pageTransformDiagnostics = is_array($pageHtmlReport['transform_diagnostics'] ?? null) ? $pageHtmlReport['transform_diagnostics'] : array();
-            $pageIndex = count($pageReports);
-            $pageVisualNodeMap = $this->visualNodeMapWithPageTrace(
-                is_array($pageHtmlReport['visual_node_map'] ?? null) ? array_values($pageHtmlReport['visual_node_map']) : array(),
-                $pageIndex,
-                $frameId,
-                $path
+        if ( null === $normalized ) {
+            $artifact = array(
+                'status' => empty($diagnostics) ? 'success' : 'success_with_warnings',
+                'diagnostics' => array(),
+                'files' => array(),
+                'assets' => array(),
+                'source_report' => array('pages' => array(), 'page_plan' => $pagePlan),
+                'metrics' => array('node_count' => 0, 'asset_count' => 0, 'page_count' => 0),
             );
-            foreach ( $pageVisualNodeMap as $visualNode ) {
-                if ( is_array($visualNode) ) {
-                    $visualNodeMap[] = $visualNode;
-                }
-            }
-            $fontFamilies = $this->mergeFontFamilies($fontFamilies, $pageFontFamilies);
-            $fontUsage = $this->mergeFontUsage($fontUsage, $pageFontUsage);
-            $fontCssSupplied = $fontCssSupplied || true === ($pageHtmlReport['font_css_supplied'] ?? false);
-
-            $html = $this->fileContent($pageResult['files'] ?? array(), $path);
-            if ( '' === $html ) {
-                $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
-            }
-            $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
-            if ( '' !== $css ) {
-                $css = $this->scopeRootCustomPropertiesToPage($css, $html);
-                $cssChunkIndexesByPath[$path] = count($cssChunks);
-                $cssChunks[] = $css;
-            }
-
-            if ( '' !== $html ) {
-                $sourceFrameIdentity = is_array($page['source_frame_identity'] ?? null) ? $page['source_frame_identity'] : array();
-                $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
-                $files[] = array(
-                    'path'                    => $path,
-                    'role'                    => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
-                    'mime_type'               => 'text/html',
-                    'content'                 => $html,
-                    'page_type'               => $pageType,
-                    'template_slug'           => $this->canonicalTemplateSlug($pageType) ?: (string) ($page['slug'] ?? ''),
-                    'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
-                    'source_frame_identity'   => $sourceFrameIdentity,
-                );
-                if ( in_array($pageType, array('single', 'archive', '404'), true) ) {
-                    $files[array_key_last($files)]['metadata'] = array(
-                        'template_surface' => array(
-                            'schema' => 'blocks-engine/template-surface/v1',
-                            'role' => $pageType,
-                            'slug' => $this->canonicalTemplateSlug($pageType),
-                            'logical_surface_id' => $pageType . ':' . $this->canonicalTemplateSlug($pageType),
-                            'responsive_variant_id' => (string) ($sourceFrameIdentity['id'] ?? $frameId),
-                            'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'artifact_metadata', 'source_path' => $path),
-                        ),
-                    );
-                }
-
-                if ( $emitTemplateAliases && '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path ) {
-                    $files[] = array(
-                        'path'                    => $canonicalTemplatePath,
-                        'role'                    => 'template-alias',
-                        'mime_type'               => 'text/html',
-                        'content'                 => $html,
-                        'page_type'               => $pageType,
-                        'template_slug'           => $this->canonicalTemplateSlug($pageType),
-                        'canonical_template_path' => $canonicalTemplatePath,
-                        'source_frame_identity'   => array_merge($sourceFrameIdentity, array('path' => $canonicalTemplatePath, 'alias_for_path' => $path)),
-                    );
-                    if ( in_array($pageType, array('single', 'archive', '404'), true) ) {
-                        $files[array_key_last($files)]['metadata'] = array(
-                            'template_surface' => array(
-                                'schema' => 'blocks-engine/template-surface/v1',
-                                'role' => $pageType,
-                                'slug' => $this->canonicalTemplateSlug($pageType),
-                                'logical_surface_id' => $pageType . ':' . $this->canonicalTemplateSlug($pageType),
-                                'responsive_variant_id' => (string) ($sourceFrameIdentity['primary_frame_id'] ?? $frameId),
-                                'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'artifact_metadata', 'source_path' => $canonicalTemplatePath),
-                            ),
-                        );
-                    }
-                }
-            }
-
-            foreach ( is_array($pageResult['files'] ?? null) ? $pageResult['files'] : array() as $file ) {
-                if ( ! is_array($file) || ! isset($file['path']) || ! is_scalar($file['path']) ) {
-                    continue;
-                }
-                $assetPath = (string) $file['path'];
-                if ( ! str_starts_with($assetPath, 'assets/') ) {
-                    continue;
-                }
-                $assetsByPath[$assetPath] = $file;
-            }
-
-            $pageReports[] = array(
-                'frame_id'   => $frameId,
-                'name'       => (string) ($page['name'] ?? $frameId),
-                'slug'       => (string) ($page['slug'] ?? ''),
-                'path'       => $path,
-                'entrypoint' => true === ($page['entrypoint'] ?? false),
-                'page_type'  => $pageType,
-                'source_frame_identity' => is_array($page['source_frame_identity'] ?? null) ? $page['source_frame_identity'] : array(),
-                'canonical_template_path' => $emitTemplateAliases ? ($this->canonicalTemplatePath($pageType) ?: null) : null,
-                'template_aliases' => ($emitTemplateAliases && '' !== $this->canonicalTemplatePath($pageType) && $this->canonicalTemplatePath($pageType) !== $path) ? array($this->canonicalTemplatePath($pageType)) : array(),
-                'node_count' => (int) ($pageResult['metrics']['node_count'] ?? 0),
-                'text_node_count' => (int) ($pageResult['metrics']['text_node_count'] ?? 0),
-                'asset_reference_count' => (int) ($pageResult['metrics']['asset_reference_count'] ?? 0),
-                'font_families' => $pageFontFamilies,
-                'font_usage' => $pageFontUsage,
-                'font_css_supplied' => true === ($pageHtmlReport['font_css_supplied'] ?? false),
-                'visual_node_count' => count($pageVisualNodeMap),
-                'visual_node_map' => $pageVisualNodeMap,
-                'transform_diagnostics' => $pageTransformDiagnostics,
-                'diagnostic_codes' => $this->diagnosticCodeCounts($pageDiagnostics),
-            );
+        } else {
+            $emitOptions = $options;
+            $emitOptions['implicit_route_page_plan'] = $pagePlan;
+            $emitOptions['inline_css'] = false;
+            $emitOptions['link_target_paths'] = $this->linkTargetPathsFromPages($pages, $scenegraph);
+            unset($emitOptions['responsive_variants'], $emitOptions['page_name']);
+            $artifact = $this->htmlEmitter->emitSite($normalized, $pagePlan, $emitOptions);
+            $artifact = $this->withMultiPageSourceReports($artifact, $normalized, $pagePlan, $options);
         }
 
-        $mergedCss = $this->mergeCssChunks($cssChunks);
-        $css = $mergedCss['css'];
-        $mergedFontCss = $this->mergedFontCss($fontUsage, $options);
-        if ( str_contains($mergedFontCss, '@import') ) {
-            $css = $this->replaceWebFontImports($css, $mergedFontCss);
-        }
-        foreach ( $files as $fileIndex => $file ) {
-            if ( 'text/html' !== ($file['mime_type'] ?? '') || ! isset($file['content'], $file['path']) || ! is_scalar($file['path']) ) {
-                continue;
-            }
-            $chunkIndex = $cssChunkIndexesByPath[(string) $file['path']] ?? null;
-            if ( null === $chunkIndex || empty($mergedCss['class_maps'][$chunkIndex]) ) {
-                continue;
-            }
-            $files[$fileIndex]['content'] = $this->applyCssClassRenameMapToHtml((string) $file['content'], $mergedCss['class_maps'][$chunkIndex]);
-        }
-        if ( '' !== $css ) {
-            $files[] = array(
-                'path'      => 'style.css',
-                'role'      => 'stylesheet',
-                'mime_type' => 'text/css',
-                'content'   => $css,
-            );
-        }
-
-        foreach ( $assetsByPath as $assetFile ) {
-            $files[] = $assetFile;
-        }
-
-        $assetReport = $this->assetReportFromFiles(array_values($assetsByPath));
-        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport, $visualNodeMap);
-        $artifact = array(
-            'files' => $files,
-            'assets' => $assetReport,
-            'source_report' => array(
-                'pages' => $pageReports,
-                'page_plan' => $pagePlan,
-                'visual_node_count' => count($visualNodeMap),
-                'visual_node_map' => $visualNodeMap,
-                'font_families' => $fontFamilies,
-                'font_usage' => $fontUsage,
-                'font_css_supplied' => $fontCssSupplied,
-                'transform_diagnostics' => $transformDiagnostics,
-            ),
-            'metrics' => array(
-                'asset_count' => count($assetReport),
-                'file_count' => count($files),
-            ),
-        );
+        $renderedNodes = null === $normalized ? array() : $this->renderedNodesFromArtifact($artifact, $normalized, array());
 
         return $this->finalizeArtifactResult(
             $artifact,
             empty($diagnostics) ? 'success' : 'success_with_warnings',
-            $diagnostics,
+            array_merge($diagnostics, is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array()),
             array(
                 'pages' => $pagePlan,
             ),
@@ -868,14 +659,232 @@ final class FigmaTransformer
             $startedAt,
             false,
             array(
-                'node_count'             => $nodeCount,
-                'text_node_count'        => $textNodeCount,
-                'asset_reference_count'  => $assetReferenceCount,
-                'asset_count'            => count($assetReport),
-                'file_count'             => count($files),
-                'page_count'             => count($pageReports),
+                'node_count'             => $this->countNormalizedNodes($renderedNodes),
+                'text_node_count'        => $this->countNormalizedTextNodes($renderedNodes),
+                'asset_reference_count'  => count($this->assetReferencesForNodes($renderedNodes)),
+                'asset_count'            => count(is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array()),
+                'file_count'             => count(is_array($artifact['files'] ?? null) ? $artifact['files'] : array()),
+                'page_count'             => count(is_array($artifact['source_report']['pages'] ?? null) ? $artifact['source_report']['pages'] : array()),
             )
         );
+    }
+
+    /**
+     * Add transformer-owned page provenance and mismatch reports to a site emission.
+     *
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $normalized
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function withMultiPageSourceReports(array $artifact, array $normalized, array $pagePlan, array $options): array
+    {
+        $sourceReport = is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array();
+        $emittedPages = is_array($sourceReport['pages'] ?? null) ? array_values($sourceReport['pages']) : array();
+        $plannedPages = is_array($pagePlan['pages'] ?? null) ? array_values($pagePlan['pages']) : array();
+        $aggregateDiagnostics = is_array($sourceReport['transform_diagnostics'] ?? null) ? $sourceReport['transform_diagnostics'] : array();
+        $aggregateVisualNodeMap = is_array($sourceReport['visual_node_map'] ?? null) ? array_values($sourceReport['visual_node_map']) : array();
+        $nodeMap = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
+        $pageReports = array();
+        $tracedVisualNodeMap = array();
+
+        foreach ( $emittedPages as $pageIndex => $emittedPage ) {
+            if ( ! is_array($emittedPage) ) {
+                continue;
+            }
+
+            $frameId = isset($emittedPage['frame_id']) && is_scalar($emittedPage['frame_id']) ? (string) $emittedPage['frame_id'] : '';
+            $path = isset($emittedPage['path']) && is_scalar($emittedPage['path']) ? (string) $emittedPage['path'] : '';
+            $plannedPage = is_array($plannedPages[$pageIndex] ?? null) ? $plannedPages[$pageIndex] : array();
+            if ( $frameId !== (string) ($plannedPage['frame_id'] ?? '') ) {
+                foreach ( $plannedPages as $candidate ) {
+                    if ( is_array($candidate) && $frameId === (string) ($candidate['frame_id'] ?? '') ) {
+                        $plannedPage = $candidate;
+                        break;
+                    }
+                }
+            }
+
+            $pageVisualNodeMap = array_values(array_filter(
+                $aggregateVisualNodeMap,
+                static fn (mixed $node): bool => is_array($node) && $path === (string) ($node['page_path'] ?? '')
+            ));
+            $pageVisualNodeMap = $this->visualNodeMapWithPageTrace($pageVisualNodeMap, $pageIndex, $frameId, $path);
+            array_push($tracedVisualNodeMap, ...$pageVisualNodeMap);
+
+            $pageSourceReport = $sourceReport;
+            $pageSourceReport['visual_node_count'] = count($pageVisualNodeMap);
+            $pageSourceReport['visual_node_map'] = $pageVisualNodeMap;
+            $pageSourceReport['transform_diagnostics'] = is_array($emittedPage['transform_diagnostics'] ?? null) ? $emittedPage['transform_diagnostics'] : array();
+            unset($pageSourceReport['pages'], $pageSourceReport['page_plan']);
+
+            $pageOptions = $options;
+            $pageOptions['layout_mismatch_options'] = is_array($pageOptions['layout_mismatch_options'] ?? null) ? $pageOptions['layout_mismatch_options'] : array();
+            $pageOptions['layout_mismatch_options']['page_path'] = $path;
+            $pageOptions['layout_mismatch_options']['source_frame_id'] = $frameId;
+            $pageOptions['layout_mismatch_options']['source_frame_width'] = $plannedPage['width'] ?? null;
+            $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
+            $pageOptions['render_style_mismatch_options']['page_path'] = $path;
+            $pageArtifact = array('source_report' => $pageSourceReport);
+            $pageArtifact = $this->withLayoutMismatchReport($pageArtifact, $pageOptions);
+            $pageArtifact = $this->withRenderStyleMismatchReport($pageArtifact, $pageOptions);
+            $pageTransformDiagnostics = is_array($pageArtifact['source_report']['transform_diagnostics'] ?? null)
+                ? $pageArtifact['source_report']['transform_diagnostics']
+                : $aggregateDiagnostics;
+            $renderedNodes = isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ? array($nodeMap[$frameId]) : array();
+            $pageType = isset($plannedPage['page_type']) && is_scalar($plannedPage['page_type']) ? (string) $plannedPage['page_type'] : (string) ($emittedPage['page_type'] ?? '');
+            $sourceFrameIdentity = is_array($plannedPage['source_frame_identity'] ?? null) ? $plannedPage['source_frame_identity'] : array();
+
+            $pageReports[] = array_merge($emittedPage, array(
+                'slug' => (string) ($plannedPage['slug'] ?? $emittedPage['slug'] ?? ''),
+                'page_type' => $pageType,
+                'source_frame_identity' => $sourceFrameIdentity,
+                'node_count' => $this->countNormalizedNodes($renderedNodes),
+                'text_node_count' => $this->countNormalizedTextNodes($renderedNodes),
+                'asset_reference_count' => count($this->assetReferencesForNodes($renderedNodes)),
+                'font_families' => is_array($emittedPage['font_families'] ?? null) ? $emittedPage['font_families'] : array(),
+                'font_usage' => is_array($emittedPage['font_usage'] ?? null) ? $emittedPage['font_usage'] : array(),
+                'font_css_supplied' => true === ($emittedPage['font_css_supplied'] ?? false),
+                'visual_node_count' => count($pageVisualNodeMap),
+                'visual_node_map' => $pageVisualNodeMap,
+                'transform_diagnostics' => $pageTransformDiagnostics,
+                'diagnostic_codes' => is_array($emittedPage['diagnostic_codes'] ?? null) ? $emittedPage['diagnostic_codes'] : array(),
+            ));
+
+            $this->enrichMultiPageFiles($artifact, $path, $pageType, (string) ($plannedPage['slug'] ?? ''), $sourceFrameIdentity, $frameId);
+        }
+
+        $sourceReport['pages'] = $pageReports;
+        $sourceReport['page_plan'] = $pagePlan;
+        $sourceReport['visual_node_count'] = count($tracedVisualNodeMap);
+        $sourceReport['visual_node_map'] = $tracedVisualNodeMap;
+        $aggregateDiagnostics = $this->withVisualNodePageContexts($aggregateDiagnostics, $tracedVisualNodeMap);
+        $aggregateDiagnostics['scope'] = 'multi_page';
+        $aggregateDiagnostics['selection'] = $this->multiPageSelectionDiagnostics($pageReports);
+        $aggregateDiagnostics['visual_node_map_summary'] = $this->visualNodeMapSummary($tracedVisualNodeMap);
+        $aggregateDiagnostics['pages'] = array_map(
+            static fn (array $page): array => array(
+                'frame_id' => (string) ($page['frame_id'] ?? ''),
+                'page_path' => (string) ($page['path'] ?? ''),
+                'page_name' => (string) ($page['name'] ?? ''),
+                'transform_diagnostics' => is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array(),
+            ),
+            $pageReports
+        );
+
+        $mergedPageDiagnostics = $this->mergePageTransformDiagnostics(
+            $pageReports,
+            is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
+            $tracedVisualNodeMap
+        );
+        $mergedLayout = is_array($mergedPageDiagnostics['layout'] ?? null) ? $mergedPageDiagnostics['layout'] : array();
+        $aggregateLayout = is_array($aggregateDiagnostics['layout'] ?? null) ? $aggregateDiagnostics['layout'] : array();
+        foreach ( array('layout_mismatch_count', 'layout_mismatch_status', 'layout_mismatches', 'layout_mismatch_clusters', 'render_style_mismatch_count', 'render_style_mismatch_status', 'render_style') as $key ) {
+            if ( array_key_exists($key, $mergedLayout) ) {
+                $aggregateLayout[$key] = $mergedLayout[$key];
+            }
+        }
+        $aggregateDiagnostics['layout'] = $aggregateLayout;
+        $quality = is_array($aggregateDiagnostics['artifact_quality'] ?? null) ? $aggregateDiagnostics['artifact_quality'] : array();
+        foreach ( $pageReports as $pageReport ) {
+            $pageLayout = is_array($pageReport['transform_diagnostics']['layout'] ?? null) ? $pageReport['transform_diagnostics']['layout'] : array();
+            if ( is_array($pageLayout['layout_mismatch'] ?? null) ) {
+                $quality = $this->withLayoutMismatchArtifactQuality($quality, $pageLayout['layout_mismatch']);
+            }
+            if ( is_array($pageLayout['render_style'] ?? null) ) {
+                $quality = $this->withRenderStyleMismatchArtifactQuality($quality, $pageLayout['render_style']);
+            }
+        }
+        $aggregateDiagnostics['artifact_quality'] = $quality;
+        $sourceReport['transform_diagnostics'] = $aggregateDiagnostics;
+        $artifact['source_report'] = $sourceReport;
+
+        return $artifact;
+    }
+
+    /**
+     * Attach page provenance to diagnostic samples that identify an emitted node.
+     *
+     * @param array<string, mixed>             $diagnostics
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, mixed>
+     */
+    private function withVisualNodePageContexts(array $diagnostics, array $visualNodeMap): array
+    {
+        $contexts = array();
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) || ! isset($visualNode['id']) || ! is_scalar($visualNode['id']) ) {
+                continue;
+            }
+            $contexts[(string) $visualNode['id']] = array_filter(array(
+                'frame_id' => isset($visualNode['source_page_frame_id']) && is_scalar($visualNode['source_page_frame_id']) ? (string) $visualNode['source_page_frame_id'] : '',
+                'page_path' => isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) ? (string) $visualNode['page_path'] : '',
+                'source_page_index' => isset($visualNode['source_page_index']) && is_numeric($visualNode['source_page_index']) ? (int) $visualNode['source_page_index'] : null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return $this->withDiagnosticSampleContexts($diagnostics, $contexts);
+    }
+
+    /**
+     * @param array<mixed>                     $value
+     * @param array<string, array<string, mixed>> $contexts
+     * @return array<mixed>
+     */
+    private function withDiagnosticSampleContexts(array $value, array $contexts): array
+    {
+        $nodeId = isset($value['node_id']) && is_scalar($value['node_id']) ? (string) $value['node_id'] : '';
+        if ( '' !== $nodeId && isset($contexts[$nodeId]) ) {
+            $value = array_merge($contexts[$nodeId], $value);
+        }
+        foreach ( $value as $key => $item ) {
+            if ( is_array($item) ) {
+                $value[$key] = $this->withDiagnosticSampleContexts($item, $contexts);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $sourceFrameIdentity
+     */
+    private function enrichMultiPageFiles(array &$artifact, string $path, string $pageType, string $pageSlug, array $sourceFrameIdentity, string $frameId): void
+    {
+        $canonicalTemplatePath = $this->canonicalTemplatePath($pageType);
+        foreach ( is_array($artifact['files'] ?? null) ? $artifact['files'] : array() as $fileIndex => $file ) {
+            if ( ! is_array($file) || ! isset($file['path']) || ! is_scalar($file['path']) ) {
+                continue;
+            }
+            $filePath = (string) $file['path'];
+            if ( $path !== $filePath && $canonicalTemplatePath !== $filePath ) {
+                continue;
+            }
+
+            $isAlias = $canonicalTemplatePath === $filePath && $path !== $filePath;
+            $artifact['files'][$fileIndex]['page_type'] = $pageType;
+            $artifact['files'][$fileIndex]['template_slug'] = $this->canonicalTemplateSlug($pageType) ?: $pageSlug;
+            $artifact['files'][$fileIndex]['canonical_template_path'] = '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null;
+            $artifact['files'][$fileIndex]['source_frame_identity'] = $isAlias
+                ? array_merge($sourceFrameIdentity, array('path' => $filePath, 'alias_for_path' => $path))
+                : $sourceFrameIdentity;
+            if ( ! in_array($pageType, array('single', 'archive', '404'), true) ) {
+                continue;
+            }
+            $templateSlug = $this->canonicalTemplateSlug($pageType);
+            $artifact['files'][$fileIndex]['metadata'] = array(
+                'template_surface' => array(
+                    'schema' => 'blocks-engine/template-surface/v1',
+                    'role' => $pageType,
+                    'slug' => $templateSlug,
+                    'logical_surface_id' => $pageType . ':' . $templateSlug,
+                    'responsive_variant_id' => (string) ($sourceFrameIdentity[$isAlias ? 'primary_frame_id' : 'id'] ?? $frameId),
+                    'declaration_provenance' => array('schema' => 'blocks-engine/template-surface-provenance/v1', 'kind' => 'artifact_metadata', 'source_path' => $filePath),
+                ),
+            );
+        }
     }
 
     /**
@@ -903,68 +912,6 @@ final class FigmaTransformer
         $normalizeOptions['document_frame_ids'] = $this->pagePlanFrameIds($pagePlan);
 
         return $this->scenegraphNormalizer->normalize($scenegraph, $normalizeOptions);
-    }
-
-    /**
-     * Emit one planned page from a shared normalized scenegraph.
-     *
-     * @param array<string, mixed> $normalized
-     * @param array<string, mixed> $page
-     * @param array<string, mixed> $options
-     */
-    private function transformNormalizedScenegraphPage(array $normalized, array $page, array $options): FigmaTransformResult
-    {
-        $startedAt = microtime(true);
-        $responsiveVariants = $this->responsivePageVariants($options);
-        if ( null !== $responsiveVariants ) {
-            $primaryFrameId = (string) ($responsiveVariants[0]['frame_id'] ?? ($page['frame_id'] ?? ''));
-            $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : (string) ($page['name'] ?? $primaryFrameId);
-            $pagePath = isset($options['static_site_page_path']) && is_scalar($options['static_site_page_path']) && '' !== (string) $options['static_site_page_path']
-                ? (string) $options['static_site_page_path']
-                : 'index.html';
-            $singlePagePlan = array(
-                'pages' => array(
-                    array(
-                        'frame_id'   => $primaryFrameId,
-                        'name'       => $pageName,
-                        'path'       => $pagePath,
-                        'entrypoint' => true === ($page['entrypoint'] ?? false),
-                        'page_type'  => isset($page['page_type']) && is_scalar($page['page_type']) ? (string) $page['page_type'] : '',
-                        'slug'       => isset($page['slug']) && is_scalar($page['slug']) ? (string) $page['slug'] : '',
-                        'responsive' => true,
-                        'variants'   => $responsiveVariants,
-                    ),
-                ),
-            );
-            $emitOptions = $options;
-            unset($emitOptions['responsive_variants'], $emitOptions['frame_id'], $emitOptions['page_name']);
-            $artifact = $this->htmlEmitter->emitSite($normalized, $singlePagePlan, $emitOptions);
-        } else {
-            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
-            $artifact = $this->htmlEmitter->emit($this->normalizedScenegraphForFrame($normalized, $frameId, (string) ($page['name'] ?? $frameId)), $options);
-        }
-
-        $renderedNodes = $this->renderedNodesFromArtifact($artifact, $normalized, $page);
-
-        return $this->finalizeArtifactResult(
-            $artifact,
-            $artifact['status'],
-            $normalized['diagnostics'] ?? array(),
-            array(
-                'scenegraph' => $normalized['source_report'],
-            ),
-            $options,
-            $startedAt,
-            true,
-            array(
-                'node_count'             => $artifact['metrics']['node_count'] ?? $this->countNormalizedNodes($renderedNodes),
-                'text_node_count'        => $this->countNormalizedTextNodes($renderedNodes),
-                'asset_reference_count'  => count($this->assetReferencesForNodes($renderedNodes)),
-                'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
-                'file_count'             => count($artifact['files']),
-                'breakpoint_count'       => null !== $responsiveVariants ? count($responsiveVariants) : null,
-            )
-        );
     }
 
     /**
@@ -1012,27 +959,6 @@ final class FigmaTransformer
                 )
             )
         );
-    }
-
-    /**
-     * @param array<string, mixed> $normalized
-     * @return array<string, mixed>
-     */
-    private function normalizedScenegraphForFrame(array $normalized, string $frameId, string $name): array
-    {
-        $nodeMap = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
-        $node = isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ? $nodeMap[$frameId] : null;
-        $pageNormalized = $normalized;
-        $pageNormalized['name'] = '' !== $name ? $name : ($normalized['name'] ?? 'Figma Site');
-        $pageNormalized['nodes'] = null !== $node ? array($node) : array();
-        $pageNormalized['selected_frame_id'] = $frameId;
-        if ( is_array($pageNormalized['source_report'] ?? null) ) {
-            $pageNormalized['source_report']['name'] = $pageNormalized['name'];
-            $pageNormalized['source_report']['selected_frame_id'] = $frameId;
-            $pageNormalized['source_report']['node_count'] = $this->countNormalizedNodes($pageNormalized['nodes']);
-        }
-
-        return $pageNormalized;
     }
 
     /**
@@ -1181,20 +1107,6 @@ final class FigmaTransformer
         }
 
         return $traced;
-    }
-
-    /**
-     * @param mixed $files
-     */
-    private function fileContent(mixed $files, string $path): string
-    {
-        foreach ( is_array($files) ? $files : array() as $file ) {
-            if ( is_array($file) && $path === ($file['path'] ?? null) ) {
-                return isset($file['content']) && is_scalar($file['content']) ? (string) $file['content'] : '';
-            }
-        }
-
-        return '';
     }
 
     /**
@@ -2342,268 +2254,6 @@ final class FigmaTransformer
     }
 
     /**
-     * Merge per-page CSS chunks into one deduplicated stylesheet.
-     *
-     * CSS is tokenized at TOP-LEVEL statement boundaries (tracking brace depth)
-     * rather than per line, so block at-rules — most importantly the responsive
-     * `@media (max-width: …)` blocks emitted for a collapsed responsive page —
-     * stay ATOMIC and are not shattered into stray `{`/`}`/inner-rule lines that
-     * line-level deduping would corrupt. `@import` (and the leading font-source
-     * comment) float to the top to stay valid after concatenation; plain
-     * top-level rules dedupe; `@media` (and other block at-rules) preserve their
-     * widest-first emission order and follow the base rules so narrower
-     * breakpoints still win the cascade at their own viewport width.
-     *
-     * @param array<int, string> $chunks
-     * @return array{css: string, class_maps: array<int, array<string, string>>}
-     */
-    private function mergeCssChunks(array $chunks): array
-    {
-        $imports = array();
-        $rules = array();
-        $atBlocks = array();
-        $readableRules = array();
-        foreach ( $chunks as $chunkIndex => $chunk ) {
-            foreach ( $this->splitCssStatements($chunk) as $statement ) {
-                $statement = trim($statement);
-                if ( '' === $statement ) {
-                    continue;
-                }
-                // `@import` (and any leading font-source comment) must precede all
-                // other rules to stay valid after chunks are concatenated.
-                if ( str_starts_with($statement, '@import') || ( str_starts_with($statement, '/*') && str_contains($statement, 'web fonts') ) ) {
-                    $imports[$statement] = true;
-                    continue;
-                }
-                // Block at-rules (e.g. responsive `@media` breakpoints) must stay
-                // intact and keep their emission order behind the base rules.
-                if ( str_starts_with($statement, '@media') || ( str_starts_with($statement, '@') && str_contains($statement, '{') ) ) {
-                    $atBlocks[$statement] = true;
-                    continue;
-                }
-                $readableRule = $this->readableCssRule($statement);
-                if ( null !== $readableRule ) {
-                    $readableRules[$readableRule['class']][$readableRule['body']][] = $chunkIndex;
-                }
-                $rules[$statement] = true;
-            }
-        }
-
-        $classMaps = array();
-        $renamesByStatement = array();
-        foreach ( $readableRules as $class => $bodies ) {
-            if ( count($bodies) < 2 ) {
-                continue;
-            }
-            foreach ( $bodies as $body => $chunkIndexes ) {
-                $renamedClass = $class . '-' . substr(sha1($body), 0, 8);
-                $renamesByStatement['.' . $class . '{' . $body . '}'] = '.' . $renamedClass . '{' . $body . '}';
-                foreach ( $chunkIndexes as $chunkIndex ) {
-                    $classMaps[$chunkIndex][$class] = $renamedClass;
-                }
-            }
-        }
-
-        if ( ! empty($renamesByStatement) ) {
-            $renamedRules = array();
-            foreach ( array_keys($rules) as $statement ) {
-                $renamedRules[$renamesByStatement[$statement] ?? $statement] = true;
-            }
-            $rules = $renamedRules;
-        }
-
-        $ordered = array_merge(array_keys($imports), array_keys($rules), array_keys($atBlocks));
-
-        return array(
-            'css' => implode("\n", $ordered) . (empty($ordered) ? '' : "\n"),
-            'class_maps' => $classMaps,
-        );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fontUsage
-     * @param array<string, mixed>             $options
-     */
-    private function mergedFontCss(array $fontUsage, array $options): string
-    {
-        $operatorFontCss = isset($options['font_css']) && is_scalar($options['font_css']) ? (string) $options['font_css'] : '';
-        $familyOverrides = is_array($options['font_family_overrides'] ?? null) ? $options['font_family_overrides'] : array();
-        $fontResolution = (new FontResolver())->resolve($fontUsage, $operatorFontCss, $familyOverrides);
-
-        return (string) ($fontResolution['css'] ?? '');
-    }
-
-    private function replaceWebFontImports(string $css, string $fontCss): string
-    {
-        $statements = array();
-        foreach ( $this->splitCssStatements($css) as $statement ) {
-            $trimmed = trim($statement);
-            if ( '' === $trimmed ) {
-                continue;
-            }
-            if ( str_starts_with($trimmed, '@import') || ( str_starts_with($trimmed, '/*') && str_contains($trimmed, 'web fonts') ) ) {
-                continue;
-            }
-            $statements[] = $trimmed;
-        }
-
-        return rtrim($fontCss) . "\n" . implode("\n", $statements) . (empty($statements) ? "" : "\n");
-    }
-
-    /**
-     * Multi-page output merges independently-emitted page stylesheets. Leaving
-     * per-page design tokens on `:root` lets later pages override earlier page
-     * typography/color variables, so scope custom properties to the emitted page
-     * frame when a concrete root node class is available.
-     */
-    private function scopeRootCustomPropertiesToPage(string $css, string $html): string
-    {
-        if ( '' === $css || '' === $html || ! str_contains($css, ':root{') ) {
-            return $css;
-        }
-
-        if ( 1 !== preg_match('/<main\b[^>]*data-figma-root="true"[^>]*>\s*<[^>]+class="([^"]*)"/s', $html, $matches) ) {
-            return $css;
-        }
-
-        $rootClass = '';
-        foreach ( preg_split('/\s+/', trim((string) $matches[1])) ?: array() as $class ) {
-            if ( str_starts_with($class, 'figma-node-') ) {
-                $rootClass = $class;
-                break;
-            }
-        }
-        if ( '' === $rootClass ) {
-            return $css;
-        }
-
-        return (string) preg_replace('/(^|\n):root\{/m', '$1.' . $rootClass . '{', $css);
-    }
-
-    /**
-     * @return array{class: string, body: string}|null
-     */
-    private function readableCssRule(string $statement): ?array
-    {
-        if ( 1 !== preg_match('/^\.([A-Za-z][A-Za-z0-9_-]*)\{(.*)\}$/s', $statement, $matches) ) {
-            return null;
-        }
-
-        $class = $matches[1];
-        if ( str_starts_with($class, 'figma-node-') || in_array($class, array('figma-root', 'figma-link', 'figma-text-glyphs', 'figma-vector-asset'), true) ) {
-            return null;
-        }
-
-        return array('class' => $class, 'body' => $matches[2]);
-    }
-
-    /**
-     * @param array<string, string> $classMap
-     */
-    private function applyCssClassRenameMapToHtml(string $html, array $classMap): string
-    {
-        if ( empty($classMap) ) {
-            return $html;
-        }
-
-        return (string) preg_replace_callback('/class="([^"]*)"/', static function (array $matches) use ($classMap): string {
-            $classes = preg_split('/\s+/', trim((string) $matches[1])) ?: array();
-            $classes = array_map(static fn (string $class): string => $classMap[$class] ?? $class, $classes);
-            return 'class="' . implode(' ', array_values(array_filter($classes, static fn (string $class): bool => '' !== $class))) . '"';
-        }, $html);
-    }
-
-    /**
-     * Split a CSS string into top-level statements, keeping each rule or block
-     * at-rule (with its full brace-balanced body) as one element. Bare `@import`
-     * statements and standalone comments are returned as their own elements.
-     *
-     * @return array<int, string>
-     */
-    private function splitCssStatements(string $css): array
-    {
-        $statements = array();
-        $buffer = '';
-        $depth = 0;
-        $parenDepth = 0;
-        $quote = null;
-        $escaped = false;
-        $inComment = false;
-        $length = strlen($css);
-        for ( $i = 0; $i < $length; $i++ ) {
-            $char = $css[$i];
-            $buffer .= $char;
-
-            if ( $inComment ) {
-                if ( '*' === $char && '/' === ($css[$i + 1] ?? '') ) {
-                    $buffer .= '/';
-                    ++$i;
-                    $inComment = false;
-                }
-                continue;
-            }
-
-            if ( null !== $quote ) {
-                if ( $escaped ) {
-                    $escaped = false;
-                    continue;
-                }
-                if ( '\\' === $char ) {
-                    $escaped = true;
-                    continue;
-                }
-                if ( $quote === $char ) {
-                    $quote = null;
-                }
-                continue;
-            }
-
-            if ( '/' === $char && '*' === ($css[$i + 1] ?? '') ) {
-                $buffer .= '*';
-                ++$i;
-                $inComment = true;
-                continue;
-            }
-            if ( '"' === $char || "'" === $char ) {
-                $quote = $char;
-                continue;
-            }
-            if ( '(' === $char ) {
-                ++$parenDepth;
-                continue;
-            }
-            if ( ')' === $char ) {
-                $parenDepth = max(0, $parenDepth - 1);
-                continue;
-            }
-            if ( '{' === $char ) {
-                ++$depth;
-                continue;
-            }
-            if ( '}' === $char ) {
-                $depth = max(0, $depth - 1);
-                if ( 0 === $depth ) {
-                    $statements[] = trim($buffer);
-                    $buffer = '';
-                }
-                continue;
-            }
-            if ( ';' === $char && 0 === $depth && 0 === $parenDepth ) {
-                // Top-level statement with no block body (e.g. `@import …;`).
-                $statements[] = trim($buffer);
-                $buffer = '';
-            }
-        }
-
-        $trailing = trim($buffer);
-        if ( '' !== $trailing ) {
-            $statements[] = $trailing;
-        }
-
-        return array_values(array_filter($statements, static fn (string $statement): bool => '' !== $statement));
-    }
-
-    /**
      * @param array<int, mixed> ...$familySets
      * @return array<int, string>
      */
@@ -2695,60 +2345,6 @@ final class FigmaTransformer
             $fontUsage,
             static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
         ));
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function assetReportFromFiles(array $files): array
-    {
-        $assets = array();
-        foreach ( $files as $file ) {
-            $content = isset($file['content']) && is_scalar($file['content']) ? (string) $file['content'] : '';
-            $asset = array(
-                'id'        => (string) ($file['source_id'] ?? ''),
-                'path'      => (string) ($file['path'] ?? ''),
-                'mime_type' => (string) ($file['mime_type'] ?? 'application/octet-stream'),
-                'bytes'     => strlen($content),
-                'hash'      => hash('sha256', $content),
-            );
-            if ( 'image/svg+xml' === ($file['mime_type'] ?? null) && str_starts_with((string) ($file['source_id'] ?? ''), 'generated-vector-') ) {
-                $asset += $this->svgAssetMetrics($content);
-            }
-            $assets[] = $asset;
-        }
-
-        return $assets;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function svgAssetMetrics(string $content): array
-    {
-        $pathElementCount = preg_match_all('/<path\b[^>]*>/i', $content, $pathMatches);
-        $pathDataValues = array();
-        foreach ( $pathMatches[0] ?? array() as $pathElement ) {
-            if ( preg_match('/\bd\s*=\s*(["\'])(.*?)\1/is', (string) $pathElement, $pathDataMatch) ) {
-                $pathDataValues[] = html_entity_decode((string) $pathDataMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            }
-        }
-
-        $pathDataBytes = array_map(static fn (string $pathData): int => strlen($pathData), $pathDataValues);
-        $pathDataHashes = array_map(static fn (string $pathData): string => hash('sha256', $pathData), $pathDataValues);
-        $uniquePathDataHashes = array_values(array_unique($pathDataHashes));
-
-        return array(
-            'gzip_bytes' => function_exists('gzencode') ? strlen((string) gzencode($content, 9)) : null,
-            'path_element_count' => false === $pathElementCount ? 0 : $pathElementCount,
-            'path_data_count' => count($pathDataValues),
-            'path_data_bytes' => array_sum($pathDataBytes),
-            'largest_path_data_bytes' => empty($pathDataBytes) ? 0 : max($pathDataBytes),
-            'unique_path_data_count' => count($uniquePathDataHashes),
-            'duplicate_path_data_count' => max(0, count($pathDataValues) - count($uniquePathDataHashes)),
-            'path_data_hashes' => $uniquePathDataHashes,
-        );
     }
 
     /**

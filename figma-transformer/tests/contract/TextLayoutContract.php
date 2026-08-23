@@ -1899,6 +1899,24 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(array() === ($tokenOnlyFontDiagnostics['fonts']['missing_css'] ?? null), 'token-only-font-family-not-missing-css-diagnostic');
     $assert(array('Token Only Sans') === array_column($tokenOnlyFontResult['source_report']['font_usage'] ?? array(), 'family'), 'token-only-font-family-usage-materialized');
 
+    $unresolvedPageFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(array(
+        'name' => 'Page Font Diagnostics Fixture',
+        'nodes' => array(
+            array('id' => 'font-page:one', 'type' => 'FRAME', 'name' => 'One', 'children' => array(
+                array('id' => 'font-page:one-text', 'type' => 'TEXT', 'name' => 'One text', 'figma_text' => array('characters' => 'One', 'style' => array('font_family' => 'Page One Sans', 'font_size' => 16, 'font_weight' => 400))),
+            )),
+            array('id' => 'font-page:two', 'type' => 'FRAME', 'name' => 'Two', 'children' => array(
+                array('id' => 'font-page:two-text', 'type' => 'TEXT', 'name' => 'Two text', 'figma_text' => array('characters' => 'Two', 'style' => array('font_family' => 'Page Two Sans', 'font_size' => 16, 'font_weight' => 400))),
+            )),
+        ),
+    ), array(
+        array('frame_id' => 'font-page:one', 'name' => 'One', 'path' => 'index.html', 'entrypoint' => true),
+        array('frame_id' => 'font-page:two', 'name' => 'Two', 'path' => 'two.html', 'entrypoint' => false),
+    ));
+    $unresolvedPageFontReports = $unresolvedPageFontResult['source_report']['pages'] ?? array();
+    $assert(1 === ($unresolvedPageFontReports[0]['diagnostic_codes']['font_css_missing_for_source_font'] ?? null), 'page-font-diagnostics-first-page-includes-unresolved-font');
+    $assert(1 === ($unresolvedPageFontReports[1]['diagnostic_codes']['font_css_missing_for_source_font'] ?? null), 'page-font-diagnostics-second-page-includes-unresolved-font');
+
     $inlineRunFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
         'name'  => 'Inline Run Font Fixture',
         'nodes' => array(
