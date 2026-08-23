@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\FigmaTransformer;
 
 use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
-use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\DiagnosticAggregation;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
-use Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver;
-use Automattic\BlocksEngine\FigmaTransformer\Html\SourceLossCoverageBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
@@ -773,12 +770,7 @@ final class FigmaTransformer
             $pageReports
         );
 
-        $mergedPageDiagnostics = $this->mergePageTransformDiagnostics(
-            $pageReports,
-            is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
-            $tracedVisualNodeMap
-        );
-        $mergedLayout = is_array($mergedPageDiagnostics['layout'] ?? null) ? $mergedPageDiagnostics['layout'] : array();
+        $mergedLayout = $this->aggregatePageMismatchLayout($pageReports);
         $aggregateLayout = is_array($aggregateDiagnostics['layout'] ?? null) ? $aggregateDiagnostics['layout'] : array();
         foreach ( array('layout_mismatch_count', 'layout_mismatch_status', 'layout_mismatches', 'layout_mismatch_clusters', 'render_style_mismatch_count', 'render_style_mismatch_status', 'render_style') as $key ) {
             if ( array_key_exists($key, $mergedLayout) ) {
@@ -1418,29 +1410,11 @@ final class FigmaTransformer
 
     /**
      * @param array<int, array<string, mixed>> $pageReports
-     * @param array<int, array<string, mixed>> $assetReport
-     * @param array<int, array<string, mixed>> $visualNodeMap
      * @return array<string, mixed>
      */
-    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport, array $visualNodeMap): array
+    private function aggregatePageMismatchLayout(array $pageReports): array
     {
-        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array(), 'asset_nodes' => array());
-        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
-            'large_negative_left_count' => 0,
-            'large_css_offset_count' => 0,
-            'large_css_offset_nodes' => array(),
-            'off_canvas_visual_node_count' => 0,
-            'off_canvas_visual_nodes' => array(),
-            'large_absolute_offset_count' => 0,
-            'large_absolute_offset_nodes' => array(),
-            'empty_visible_container_count' => 0,
-            'empty_visible_container_blocker_count' => 0,
-            'empty_visible_container_categories' => array(),
-            'empty_visible_containers' => array(),
-            'decorative_underlays' => array('count' => 0, 'nodes' => array()),
-            'sticky_ghosts' => array('count' => 0, 'candidates' => array()),
-            'image_heavy_landmark_candidates' => array(),
             'layout_mismatch_count' => 0,
             'layout_mismatch_status' => 'not_evaluated',
             'layout_mismatches' => array(),
@@ -1471,608 +1445,75 @@ final class FigmaTransformer
                 'diagnostics' => array(),
             ),
         );
-        $fontFamilies = array();
-        $fontUsage = array();
-        $fontCssSupplied = false;
-        $fontMaterialized = false;
-        $diagnosticCodes = array();
-        $pages = array();
-        $links = array(
-            'schema'             => 'blocks-engine/figma-transformer/link-coverage/v1',
-            'sources_found'      => 0,
-            'anchors_emitted'    => 0,
-            'url_links'          => 0,
-            'node_links'         => 0,
-            'toc_links'          => 0,
-            'implicit_route_links' => 0,
-            'implicit_route_self_suppressed' => 0,
-            'route_targets'      => array(),
-            'unresolved'         => 0,
-            'unresolved_targets' => array(),
-        );
-        $css = array(
-            'schema' => 'blocks-engine/figma-transformer/css-diagnostics/v1',
-            'invalid_numeric_token_count' => 0,
-            'invalid_numeric_tokens' => array(),
-        );
-        $textCoverage = array(
-            'empty_decoded_text_nodes' => 0,
-            'missing_emitted_text_nodes' => 0,
-        );
-        $htmlArtifact = array(
-            'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
-            'media_query_count' => 0,
-            'fixed_width_over_desktop_count' => 0,
-            'fixed_width_declaration_count' => 0,
-            'fixed_width_with_responsive_override_count' => 0,
-            'fixed_width_without_responsive_override_count' => 0,
-            'effective_responsive_coverage_ratio' => 1.0,
-            'fixed_width_samples' => array(),
-            'fixed_width_coverage_analysis' => array(
-                'status' => 'complete',
-                'diagnostic' => null,
-                'page_count' => 0,
-                'incomplete_page_count' => 0,
-                'contexts_evaluated' => 0,
-                'operations_evaluated' => 0,
-                'incomplete_pages' => array(),
-            ),
-            'large_fixed_canvas_height' => false,
-            'desktop_canvas_without_responsive_breakpoints' => false,
-            'giant_fixed_section_count' => 0,
-            'giant_fixed_sections' => array(),
-            'large_overflow_risk_count' => 0,
-            'large_overflow_risks' => array(),
-            'fallback_prone_form_island_count' => 0,
-            'fallback_prone_svg_island_count' => 0,
-            'fallback_prone_input_island_count' => 0,
-            'invalid_list_child_count' => 0,
-            'missing_semantic_role_count' => 0,
-            'semantic_role_samples' => array(),
-        );
-        $decisionTraces = array(
-            'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
-            'trace_count' => 0,
-            'reason_counts' => array(),
-            'domain_counts' => array(),
-            'samples' => array(),
-        );
-        $positionalParity = array(
-            'schema' => 'blocks-engine/figma-transformer/positional-parity/v1',
-            'full_bleed_viewport_width_count' => 0,
-            'full_bleed_breakout_count' => 0,
-            'mirrored_transform_count' => 0,
-            'reflected_full_bleed_count' => 0,
-            'fixed_over_root_width_underlay_count' => 0,
-            'fixed_over_root_width_underlays' => array(),
-            'chrome_overflow_count' => 0,
-            'chrome_overflow_nodes' => array(),
-            'root_stacking_trace_count' => 0,
-            'root_stacking_reason_counts' => array(),
-            'decision_trace_samples' => array(),
-        );
 
         foreach ( $pageReports as $page ) {
-            $diagnostics = is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array();
             $pageContext = array(
                 'frame_id' => (string) ($page['frame_id'] ?? ''),
                 'page_path' => (string) ($page['path'] ?? ''),
                 'page_name' => (string) ($page['name'] ?? ''),
             );
-            $pages[] = array_merge($pageContext, array('transform_diagnostics' => $diagnostics));
-
-            $pageImages = is_array($diagnostics['images'] ?? null) ? $diagnostics['images'] : array();
-            DiagnosticAggregation::addIntegerCounts($images, $pageImages, array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count'));
-            DiagnosticAggregation::appendContextSamples($images, 'image_block_nodes', $pageImages, 'image_block_nodes', $pageContext);
-            DiagnosticAggregation::appendContextSamples($images, 'missing_assets', $pageImages, 'missing_assets', $pageContext);
-            DiagnosticAggregation::appendContextSamples($images, 'asset_nodes', $pageImages, 'asset_nodes', $pageContext);
-
-            $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
-            DiagnosticAggregation::addIntegerCounts($vectors, $pageVectors, array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders'));
-            DiagnosticAggregation::appendContextSamples($vectors, 'placeholder_nodes', $pageVectors, 'placeholder_nodes', $pageContext);
-            DiagnosticAggregation::addCounterMap($vectors['placeholder_reasons'], is_array($pageVectors['placeholder_reasons'] ?? null) ? $pageVectors['placeholder_reasons'] : array());
-
-            $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
-            $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
-            $fontUsage = $this->mergeFontUsage($fontUsage, is_array($pageFonts['usage'] ?? null) ? $pageFonts['usage'] : array());
-            $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
-            $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
-
-            $pageLinks = is_array($diagnostics['links'] ?? null) ? $diagnostics['links'] : array();
-            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'toc_links', 'implicit_route_links', 'implicit_route_self_suppressed', 'unresolved'));
-            DiagnosticAggregation::appendContextSamples($links, 'route_targets', $pageLinks, 'route_targets', $pageContext);
-            DiagnosticAggregation::appendContextSamples($links, 'unresolved_targets', $pageLinks, 'unresolved_targets', $pageContext);
-
-            $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
-            DiagnosticAggregation::addIntegerCounts($css, $pageCss, array('invalid_numeric_token_count'));
-            DiagnosticAggregation::appendContextSamples($css, 'invalid_numeric_tokens', $pageCss, 'invalid_numeric_tokens', $pageContext);
-            $pageQualitySummary = is_array($diagnostics['artifact_quality']['summary'] ?? null) ? $diagnostics['artifact_quality']['summary'] : array();
-            DiagnosticAggregation::addIntegerCounts($textCoverage, $pageQualitySummary, array('empty_decoded_text_nodes', 'missing_emitted_text_nodes'));
-            $pageHtmlArtifact = is_array($diagnostics['html_artifact'] ?? null) ? $diagnostics['html_artifact'] : array();
-            DiagnosticAggregation::addIntegerCounts($htmlArtifact, $pageHtmlArtifact, array('media_query_count', 'fixed_width_over_desktop_count', 'fixed_width_declaration_count', 'fixed_width_with_responsive_override_count', 'fixed_width_without_responsive_override_count', 'giant_fixed_section_count', 'large_overflow_risk_count', 'fallback_prone_form_island_count', 'fallback_prone_svg_island_count', 'fallback_prone_input_island_count', 'invalid_list_child_count', 'missing_semantic_role_count'));
-            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'fixed_width_samples', $pageHtmlArtifact, 'fixed_width_samples', $pageContext);
-            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'giant_fixed_sections', $pageHtmlArtifact, 'giant_fixed_sections', $pageContext);
-            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'large_overflow_risks', $pageHtmlArtifact, 'large_overflow_risks', $pageContext);
-            DiagnosticAggregation::appendContextSamples($htmlArtifact, 'semantic_role_samples', $pageHtmlArtifact, 'semantic_role_samples', $pageContext);
-            $pageCoverageAnalysis = is_array($pageHtmlArtifact['fixed_width_coverage_analysis'] ?? null) ? $pageHtmlArtifact['fixed_width_coverage_analysis'] : array();
-            ++$htmlArtifact['fixed_width_coverage_analysis']['page_count'];
-            $htmlArtifact['fixed_width_coverage_analysis']['contexts_evaluated'] += (int) ($pageCoverageAnalysis['contexts_evaluated'] ?? 0);
-            $htmlArtifact['fixed_width_coverage_analysis']['operations_evaluated'] += (int) ($pageCoverageAnalysis['operations_evaluated'] ?? 0);
-            if ( 'incomplete' === ($pageCoverageAnalysis['status'] ?? null) ) {
-                $htmlArtifact['fixed_width_coverage_analysis']['status'] = 'incomplete';
-                $htmlArtifact['fixed_width_coverage_analysis']['diagnostic'] = 'fixed_width_coverage_budget_exceeded';
-                ++$htmlArtifact['fixed_width_coverage_analysis']['incomplete_page_count'];
-                $htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'][] = array_merge($pageContext, array(
-                    'contexts_evaluated' => (int) ($pageCoverageAnalysis['contexts_evaluated'] ?? 0),
-                    'operations_evaluated' => (int) ($pageCoverageAnalysis['operations_evaluated'] ?? 0),
-                ));
-            }
-            $htmlArtifact['large_fixed_canvas_height'] = ! empty($htmlArtifact['large_fixed_canvas_height']) || ! empty($pageHtmlArtifact['large_fixed_canvas_height']);
-            $htmlArtifact['desktop_canvas_without_responsive_breakpoints'] = ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) || ! empty($pageHtmlArtifact['desktop_canvas_without_responsive_breakpoints']);
-            $this->mergeDecisionTraceDiagnostics($decisionTraces, is_array($diagnostics['decision_traces'] ?? null) ? $diagnostics['decision_traces'] : array(), $pageContext);
-
-            $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
-            DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
-            $this->mergePositionalParityDiagnostics($positionalParity, is_array($pageLayout['positional_parity'] ?? null) ? $pageLayout['positional_parity'] : array(), $pageContext);
-            DiagnosticAggregation::appendContextSamples($layout, 'large_css_offset_nodes', $pageLayout, 'large_css_offset_nodes', $pageContext);
-            DiagnosticAggregation::appendContextSamples($layout, 'off_canvas_visual_nodes', $pageLayout, 'off_canvas_visual_nodes', $pageContext);
-            DiagnosticAggregation::appendContextSamples($layout, 'large_absolute_offset_nodes', $pageLayout, 'large_absolute_offset_nodes', $pageContext);
-            DiagnosticAggregation::appendContextSamples($layout, 'empty_visible_containers', $pageLayout, 'empty_visible_containers', $pageContext);
-            DiagnosticAggregation::addCounterMap($layout['empty_visible_container_categories'], is_array($pageLayout['empty_visible_container_categories'] ?? null) ? $pageLayout['empty_visible_container_categories'] : array());
-            $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
-            foreach ( $underlays as $item ) {
-                if ( is_array($item) ) {
-                    $layout['decorative_underlays']['nodes'][] = array_merge($pageContext, $item);
+            $pageLayout = is_array($page['transform_diagnostics']['layout'] ?? null) ? $page['transform_diagnostics']['layout'] : array();
+            $layoutMismatch = is_array($pageLayout['layout_mismatch'] ?? null) ? $pageLayout['layout_mismatch'] : array();
+            $layoutMismatchDiagnostics = is_array($layoutMismatch['diagnostics'] ?? null) ? $layoutMismatch['diagnostics'] : array();
+            $layout['layout_mismatch_count'] += (int) ($layoutMismatch['summary']['diagnostic_count'] ?? count($layoutMismatchDiagnostics));
+            if ( ! empty($layoutMismatch) ) {
+                $status = (string) ($layoutMismatch['status'] ?? 'not_run');
+                if ( 'fail' === $status || ( 'not_comparable' === $status && 'fail' !== $layout['layout_mismatch_status'] ) || 'not_evaluated' === $layout['layout_mismatch_status'] ) {
+                    $layout['layout_mismatch_status'] = $status;
                 }
             }
-            foreach ( is_array($pageLayout['sticky_ghosts']['candidates'] ?? null) ? $pageLayout['sticky_ghosts']['candidates'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['sticky_ghosts']['candidates'][] = array_merge($pageContext, $item);
+            foreach ( $layoutMismatchDiagnostics as $diagnostic ) {
+                if ( is_array($diagnostic) ) {
+                    $layout['layout_mismatches'][] = array_merge($pageContext, $diagnostic);
                 }
             }
-            foreach ( is_array($pageLayout['image_heavy_landmark_candidates'] ?? null) ? $pageLayout['image_heavy_landmark_candidates'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['image_heavy_landmark_candidates'][] = array_merge($pageContext, $item);
-                }
-            }
-            $pageLayoutMismatch = is_array($pageLayout['layout_mismatch'] ?? null) ? $pageLayout['layout_mismatch'] : array();
-            $pageLayoutMismatchDiagnostics = is_array($pageLayoutMismatch['diagnostics'] ?? null) ? $pageLayoutMismatch['diagnostics'] : array();
-            $layout['layout_mismatch_count'] += (int) ($pageLayoutMismatch['summary']['diagnostic_count'] ?? count($pageLayoutMismatchDiagnostics));
-            if ( ! empty($pageLayoutMismatch) ) {
-                $pageLayoutMismatchStatus = (string) ($pageLayoutMismatch['status'] ?? 'not_run');
-                if ( 'fail' === $pageLayoutMismatchStatus || ( 'not_comparable' === $pageLayoutMismatchStatus && 'fail' !== $layout['layout_mismatch_status'] ) || 'not_evaluated' === $layout['layout_mismatch_status'] ) {
-                    $layout['layout_mismatch_status'] = $pageLayoutMismatchStatus;
-                }
-            }
-            foreach ( $pageLayoutMismatchDiagnostics as $item ) {
-                if ( is_array($item) ) {
-                    $layout['layout_mismatches'][] = array_merge($pageContext, $item);
-                }
-            }
-            $pageLayoutMismatchClusters = is_array($pageLayoutMismatch['summary']['clusters'] ?? null) ? $pageLayoutMismatch['summary']['clusters'] : array();
-            foreach ( $pageLayoutMismatchClusters as $clusterType => $clusters ) {
-                if ( ! is_array($clusters) ) {
-                    continue;
-                }
-                if ( ! isset($layout['layout_mismatch_clusters'][$clusterType]) ) {
-                    $layout['layout_mismatch_clusters'][$clusterType] = array();
-                }
-                foreach ( $clusters as $cluster ) {
+            foreach ( is_array($layoutMismatch['summary']['clusters'] ?? null) ? $layoutMismatch['summary']['clusters'] : array() as $clusterType => $clusters ) {
+                $layout['layout_mismatch_clusters'][(string) $clusterType] ??= array();
+                foreach ( is_array($clusters) ? $clusters : array() as $cluster ) {
                     if ( is_array($cluster) ) {
-                        $layout['layout_mismatch_clusters'][$clusterType][] = array_merge($pageContext, $cluster);
+                        $layout['layout_mismatch_clusters'][(string) $clusterType][] = array_merge($pageContext, $cluster);
                     }
                 }
             }
 
-            $pageRenderStyle = is_array($pageLayout['render_style'] ?? null) ? $pageLayout['render_style'] : array();
-            if ( ! empty($pageRenderStyle) ) {
-                $pageRenderStyleSummary = is_array($pageRenderStyle['summary'] ?? null) ? $pageRenderStyle['summary'] : array();
-                $renderStyleSummary = is_array($layout['render_style']['summary'] ?? null) ? $layout['render_style']['summary'] : array();
-                foreach ( array('source_node_count', 'render_node_count', 'matched_node_count', 'unmatched_source_node_count', 'diagnostic_count', 'reported_diagnostic_count', 'font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count') as $key ) {
-                    $renderStyleSummary[$key] = (int) ($renderStyleSummary[$key] ?? 0) + (int) ($pageRenderStyleSummary[$key] ?? 0);
-                }
-                $renderStyleSummary['truncated'] = ! empty($renderStyleSummary['truncated']) || ! empty($pageRenderStyleSummary['truncated']);
-                $renderStyleSummary['match_ratio'] = (int) ($renderStyleSummary['source_node_count'] ?? 0) > 0 ? round((int) ($renderStyleSummary['matched_node_count'] ?? 0) / (int) $renderStyleSummary['source_node_count'], 4) : 0.0;
-                $categoryCounts = is_array($renderStyleSummary['category_counts'] ?? null) ? $renderStyleSummary['category_counts'] : array();
-                foreach ( is_array($pageRenderStyleSummary['category_counts'] ?? null) ? $pageRenderStyleSummary['category_counts'] : array() as $category => $count ) {
-                    $categoryCounts[(string) $category] = (int) ($categoryCounts[(string) $category] ?? 0) + (int) $count;
-                }
-                ksort($categoryCounts);
-                $renderStyleSummary['category_counts'] = $categoryCounts;
-                $layout['render_style']['summary'] = $renderStyleSummary;
-                $layout['render_style_mismatch_count'] = (int) ($renderStyleSummary['diagnostic_count'] ?? 0);
-                $pageRenderStyleStatus = (string) ($pageRenderStyle['status'] ?? 'not_run');
-                if ( 'fail' === $pageRenderStyleStatus ) {
-                    $layout['render_style']['status'] = 'fail';
-                    $layout['render_style_mismatch_status'] = 'fail';
-                } elseif ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
-                    $layout['render_style']['status'] = $pageRenderStyleStatus;
-                    $layout['render_style_mismatch_status'] = $pageRenderStyleStatus;
-                }
-                foreach ( is_array($pageRenderStyle['diagnostics'] ?? null) ? $pageRenderStyle['diagnostics'] : array() as $item ) {
-                    if ( is_array($item) ) {
-                        $layout['render_style']['diagnostics'][] = array_merge($pageContext, $item);
-                    }
+            $renderStyle = is_array($pageLayout['render_style'] ?? null) ? $pageLayout['render_style'] : array();
+            if ( empty($renderStyle) ) {
+                continue;
+            }
+            $pageSummary = is_array($renderStyle['summary'] ?? null) ? $renderStyle['summary'] : array();
+            $summary = $layout['render_style']['summary'];
+            foreach ( array('source_node_count', 'render_node_count', 'matched_node_count', 'unmatched_source_node_count', 'diagnostic_count', 'reported_diagnostic_count', 'font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count') as $key ) {
+                $summary[$key] = (int) ($summary[$key] ?? 0) + (int) ($pageSummary[$key] ?? 0);
+            }
+            $summary['truncated'] = ! empty($summary['truncated']) || ! empty($pageSummary['truncated']);
+            $summary['match_ratio'] = $summary['source_node_count'] > 0 ? round($summary['matched_node_count'] / $summary['source_node_count'], 4) : 0.0;
+            foreach ( is_array($pageSummary['category_counts'] ?? null) ? $pageSummary['category_counts'] : array() as $category => $count ) {
+                $summary['category_counts'][(string) $category] = (int) ($summary['category_counts'][(string) $category] ?? 0) + (int) $count;
+            }
+            ksort($summary['category_counts']);
+            $layout['render_style']['summary'] = $summary;
+            $layout['render_style_mismatch_count'] = (int) $summary['diagnostic_count'];
+            $status = (string) ($renderStyle['status'] ?? 'not_run');
+            if ( 'fail' === $status ) {
+                $layout['render_style']['status'] = 'fail';
+                $layout['render_style_mismatch_status'] = 'fail';
+            } elseif ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
+                $layout['render_style']['status'] = $status;
+                $layout['render_style_mismatch_status'] = $status;
+            }
+            foreach ( is_array($renderStyle['diagnostics'] ?? null) ? $renderStyle['diagnostics'] : array() as $diagnostic ) {
+                if ( is_array($diagnostic) ) {
+                    $layout['render_style']['diagnostics'][] = array_merge($pageContext, $diagnostic);
                 }
             }
-
-            $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
-            DiagnosticAggregation::addCounterMap($diagnosticCodes, $pageDiagnosticCodes);
         }
 
-        $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
-        $layout['sticky_ghosts']['candidates'] = array_values($layout['sticky_ghosts']['candidates']);
-        $layout['sticky_ghosts']['count'] = count($layout['sticky_ghosts']['candidates']);
-        $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
-        $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
-        $links['route_targets'] = array_values($links['route_targets']);
-        $links['unresolved_targets'] = array_values($links['unresolved_targets']);
-        $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
-        ksort($layout['empty_visible_container_categories']);
-        $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
-        $layout['render_style']['diagnostics'] = array_values($layout['render_style']['diagnostics']);
         if ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
             $layout['render_style']['status'] = 'not_run';
             $layout['render_style_mismatch_status'] = 'not_run';
         }
-        ksort($decisionTraces['reason_counts']);
-        ksort($decisionTraces['domain_counts']);
-        $htmlArtifact['fixed_width_samples'] = array_slice(array_values($htmlArtifact['fixed_width_samples']), 0, 25);
-        $htmlArtifact['giant_fixed_sections'] = array_slice(array_values($htmlArtifact['giant_fixed_sections']), 0, 25);
-        $htmlArtifact['large_overflow_risks'] = array_slice(array_values($htmlArtifact['large_overflow_risks']), 0, 25);
-        $htmlArtifact['semantic_role_samples'] = array_slice(array_values($htmlArtifact['semantic_role_samples']), 0, 25);
-        $htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'] = array_slice($htmlArtifact['fixed_width_coverage_analysis']['incomplete_pages'], 0, 25);
-        $fixedWidthDeclarationCount = (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0);
-        $htmlArtifact['effective_responsive_coverage_ratio'] = 'incomplete' === ($htmlArtifact['fixed_width_coverage_analysis']['status'] ?? null)
-            ? 0.0
-            : ($fixedWidthDeclarationCount > 0
-            ? round((int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0) / $fixedWidthDeclarationCount, 3)
-            : 1.0);
-        ksort($positionalParity['root_stacking_reason_counts']);
-        $positionalParity['fixed_over_root_width_underlays'] = array_slice(array_values($positionalParity['fixed_over_root_width_underlays']), 0, 25);
-        $positionalParity['chrome_overflow_nodes'] = array_slice(array_values($positionalParity['chrome_overflow_nodes']), 0, 25);
-        $positionalParity['decision_trace_samples'] = array_slice(array_values($positionalParity['decision_trace_samples']), 0, 100);
-        $layout['positional_parity'] = $positionalParity;
-        ksort($diagnosticCodes);
-        $fontResolution = ( new FontResolver() )->resolve($fontUsage, $fontCssSupplied ? 'operator-supplied' : '');
-        $fonts = array(
-            'families' => $fontFamilies,
-            'usage' => $fontUsage,
-            'count' => count($fontFamilies),
-            'css_supplied' => $fontCssSupplied,
-            'materialized' => $fontMaterialized,
-            'missing_css' => $fontResolution['unresolved_families'],
-            'resolved_css' => $fontResolution['resolved_families'],
-            'cdn_families' => $fontResolution['cdn_families'],
-            'coverage' => $fontResolution['coverage'],
-        );
-        $assets = array(
-            'emitted_files' => count($assetReport),
-            'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assetReport)),
-        );
-        $generatedSvgAssets = $this->generatedSvgAssetsFromReport($assetReport);
 
-        $artifactQuality = $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $css, $htmlArtifact);
-        $artifactQuality['summary'] = array_merge(
-            is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
-            $textCoverage
-        );
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
-            'scope' => 'multi_page',
-            'selection' => $this->multiPageSelectionDiagnostics($pageReports),
-            'visual_node_map_summary' => $this->visualNodeMapSummary($visualNodeMap),
-            'pages' => $pages,
-            'images' => $images,
-            'vectors' => $vectors,
-            'fonts' => $fonts,
-            'assets' => $assets,
-            'generated_svg_assets' => $generatedSvgAssets,
-            'layout' => $layout,
-            'decision_traces' => $decisionTraces,
-            'links' => $links,
-            'css' => $css,
-            'html_artifact' => $htmlArtifact,
-            'artifact_quality' => $artifactQuality,
-            'diagnostic_codes' => $diagnosticCodes,
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $target
-     * @param array<string, mixed> $source
-     * @param array<string, mixed> $pageContext
-     */
-    private function mergeDecisionTraceDiagnostics(array &$target, array $source, array $pageContext): void
-    {
-        $target['trace_count'] = (int) ($target['trace_count'] ?? 0) + (int) ($source['trace_count'] ?? 0);
-        DiagnosticAggregation::addCounterMap($target['reason_counts'], is_array($source['reason_counts'] ?? null) ? $source['reason_counts'] : array());
-        DiagnosticAggregation::addCounterMap($target['domain_counts'], is_array($source['domain_counts'] ?? null) ? $source['domain_counts'] : array());
-        DiagnosticAggregation::appendContextSamples($target, 'samples', $source, 'samples', $pageContext);
-        $target['samples'] = array_slice($target['samples'], 0, 100);
-    }
-
-    /**
-     * @param array<string, mixed> $target
-     * @param array<string, mixed> $source
-     * @param array<string, mixed> $pageContext
-     */
-    private function mergePositionalParityDiagnostics(array &$target, array $source, array $pageContext): void
-    {
-        DiagnosticAggregation::addIntegerCounts($target, $source, array(
-            'full_bleed_viewport_width_count',
-            'full_bleed_breakout_count',
-            'mirrored_transform_count',
-            'reflected_full_bleed_count',
-            'fixed_over_root_width_underlay_count',
-            'chrome_overflow_count',
-            'root_stacking_trace_count',
-        ));
-        DiagnosticAggregation::addCounterMap($target['root_stacking_reason_counts'], is_array($source['root_stacking_reason_counts'] ?? null) ? $source['root_stacking_reason_counts'] : array());
-        DiagnosticAggregation::appendContextSamples($target, 'fixed_over_root_width_underlays', $source, 'fixed_over_root_width_underlays', $pageContext);
-        DiagnosticAggregation::appendContextSamples($target, 'chrome_overflow_nodes', $source, 'chrome_overflow_nodes', $pageContext);
-        DiagnosticAggregation::appendContextSamples($target, 'decision_trace_samples', $source, 'decision_trace_samples', $pageContext);
-    }
-
-    /**
-     * @param array<string, mixed> $images
-     * @param array<string, mixed> $vectors
-     * @param array<string, mixed> $fonts
-     * @param array<string, mixed> $assets
-     * @param array<string, mixed> $generatedSvgAssets
-     * @param array<string, mixed> $layout
-     * @param array<string, mixed> $links
-     * @param array<string, mixed> $css
-     * @param array<string, mixed> $htmlArtifact
-     * @return array<string, mixed>
-     */
-    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $css = array(), array $htmlArtifact = array()): array
-    {
-        $signals = array();
-
-        if ( ! empty($images['missing_assets']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'missing_render_assets', 'count' => count($images['missing_assets']));
-        }
-        if ( ! empty($vectors['placeholders']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'vector_placeholders', 'count' => (int) $vectors['placeholders']);
-        }
-        if ( ! empty($fonts['missing_css']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'font_css_missing',
-                'count' => count($fonts['missing_css']),
-                'font_usage' => $this->fontUsageForFamilies(is_array($fonts['usage'] ?? null) ? $fonts['usage'] : array(), $fonts['missing_css']),
-            );
-        }
-        if ( ! empty($layout['large_negative_left_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'off_canvas_left_css',
-                'count' => (int) $layout['large_negative_left_count'],
-                'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($layout['off_canvas_visual_node_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'off_canvas_visual_nodes',
-                'count' => (int) $layout['off_canvas_visual_node_count'],
-                'sample_nodes' => array_slice(is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($layout['large_absolute_offset_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'large_absolute_offsets',
-                'count' => (int) $layout['large_absolute_offset_count'],
-                'sample_nodes' => array_slice(is_array($layout['large_absolute_offset_nodes'] ?? null) ? $layout['large_absolute_offset_nodes'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'image_heavy_landmark_candidate', 'count' => count($layout['image_heavy_landmark_candidates']));
-        }
-        if ( ! empty($layout['layout_mismatch_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => (int) $layout['layout_mismatch_count']);
-        }
-        if ( 'not_comparable' === ($layout['layout_mismatch_status'] ?? null) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch_not_comparable');
-        }
-        if ( ! empty($layout['render_style_mismatch_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => (int) $layout['render_style_mismatch_count']);
-        }
-        if ( ! empty($links['unresolved']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'link_target_unresolved',
-                'count' => (int) $links['unresolved'],
-                'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($css['invalid_numeric_token_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'invalid_css_numeric_token',
-                'count' => (int) $css['invalid_numeric_token_count'],
-                'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($htmlArtifact['desktop_canvas_without_responsive_breakpoints']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'desktop_canvas_without_responsive_breakpoints',
-                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
-                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
-                'large_fixed_canvas_height' => (bool) ($htmlArtifact['large_fixed_canvas_height'] ?? false),
-            );
-        }
-        if ( (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0) >= 8 && (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0) < 0.35 ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'low_effective_responsive_coverage',
-                'coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 0.0),
-                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
-                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
-                'sample_rules' => array_slice(is_array($htmlArtifact['fixed_width_samples'] ?? null) ? $htmlArtifact['fixed_width_samples'] : array(), 0, 10),
-            );
-        }
-        if ( 'incomplete' === ($htmlArtifact['fixed_width_coverage_analysis']['status'] ?? null) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'fixed_width_coverage_analysis_incomplete',
-                'diagnostic' => (string) ($htmlArtifact['fixed_width_coverage_analysis']['diagnostic'] ?? 'fixed_width_coverage_budget_exceeded'),
-                'incomplete_page_count' => (int) ($htmlArtifact['fixed_width_coverage_analysis']['incomplete_page_count'] ?? 0),
-            );
-        }
-        if ( ! empty($htmlArtifact['giant_fixed_section_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'giant_fixed_section_risk',
-                'count' => (int) $htmlArtifact['giant_fixed_section_count'],
-                'sample_rules' => array_slice(is_array($htmlArtifact['giant_fixed_sections'] ?? null) ? $htmlArtifact['giant_fixed_sections'] : array(), 0, 10),
-            );
-        }
-        if ( ! empty($htmlArtifact['large_overflow_risk_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'large_overflow_risk',
-                'count' => (int) $htmlArtifact['large_overflow_risk_count'],
-                'sample_rules' => array_slice(is_array($htmlArtifact['large_overflow_risks'] ?? null) ? $htmlArtifact['large_overflow_risks'] : array(), 0, 10),
-            );
-        }
-        $fallbackProneIslandCount = (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0) + (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0);
-        if ( $fallbackProneIslandCount >= 3 ) {
-            $signals[] = array(
-                'severity' => 'info',
-                'code' => 'fallback_prone_html_islands',
-                'form_islands' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
-                'svg_islands' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
-                'input_islands' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
-            );
-        }
-        if ( ! empty($htmlArtifact['invalid_list_child_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'invalid_list_children', 'count' => (int) $htmlArtifact['invalid_list_child_count']);
-        }
-        if ( (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0) >= 2 ) {
-            $signals[] = array(
-                'severity' => 'info',
-                'code' => 'missing_semantic_roles',
-                'count' => (int) $htmlArtifact['missing_semantic_role_count'],
-                'sample_nodes' => array_slice(is_array($htmlArtifact['semantic_role_samples'] ?? null) ? $htmlArtifact['semantic_role_samples'] : array(), 0, 10),
-            );
-        }
-        $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
-        $uncoveredSourceNodes = (int) ($sourceLossCoverage['node_coverage']['uncovered_source_nodes'] ?? 0);
-        if ( $uncoveredSourceNodes > 0 ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'source_loss_coverage_gap',
-                'uncovered_source_nodes' => $uncoveredSourceNodes,
-                'node_coverage_ratio' => (float) ($sourceLossCoverage['node_coverage']['coverage_ratio'] ?? 1.0),
-                'domains' => $sourceLossCoverage['domains'],
-            );
-        }
-        $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
-        $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
-        $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
-        if ( $imageBlockCount >= 12 && ($imageNodeDensity >= 0.35 || ! empty($layout['image_heavy_landmark_candidates'])) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'excessive_image_blocks',
-                'count' => $imageBlockCount,
-                'threshold' => 12,
-                'image_node_density' => round($imageNodeDensity, 3),
-                'sample_nodes' => array_slice(is_array($images['image_block_nodes'] ?? null) ? $images['image_block_nodes'] : array(), 0, 10),
-            );
-        }
-        if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'excessive_vector_image_fallbacks', 'count' => (int) $vectors['rendered_asset_fallbacks']);
-        }
-        if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
-            $signals[] = array(
-                'severity' => 'info',
-                'code' => 'large_generated_svg_assets',
-                'count' => (int) ($generatedSvgAssets['count'] ?? 0),
-                'bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
-            );
-        }
-
-        $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
-        $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
-        $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
-        $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
-            'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
-            'quality_status' => $qualityStatus,
-            'signals' => $signals,
-            'summary' => array(
-                'missing_asset_nodes' => count($images['missing_assets'] ?? array()),
-                'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
-                'missing_font_css' => count($fonts['missing_css'] ?? array()),
-                'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
-                'image_block_count' => $imageBlockCount,
-                'image_node_density' => round($imageNodeDensity, 3),
-                'total_node_count' => $totalNodeCount,
-                'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
-                'vector_nodes' => (int) ($vectors['nodes'] ?? 0),
-                'vector_decoded_to_svg' => (int) ($vectors['rendered_paths'] ?? 0),
-                'vector_network_decoded' => (int) ($vectors['vector_network_decoded'] ?? 0),
-                'boolean_operations_composed' => (int) ($vectors['boolean_operations_composed'] ?? 0),
-                'vector_decode_coverage_ratio' => (int) ($vectors['nodes'] ?? 0) > 0 ? round((int) ($vectors['rendered_paths'] ?? 0) / (int) $vectors['nodes'], 3) : 0.0,
-                'generated_svg_count' => (int) ($vectors['rendered_paths'] ?? 0),
-                'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
-                'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
-                'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
-                'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
-                'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
-                'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
-                'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
-                'link_sources_found' => (int) ($links['sources_found'] ?? 0),
-                'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
-                'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
-                'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
-                'media_query_count' => (int) ($htmlArtifact['media_query_count'] ?? 0),
-                'fixed_width_over_desktop_count' => (int) ($htmlArtifact['fixed_width_over_desktop_count'] ?? 0),
-                'effective_responsive_coverage_ratio' => (float) ($htmlArtifact['effective_responsive_coverage_ratio'] ?? 1.0),
-                'fixed_width_declaration_count' => (int) ($htmlArtifact['fixed_width_declaration_count'] ?? 0),
-                'fixed_width_with_responsive_override_count' => (int) ($htmlArtifact['fixed_width_with_responsive_override_count'] ?? 0),
-                'fixed_width_without_responsive_override_count' => (int) ($htmlArtifact['fixed_width_without_responsive_override_count'] ?? 0),
-                'fixed_width_coverage_analysis' => is_array($htmlArtifact['fixed_width_coverage_analysis'] ?? null) ? $htmlArtifact['fixed_width_coverage_analysis'] : array(),
-                'desktop_canvas_without_responsive_breakpoints' => (bool) ($htmlArtifact['desktop_canvas_without_responsive_breakpoints'] ?? false),
-                'giant_fixed_section_count' => (int) ($htmlArtifact['giant_fixed_section_count'] ?? 0),
-                'large_overflow_risk_count' => (int) ($htmlArtifact['large_overflow_risk_count'] ?? 0),
-                'fallback_prone_form_island_count' => (int) ($htmlArtifact['fallback_prone_form_island_count'] ?? 0),
-                'fallback_prone_svg_island_count' => (int) ($htmlArtifact['fallback_prone_svg_island_count'] ?? 0),
-                'fallback_prone_input_island_count' => (int) ($htmlArtifact['fallback_prone_input_island_count'] ?? 0),
-                'invalid_list_child_count' => (int) ($htmlArtifact['invalid_list_child_count'] ?? 0),
-                'missing_semantic_role_count' => (int) ($htmlArtifact['missing_semantic_role_count'] ?? 0),
-                'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
-                'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
-                'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
-                'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
-                'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
-                'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
-                'source_loss_coverage' => $sourceLossCoverage,
-            ),
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $images
-     * @param array<string, mixed> $vectors
-     * @return array<string, mixed>
-     */
-    private function sourceLossCoverage(array $images, array $vectors): array
-    {
-        $sourceLossCoverageBuilder = new SourceLossCoverageBuilder();
-        $domains = array(
-            'images' => $sourceLossCoverageBuilder->imageDomain($images),
-            'vectors' => $sourceLossCoverageBuilder->vectorDomain($vectors),
-        );
-
-        return $sourceLossCoverageBuilder->aggregate($domains);
+        return $layout;
     }
 
     /**
@@ -2160,191 +1601,6 @@ final class FigmaTransformer
             'page_count' => count($frames),
             'selected_frames' => $frames,
         );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $assetReport
-     * @return array<string, mixed>
-     */
-    private function generatedSvgAssetsFromReport(array $assetReport): array
-    {
-        $assets = array_values(array_filter(
-            $assetReport,
-            static fn (array $asset): bool => 'image/svg+xml' === ($asset['mime_type'] ?? null) && str_starts_with((string) ($asset['id'] ?? ''), 'generated-vector-')
-        ));
-        usort($assets, static fn (array $a, array $b): int => ((int) ($b['bytes'] ?? 0) <=> (int) ($a['bytes'] ?? 0)) ?: strcmp((string) ($a['path'] ?? ''), (string) ($b['path'] ?? '')));
-
-        return array(
-            'schema' => 'blocks-engine/figma-transformer/generated-svg-assets/v1',
-            'count' => count($assets),
-            'bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['bytes'] ?? 0), $assets)),
-            'gzip_bytes' => $this->sumNullableGeneratedSvgAssetMetric($assets, 'gzip_bytes'),
-            'path_element_count' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_element_count'] ?? 0), $assets)),
-            'path_data_bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_bytes'] ?? 0), $assets)),
-            'largest_path_data_bytes' => empty($assets) ? 0 : max(array_map(static fn (array $asset): int => (int) ($asset['largest_path_data_bytes'] ?? 0), $assets)),
-            'unique_path_data_count' => $this->uniqueGeneratedSvgPathDataCount($assets),
-            'duplicate_path_data_count' => $this->duplicateGeneratedSvgPathDataCount($assets),
-            'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)),
-            'largest_assets' => array_slice($assets, 0, 10),
-            'assets' => $assets,
-        );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $assets
-     */
-    private function sumNullableGeneratedSvgAssetMetric(array $assets, string $key): ?int
-    {
-        $sum = 0;
-        foreach ( $assets as $asset ) {
-            if ( ! array_key_exists($key, $asset) || null === $asset[$key] ) {
-                return null;
-            }
-            $sum += (int) $asset[$key];
-        }
-
-        return $sum;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $assets
-     */
-    private function uniqueGeneratedSvgPathDataCount(array $assets): int
-    {
-        $hashes = array();
-        foreach ( $assets as $asset ) {
-            foreach ( is_array($asset['path_data_hashes'] ?? null) ? $asset['path_data_hashes'] : array() as $hash ) {
-                if ( is_scalar($hash) && '' !== (string) $hash ) {
-                    $hashes[(string) $hash] = true;
-                }
-            }
-        }
-
-        return count($hashes);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $assets
-     */
-    private function duplicateGeneratedSvgPathDataCount(array $assets): int
-    {
-        $pathDataCount = array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_count'] ?? 0), $assets));
-
-        return max(0, $pathDataCount - $this->uniqueGeneratedSvgPathDataCount($assets));
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $diagnostics
-     * @return array<string, int>
-     */
-    private function diagnosticCodeCounts(array $diagnostics): array
-    {
-        $counts = array();
-        foreach ( $diagnostics as $diagnostic ) {
-            if ( ! is_array($diagnostic) || ! isset($diagnostic['code']) || ! is_scalar($diagnostic['code']) ) {
-                continue;
-            }
-
-            $code = (string) $diagnostic['code'];
-            $counts[$code] = ($counts[$code] ?? 0) + 1;
-        }
-
-        ksort($counts);
-        return $counts;
-    }
-
-    /**
-     * @param array<int, mixed> ...$familySets
-     * @return array<int, string>
-     */
-    private function mergeFontFamilies(array ...$familySets): array
-    {
-        $families = array();
-        foreach ( $familySets as $familySet ) {
-            foreach ( $familySet as $family ) {
-                if ( is_scalar($family) && '' !== (string) $family ) {
-                    $families[(string) $family] = true;
-                }
-            }
-        }
-
-        $merged = array_keys($families);
-        sort($merged, SORT_NATURAL | SORT_FLAG_CASE);
-        return $merged;
-    }
-
-    /**
-     * @param array<int, mixed> ...$usageSets
-     * @return array<int, array<string, mixed>>
-     */
-    private function mergeFontUsage(array ...$usageSets): array
-    {
-        $usage = array();
-        foreach ( $usageSets as $usageSet ) {
-            foreach ( $usageSet as $item ) {
-                if ( ! is_array($item) ) {
-                    continue;
-                }
-
-                $family = isset($item['family']) && is_scalar($item['family']) ? (string) $item['family'] : '';
-                if ( '' === $family ) {
-                    continue;
-                }
-
-                $usage[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0, 'sample_nodes' => array());
-
-                $weights = is_array($item['weights'] ?? null) ? $item['weights'] : array($item['weight'] ?? 400);
-                foreach ( $weights as $weight ) {
-                    if ( is_numeric($weight) ) {
-                        $usage[$family]['weights'][(int) $weight] = true;
-                    }
-                }
-                foreach ( is_array($item['weight_counts'] ?? null) ? $item['weight_counts'] : array() as $weight => $count ) {
-                    if ( is_numeric($weight) ) {
-                        $usage[$family]['weight_counts'][(string) (int) $weight] = ($usage[$family]['weight_counts'][(string) (int) $weight] ?? 0) + (int) $count;
-                    }
-                }
-                $usage[$family]['text_node_count'] += (int) ($item['text_node_count'] ?? 0);
-                $usage[$family]['visible_text_area_px'] += (int) ($item['visible_text_area_px'] ?? 0);
-                foreach ( is_array($item['sample_nodes'] ?? null) ? $item['sample_nodes'] : array() as $sampleNode ) {
-                    if ( is_array($sampleNode) && count($usage[$family]['sample_nodes']) < 10 ) {
-                        $usage[$family]['sample_nodes'][] = $sampleNode;
-                    }
-                }
-            }
-        }
-
-        ksort($usage, SORT_NATURAL | SORT_FLAG_CASE);
-        $merged = array();
-        foreach ( $usage as $family => $data ) {
-            $weightValues = array_keys($data['weights']);
-            sort($weightValues, SORT_NUMERIC);
-            ksort($data['weight_counts']);
-            $merged[] = array(
-                'family' => $family,
-                'weights' => $weightValues,
-                'weight_counts' => $data['weight_counts'],
-                'text_node_count' => (int) $data['text_node_count'],
-                'visible_text_area_px' => (int) $data['visible_text_area_px'],
-                'sample_nodes' => $data['sample_nodes'],
-            );
-        }
-
-        return $merged;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fontUsage
-     * @param array<int, string> $families
-     * @return array<int, array<string, mixed>>
-     */
-    private function fontUsageForFamilies(array $fontUsage, array $families): array
-    {
-        $wanted = array_fill_keys(array_map('strtolower', $families), true);
-        return array_values(array_filter(
-            $fontUsage,
-            static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
-        ));
     }
 
     /**
