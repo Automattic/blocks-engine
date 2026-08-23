@@ -4585,7 +4585,9 @@ final class HtmlTransformer
             return $this->htmlPreservationBlock($element);
         }
 
-        if ( 'div' === $tagName && null !== $this->layoutGeometryProofFor($element) ) {
+        // Geometry proof may also cover provider custom-element shells. Keep
+        // semantic HTML elements outside this reduction boundary.
+        if ( ('div' === $tagName || str_contains($tagName, '-')) && null !== $this->layoutGeometryProofFor($element) ) {
             $proofBacked = $this->proofBackedWrapperCoalescing($element, $fallbacks);
             if ( null !== $proofBacked ) {
                 return $proofBacked;
