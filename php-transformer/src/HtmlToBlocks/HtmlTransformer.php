@@ -14896,11 +14896,20 @@ final class HtmlTransformer
             }
         }
 
-        return $this->createBlock($this->generatedBlockNamespace . '/' . AuthoredMarqueeBlockGenerator::LOCAL_NAME, array(
+        $attributes = array(
             'content' => $content,
             'direction' => $this->attr($track, 'data-marquee-animation'),
             'duration' => min(600, max(1, $duration)),
-        ), array(), $element);
+        );
+        $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
+
+        return array(
+            'blockName' => $this->generatedBlockNamespace . '/' . AuthoredMarqueeBlockGenerator::LOCAL_NAME,
+            'attrs' => $attributes,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
     }
 
     /**
