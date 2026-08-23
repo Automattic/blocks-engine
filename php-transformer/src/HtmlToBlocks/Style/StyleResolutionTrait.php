@@ -228,8 +228,9 @@ trait StyleResolutionTrait
             . ':' . implode(',', $excludedGeometryProperties)
             . ':' . implode(',', $forcedGeometryProperties)
             . ':' . ($carrierOwnsInlineGeometry ? 'carrier' : 'inline');
-        if ( isset($this->presentationAttributesCache[$cacheKey]) ) {
-            return $this->presentationAttributesCache[$cacheKey];
+        $cache = $this->session->presentationResolutionCache;
+        if ( isset($cache->attributes[$cacheKey]) ) {
+            return $cache->attributes[$cacheKey];
         }
 
         $declarations = $this->classOwnedResponsiveDeclarations(
@@ -260,7 +261,7 @@ trait StyleResolutionTrait
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
-        $this->presentationAttributesCache[$cacheKey] = $attrs;
+        $cache->attributes[$cacheKey] = $attrs;
 
         return $attrs;
     }
@@ -1152,8 +1153,9 @@ trait StyleResolutionTrait
     private function presentationDeclarations(DOMElement $element): array
     {
         $cacheKey = $this->presentationCacheKey($element);
-        if ( isset($this->presentationDeclarationsCache[$cacheKey]) ) {
-            return $this->presentationDeclarationsCache[$cacheKey];
+        $cache = $this->session->presentationResolutionCache;
+        if ( isset($cache->declarations[$cacheKey]) ) {
+            return $cache->declarations[$cacheKey];
         }
 
         $style = $this->mergedPresentationStyle($element);
@@ -1164,9 +1166,9 @@ trait StyleResolutionTrait
         if ( $this->isCssAllResetValue((string) ($declarations['all'] ?? '')) ) {
             unset($declarations['all']);
         }
-        $this->presentationDeclarationsCache[$cacheKey] = $declarations;
+        $cache->declarations[$cacheKey] = $declarations;
 
-        return $this->presentationDeclarationsCache[$cacheKey];
+        return $cache->declarations[$cacheKey];
     }
 
     /**
@@ -1520,13 +1522,14 @@ trait StyleResolutionTrait
     private function mediaTextPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        if ( isset($this->mediaTextPresentationStyleCache[$cacheKey]) ) {
-            return $this->mediaTextPresentationStyleCache[$cacheKey];
+        $cache = $this->session->presentationResolutionCache;
+        if ( isset($cache->mediaTextStyles[$cacheKey]) ) {
+            return $cache->mediaTextStyles[$cacheKey];
         }
 
-        $this->mediaTextPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($this->mediaTextPresentationDeclarations($element));
+        $cache->mediaTextStyles[$cacheKey] = $this->cssDeclarationString($this->mediaTextPresentationDeclarations($element));
 
-        return $this->mediaTextPresentationStyleCache[$cacheKey];
+        return $cache->mediaTextStyles[$cacheKey];
     }
 
     /**
@@ -1675,13 +1678,14 @@ trait StyleResolutionTrait
     private function mergedPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        if ( isset($this->mergedPresentationStyleCache[$cacheKey]) ) {
-            return $this->mergedPresentationStyleCache[$cacheKey];
+        $cache = $this->session->presentationResolutionCache;
+        if ( isset($cache->mergedStyles[$cacheKey]) ) {
+            return $cache->mergedStyles[$cacheKey];
         }
 
         $inlineStyle = $this->attr($element, 'style');
         if ( array() === $this->staticStyleRules || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
-            $this->mergedPresentationStyleCache[$cacheKey] = $inlineStyle;
+            $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
 
@@ -1693,14 +1697,14 @@ trait StyleResolutionTrait
         }
 
         if ( array() === $declarations ) {
-            $this->mergedPresentationStyleCache[$cacheKey] = $inlineStyle;
+            $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
 
         $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($inlineStyle));
-        $this->mergedPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($declarations);
+        $cache->mergedStyles[$cacheKey] = $this->cssDeclarationString($declarations);
 
-        return $this->mergedPresentationStyleCache[$cacheKey];
+        return $cache->mergedStyles[$cacheKey];
     }
 
     /**
