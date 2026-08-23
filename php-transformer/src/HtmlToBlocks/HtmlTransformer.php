@@ -4439,6 +4439,13 @@ final class HtmlTransformer
         $this->invalidateSourceSelectorMatchCache();
         $tagName = strtolower($element->tagName);
 
+        // Capturers sometimes append hidden, sourceless frames as internal
+        // scaffolding. They cannot render or load anything, so omit them before
+        // media dispatch can turn them into fallback/runtime-island evidence.
+        if ( 'iframe' === $tagName && $this->isInertHiddenCaptureIframe($element) ) {
+            return null;
+        }
+
         // A direct phrasing child participates in its parent's flex or grid
         // layout. Preserve that source element as the editable leaf rather
         // than introducing a paragraph wrapper with core paragraph margins.
@@ -14566,19 +14573,101 @@ final class HtmlTransformer
 
     private function isInertHiddenSvgStorage(DOMElement $element): bool
     {
-        if ( $this->svgHasDrawableContent($element)
-            || 0 < $element->getElementsByTagName('use')->length
-            || '' !== trim($element->textContent ?? '')
+        if ( ! $this->sourceElementStartsHidden($element)
+            || $this->hasConditionalStyleFamily($element, 'layout')
+            || $this->hasConditionalStyleFamily($element, 'visibility')
+            || $this->hasConditionalStyleFamily($element, 'opacity')
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))
-            || '' !== trim($this->attr($element, 'title')) ) {
+            || '' !== trim($this->attr($element, 'title'))
+            || ! $this->hasOnlySvgDefinitions($element)
+            || $this->hiddenSvgStoreHasExternalReference($element) ) {
             return false;
         }
 
-        $style = strtolower($this->attr($element, 'style'));
-        return 'true' === strtolower($this->attr($element, 'aria-hidden'))
-            || str_contains($style, 'display:none')
-            || str_contains($style, 'display: none');
+        return true;
+    }
+
+    private function isInertHiddenCaptureIframe(DOMElement $element): bool
+    {
+        if ( ! $this->sourceElementStartsHidden($element)
+            || $this->hasConditionalStyleFamily($element, 'layout')
+            || $this->hasConditionalStyleFamily($element, 'visibility')
+            || $this->hasConditionalStyleFamily($element, 'opacity')
+            || $this->isRuntimeDomTarget($element)
+            || '' !== trim($this->attr($element, 'src'))
+            || '' !== trim($this->attr($element, 'srcdoc'))
+            || '' !== trim($this->attr($element, 'name'))
+            || '' !== trim($element->textContent ?? '')
+            || 0 !== $this->childElementCount($element)
+            || array() !== $this->eventMetadata($element)
+            || array() !== $this->safeDataAttributes($element) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function hasOnlySvgDefinitions(DOMElement $element): bool
+    {
+        $hasDefinition = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'defs', 'symbol' ), true) ) {
+                return false;
+            }
+            $hasDefinition = true;
+        }
+
+        return $hasDefinition;
+    }
+
+    private function hiddenSvgStoreHasExternalReference(DOMElement $store): bool
+    {
+        $ids = array();
+        foreach ( $store->getElementsByTagName('*') as $definition ) {
+            if ( $definition instanceof DOMElement && '' !== trim($this->attr($definition, 'id')) ) {
+                $ids[] = trim($this->attr($definition, 'id'));
+            }
+        }
+        if ( array() === $ids || ! $store->ownerDocument instanceof DOMDocument ) {
+            return false;
+        }
+
+        foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $this->isDescendantOf($candidate, $store) ) {
+                continue;
+            }
+            foreach ( $candidate->attributes as $attribute ) {
+                foreach ( $ids as $id ) {
+                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value) ) {
+                        return true;
+                    }
+                }
+            }
+            if ( 'style' === strtolower($candidate->tagName) ) {
+                foreach ( $ids as $id ) {
+                    if ( preg_match('/url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)/', $candidate->textContent ?? '') ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isDescendantOf(DOMElement $element, DOMElement $ancestor): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
