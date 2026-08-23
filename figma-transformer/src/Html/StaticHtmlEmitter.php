@@ -6572,7 +6572,15 @@ final class StaticHtmlEmitter
                 $styles[] = $style;
             }
             if ( $this->textShouldUseFluidFlowBox($node, $parentNode) || $this->textShouldUseIntrinsicFlowHeight($node, $parentNode) ) {
-                foreach ( $this->textWrappingStyles($node, $parentNode, $grandParentNode) as $style ) {
+                $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+                $tag = $this->semanticTag($node, $type, strtolower((string) ($node['name'] ?? '')), 1, $parentNode, $grandParentNode);
+                foreach ( $this->emissionSession->textWrappingResolver()->declarations(
+                    $node,
+                    $tag,
+                    $this->textIsAtomicSingleLineLabel($node, $text),
+                    $this->textIsLongFallbackWrappingHeading($node),
+                    $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode),
+                ) as $style ) {
                     $styles[] = $style;
                 }
             }
@@ -7802,31 +7810,6 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     * @param array<string, mixed>|null $grandParentNode
-     * @return array<int, string>
-     */
-    private function textWrappingStyles(array $node, ?array $parentNode, ?array $grandParentNode): array
-    {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        if ( ($this->textIsAtomicSingleLineLabel($node, $text) && ! $this->textIsLongFallbackWrappingHeading($node)) || $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
-            return array();
-        }
-
-        $styles = array('overflow-wrap:break-word');
-        $tag = $this->semanticTag($node, strtoupper((string) ($node['type'] ?? '')), strtolower((string) ($node['name'] ?? '')), 1, $parentNode, $grandParentNode);
-        if ( in_array($tag, array('h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true) ) {
-            $styles[] = 'text-wrap:balance';
-        } elseif ( 'p' === $tag || $this->hasBodyTextNameIntent(strtolower((string) ($node['name'] ?? ''))) ) {
-            $styles[] = 'hyphens:auto';
-            $styles[] = 'text-wrap:pretty';
-        }
-
-        return $styles;
-    }
-
-    /**
-     * @param array<string, mixed> $node
      * @param array<string, mixed> $parentNode
      */
     private function normalFlexFlowChild(array $node, array $parentNode): bool
@@ -8600,7 +8583,7 @@ final class StaticHtmlEmitter
             return true;
         }
 
-        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
+        $derivedLineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
         return null !== $derivedLineHeight && 36 <= $derivedLineHeight;
     }
 
@@ -8664,7 +8647,7 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->textStyleDeclarations($style);
-        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
+        $derivedLineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
         if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
             $styles = array_values(array_filter(
                 $styles,
@@ -8728,17 +8711,6 @@ final class StaticHtmlEmitter
         return ! $this->hasExplicitUppercaseTextCase($node);
     }
 
-    private function hasBodyTextNameIntent(string $lowerName): bool
-    {
-        foreach ( array('paragraph', 'body', 'supporting text', 'caption', 'description', 'excerpt', 'copy') as $needle ) {
-            if ( str_contains($lowerName, $needle) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /** @param array<string, mixed> $source */
     private function hasExplicitUppercaseTextCase(array $source): bool
     {
@@ -8750,6 +8722,17 @@ final class StaticHtmlEmitter
 
         foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
             if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasBodyTextNameIntent(string $lowerName): bool
+    {
+        foreach ( array('paragraph', 'body', 'supporting text', 'caption', 'description', 'excerpt', 'copy') as $needle ) {
+            if ( str_contains($lowerName, $needle) ) {
                 return true;
             }
         }
@@ -8908,73 +8891,12 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $lineHeight = $this->textDerivedBaselineLineHeight($text);
+        $lineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
         if ( null === $height || null === $lineHeight || $lineHeight <= 0.0 ) {
             return false;
         }
 
         return $height <= ( $lineHeight * 1.25 );
-    }
-
-    /**
-     * @param array<string, mixed> $text
-     */
-    private function textDerivedBaselineLineHeight(array $text): ?float
-    {
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
-        if ( empty($baselines) ) {
-            return null;
-        }
-
-        $baselineDeltaLineHeight = $this->textMedianPositiveBaselinePositionDelta($baselines);
-        if ( null !== $baselineDeltaLineHeight ) {
-            return $baselineDeltaLineHeight;
-        }
-
-        $lineHeights = array();
-        foreach ( $baselines as $baseline ) {
-            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
-                $lineHeights[] = (float) $baseline['lineHeight'];
-            }
-        }
-        if ( ! empty($lineHeights) ) {
-            sort($lineHeights);
-            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<int, mixed> $baselines
-     */
-    private function textMedianPositiveBaselinePositionDelta(array $baselines): ?float
-    {
-        $positions = array();
-        foreach ( $baselines as $baseline ) {
-            if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
-                $positions[] = (float) $baseline['position_y'];
-            }
-        }
-        if ( 2 > count($positions) ) {
-            return null;
-        }
-        sort($positions);
-
-        $deltas = array();
-        for ( $i = 1; $i < count($positions); $i++ ) {
-            $delta = $positions[$i] - $positions[$i - 1];
-            if ( 0.001 < $delta && 10000.0 > $delta ) {
-                $deltas[] = $delta;
-            }
-        }
-        if ( empty($deltas) ) {
-            return null;
-        }
-
-        sort($deltas);
-        return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
     }
 
     /**

@@ -112,6 +112,63 @@ final class StaticHtmlTextSizingResolver
         return isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 < (int) $derivedLayout['baseline_count'];
     }
 
+    /** @param array<string, mixed> $text */
+    public function derivedBaselineLineHeight(array $text): ?float
+    {
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        if ( empty($baselines) ) {
+            return null;
+        }
+
+        $baselineDeltaLineHeight = $this->medianPositiveBaselinePositionDelta($baselines);
+        if ( null !== $baselineDeltaLineHeight ) {
+            return $baselineDeltaLineHeight;
+        }
+
+        $lineHeights = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
+                $lineHeights[] = (float) $baseline['lineHeight'];
+            }
+        }
+        if ( ! empty($lineHeights) ) {
+            sort($lineHeights);
+            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
+        }
+
+        return null;
+    }
+
+    /** @param array<int, mixed> $baselines */
+    private function medianPositiveBaselinePositionDelta(array $baselines): ?float
+    {
+        $positions = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
+                $positions[] = (float) $baseline['position_y'];
+            }
+        }
+        if ( 2 > count($positions) ) {
+            return null;
+        }
+        sort($positions);
+
+        $deltas = array();
+        for ( $i = 1; $i < count($positions); $i++ ) {
+            $delta = $positions[$i] - $positions[$i - 1];
+            if ( 0.001 < $delta && 10000.0 > $delta ) {
+                $deltas[] = $delta;
+            }
+        }
+        if ( empty($deltas) ) {
+            return null;
+        }
+
+        sort($deltas);
+        return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
+    }
+
     /** @param array<string, mixed> $node */
     private function derivedLayoutSize(array $node, string $dimension): ?float
     {
