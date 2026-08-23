@@ -3786,9 +3786,17 @@ $assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? nu
 $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
-$importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
+$importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins&family=Quicksand&family=Muli">', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
 $assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
 $assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
+
+$mixedFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap">',
+    'body{font-family:system-ui,sans-serif}h1{font-family:Inter,sans-serif}.custom{font-family:"Acme Custom",serif}.invalid{font-family:var(--missing),inherit}'
+);
+$assert(array(array('family' => 'Inter', 'weights' => array(400, 700))) === ($mixedFontPlan['fonts'] ?? null), 'Google font materialization remains provider-backed across mixed Google, system, custom, and invalid CSS families');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");' === ($mixedFontPlan['css'] ?? null), 'mixed CSS family usage cannot add unbacked families to the Google Fonts request');
+$assert(array('heading' => 'Inter') === ($mixedFontPlan['roles'] ?? null), 'mixed CSS family roles retain the provider-backed Google family and omit system, custom, and invalid families');
 
 $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '',
@@ -3936,22 +3944,20 @@ $materializedTypographyFindings = array_filter(
 );
 $assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
 
-// Negative: the base/body font-family is the document's foundational typography
-// and must survive into materialized output even when declared only in an inline
-// <style> block (no link, no static css). It is carried into the base typography
-// the transformer emits, so it must NOT surface a typography_font_family_dropped:body finding.
+// Positive: a base/body family without a provider source cannot be represented
+// by claiming it is a Google font, so it remains a reported typography drop.
 $inlineBodyFontResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
     array()
 )->toArray();
 $inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
-$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family is materialized and not reported dropped');
+$assert(array() !== $inlineBodyDropped, 'inline <style> base/body font-family without a provider is reported dropped');
 $inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
     ''
 );
-$assert('Brand Sans' === ($inlineBodyPlan['roles']['body'] ?? null), 'inline <style> base/body font-family flows into materialized body role');
-$assert('Brand Sans' === ($inlineBodyPlan['fonts'][0]['family'] ?? null), 'inline <style> base/body font-family is preserved in materialized fonts');
+$assert(! array_key_exists('fonts', $inlineBodyPlan), 'inline <style> base/body font-family is not materialized without a provider source');
+$assert(! array_key_exists('roles', $inlineBodyPlan), 'unbacked inline body family is omitted from materialized roles');
 
 // Positive: a heading-only font in an inline <style> block (no body declaration)
 // still requires a loaded web-font to render, so it remains a reported drop.
