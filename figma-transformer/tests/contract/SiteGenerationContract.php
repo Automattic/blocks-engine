@@ -812,6 +812,37 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-logo-brand-logo', array('width:100%', 'height:auto'), 'desktop-only-responsive-small-image-keeps-intrinsic-mobile-size');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-photo-feature-photo', array('width:100%', 'max-width:100%', 'height:auto', 'aspect-ratio:520 / 320'), 'desktop-only-responsive-large-image-fills-mobile-content-width');
 
+    $ultraWideDesktopResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Ultra Wide Desktop Fallback Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'ultra-wide:root',
+                'type'       => 'FRAME',
+                'name'       => 'Ultra wide desktop page',
+                'width'      => 2095,
+                'height'     => 900,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'         => 'ultra-wide:row',
+                        'type'       => 'FRAME',
+                        'name'       => 'Content row',
+                        'width'      => 1702,
+                        'height'     => 420,
+                        'layoutMode' => 'HORIZONTAL',
+                        'children'   => array(
+                            array('id' => 'ultra-wide:copy', 'type' => 'TEXT', 'name' => 'Copy', 'characters' => 'Wide source copy', 'width' => 720, 'height' => 64),
+                            array('id' => 'ultra-wide:media', 'type' => 'FRAME', 'name' => 'Media', 'width' => 820, 'height' => 420),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $ultraWideDesktopCss = $fileContent($ultraWideDesktopResult, 'style.css');
+    $assert(str_contains($ultraWideDesktopCss, '@media (max-width:1599px)'), 'desktop-only-ultra-wide-source-uses-bounded-fluid-breakpoint');
+    $assert(! str_contains($ultraWideDesktopCss, '@media (max-width:2094px)'), 'desktop-only-ultra-wide-source-avoids-source-minus-one-breakpoint');
+
     // Desktop-only canvas sections (no auto-layout) position every child
     // absolutely, so the mobile `height:auto` relaxation must keep a
     // source-height floor or the whole section collapses to zero height.
