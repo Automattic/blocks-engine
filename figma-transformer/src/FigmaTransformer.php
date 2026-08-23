@@ -477,33 +477,22 @@ final class FigmaTransformer
         $startedAt = microtime(true);
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
-        $artifact    = $this->withLayoutMismatchReport($artifact, $options);
-        $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
-        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
-        $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
-        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
-
-        return FigmaTransformResult::create(
+        return $this->finalizeArtifactResult(
+            $artifact,
             $artifact['status'],
-            $diagnostics,
-            $artifact['files'],
-            $artifact['assets'],
+            $normalized['diagnostics'] ?? array(),
             array(
-                'figma' => array(
-                    'scenegraph' => $normalized['source_report'],
-                    'html'       => $artifact['source_report'],
-                ),
-                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+                'scenegraph' => $normalized['source_report'],
             ),
-            $parity,
+            $options,
+            $startedAt,
+            true,
             array(
                 'node_count'             => $normalized['source_report']['node_count'] ?? ($artifact['metrics']['node_count'] ?? 0),
                 'text_node_count'        => count($normalized['text_inventory'] ?? array()),
                 'asset_reference_count'  => count($normalized['asset_references'] ?? array()),
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
-                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
-                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -595,26 +584,16 @@ final class FigmaTransformer
         unset($emitOptions['responsive_variants'], $emitOptions['frame_id'], $emitOptions['page_name']);
 
         $artifact    = $this->htmlEmitter->emitSite($normalized, $pagePlan, $emitOptions);
-        $artifact    = $this->withLayoutMismatchReport($artifact, $options);
-        $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
-        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
-        $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
-
-        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
-
-        return FigmaTransformResult::create(
+        return $this->finalizeArtifactResult(
+            $artifact,
             $artifact['status'],
-            $diagnostics,
-            $artifact['files'],
-            $artifact['assets'],
+            $normalized['diagnostics'] ?? array(),
             array(
-                'figma' => array(
-                    'scenegraph' => $normalized['source_report'],
-                    'html'       => $artifact['source_report'],
-                ),
-                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+                'scenegraph' => $normalized['source_report'],
             ),
-            $parity,
+            $options,
+            $startedAt,
+            true,
             array(
                 'node_count'             => $artifact['metrics']['node_count'] ?? 0,
                 'text_node_count'        => count($normalized['text_inventory'] ?? array()),
@@ -622,8 +601,6 @@ final class FigmaTransformer
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
                 'breakpoint_count'       => count($variants),
-                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
-                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -861,7 +838,6 @@ final class FigmaTransformer
 
         $assetReport = $this->assetReportFromFiles(array_values($assetsByPath));
         $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport, $visualNodeMap);
-        $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
         $artifact = array(
             'files' => $files,
             'assets' => $assetReport,
@@ -881,19 +857,16 @@ final class FigmaTransformer
             ),
         );
 
-        return FigmaTransformResult::create(
+        return $this->finalizeArtifactResult(
+            $artifact,
             empty($diagnostics) ? 'success' : 'success_with_warnings',
             $diagnostics,
-            $files,
-            $assetReport,
             array(
-                'figma' => array(
-                    'pages' => $pagePlan,
-                    'html'  => $artifact['source_report'],
-                ),
-                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+                'pages' => $pagePlan,
             ),
-            $parity,
+            $options,
+            $startedAt,
+            false,
             array(
                 'node_count'             => $nodeCount,
                 'text_node_count'        => $textNodeCount,
@@ -901,8 +874,6 @@ final class FigmaTransformer
                 'asset_count'            => count($assetReport),
                 'file_count'             => count($files),
                 'page_count'             => count($pageReports),
-                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
-                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -973,26 +944,18 @@ final class FigmaTransformer
             $artifact = $this->htmlEmitter->emit($this->normalizedScenegraphForFrame($normalized, $frameId, (string) ($page['name'] ?? $frameId)), $options);
         }
 
-        $artifact = $this->withLayoutMismatchReport($artifact, $options);
-        $artifact = $this->withRenderStyleMismatchReport($artifact, $options);
-        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
-        $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
-        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
         $renderedNodes = $this->renderedNodesFromArtifact($artifact, $normalized, $page);
 
-        return FigmaTransformResult::create(
+        return $this->finalizeArtifactResult(
+            $artifact,
             $artifact['status'],
-            $diagnostics,
-            $artifact['files'],
-            $artifact['assets'],
+            $normalized['diagnostics'] ?? array(),
             array(
-                'figma' => array(
-                    'scenegraph' => $normalized['source_report'],
-                    'html'       => $artifact['source_report'],
-                ),
-                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+                'scenegraph' => $normalized['source_report'],
             ),
-            $parity,
+            $options,
+            $startedAt,
+            true,
             array(
                 'node_count'             => $artifact['metrics']['node_count'] ?? $this->countNormalizedNodes($renderedNodes),
                 'text_node_count'        => $this->countNormalizedTextNodes($renderedNodes),
@@ -1000,8 +963,53 @@ final class FigmaTransformer
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
                 'breakpoint_count'       => null !== $responsiveVariants ? count($responsiveVariants) : null,
-                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
-                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
+            )
+        );
+    }
+
+    /**
+     * @param array<string, mixed>             $artifact
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<string, mixed>             $figmaSourceReport
+     * @param array<string, mixed>             $options
+     * @param bool                             $attachMismatchReports
+     * @param array<string, mixed>             $metrics
+     */
+    private function finalizeArtifactResult(
+        array $artifact,
+        string $status,
+        array $diagnostics,
+        array $figmaSourceReport,
+        array $options,
+        float $startedAt,
+        bool $attachMismatchReports,
+        array $metrics
+    ): FigmaTransformResult {
+        if ( $attachMismatchReports ) {
+            $artifact = $this->withLayoutMismatchReport($artifact, $options);
+            $artifact = $this->withRenderStyleMismatchReport($artifact, $options);
+            $status = $artifact['status'];
+        }
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null)
+            ? $artifact['source_report']['transform_diagnostics']
+            : array();
+
+        return FigmaTransformResult::create(
+            $status,
+            array_merge($diagnostics, is_array($artifact['diagnostics'] ?? null) ? $artifact['diagnostics'] : array()),
+            $artifact['files'],
+            $artifact['assets'],
+            array(
+                'figma' => array_merge($figmaSourceReport, array('html' => $artifact['source_report'])),
+                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+            ),
+            $this->parityReportBuilder->build($options['parity'] ?? array()),
+            array_merge(
+                $metrics,
+                array(
+                    'transform_duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
+                )
             )
         );
     }
