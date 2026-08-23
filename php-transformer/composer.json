@@ -123,7 +123,8 @@
       "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/geometry-chain-coalescing.php",
-      "php tests/unit/pattern-recognizer-registry.php"
+      "php tests/unit/pattern-recognizer-registry.php",
+      "php tests/unit/pattern-registry-staged-dispatch.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

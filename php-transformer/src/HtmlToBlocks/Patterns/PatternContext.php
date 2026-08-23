@@ -10,7 +10,7 @@ final class PatternContext
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
+     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @param callable(DOMElement): bool|null $isRuntimeDomTarget
      * @param callable(DOMElement): array<int, array<string, mixed>>|null $convertChildren
      * @param callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null $convertChildrenWithoutTags
@@ -68,7 +68,7 @@ final class PatternContext
     }
 
     /**
-     * @return callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed>
+     * @return callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed>
      */
     public function createBlockCallback(): callable
     {
