@@ -6037,6 +6037,7 @@ final class HtmlTransformer
     {
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $declarations = array();
+        $wrapperDeclarations = array();
         foreach ( array(
             'background-color' => $style['color']['background'] ?? '',
             'color'            => $style['color']['text'] ?? '',
@@ -6060,7 +6061,8 @@ final class HtmlTransformer
             }
         }
         if ( $sourceControl instanceof DOMElement ) {
-            $sourceDeclarations = $this->structuralPresentationDeclarations($sourceControl);
+            $sourceDeclarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($sourceControl));
+            $sourceStructuralDeclarations = $this->structuralPresentationDeclarations($sourceControl);
             $background = $this->cssComparableValue((string) ($sourceDeclarations['background'] ?? ''));
             if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
                 $declarations[] = 'background-color:transparent!important';
@@ -6077,6 +6079,17 @@ final class HtmlTransformer
                     $declarations[] = 'border-radius:0!important';
                 }
             }
+            $height = $this->cssComparableValue((string) ($sourceDeclarations['height'] ?? ''));
+            if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
+                $wrapperDeclarations[] = 'height:100%';
+                $declarations[] = 'height:100%!important';
+            }
+            foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
+                $value = $this->cssComparableValue((string) ($sourceStructuralDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                    $declarations[] = $property . ':' . $value . '!important';
+                }
+            }
         }
         if ( '' !== $inheritedTextAlignment ) {
             $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
@@ -6085,7 +6098,10 @@ final class HtmlTransformer
             return;
         }
 
-        $this->nativeButtonStyleRules[$marker] = '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
+        $wrapperRule = array() === $wrapperDeclarations
+            ? ''
+            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $wrapperDeclarations) . '}';
+        $this->nativeButtonStyleRules[$marker] = $wrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
