@@ -133,4 +133,27 @@ final class StaticHtmlNodeInspector
 
         return false;
     }
+
+    /** @param array<string, mixed> $node */
+    public function isPaginationContainer(array $node): bool
+    {
+        $text = strtolower(' ' . preg_replace('/\s+/', ' ', trim($this->subtreePlainText($node))) . ' ');
+        if ( ! str_contains($text, ' previous ') || ! str_contains($text, ' next ') ) {
+            return false;
+        }
+
+        $numberTokens = 0;
+        foreach ( preg_split('/\s+/', trim($text)) ?: array() as $token ) {
+            if ( preg_match('/^(\d+|\x{2026}|\.\.\.)$/u', $token) ) {
+                ++$numberTokens;
+            }
+        }
+
+        if ( $numberTokens < 3 ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'flex' === ($layout['display'] ?? null) && 'row' === ($layout['flex_direction'] ?? null);
+    }
 }

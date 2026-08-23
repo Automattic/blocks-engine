@@ -10,11 +10,10 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 final class ResponsiveBreakpointSafetyPolicy
 {
     /**
-     * @param callable(array<string, mixed>): array<int, mixed> $nodeList
      * @param callable(float): string $number
      */
     public function __construct(
-        private readonly mixed $nodeList,
+        private readonly StaticHtmlNodeInspector $nodeInspector,
         private readonly mixed $number,
         private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy,
         private readonly LayoutIntentClassifier $layoutIntentClassifier,
@@ -340,7 +339,7 @@ final class ResponsiveBreakpointSafetyPolicy
             && in_array($display, array('flex', 'inline-flex'), true)
             && 'row' === ($baseMap['flex-direction'] ?? null)
             && $this->hasOverwideContainerChild($node, $mobileContentWidth);
-        if ( ! $isContainer || null === $parentNode || empty(($this->nodeList)($node)) ) {
+        if ( ! $isContainer || null === $parentNode || empty($this->nodeInspector->nodeList($node)) ) {
             return array();
         }
         if ( ! $hasUnsafeFluidRow && (null === $width || $width <= min(340.0, $mobileContentWidth)) ) {
@@ -464,7 +463,7 @@ final class ResponsiveBreakpointSafetyPolicy
      */
     private function hasContainerChild(array $node): bool
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -483,7 +482,7 @@ final class ResponsiveBreakpointSafetyPolicy
      */
     private function hasOverwideContainerChild(array $node, float $contentWidth): bool
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -559,7 +558,7 @@ final class ResponsiveBreakpointSafetyPolicy
         $hasNewsletter = false;
         $hasBottomRow = false;
         $freeformParent = $this->isFreeformContainer($node);
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -582,7 +581,7 @@ final class ResponsiveBreakpointSafetyPolicy
     private function isFreeformContainer(array $node): bool
     {
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return empty($layout['display']) && ! empty(($this->nodeList)($node));
+        return empty($layout['display']) && ! empty($this->nodeInspector->nodeList($node));
     }
 
     /**
@@ -593,7 +592,7 @@ final class ResponsiveBreakpointSafetyPolicy
         $baseHeight = $this->nodeBoxHeight($node) ?? 0.0;
         $newsletterHeight = 0.0;
         $bottomRowHeight = 0.0;
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }

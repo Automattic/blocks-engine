@@ -252,11 +252,10 @@ final class StaticHtmlEmitter
     {
         return $this->breakpointMediaDiffBuilder ??= new BreakpointMediaDiffBuilder(
             $this->stickyLayoutCoordinator(),
-            fn (array $node): array => $this->nodeList($node),
+            $this->nodeInspector(),
+            $this->visualGeometryResolver(),
             fn (array $node, string $type, ?array $parentNode, ?array $grandParentNode): array => $this->styleDeclarations($node, $type, $parentNode, $grandParentNode),
             fn (array $node, string $type, ?array $parentNode): mixed => $this->supportedVectorSvg($node, $type, $parentNode),
-            fn (array $child, array $parent): bool => $this->isFullyClippedDecorativeChild($child, $parent),
-            fn (array $node): bool => $this->isPaginationContainer($node),
             fn (string $value): string => $this->sanitizeAttribute($value),
             fn (string $value): string => $this->slug($value),
             fn (float $value): string => $this->number($value),
@@ -2380,24 +2379,7 @@ final class StaticHtmlEmitter
      */
     private function isPaginationContainer(array $node): bool
     {
-        $text = strtolower(' ' . preg_replace('/\s+/', ' ', trim($this->subtreePlainText($node))) . ' ');
-        if ( ! str_contains($text, ' previous ') || ! str_contains($text, ' next ') ) {
-            return false;
-        }
-
-        $numberTokens = 0;
-        foreach ( preg_split('/\s+/', trim($text)) ?: array() as $token ) {
-            if ( preg_match('/^(\d+|…|\.\.\.)$/', $token) ) {
-                ++$numberTokens;
-            }
-        }
-
-        if ( $numberTokens < 3 ) {
-            return false;
-        }
-
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return 'flex' === ($layout['display'] ?? null) && 'row' === ($layout['flex_direction'] ?? null);
+        return $this->nodeInspector()->isPaginationContainer($node);
     }
 
     /**

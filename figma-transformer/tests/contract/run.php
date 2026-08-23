@@ -7196,7 +7196,7 @@ $assert(
     'breakpoint-dimension-policy-header-fluid-min-height-pairing'
 );
 $responsiveBreakpointSafetyPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
-    static fn (array $node): array => is_array($node['children'] ?? null) ? $node['children'] : array(),
+    new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlNodeInspector(),
     fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'),
     $breakpointDimensionPolicy,
     new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
