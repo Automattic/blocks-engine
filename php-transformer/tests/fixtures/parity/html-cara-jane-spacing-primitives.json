@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-cara-jane-spacing-primitives",
+  "description": "Uses native Spacer blocks for Weebly spacers and native Separator margins for empty separator flanks.",
+  "source_reference": {
+    "repo": "Automattic/blocks-engine",
+    "path": "https://www.carajane.ca/",
+    "notes": "Bounded to the retained Cara Jane wsite-spacer and three-child separator patterns from issue #1005."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Current-source acceptance evidence has no downstream legacy callable."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"wsite-spacer\" style=\"height:43px;\"></div><div><div style=\"height: 20px; overflow: hidden; width: 100%;\"></div><hr class=\"styled-hr\" style=\"width:100%;\"></hr><div style=\"height: 20px; overflow: hidden; width: 100%;\"></div></div><div class=\"painted\" style=\"height:20px;background:red\"></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/spacer", "attrs": { "className": "wsite-spacer", "height": "43px" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/separator", "attrs": { "style": { "spacing": { "margin": { "top": "20px", "bottom": "20px" } } } } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-spacer wsite-spacer\" style=\"height:43px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-separator has-alpha-channel-opacity has-css-opacity styled-hr" },
+    { "path": "blocks.0.innerBlocks.1.attrs.className", "assert": "contains", "value": "be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "margin-top:20px;margin-bottom:20px" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "height: 20px; overflow: hidden" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
