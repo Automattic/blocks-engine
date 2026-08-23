@@ -691,8 +691,12 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
 
     $desktopOnlyResponsiveRowsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-        'name'  => 'Desktop Only Responsive Rows Fixture',
-        'nodes' => array(
+        'name'   => 'Desktop Only Responsive Rows Fixture',
+        'assets' => array(
+            'responsive-rows-logo'  => array('mime_type' => 'image/png', 'content' => 'logo'),
+            'responsive-rows-photo' => array('mime_type' => 'image/jpeg', 'content' => 'photo'),
+        ),
+        'nodes'  => array(
             array(
                 'id'       => 'responsive-rows:root',
                 'type'     => 'FRAME',
@@ -701,6 +705,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'height'   => 1200,
                 'layoutMode' => 'VERTICAL',
                 'children' => array(
+                    array('id' => 'responsive-rows:logo', 'type' => 'RECTANGLE', 'name' => 'Brand logo', 'width' => 120, 'height' => 60, 'asset_id' => 'responsive-rows-logo'),
+                    array('id' => 'responsive-rows:photo', 'type' => 'RECTANGLE', 'name' => 'Feature photo', 'width' => 520, 'height' => 320, 'asset_id' => 'responsive-rows-photo'),
                     array(
                         'id'       => 'responsive-rows:hero',
                         'type'     => 'FRAME',
@@ -803,6 +809,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-form-row-contact-fields', array('flex-direction:column', 'align-items:stretch', 'flex-wrap:nowrap'), 'desktop-only-responsive-form-row-stacks-without-wrapping-into-horizontal-columns');
     blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-form-row-contact-fields', array('flex-wrap:wrap'), 'desktop-only-responsive-form-row-removes-mobile-wrap-conflict');
     blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-text-row-centered-text-row', array('height:auto'), 'desktop-only-responsive-absolute-text-row-keeps-its-height-floor');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-logo-brand-logo', array('width:100%', 'height:auto'), 'desktop-only-responsive-small-image-keeps-intrinsic-mobile-size');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $desktopOnlyResponsiveRowsMobileBlock, '.figma-node-responsive-rows-photo-feature-photo', array('width:100%', 'max-width:100%', 'height:auto', 'aspect-ratio:520 / 320'), 'desktop-only-responsive-large-image-fills-mobile-content-width');
 
     // Desktop-only canvas sections (no auto-layout) position every child
     // absolutely, so the mobile `height:auto` relaxation must keep a
