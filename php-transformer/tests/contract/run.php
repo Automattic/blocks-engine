@@ -3321,6 +3321,33 @@ $assert(null === $selfRumFinding, 'telemetry script self-target is not reported 
 $assert(null !== $selfRumDependency, 'runtime dependency parity records telemetry script self-target dependency');
 $assert('script' === ($selfRumDependency['target_kind'] ?? ''), 'runtime dependency parity identifies telemetry script self-target kind');
 
+$firstPartyRuntimeContracts = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><p id="clock" class="clock" data-counter="clock">0 <span id="score">score</span></p><script src="js/clock.js"></script></main>',
+            'js/clock.js' => 'document.getElementById("clock").textContent = "1"; document.querySelector(".clock").classList.add("ready"); document.querySelector("[data-counter]").textContent = "2"; document.querySelector("#score").textContent = "3";',
+        ),
+    )
+)->toArray();
+$firstPartyRuntimeMarkup = (string) ($firstPartyRuntimeContracts['serialized_blocks'] ?? '');
+$firstPartyRuntimeDependencies = array_column($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['dependencies'] ?? array(), null, 'selector');
+$firstPartyRuntimeDiagnostics = array_values(array_filter($firstPartyRuntimeContracts['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '')));
+$firstPartyRuntimeDiagnosticSelectors = array_column($firstPartyRuntimeDiagnostics, 'selector');
+$assert('pass' === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['status'] ?? '') && array() === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['findings'] ?? array()), 'first-party ID, class, and data-attribute runtime selectors pass only when their generated contracts are present');
+foreach (array('#clock', '.clock', '[data-counter]', '#score') as $selector) {
+    $assert(true === ($firstPartyRuntimeDependencies[$selector]['generated_present'] ?? null), 'first-party runtime dependency parity preserves ' . $selector);
+    $assert(in_array($selector, $firstPartyRuntimeDiagnosticSelectors, true), 'native preservation diagnostics identify ' . $selector);
+}
+$assert(str_contains($firstPartyRuntimeMarkup, 'id="clock" class="clock"') && str_contains($firstPartyRuntimeMarkup, '<mark data-counter="clock">') && str_contains($firstPartyRuntimeMarkup, '<span id="score">score</span>'), 'native RichText output retains required ID, class, and data attributes for first-party runtime selectors', $firstPartyRuntimeMarkup);
+$missingRuntimeContract = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/clock.js', 'kind' => 'js', 'content' => 'document.querySelector("[data-counter]").textContent = "2";')),
+    '<main><p data-counter="clock">0</p></main>',
+    '<!-- wp:paragraph --><p>0</p><!-- /wp:paragraph -->',
+    'index.html'
+);
+$assert('warning' === ($missingRuntimeContract['status'] ?? '') && 'runtime_dependency_target_missing' === ($missingRuntimeContract['findings'][0]['code'] ?? ''), 'runtime dependency parity fails closed when a required source selector is absent from generated markup');
+
 $expandedRuntimeTargetsSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',

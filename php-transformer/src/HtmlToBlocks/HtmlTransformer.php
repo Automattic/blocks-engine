@@ -713,6 +713,7 @@ final class HtmlTransformer
         $this->cssCustomProperties = $styleAnalysis['custom_properties'];
         $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
+        $this->runtimeBehavioralSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->supersededRuntimeSelectors = array();
         $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
@@ -4568,7 +4569,7 @@ final class HtmlTransformer
             return $this->capturedDialogBlock($element, $fallbacks);
         }
 
-        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) && ! in_array($tagName, array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -4585,6 +4586,7 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
+            $content = $this->richTextContentWithRuntimeRootAttributes($element, $content);
             $content = $this->headingRichTextContent($content);
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
@@ -4605,6 +4607,7 @@ final class HtmlTransformer
                 return $marquee;
             }
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
+            $content = $this->richTextContentWithRuntimeRootAttributes($element, $content);
             $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
             if ( null !== $inlineSvgContent ) {
                 $content = $inlineSvgContent;
@@ -5682,7 +5685,7 @@ final class HtmlTransformer
                         'required_scripts' => $this->requiredScriptsForElement($sourceElement),
                     ));
                 } else {
-                    $this->recordNativeRuntimeDomPreservation($sourceElement, $name);
+                    $this->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
                 }
             }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
@@ -11714,22 +11717,18 @@ final class HtmlTransformer
     private function isRuntimeDomTarget(DOMElement $element): bool
     {
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) && ! $this->isPresentationalAnimationSelector('#' . $id) ) {
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) && ! $this->isPresentationalAnimationSelector('.' . $class) ) {
+            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
         }
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
-            if ( $this->isPresentationalAnimationSelector((string) $selector) ) {
-                continue;
-            }
-
-            if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+            if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
         }
@@ -11746,7 +11745,7 @@ final class HtmlTransformer
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) $selectors[] = '.' . $class;
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
-            if ( ! $this->isPresentationalAnimationSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
+            if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
         }
         return array_values(array_unique($selectors));
     }
@@ -12013,10 +12012,6 @@ final class HtmlTransformer
 
         foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
             if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
-                if ( $this->isPresentationalAnimationSelector((string) $selector) ) {
-                    continue;
-                }
-
                 return true;
             }
         }
@@ -12048,6 +12043,11 @@ final class HtmlTransformer
         return false;
     }
 
+    private function isPresentationalRuntimeSelector(string $selector): bool
+    {
+        return $this->isPresentationalAnimationSelector($selector) && ! isset($this->runtimeBehavioralSelectors[$selector]);
+    }
+
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
     {
         $tag = strtolower($element->tagName);
@@ -12072,19 +12072,44 @@ final class HtmlTransformer
         $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
     }
 
-    private function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName): void
+    private function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName, bool $includeRichTextDescendants = false): void
     {
+        $elements = array($element);
+        if ($includeRichTextDescendants) {
+            foreach ($this->descendantElements($element) as $descendant) {
+                if ($this->isInlineContentElement(strtolower($descendant->tagName))) {
+                    $elements[] = $descendant;
+                }
+            }
+        }
+        foreach ($elements as $target) {
+            foreach ($this->runtimeDomSelectorsForElement($target) as $selector) {
+                $key = $blockName . "\n" . $selector;
+                if (isset($this->runtimeDomPreservations[$key])) {
+                    continue;
+                }
+                $this->runtimeDomPreservations[$key] = array(
+                    'block_name' => $blockName,
+                    'tag' => strtolower($target->tagName),
+                    'selector' => $selector,
+                );
+            }
+        }
+    }
+
+    private function richTextContentWithRuntimeRootAttributes(DOMElement $element, string $content): string
+    {
+        $attributes = array();
         foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
-            $key = $blockName . "\n" . $selector;
-            if (isset($this->runtimeDomPreservations[$key])) {
+            if (!preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match)) {
                 continue;
             }
-            $this->runtimeDomPreservations[$key] = array(
-                'block_name' => $blockName,
-                'tag' => strtolower($element->tagName),
-                'selector' => $selector,
-            );
+            $name = strtolower((string) $match[1]);
+            if ($element->hasAttribute($name)) {
+                $attributes[$name] = $element->getAttribute($name);
+            }
         }
+        return array() === $attributes ? $content : '<mark' . $this->htmlAttributeString($attributes) . '>' . $content . '</mark>';
     }
 
     private function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
