@@ -321,7 +321,7 @@ final class BreakpointMediaDiffBuilder
         }
 
         $fluidAbsoluteVisual = 'absolute' === $position && null !== $width && $width > 0.0;
-        if ( ($mobile || ($isFlexChild && null !== $width && $width > 340.0) || $fluidAbsoluteVisual) && null !== $width && isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(') ) {
+        if ( (($mobile && null !== $width && $width > 340.0) || ($isFlexChild && null !== $width && $width > 340.0) || $fluidAbsoluteVisual) && null !== $width && isset($baseMap['background-image']) && str_contains((string) $baseMap['background-image'], 'url(') ) {
             $absoluteFluidGeometry = $fluidAbsoluteVisual ? $this->absoluteFluidVisualGeometry($node, $parentNode, $width) : array();
             $declarations[] = isset($absoluteFluidGeometry['width']) ? 'width:' . $absoluteFluidGeometry['width'] : 'width:100%';
             $declarations[] = 'max-width:100%';
