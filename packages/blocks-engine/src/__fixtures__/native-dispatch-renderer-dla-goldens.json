@@ -101,7 +101,7 @@
           "iconAssets": [
             {
               "path": "assets/icon-0.svg",
-              "svg": "<svg fill=\"#ffffff\" viewBox=\"0 0 20 20\"><path d=\"M2 10h16v2H2z\"/></svg>"
+              "svg": "<svg fill=\"#ffffff\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\"><path d=\"M2 10h16v2H2z\"/></svg>"
             }
           ]
         }
@@ -191,7 +191,7 @@
           "iconAssets": [
             {
               "path": "assets/icon-0.svg",
-              "svg": "<svg fill=\"#ffffff\" viewBox=\"0 0 20 20\"><path d=\"M2 10h16v2H2z\"/></svg>"
+              "svg": "<svg fill=\"#ffffff\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\"><path d=\"M2 10h16v2H2z\"/></svg>"
             }
           ]
         }

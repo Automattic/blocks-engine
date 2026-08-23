@@ -294,7 +294,7 @@
             "iconAssets": [
               {
                 "path": "assets/icon-0.svg",
-                "svg": "<svg fill=\"#ffffff\" viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
+                "svg": "<svg fill=\"#ffffff\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
               }
             ]
           },
@@ -349,7 +349,7 @@
             "iconAssets": [
               {
                 "path": "assets/icon-0.svg",
-                "svg": "<svg viewBox=\"0 0 10 10\"><path fill=\"#111\" stroke=\"#222\" d=\"M1 1h8v8H1z\"/></svg>"
+                "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path fill=\"#111\" stroke=\"#222\" d=\"M1 1h8v8H1z\"/></svg>"
               }
             ]
           },
@@ -621,7 +621,7 @@
             "iconAssets": [
               {
                 "path": "assets/icon-0.svg",
-                "svg": "<svg fill=\"#f8fafc\" viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
+                "svg": "<svg fill=\"#f8fafc\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
               }
             ]
           },
@@ -676,7 +676,7 @@
             "iconAssets": [
               {
                 "path": "assets/icon-0.svg",
-                "svg": "<svg viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
+                "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M2 2h6v6H2z\"/></svg>"
               }
             ]
           },
