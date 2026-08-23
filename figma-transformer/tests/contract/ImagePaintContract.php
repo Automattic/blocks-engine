@@ -420,6 +420,89 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(in_array('assets/used-image.png', $unusedAssetPaths, true), 'unused-asset-keeps-referenced');
     $assert(! in_array('assets/unused-image.png', $unusedAssetPaths, true), 'unused-asset-omits-unreferenced');
 
+    $responsiveAssetResult = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter())->emitSite(array(
+        'name'   => 'Responsive Asset Fixture',
+        'assets' => array(
+            'desktop-image' => array('mime_type' => 'image/png', 'content' => 'desktop image'),
+            'mobile-image' => array('mime_type' => 'image/png', 'content' => 'mobile image'),
+            'responsive-unused-image' => array('mime_type' => 'image/png', 'content' => 'unused image'),
+        ),
+        'nodes' => array(
+            array(
+                'id' => 'responsive-assets:desktop',
+                'type' => 'FRAME',
+                'name' => 'Responsive Assets Desktop',
+                'box' => array('width' => 1440, 'height' => 800),
+                'children' => array(array(
+                    'id' => 'responsive-assets:desktop:image',
+                    'type' => 'RECTANGLE',
+                    'name' => 'Hero image',
+                    'box' => array('width' => 1200, 'height' => 600),
+                    'figma_paints' => array('fills' => array(array('type' => 'IMAGE', 'imageRef' => 'desktop-image'))),
+                )),
+            ),
+            array(
+                'id' => 'responsive-assets:mobile',
+                'type' => 'FRAME',
+                'name' => 'Responsive Assets Mobile',
+                'box' => array('width' => 390, 'height' => 800),
+                'children' => array(array(
+                    'id' => 'responsive-assets:mobile:image',
+                    'type' => 'RECTANGLE',
+                    'name' => 'Hero image',
+                    'box' => array('width' => 342, 'height' => 400),
+                    'figma_paints' => array('fills' => array(array('type' => 'IMAGE', 'imageRef' => 'mobile-image'))),
+                )),
+            ),
+        ),
+    ), array('pages' => array(array(
+        'frame_id' => 'responsive-assets:desktop',
+        'name' => 'Responsive Assets',
+        'path' => 'index.html',
+        'entrypoint' => true,
+        'responsive' => true,
+        'breakpoint_count' => 2,
+        'variants' => array(
+            array('frame_id' => 'responsive-assets:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440, 'primary' => true, 'order' => 0),
+            array('frame_id' => 'responsive-assets:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390, 'primary' => false, 'order' => 1),
+        ),
+    ))));
+    $responsiveAssetCss = $fileContent($responsiveAssetResult, 'style.css');
+    $responsiveAssetPaths = array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $responsiveAssetResult['assets'] ?? array());
+    $responsiveAssetFilePaths = array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $responsiveAssetResult['files'] ?? array());
+    $assert(str_contains($responsiveAssetCss, '@media') && str_contains($responsiveAssetCss, 'url("assets/mobile-image.png")'), 'responsive-only-asset-emits-media-css');
+    $assert(in_array('assets/mobile-image.png', $responsiveAssetPaths, true) && in_array('assets/mobile-image.png', $responsiveAssetFilePaths, true), 'responsive-only-asset-retained-in-report-and-files');
+    $assert(2 === ($responsiveAssetResult['metrics']['asset_count'] ?? null), 'responsive-only-asset-counted');
+    $assert(! in_array('assets/responsive-unused-image.png', $responsiveAssetPaths, true), 'responsive-unused-asset-omitted');
+
+    $assetReuseEmitter = new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter();
+    $assetReuseEmitter->emit(array(
+        'name' => 'Prior Asset Emission',
+        'assets' => array('prior-image' => array('mime_type' => 'image/png', 'content' => 'prior image')),
+        'nodes' => array(array(
+            'id' => 'asset-reuse:prior',
+            'type' => 'RECTANGLE',
+            'name' => 'Prior image',
+            'box' => array('width' => 10, 'height' => 10),
+            'figma_paints' => array('fills' => array(array('type' => 'IMAGE', 'imageRef' => 'prior-image'))),
+        )),
+    ));
+    $assetReuseResult = $assetReuseEmitter->emit(array(
+        'name' => 'Current Asset Emission',
+        'assets' => array('current-image' => array('mime_type' => 'image/png', 'content' => 'current image')),
+        'nodes' => array(array(
+            'id' => 'asset-reuse:current',
+            'type' => 'RECTANGLE',
+            'name' => 'Current image',
+            'box' => array('width' => 10, 'height' => 10),
+            'figma_paints' => array('fills' => array(array('type' => 'IMAGE', 'imageRef' => 'current-image'))),
+        )),
+    ));
+    $assetReusePaths = array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetReuseResult['files'] ?? array());
+    $assert(in_array('assets/current-image.png', $assetReusePaths, true), 'asset-registry-reuse-keeps-current-file');
+    $assert(! in_array('assets/prior-image.png', $assetReusePaths, true), 'asset-registry-reuse-clears-prior-file');
+    $assert(1 === ($assetReuseResult['metrics']['asset_count'] ?? null), 'asset-registry-reuse-resets-count');
+
     $backgroundPaintsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Background Paints Fixture',
         'nodes' => array(

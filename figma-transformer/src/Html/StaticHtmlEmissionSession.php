@@ -11,15 +11,22 @@ final class StaticHtmlEmissionSession
 {
     private readonly StaticHtmlPageState $pageState;
     private readonly StaticHtmlLinkState $linkState;
+    private readonly StaticHtmlAssetRegistry $assetRegistry;
+    private readonly PaintStackResolver $paintStackResolver;
+    private readonly ChildLayerCompositionResolver $childLayerCompositionResolver;
+    private readonly StaticHtmlVectorEvidence $vectorEvidence;
     private readonly VectorSvgRenderer $vectorSvgRenderer;
 
     public function __construct(
         StaticHtmlNodeInspector $nodeInspector,
         StaticHtmlValueFormatter $formatter,
-        private readonly StaticHtmlVectorEvidence $vectorEvidence,
     ) {
         $this->pageState = new StaticHtmlPageState();
         $this->linkState = new StaticHtmlLinkState();
+        $this->assetRegistry = new StaticHtmlAssetRegistry($formatter);
+        $this->paintStackResolver = new PaintStackResolver($this->assetRegistry, $formatter);
+        $this->childLayerCompositionResolver = new ChildLayerCompositionResolver($this->assetRegistry, $formatter);
+        $this->vectorEvidence = new StaticHtmlVectorEvidence($formatter, $this->paintStackResolver);
         $this->vectorSvgRenderer = new VectorSvgRenderer($nodeInspector, $formatter, $this->vectorEvidence);
     }
 
@@ -36,6 +43,21 @@ final class StaticHtmlEmissionSession
     public function vectorSvgRenderer(): VectorSvgRenderer
     {
         return $this->vectorSvgRenderer;
+    }
+
+    public function assetRegistry(): StaticHtmlAssetRegistry
+    {
+        return $this->assetRegistry;
+    }
+
+    public function paintStackResolver(): PaintStackResolver
+    {
+        return $this->paintStackResolver;
+    }
+
+    public function childLayerCompositionResolver(): ChildLayerCompositionResolver
+    {
+        return $this->childLayerCompositionResolver;
     }
 
     public function vectorEvidence(): StaticHtmlVectorEvidence
