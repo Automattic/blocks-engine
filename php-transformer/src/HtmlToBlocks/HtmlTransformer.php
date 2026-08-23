@@ -4672,6 +4672,15 @@ final class HtmlTransformer
 
             $richTextMarker = $this->richTextMarkerForElement($element);
             if ( '' !== $richTextMarker ) {
+                // RichText only accepts phrasing content. Keep a selector-addressed
+                // inline wrapper editable when it contains layout/content blocks by
+                // lowering its children instead of storing structural HTML in content.
+                if ( $this->hasBlockContentChildren($element) || $this->richTextContentHasStructuralHtml($this->innerHtml($element)) ) {
+                    $children = $this->convertChildren($element, $fallbacks, true);
+                    if ( array() !== $children ) {
+                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    }
+                }
                 $content = $this->innerHtml($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                     $declarations = $this->richTextInlineVisualDeclarations($element);
@@ -5488,6 +5497,17 @@ final class HtmlTransformer
      */
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
+        if ( $sourceElement instanceof DOMElement
+            && in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true)
+            && $this->richTextContentHasStructuralHtml((string) ($attrs['content'] ?? ''))
+        ) {
+            $structuralFallbacks = array();
+            $children = $this->convertChildren($sourceElement, $structuralFallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($sourceElement), $children, $sourceElement, $logicalSourceElement);
+            }
+        }
+
         $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
         unset($attrs['preserveInlineLayoutLeaf']);
         if ( ! $preserveInlineLayoutLeaf ) {
@@ -7048,6 +7068,11 @@ final class HtmlTransformer
     private function richTextRequiresHtmlFallback(string $content): bool
     {
         return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
+    }
+
+    private function richTextContentHasStructuralHtml(string $content): bool
+    {
+        return (bool) preg_match('/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i', $content);
     }
 
     /**
