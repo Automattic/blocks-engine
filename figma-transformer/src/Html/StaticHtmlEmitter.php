@@ -35,11 +35,6 @@ final class StaticHtmlEmitter
 
     private ?TypographyModel $typographyModel = null;
 
-    /**
-     * @var array<string, string> TypographyModel signature => font-size token name.
-     */
-    private array $typographyTokenVars = array();
-
     private function fontResolver(): FontResolver
     {
         return $this->fontResolver ??= new FontResolver();
@@ -53,8 +48,6 @@ final class StaticHtmlEmitter
     private ?DesignSystemExtractor $designSystemExtractor = null;
 
     private ?StyleDeclarationBuilder $styleDeclarationBuilder = null;
-
-    private ?TextStyleDeclarationResolver $textStyleDeclarationResolver = null;
 
     private ?TransformDiagnosticsBuilder $transformDiagnosticsBuilder = null;
 
@@ -119,6 +112,7 @@ final class StaticHtmlEmitter
         return new StaticHtmlEmissionSession(
             $this->nodeInspector(),
             $this->valueFormatter(),
+            $this->typographyModel(),
         );
     }
 
@@ -146,11 +140,7 @@ final class StaticHtmlEmitter
 
     private function textStyleDeclarationResolver(): TextStyleDeclarationResolver
     {
-        return $this->textStyleDeclarationResolver ??= new TextStyleDeclarationResolver(
-            $this->typographyModel(),
-            fn (float $value): string => $this->number($value),
-            fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
-        );
+        return $this->emissionSession->textStyleDeclarationResolver();
     }
 
     private function paintStackResolver(): PaintStackResolver
@@ -374,7 +364,7 @@ final class StaticHtmlEmitter
     {
         $diagnostics = array();
         $designSystem = $this->designSystemExtractor()->extract($scenegraph);
-        $this->typographyTokenVars = is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array();
+        $this->emissionSession->typographyState()->replace(is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array());
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
 
         return array(
@@ -684,7 +674,7 @@ final class StaticHtmlEmitter
                 $pageScenegraph = $scenegraph;
                 $pageScenegraph['nodes'] = array($frameNode);
                 $pageDesignSystem = $this->designSystemExtractor()->extract($pageScenegraph);
-                $this->typographyTokenVars = is_array($pageDesignSystem['type_token_map'] ?? null) ? $pageDesignSystem['type_token_map'] : array();
+                $this->emissionSession->typographyState()->replace(is_array($pageDesignSystem['type_token_map'] ?? null) ? $pageDesignSystem['type_token_map'] : array());
                 $rootClass = 'figma-node-' . $this->slug($frameId . '-' . $pageName);
                 $pageDesignSystemCss[] = (string) preg_replace('/(^|\n):root\{/m', '$1.' . $rootClass . '{', (string) ($pageDesignSystem['css'] ?? ''));
             }
@@ -9242,7 +9232,7 @@ final class StaticHtmlEmitter
      */
     private function textStyleDeclarations(array $style): array
     {
-        return $this->textStyleDeclarationResolver()->declarations($style, $this->typographyTokenVars);
+        return $this->textStyleDeclarationResolver()->declarations($style);
     }
 
     /**

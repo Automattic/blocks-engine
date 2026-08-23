@@ -9,34 +9,25 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class TextStyleDeclarationResolver
 {
-    /** @var callable(float): string */
-    private $number;
-
-    /** @var callable(mixed, mixed=): ?string */
-    private $color;
-
     public function __construct(
         private readonly TypographyModel $typographyModel,
-        callable $number,
-        callable $color,
+        private readonly StaticHtmlValueFormatter $formatter,
+        private readonly StaticHtmlTypographyState $typographyState,
     ) {
-        $this->number = $number;
-        $this->color = $color;
     }
 
     /**
      * @param array<string, mixed> $style
-     * @param array<string, string> $typographyTokenVars
      * @return array<int, string>
      */
-    public function declarations(array $style, array $typographyTokenVars): array
+    public function declarations(array $style): array
     {
         $styles = array();
         $lineHeightStyles = array();
 
         $typographyStyle = $this->typographyModel->styleFromNormalizedStyle($style);
         if ( null !== $typographyStyle ) {
-            foreach ( $this->typographyModel->declarations($typographyStyle, $typographyTokenVars) as $declaration ) {
+            foreach ( $this->typographyModel->declarations($typographyStyle, $this->typographyState->tokenVars()) as $declaration ) {
                 if ( str_starts_with($declaration, 'line-height:') ) {
                     $lineHeightStyles[] = $declaration;
                     continue;
@@ -49,7 +40,7 @@ final class TextStyleDeclarationResolver
             $settings = array();
             foreach ( $style['font_variation_settings'] as $axis => $value ) {
                 if ( is_string($axis) && 1 === preg_match('/^[A-Za-z0-9 ]{4}$/', $axis) && is_numeric($value) ) {
-                    $settings[] = '"' . $axis . '" ' . ($this->number)((float) $value);
+                    $settings[] = '"' . $axis . '" ' . $this->formatter->number((float) $value);
                 }
             }
             if ( ! empty($settings) ) {
@@ -74,17 +65,17 @@ final class TextStyleDeclarationResolver
         }
 
         if ( isset($style['letter_spacing']) && is_numeric($style['letter_spacing']) ) {
-            $styles[] = 'letter-spacing:' . ($this->number)((float) $style['letter_spacing']) . 'px';
+            $styles[] = 'letter-spacing:' . $this->formatter->number((float) $style['letter_spacing']) . 'px';
         } elseif ( isset($style['letter_spacing_em']) && is_numeric($style['letter_spacing_em']) ) {
-            $styles[] = 'letter-spacing:' . ($this->number)((float) $style['letter_spacing_em']) . 'em';
+            $styles[] = 'letter-spacing:' . $this->formatter->number((float) $style['letter_spacing_em']) . 'em';
         }
 
         // Figma `paragraphIndent` maps to CSS first-line indent. Zero is implicit.
         if ( isset($style['paragraph_indent']) && is_numeric($style['paragraph_indent']) && 0.0 !== (float) $style['paragraph_indent'] ) {
-            $styles[] = 'text-indent:' . ($this->number)((float) $style['paragraph_indent']) . 'px';
+            $styles[] = 'text-indent:' . $this->formatter->number((float) $style['paragraph_indent']) . 'px';
         }
 
-        $color = ($this->color)($style['color'] ?? null);
+        $color = $this->formatter->color($style['color'] ?? null);
         if ( null !== $color ) {
             $styles[] = 'color:' . $color;
         } elseif ( isset($style['css_color']) && is_scalar($style['css_color']) ) {
