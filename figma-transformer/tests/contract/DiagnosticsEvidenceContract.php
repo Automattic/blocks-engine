@@ -376,7 +376,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($responsiveQuality['summary']['fixed_width_over_desktop_uncovered_count'] ?? null), 'diagnostics-evidence-responsive-quality-uncovered-summary');
 
     $responsivePolicy = new \Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
-        static fn (array $node): array => is_array($node['children'] ?? null) ? $node['children'] : array(),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlNodeInspector(),
         static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.'),
         new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
         new \Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()

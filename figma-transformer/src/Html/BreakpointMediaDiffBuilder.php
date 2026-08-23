@@ -24,22 +24,18 @@ final class BreakpointMediaDiffBuilder
     private array $decisionTraces = array();
 
     /**
-     * @param callable(array<string, mixed>): array<int, mixed> $nodeList
      * @param callable(array<string, mixed>, string, array<string, mixed>|null, array<string, mixed>|null): array<int, string> $styleDeclarations
      * @param callable(array<string, mixed>, string, array<string, mixed>|null): mixed $supportedVectorSvg
-     * @param callable(array<string, mixed>, array<string, mixed>): bool $isFullyClippedDecorativeChild
-     * @param callable(array<string, mixed>): bool $isPaginationContainer
      * @param callable(string): string $sanitizeAttribute
      * @param callable(string): string $slug
      * @param callable(float): string $number
      */
     public function __construct(
         private readonly StickyLayoutCoordinator $stickyLayoutCoordinator,
-        private readonly mixed $nodeList,
+        private readonly StaticHtmlNodeInspector $nodeInspector,
+        private readonly VisualGeometryResolver $visualGeometryResolver,
         private readonly mixed $styleDeclarations,
         private readonly mixed $supportedVectorSvg,
-        private readonly mixed $isFullyClippedDecorativeChild,
-        private readonly mixed $isPaginationContainer,
         private readonly mixed $sanitizeAttribute,
         private readonly mixed $slug,
         private readonly mixed $number,
@@ -52,7 +48,7 @@ final class BreakpointMediaDiffBuilder
         $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->number);
         $this->layoutIntentClassifier = $layoutIntentClassifier ?? new LayoutIntentClassifier();
         $this->responsiveBreakpointSafetyPolicy = $responsiveBreakpointSafetyPolicy ?? new ResponsiveBreakpointSafetyPolicy(
-            $this->nodeList,
+            $this->nodeInspector,
             $this->number,
             $this->breakpointDimensionPolicy,
             $this->layoutIntentClassifier
@@ -402,7 +398,7 @@ final class BreakpointMediaDiffBuilder
         }
 
         $widths = array();
-        foreach ( ($this->nodeList)($parentNode) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($parentNode) as $child ) {
             if ( ! is_array($child) || 'absolute' === ($child['layout']['positioning'] ?? null) ) {
                 continue;
             }
@@ -451,7 +447,7 @@ final class BreakpointMediaDiffBuilder
      */
     private function hasContainerChild(array $node): bool
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -467,7 +463,7 @@ final class BreakpointMediaDiffBuilder
     /** @param array<string, mixed> $node */
     private function hasPositionedDirectChild(array $node): bool
     {
-        foreach ( ($this->nodeList)($node) as $child ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -660,8 +656,8 @@ final class BreakpointMediaDiffBuilder
         }
 
         $children = array();
-        foreach ( ($this->nodeList)($node) as $child ) {
-            if ( ! is_array($child) || $this->stickyLayoutCoordinator->isSuppressedStickyGhost($child) || ($this->isFullyClippedDecorativeChild)($child, $node) ) {
+        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
+            if ( ! is_array($child) || $this->stickyLayoutCoordinator->isSuppressedStickyGhost($child) || $this->visualGeometryResolver->isFullyClippedDecorativeChild($child, $node) ) {
                 continue;
             }
 
@@ -704,7 +700,7 @@ final class BreakpointMediaDiffBuilder
             $variantNode = is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : array();
             $baseParentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
             $variantParentNode = is_array($variantStyles[$pathKey]['parent_node'] ?? null) ? $variantStyles[$pathKey]['parent_node'] : null;
-            $preservePaginationRow = ! empty($baseNode) && ($this->isPaginationContainer)($baseNode);
+            $preservePaginationRow = ! empty($baseNode) && $this->nodeInspector->isPaginationContainer($baseNode);
             $responsiveWidthHandledProperties = array();
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
@@ -1041,7 +1037,7 @@ final class BreakpointMediaDiffBuilder
             return false;
         }
 
-        return ! empty(($this->nodeList)($baseNode)) && ! empty(($this->nodeList)($variantNode));
+        return ! empty($this->nodeInspector->nodeList($baseNode)) && ! empty($this->nodeInspector->nodeList($variantNode));
     }
 
     /**
