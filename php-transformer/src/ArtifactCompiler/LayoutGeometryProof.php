@@ -24,7 +24,7 @@ final class LayoutGeometryProof
         $validNodes = array();
         foreach ($nodes as $node) {
             if (!is_array($node) || !is_string($node['id'] ?? null) || !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $node['id']) || isset($validNodes[$node['id']]) || !self::nodeIsCurrent($node, $hashes)) return self::rejected('layout_geometry_proof_identity_stale');
-            if (!self::geometryIsEquivalent($node['boxes'] ?? null)) return self::rejected('layout_geometry_proof_geometry_unproven');
+            if (!self::geometryIsValid($node['boxes'] ?? null)) return self::rejected('layout_geometry_proof_geometry_unproven');
             $validNodes[$node['id']] = $node;
         }
         $valid = array();
@@ -32,7 +32,7 @@ final class LayoutGeometryProof
             if (!is_array($reduction) || !is_string($reduction['wrapper'] ?? null) || !is_string($reduction['target'] ?? null) || !isset($validNodes[$reduction['wrapper']], $validNodes[$reduction['target']])) return self::rejected('layout_geometry_proof_reduction_incomplete');
             $wrapper = $validNodes[$reduction['wrapper']];
             $target = $validNodes[$reduction['target']];
-            if ($wrapper['source_path'] !== $target['source_path'] || $wrapper['source_hash'] !== $target['source_hash'] || !self::invariantsHold($reduction['invariants'] ?? null) || !self::correctiveCss($reduction['corrective_css'] ?? null)) return self::rejected('layout_geometry_proof_reduction_incomplete');
+            if ($wrapper['source_path'] !== $target['source_path'] || $wrapper['source_hash'] !== $target['source_hash'] || !self::geometryIsEquivalent($target['boxes']) || !self::invariantsHold($reduction['invariants'] ?? null) || !self::correctiveCss($reduction['corrective_css'] ?? null)) return self::rejected('layout_geometry_proof_reduction_incomplete');
             $valid[] = array(
                 'source_path' => $wrapper['source_path'],
                 'source_hash' => $wrapper['source_hash'],
@@ -50,14 +50,21 @@ final class LayoutGeometryProof
         return is_string($node['source_path'] ?? null) && is_string($node['source_hash'] ?? null) && ($hashes[$node['source_path']] ?? null) === $node['source_hash'] && is_string($node['selector'] ?? null) && preg_match('/^[a-z][a-z0-9-]*(?::nth-of-type\([1-9][0-9]*\))(?: > [a-z][a-z0-9-]*(?::nth-of-type\([1-9][0-9]*\)))*$/', $node['selector']);
     }
 
-    private static function geometryIsEquivalent(mixed $boxes): bool
+    private static function geometryIsValid(mixed $boxes): bool
     {
         if (!is_array($boxes) || !array_is_list($boxes) || count($boxes) < 1 || count($boxes) > self::MAX_VIEWPORTS) return false;
         $viewports = array();
         foreach ($boxes as $box) {
-            if (!is_array($box) || !is_int($box['viewport'] ?? null) || $box['viewport'] < 1 || $box['viewport'] > 10000 || isset($viewports[$box['viewport']]) || !is_string($box['state'] ?? null) || '' === $box['state'] || !self::sameBox($box['source'] ?? null, $box['simulated'] ?? null)) return false;
+            if (!is_array($box) || !is_int($box['viewport'] ?? null) || $box['viewport'] < 1 || $box['viewport'] > 10000 || isset($viewports[$box['viewport']]) || !is_string($box['state'] ?? null) || '' === $box['state'] || !self::isBox($box['source'] ?? null) || !self::isBox($box['simulated'] ?? null)) return false;
             $viewports[$box['viewport']] = true;
         }
+        return true;
+    }
+
+    private static function geometryIsEquivalent(mixed $boxes): bool
+    {
+        if (!self::geometryIsValid($boxes)) return false;
+        foreach ($boxes as $box) if (!self::sameBox($box['source'], $box['simulated'])) return false;
         return true;
     }
 
@@ -68,7 +75,7 @@ final class LayoutGeometryProof
 
     private static function correctiveCss(mixed $css): bool
     {
-        if (!is_array($css) || !is_array($css['declarations'] ?? null) || !array_is_list($css['declarations']) || array() === $css['declarations'] || count($css['declarations']) > self::MAX_DECLARATIONS) return false;
+        if (!is_array($css) || !is_array($css['declarations'] ?? null) || !array_is_list($css['declarations']) || count($css['declarations']) > self::MAX_DECLARATIONS) return false;
         foreach ($css['declarations'] as $declaration) {
             if (!is_array($declaration) || !is_string($declaration['property'] ?? null) || !preg_match('/^(?:--[a-z0-9_-]+|[a-z-]+)$/i', $declaration['property']) || !is_string($declaration['value'] ?? null) || '' === trim($declaration['value']) || strlen($declaration['value']) > 512 || preg_match('~[{}<>;]|/\*~', $declaration['value'])) return false;
         }
@@ -77,8 +84,15 @@ final class LayoutGeometryProof
 
     private static function sameBox(mixed $left, mixed $right): bool
     {
-        if (!is_array($left) || !is_array($right)) return false;
-        foreach (array('x', 'y', 'width', 'height') as $key) if (!is_numeric($left[$key] ?? null) || !is_numeric($right[$key] ?? null) || abs((float) $left[$key] - (float) $right[$key]) > 1.0) return false;
+        if (!self::isBox($left) || !self::isBox($right)) return false;
+        foreach (array('x', 'y', 'width', 'height') as $key) if (abs((float) $left[$key] - (float) $right[$key]) > 1.0) return false;
+        return true;
+    }
+
+    private static function isBox(mixed $box): bool
+    {
+        if (!is_array($box)) return false;
+        foreach (array('x', 'y', 'width', 'height') as $key) if (!is_numeric($box[$key] ?? null)) return false;
         return true;
     }
 

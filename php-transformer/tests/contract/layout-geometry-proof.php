@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\LayoutGeometryProof;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
-$html = '<main><div class="proof-shell" style="width:80%"><img class="proof-target" src="hero.jpg" alt="Copy"></div></main>';
+$html = '<main><div class="proof-shell" data-hook="static-carrier" style="width:80%"><img class="proof-target" src="hero.jpg" alt="Copy"></div></main>';
 $hash = hash('sha256', $html);
 $boxes = static fn(): array => array(
     array('viewport' => 390, 'state' => 'default', 'source' => array('x' => 0, 'y' => 0, 'width' => 312, 'height' => 24), 'simulated' => array('x' => 0, 'y' => 0, 'width' => 312, 'height' => 24)),
@@ -29,6 +29,13 @@ $assert(preg_match('/be-layout-proof-[a-f0-9]{32}/', $markup, $carrier) && str_c
 $applied = $coalesced['source_reports']['layout_geometry_proof'] ?? array();
 $assert(1 === count($applied) && 'main:nth-of-type(1) > div:nth-of-type(1)' === ($applied[0]['wrapper_selector'] ?? null), 'Applied proof provenance retains the stable source-node identity.');
 
+$exact = $proof;
+$exact['nodes'][0]['boxes'][0]['simulated']['width'] = 24;
+$exact['nodes'][0]['boxes'][1]['simulated']['width'] = 24;
+$exact['reductions'][0]['corrective_css']['declarations'] = array();
+$exactResult = $compile($exact);
+$assert('core/image' === ($exactResult['blocks'][0]['blockName'] ?? null) && !str_contains((string) ($exactResult['blocks'][0]['attrs']['className'] ?? ''), 'be-layout-proof-') && 1 === count($exactResult['source_reports']['layout_geometry_proof'] ?? array()), 'A removed wrapper may change its own box while exact target geometry needs no corrective carrier.');
+
 $withoutEvidence = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $html)))->toArray();
 $assert('core/group' === (($withoutEvidence['blocks'][0]['blockName'] ?? null)), 'Absent optional evidence retains the non-neutral wrapper.');
 
@@ -40,7 +47,7 @@ $runtime = $proof; $runtime['reductions'][0]['invariants']['runtime'] = false;
 $runtimeResult = $compile($runtime);
 $assert('core/group' === (($runtimeResult['blocks'][0]['blockName'] ?? null)), 'Missing runtime invariants retain the wrapper.');
 
-$viewport = $proof; $viewport['nodes'][0]['boxes'][1]['simulated']['width'] -= 2;
+$viewport = $proof; $viewport['nodes'][1]['boxes'][1]['simulated']['width'] -= 2;
 $viewportResult = $compile($viewport);
 $assert('core/group' === (($viewportResult['blocks'][0]['blockName'] ?? null)), 'Viewport geometry disagreement retains the wrapper.');
 

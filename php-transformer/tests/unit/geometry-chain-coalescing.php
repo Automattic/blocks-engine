@@ -37,6 +37,9 @@ $fullWidth = $transform('<div style="width:100%"><div class="surface"><p>Copy</p
 $fullWidthBlock = $fullWidth['blocks'][0] ?? array();
 $assert('core/group' === ($fullWidthBlock['blockName'] ?? null) && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'surface') && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'be-inline-geometry-') && str_contains($engineCss($fullWidth), 'width:100% !important'), 'A full-width transparent normal-flow shell coalesces its generated width carrier onto the surviving group.');
 
+$priceBoxes = $transform('<div class="outer-frame" style="display:block;width:200px;height:40px;position:static"><div class="inner-surface" style="display:block;width:200px;height:40px;position:static"><p>$10.00</p></div></div>');
+$assert('core/group' === ($priceBoxes['blocks'][0]['blockName'] ?? null) && 'core/group' === ($priceBoxes['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && str_contains((string) ($priceBoxes['serialized_blocks'] ?? ''), '$10.00'), 'Descendant price text preserves content without assigning commerce identity to generic ancestor boxes.');
+
 foreach (array(
     '<div style="width:80%"><div class="surface"><p>Copy</p></div></div>',
     '<div style="width:100%;padding:1px"><div class="surface"><p>Copy</p></div></div>',
