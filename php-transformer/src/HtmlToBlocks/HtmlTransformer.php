@@ -229,6 +229,12 @@ final class HtmlTransformer
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
+    private readonly PatternContext $patternContext;
+
+    private readonly PatternContext $patternContextWithoutRuntimeDomTarget;
+
+    private readonly PatternContext $patternProbeContext;
+
     private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
     private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
@@ -674,6 +680,9 @@ final class HtmlTransformer
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
+        $this->patternContext = $this->createPatternContext(true);
+        $this->patternContextWithoutRuntimeDomTarget = $this->createPatternContext(false);
+        $this->patternProbeContext = $this->createProbePatternContext();
     }
 
     public function &__get(string $name): mixed
@@ -4425,6 +4434,11 @@ final class HtmlTransformer
 
     private function patternContext(bool $includeRuntimeDomTarget = true): PatternContext
     {
+        return $includeRuntimeDomTarget ? $this->patternContext : $this->patternContextWithoutRuntimeDomTarget;
+    }
+
+    private function createPatternContext(bool $includeRuntimeDomTarget): PatternContext
+    {
         return new PatternContext(
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
@@ -4475,6 +4489,11 @@ final class HtmlTransformer
      * convert to a given block, without recording provenance or runtime islands.
      */
     private function probePatternContext(): PatternContext
+    {
+        return $this->patternProbeContext;
+    }
+
+    private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
