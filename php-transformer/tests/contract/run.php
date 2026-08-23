@@ -1733,6 +1733,11 @@ $inlineFlexSvgMarkup = (string) ($inlineFlexSvgResult['serialized_blocks'] ?? ''
 $assert(! str_contains($inlineFlexSvgMarkup, 'wp-block-blocks-engine-author-layout') && str_contains($inlineFlexSvgMarkup, '<!-- wp:paragraph'), 'inline flex text and SVG retain valid native paragraph blocks');
 $assert(str_contains($inlineFlexSvgMarkup, 'token') && str_contains($inlineFlexSvgMarkup, '<img src="assets/materialized-svg/'), 'inline flex text and its native SVG image retain source styling and materialized media');
 $assert(str_contains($inlineFlexSvgMarkup, 'style="width:18px;height:18px"'), 'CSS-owned inline SVG geometry is carried onto the materialized RichText image');
+
+$nestedControlSvg = ( new HtmlTransformer() )->transform('<style>.nested-control{display:flex;align-items:center;gap:14px}.nested-control>.nested-icon{width:36px;height:36px}.nested-control>.nested-icon>*{width:100%;height:100%}.nested-icon-source{width:77px;height:77px}</style><button class="nested-control"><span>WhatsApp</span><div class="nested-icon" data-source-visual-width="77" data-source-visual-height="77"><div class="nested-icon-source" data-source-visual-width="77" data-source-visual-height="77"><svg width="100%" height="100%" viewBox="0 0 77 77" aria-hidden="true"><path d="M0 0h77v77H0z"/></svg></div></div></button>')->toArray();
+$nestedControlSvgMarkup = (string) ($nestedControlSvg['serialized_blocks'] ?? '');
+$assert(str_contains($nestedControlSvgMarkup, '<button type="button" class="wp-block-button__link') && str_contains($nestedControlSvgMarkup, '<img src="assets/materialized-svg/'), 'nested button artwork remains native button RichText media');
+$assert(str_contains($nestedControlSvgMarkup, 'style="width:36px;height:36px"'), 'nested button artwork resolves percentage geometry through flattened wrappers');
 $assert('pass' === ($inlineFlexSvgResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline flex SVG paragraph remains editor-valid');
 
 $coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
