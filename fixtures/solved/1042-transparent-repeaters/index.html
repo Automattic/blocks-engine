@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    fluid-columns-repeater { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+    @media (max-width: 600px) { fluid-columns-repeater { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
+</head>
+<body>
+  <fluid-columns-repeater class="fluid-columns-repeater" role="list">
+    <repeater-card role="listitem"><a href="/one"><img src="one.jpg" alt="One"><h3>One</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/two"><img src="two.jpg" alt="Two"><h3>Two</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/three"><img src="three.jpg" alt="Three"><h3>Three</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/four"><img src="four.jpg" alt="Four"><h3>Four</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/five"><img src="five.jpg" alt="Five"><h3>Five</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/six"><img src="six.jpg" alt="Six"><h3>Six</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/seven"><img src="seven.jpg" alt="Seven"><h3>Seven</h3></a></repeater-card>
+    <repeater-card role="listitem"><a href="/eight"><img src="eight.jpg" alt="Eight"><h3>Eight</h3></a></repeater-card>
+  </fluid-columns-repeater>
+  <runtime-repeater role="list" onclick="refreshCards()"><repeater-card role="listitem"><p>Unsafe runtime card</p></repeater-card></runtime-repeater>
+</body>
+</html>
