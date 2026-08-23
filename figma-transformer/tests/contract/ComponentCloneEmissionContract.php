@@ -48,7 +48,7 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
 
     $scalarPositioning = new Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver(
         new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier(),
-        static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')
+        new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter()
     );
     $scalarStyles = $scalarPositioning->styles(
         array('x' => 1774, 'y' => 2387, 'width' => 225, 'height' => 48, 'coordinate_space' => 'local', 'local_origin' => 'page'),
@@ -67,7 +67,7 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
 
     $headerChromePositioning = new Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver(
         new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier(),
-        static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')
+        new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter()
     );
     $headerChromeCtaStyles = $headerChromePositioning->styles(
         array('x' => 1180, 'y' => 72, 'width' => 225, 'height' => 48),

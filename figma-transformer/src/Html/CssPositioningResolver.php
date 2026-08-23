@@ -6,15 +6,14 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Resolves CSS declarations for nodes that leave normal flow.
+ *
+ * @internal
  */
 final class CssPositioningResolver
 {
-    /**
-     * @param callable(float): string $numberFormatter
-     */
     public function __construct(
         private readonly LayoutIntentClassifier $layoutIntentClassifier,
-        private readonly mixed $numberFormatter,
+        private readonly StaticHtmlValueFormatter $formatter,
     ) {
     }
 
@@ -471,7 +470,7 @@ final class CssPositioningResolver
 
     private function number(float $value): string
     {
-        return ($this->numberFormatter)($value);
+        return $this->formatter->number($value);
     }
 
     /**

@@ -6,14 +6,13 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Resolves responsive breakpoint width policy into CSS declarations.
+ *
+ * @internal
  */
 final class BreakpointDimensionPolicy
 {
-    /**
-     * @param callable(float): string|null $number
-     */
     public function __construct(
-        private readonly mixed $number = null,
+        private readonly ?StaticHtmlValueFormatter $formatter = null,
     ) {
     }
 
@@ -164,7 +163,7 @@ final class BreakpointDimensionPolicy
     {
         $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start');
         if ( null !== $sourceHeight && $sourceHeight > 0.0 ) {
-            $declarations[] = 'min-height:' . ($this->number)($sourceHeight) . 'px';
+            $declarations[] = 'min-height:' . $this->formatNumber($sourceHeight) . 'px';
         }
 
         return $declarations;
@@ -298,8 +297,8 @@ final class BreakpointDimensionPolicy
 
     private function formatNumber(float $value): string
     {
-        if ( is_callable($this->number) ) {
-            return ($this->number)($value);
+        if ( null !== $this->formatter ) {
+            return $this->formatter->number($value);
         }
 
         return rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');

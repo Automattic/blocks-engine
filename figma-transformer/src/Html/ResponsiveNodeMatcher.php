@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Builds stable node match keys for responsive breakpoint diffs.
+ *
+ * @internal
  */
 final class ResponsiveNodeMatcher
 {
@@ -13,11 +15,8 @@ final class ResponsiveNodeMatcher
     private const VIEWPORT_SIZE_PATTERN = '/\b\d{3,4}\s*x\s*\d{3,5}\b/';
     private const VIEWPORT_WIDTH_PATTERN = '/\b(320|375|390|393|414|428|768|834|1024|1280|1366|1440|1512|1728|1920)\b/';
 
-    /**
-     * @param callable(string): string $slug
-     */
     public function __construct(
-        private readonly mixed $slug,
+        private readonly StaticHtmlValueFormatter $formatter,
     ) {
     }
 
@@ -49,7 +48,7 @@ final class ResponsiveNodeMatcher
         $counts = array();
         foreach ( $siblings as $sibling ) {
             foreach ( $this->sourceIdentities($sibling) as $sourceId ) {
-                $key = ($this->slug)($sourceId);
+                $key = $this->formatter->slug($sourceId);
                 $counts[$key] = ($counts[$key] ?? 0) + 1;
             }
         }
@@ -67,7 +66,7 @@ final class ResponsiveNodeMatcher
         $keys = array();
 
         foreach ( $this->sourceIdentities($node) as $sourceId ) {
-            $sourceKey = ($this->slug)($sourceId);
+            $sourceKey = $this->formatter->slug($sourceId);
             if ( 1 === ($siblingSourceIdentityCounts[$sourceKey] ?? 1) ) {
                 $keys[] = 'source:' . $sourceKey;
             }

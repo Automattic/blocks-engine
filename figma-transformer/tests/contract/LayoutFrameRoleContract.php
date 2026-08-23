@@ -119,7 +119,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
 
     $positioningIntent = new LayoutIntentClassifier();
     $positioningResolver = new PositioningStyleResolver(
-        new CssPositioningResolver($positioningIntent, static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
+        new CssPositioningResolver($positioningIntent, new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter()),
         $resolver,
     );
     $backgroundPlan = new NodeRenderPlan(
