@@ -4680,6 +4680,11 @@ final class HtmlTransformer
             );
         }
 
+        $customVideo = $this->videoOnlyCustomElement($element);
+        if ( $customVideo instanceof DOMElement ) {
+            return $this->convertMediaElement($customVideo);
+        }
+
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
         if ( $mediaDispatch['handled'] ) {
             return $mediaDispatch['block'];
@@ -14612,7 +14617,7 @@ final class HtmlTransformer
 
         $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
             'src'      => $src,
-            'poster'   => 'video' === $tagName ? $this->attr($element, 'poster') : '',
+            'poster'   => 'video' === $tagName ? $this->safeImageUrl($this->attr($element, 'poster')) : '',
             'preload'  => $this->attr($element, 'preload'),
             'width'    => $this->attr($element, 'width'),
             'height'   => $this->attr($element, 'height'),
@@ -14627,6 +14632,10 @@ final class HtmlTransformer
             }
             if ( $element->hasAttribute('playsinline') ) {
                 $attrs['playsInline'] = true;
+            }
+            $tracks = $this->videoTracks($element);
+            if ( array() !== $tracks ) {
+                $attrs['tracks'] = $tracks;
             }
         }
 
@@ -14986,6 +14995,50 @@ final class HtmlTransformer
         }
 
         return $images->item(0);
+    }
+
+    private function videoOnlyCustomElement(DOMElement $element): ?DOMElement
+    {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) ) {
+            return null;
+        }
+
+        $videos = $element->getElementsByTagName('video');
+        if ( 1 !== $videos->length || ! $videos->item(0) instanceof DOMElement ) {
+            return null;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'video', 'source', 'track' ), true) ) {
+                return null;
+            }
+        }
+
+        return $videos->item(0);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function videoTracks(DOMElement $video): array
+    {
+        $tracks = array();
+        foreach ( $video->getElementsByTagName('track') as $track ) {
+            if ( ! $track instanceof DOMElement || 32 === count($tracks) ) {
+                break;
+            }
+            $src = $this->safeMediaUrl($this->attr($track, 'src'));
+            if ( '' === $src ) {
+                continue;
+            }
+            $tracks[] = array_filter(array(
+                'kind'    => $this->attr($track, 'kind'),
+                'src'     => $src,
+                'srcLang' => $this->attr($track, 'srclang'),
+                'label'   => $this->attr($track, 'label'),
+                'default' => $track->hasAttribute('default'),
+            ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        }
+
+        return $tracks;
     }
 
     private function imageOnlyCarrierElement(DOMElement $element): ?DOMElement

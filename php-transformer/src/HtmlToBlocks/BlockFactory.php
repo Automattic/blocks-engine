@@ -863,8 +863,23 @@ final class BlockFactory
             $mediaAttrs['playsinline'] = ! empty($attrs['playsInline']) ? 'playsinline' : '';
         }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $this->preserveRichTextPunctuation((string) $attrs['caption']) . '</figcaption>' : '';
+        $tracks = '';
+        if ( 'video' === $tagName && is_array($attrs['tracks'] ?? null) ) {
+            foreach ( $attrs['tracks'] as $track ) {
+                if ( ! is_array($track) ) {
+                    continue;
+                }
+                $tracks .= '<track' . $this->htmlAttrs(array(
+                    'kind'    => (string) ($track['kind'] ?? ''),
+                    'src'     => (string) ($track['src'] ?? ''),
+                    'srclang' => (string) ($track['srcLang'] ?? ''),
+                    'label'   => (string) ($track['label'] ?? ''),
+                    'default' => ! empty($track['default']) ? 'default' : '',
+                )) . '>';
+            }
+        }
 
-        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
+        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '>' . $tracks . '</' . $tagName . '>' . $caption . '</figure>';
     }
 
     /**
