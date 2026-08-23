@@ -42,13 +42,26 @@ final class CoverPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $children = $context->convertChildrenWithFallbacksCallback(); $style = $context->mergedPresentationStyleCallback(); $attrs = $context->htmlAttributesCallback(); $url = $context->resolveAssetImageUrlCallback();
-        if (null === $children || null === $style || null === $attrs || null === $url) return null;
-        $fallbacks = array(); $block = $this->match($element, $fallbacks, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($children): array {
-            $result = $children($sourceElement, $captureUnsupported);
-            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
-            return $result->blocks();
-        }, $context->presentationAttributesCallback(), $style, $attrs, $url, $context->createBlockCallback());
+        $converter = $context->recursiveConverter();
+        $style     = $context->mergedPresentationStyleCallback();
+        $attrs     = $context->htmlAttributesCallback();
+        $url       = $context->resolveAssetImageUrlCallback();
+        if ( null === $converter || null === $style || null === $attrs || null === $url ) {
+            return null;
+        }
+
+        $fallbacks = array();
+        $block = $this->match(
+            $element,
+            $fallbacks,
+            array($converter, 'children'),
+            $context->presentationAttributesCallback(),
+            $style,
+            $attrs,
+            $url,
+            $context->createBlockCallback()
+        );
+
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 

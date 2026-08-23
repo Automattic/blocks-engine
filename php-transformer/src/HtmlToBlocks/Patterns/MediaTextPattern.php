@@ -29,17 +29,28 @@ final class MediaTextPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $children = $context->convertChildrenWithFallbacksCallback(); $convert = $context->convertElementWithFallbacksCallback(); $attrs = $context->mediaTextPresentationAttributesCallback(); $style = $context->mediaTextPresentationStyleCallback(); $html = $context->htmlAttributesCallback(); $url = $context->resolveAssetImageUrlCallback();
-        if (null === $children || null === $convert || null === $attrs || null === $style || null === $html || null === $url) return null;
-        $fallbacks = array(); $block = $this->match($element, $fallbacks, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($children): array {
-            $result = $children($sourceElement, $captureUnsupported);
-            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
-            return $result->blocks();
-        }, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($convert): ?array {
-            $result = $convert($sourceElement, $captureUnsupported);
-            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
-            return $result->firstBlock();
-        }, $attrs, $style, $html, $url, $context->createBlockCallback());
+        $converter = $context->recursiveConverter();
+        $attrs     = $context->mediaTextPresentationAttributesCallback();
+        $style     = $context->mediaTextPresentationStyleCallback();
+        $html      = $context->htmlAttributesCallback();
+        $url       = $context->resolveAssetImageUrlCallback();
+        if ( null === $converter || null === $attrs || null === $style || null === $html || null === $url ) {
+            return null;
+        }
+
+        $fallbacks = array();
+        $block = $this->match(
+            $element,
+            $fallbacks,
+            array($converter, 'children'),
+            array($converter, 'element'),
+            $attrs,
+            $style,
+            $html,
+            $url,
+            $context->createBlockCallback()
+        );
+
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 

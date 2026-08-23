@@ -30,8 +30,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
@@ -4426,15 +4428,17 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
             fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
             fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
-            function (DOMElement $sourceElement, bool $captureUnsupported): \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult {
-                $fallbacks = array();
-                return new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult($this->convertChildren($sourceElement, $fallbacks, $captureUnsupported), $fallbacks);
-            },
-            function (DOMElement $sourceElement, bool $captureUnsupported): \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult {
-                $fallbacks = array();
-                $block = $this->convertElement($sourceElement, $fallbacks, $captureUnsupported);
-                return new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult(null === $block ? array() : array($block), $fallbacks);
-            },
+            new PatternRecursiveConverter(
+                function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
+                    $fallbacks = array();
+                    return new PatternConversionResult($this->convertChildren($sourceElement, $fallbacks, $captureUnsupported), $fallbacks);
+                },
+                function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
+                    $fallbacks = array();
+                    $block = $this->convertElement($sourceElement, $fallbacks, $captureUnsupported);
+                    return new PatternConversionResult(null === $block ? array() : array($block), $fallbacks);
+                }
+            ),
             fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
             fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),

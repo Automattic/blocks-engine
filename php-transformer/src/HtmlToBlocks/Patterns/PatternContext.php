@@ -19,8 +19,7 @@ final class PatternContext
      * @param callable(DOMElement): array<string, mixed>|null $convertElement
      * @param callable(DOMElement): list<string>|null $navigationColorInteractionStates
      * @param callable(DOMElement): string|null $navigationOverlayMenu
-     * @param callable(DOMElement, bool): PatternConversionResult|null $convertChildrenWithFallbacks
-     * @param callable(DOMElement, bool): PatternConversionResult|null $convertElementWithFallbacks
+     * @param PatternRecursiveConverter|null $recursiveConverter
      * @param callable(DOMElement): string|null $mergedPresentationStyle
      * @param callable(DOMElement): array<string, string>|null $htmlAttributes
      * @param callable(string): string|null $resolveAssetImageUrl
@@ -40,8 +39,7 @@ final class PatternContext
         private readonly mixed $convertElement = null,
         private readonly mixed $navigationColorInteractionStates = null,
         private readonly mixed $navigationOverlayMenu = null,
-        private readonly mixed $convertChildrenWithFallbacks = null,
-        private readonly mixed $convertElementWithFallbacks = null,
+        private readonly ?PatternRecursiveConverter $recursiveConverter = null,
         private readonly mixed $mergedPresentationStyle = null,
         private readonly mixed $htmlAttributes = null,
         private readonly mixed $resolveAssetImageUrl = null,
@@ -144,8 +142,7 @@ final class PatternContext
         return is_callable($this->navigationOverlayMenu) ? $this->navigationOverlayMenu : null;
     }
 
-    public function convertChildrenWithFallbacksCallback(): ?callable { return is_callable($this->convertChildrenWithFallbacks) ? $this->convertChildrenWithFallbacks : null; }
-    public function convertElementWithFallbacksCallback(): ?callable { return is_callable($this->convertElementWithFallbacks) ? $this->convertElementWithFallbacks : null; }
+    public function recursiveConverter(): ?PatternRecursiveConverter { return $this->recursiveConverter; }
     public function mergedPresentationStyleCallback(): ?callable { return is_callable($this->mergedPresentationStyle) ? $this->mergedPresentationStyle : null; }
     public function htmlAttributesCallback(): ?callable { return is_callable($this->htmlAttributes) ? $this->htmlAttributes : null; }
     public function resolveAssetImageUrlCallback(): ?callable { return is_callable($this->resolveAssetImageUrl) ? $this->resolveAssetImageUrl : null; }
