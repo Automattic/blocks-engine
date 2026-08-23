@@ -395,4 +395,21 @@ $deepStaged = $deepCompiler->compose($deepShared, array($deepReceipt))->toArray(
 $deepWhole = $deepCompiler->compile($deepArtifact)->toArray();
 $assert(($deepWhole['source_reports']['wordpress_site_plan'] ?? null) === ($deepStaged['source_reports']['wordpress_site_plan'] ?? null), 'Compiled receipt digests support deeply nested canonical block trees without weakening runtime declaration depth limits.');
 
+$svgMediaChain = '<svg viewBox="0 0 10 10" aria-label="Mark"><path d="M0 0h10v10H0z"/></svg>';
+for ($depth = 0; $depth < 44; ++$depth) $svgMediaChain = '<div class="depth-' . $depth . '">' . $svgMediaChain . '</div>';
+$wowMediaChain = '<wow-image class="captured-media"><img src="hero.jpg" alt="Hero"></wow-image>';
+for ($depth = 0; $depth < 39; ++$depth) $wowMediaChain = '<div class="depth-' . $depth . '">' . $wowMediaChain . '</div>';
+$deepMediaArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => $svgMediaChain),
+    array('path' => 'post.html', 'content' => $wowMediaChain),
+));
+$deepMediaCompiler = new ArtifactCompiler();
+$deepMediaWhole = $deepMediaCompiler->compile($deepMediaArtifact)->toArray();
+$deepMediaShared = $deepMediaCompiler->prepareShared($deepMediaArtifact);
+$deepMediaReceipts = array();
+foreach ($deepMediaShared['analysis']['page_ids'] as $pageId) $deepMediaReceipts[] = $deepMediaCompiler->compilePage($deepMediaArtifact, $deepMediaShared, $pageId);
+$deepMediaStaged = $deepMediaCompiler->compose($deepMediaShared, array_reverse($deepMediaReceipts))->toArray();
+$assert('passed' === ($deepMediaWhole['source_reports']['editability_policy']['status'] ?? null) && 20 >= ($deepMediaWhole['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), 'Depth-44 SVG and depth-39 custom media routes satisfy the unchanged editability nesting policy.');
+$assert($canonical($deepMediaWhole) === $canonical($deepMediaStaged), 'Deep media wrapper coalescing preserves direct and staged canonical equivalence.');
+
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

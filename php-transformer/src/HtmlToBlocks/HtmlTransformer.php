@@ -7570,7 +7570,7 @@ final class HtmlTransformer
         $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->sourceProvenance[$provenanceId]['source_digest'] ?? '')) : null;
         if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
         if ( ! $sourceChild instanceof DOMElement
-            || ('core/image' === ($childBlock['blockName'] ?? null) && 'img' !== strtolower($sourceChild->tagName))
+            || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
             || $this->hasMotionStructureToken($sourceChild)
             || ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))
             || ($fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
@@ -7626,8 +7626,17 @@ final class HtmlTransformer
     private function imageLeafInGroupChain(DOMElement $element): ?DOMElement
     {
         for ($child = $this->soleElementChild($element); $child instanceof DOMElement; $child = $this->soleElementChild($child)) {
-            if ('img' === strtolower($child->tagName)) return $child;
-            if (! in_array(strtolower($child->tagName), array('div', 'a'), true)) return null;
+            $tagName = strtolower($child->tagName);
+            if (in_array($tagName, array('img', 'svg'), true)) return $child;
+            // Captured media exports commonly place their native image behind a
+            // passive custom-element carrier. Its own conversion already proves
+            // it has no retained block boundary. Use the carrier as the source
+            // leaf so selector survival is checked against its actual identity.
+            if (str_contains($tagName, '-')) {
+                $mediaChild = $this->soleElementChild($child);
+                if ($mediaChild instanceof DOMElement && in_array(strtolower($mediaChild->tagName), array('img', 'svg'), true)) return $child;
+            }
+            if (! in_array($tagName, array('div', 'a'), true) && ! str_contains($tagName, '-')) return null;
         }
         return null;
     }

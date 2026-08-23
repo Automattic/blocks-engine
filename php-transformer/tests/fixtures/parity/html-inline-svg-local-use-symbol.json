@@ -22,13 +22,6 @@
     },
     {
       "path": "blocks.0.innerBlocks.0",
-      "name": "core/group",
-      "attrs": {
-        "className": "icon-row"
-      }
-    },
-    {
-      "path": "blocks.0.innerBlocks.0.innerBlocks.0",
       "name": "core/image"
     }
   ],
