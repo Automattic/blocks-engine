@@ -3330,8 +3330,8 @@ $firstPartyRuntimeContracts = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><p id="clock" class="clock" data-counter="clock">0 <span id="score">score</span></p><script src="js/clock.js"></script></main>',
-            'js/clock.js' => 'document.getElementById("clock").textContent = "1"; document.querySelector(".clock").classList.add("ready"); document.querySelector("[data-counter]").textContent = "2"; document.querySelector("#score").textContent = "3";',
+            'index.html' => '<main><section class="panel"><p id="clock" class="clock">0 <span id="score">score</span></p><p data-counter="clock">Counter</p><p>Editable sibling</p></section><script src="js/clock.js"></script></main>',
+            'js/clock.js' => 'document.getElementById("clock").textContent = "1"; document.querySelector(".clock").classList.add("ready"); document.querySelector("[data-counter]").textContent = "2"; document.querySelector("#score").closest(".panel").classList.add("ready");',
         ),
     )
 )->toArray();
@@ -3339,12 +3339,13 @@ $firstPartyRuntimeMarkup = (string) ($firstPartyRuntimeContracts['serialized_blo
 $firstPartyRuntimeDependencies = array_column($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['dependencies'] ?? array(), null, 'selector');
 $firstPartyRuntimeDiagnostics = array_values(array_filter($firstPartyRuntimeContracts['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '')));
 $firstPartyRuntimeDiagnosticSelectors = array_column($firstPartyRuntimeDiagnostics, 'selector');
-$assert('pass' === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['status'] ?? '') && array() === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['findings'] ?? array()), 'first-party ID, class, and data-attribute runtime selectors pass only when their generated contracts are present');
-foreach (array('#clock', '.clock', '[data-counter]', '#score') as $selector) {
+$firstPartyRuntimeFallbacks = array_values(array_filter($firstPartyRuntimeContracts['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_fallback' === ($diagnostic['code'] ?? '')));
+$assert('pass' === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['status'] ?? '') && array() === ($firstPartyRuntimeContracts['source_reports']['runtime_dependency_parity']['findings'] ?? array()), 'first-party ID, class, closest-parent, and data-attribute runtime selectors pass only when their generated contracts are present');
+foreach (array('#clock', '.clock', '.panel', '[data-counter]', '#score') as $selector) {
     $assert(true === ($firstPartyRuntimeDependencies[$selector]['generated_present'] ?? null), 'first-party runtime dependency parity preserves ' . $selector);
-    $assert(in_array($selector, $firstPartyRuntimeDiagnosticSelectors, true), 'native preservation diagnostics identify ' . $selector);
 }
-$assert(str_contains($firstPartyRuntimeMarkup, 'id="clock" class="clock"') && str_contains($firstPartyRuntimeMarkup, '<mark data-counter="clock">') && str_contains($firstPartyRuntimeMarkup, '<span id="score">score</span>'), 'native RichText output retains required ID, class, and data attributes for first-party runtime selectors', $firstPartyRuntimeMarkup);
+$assert(in_array('#clock', $firstPartyRuntimeDiagnosticSelectors, true) && in_array('.clock', $firstPartyRuntimeDiagnosticSelectors, true) && in_array('#score', $firstPartyRuntimeDiagnosticSelectors, true) && '[data-counter]' === ($firstPartyRuntimeFallbacks[0]['selector'] ?? ''), 'per-target diagnostics distinguish native ID/class/inline preservation from data-attribute fallback');
+$assert(str_contains($firstPartyRuntimeMarkup, '<section class="wp-block-group panel">') && str_contains($firstPartyRuntimeMarkup, '<p id="clock" class="clock">0 <span id="score">score</span></p>') && str_contains($firstPartyRuntimeMarkup, '<!-- wp:html --><p data-counter="clock">Counter</p><!-- /wp:html -->') && str_contains($firstPartyRuntimeMarkup, '<p>Editable sibling</p>') && ! str_contains($firstPartyRuntimeMarkup, '<mark data-counter='), 'runtime data attributes retain their source p tag in one bounded island while native parent and siblings remain editable', $firstPartyRuntimeMarkup);
 $missingRuntimeContract = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
     array(array('path' => 'js/clock.js', 'kind' => 'js', 'content' => 'document.querySelector("[data-counter]").textContent = "2";')),
     '<main><p data-counter="clock">0</p></main>',
@@ -3352,6 +3353,17 @@ $missingRuntimeContract = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactC
     'index.html'
 );
 $assert('warning' === ($missingRuntimeContract['status'] ?? '') && 'runtime_dependency_target_missing' === ($missingRuntimeContract['findings'][0]['code'] ?? ''), 'runtime dependency parity fails closed when a required source selector is absent from generated markup');
+$missingRuntimeCompile = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<main><style data-counter="clock">.clock{color:red}</style><p>Editable</p><script src="js/clock.js"></script></main>',
+            'js/clock.js' => 'document.querySelector("[data-counter]").textContent = "2";',
+        ),
+    )
+)->toArray();
+$missingRuntimeCompileDiagnostics = array_values(array_filter($missingRuntimeCompile['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dependency_contract_failed' === ($diagnostic['code'] ?? '')));
+$assert('failed' === ($missingRuntimeCompile['status'] ?? '') && '[data-counter]' === ($missingRuntimeCompileDiagnostics[0]['context']['selector'] ?? ''), 'ArtifactCompiler promotes required runtime selector parity failures to deterministic top-level errors');
 
 $expandedRuntimeTargetsSite = $compiler->compile(
     array(

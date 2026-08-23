@@ -27,6 +27,7 @@ final class DiagnosticsCollector
      * @param array<int, array<string, mixed>>  $fallbacks            Fallback diagnostics emitted during conversion.
      * @param array<int, array<string, mixed>>  $runtimeIslands       Preserved runtime islands.
      * @param array<int, array<string, mixed>>  $runtimeDomPreservations Runtime contracts retained by native blocks.
+     * @param array<int, array<string, mixed>>  $runtimeDomFallbacks Runtime contracts retained by bounded islands.
      * @param array<string, mixed>              $blockValidityReport  Block serialization validity report.
      * @param array<string, mixed>              $semanticParityReport Semantic parity report.
      * @param array<string, mixed>              $contentRoundTripReport Content round-trip (hallucination) report.
@@ -38,6 +39,7 @@ final class DiagnosticsCollector
         array $fallbacks,
         array $runtimeIslands,
         array $runtimeDomPreservations,
+        array $runtimeDomFallbacks,
         array $blockValidityReport,
         array $semanticParityReport,
         array $contentRoundTripReport = array()
@@ -143,6 +145,20 @@ final class DiagnosticsCollector
                 'block_name'          => $preservation['block_name'] ?? null,
                 'tag'                 => $preservation['tag'] ?? null,
                 'selector'            => $preservation['selector'] ?? null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        foreach ( $runtimeDomFallbacks as $fallback ) {
+            $diagnostics[] = array_filter(array(
+                'code'                => 'runtime_dom_contract_fallback',
+                'message'             => 'A script-addressed DOM contract requires a bounded runtime island because its native block cannot serialize the source element unchanged.',
+                'source'              => $transformerSource,
+                'severity'            => 'info',
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy' => 'bounded_raw_html_runtime_island',
+                'block_name'          => $fallback['block_name'] ?? null,
+                'tag'                 => $fallback['tag'] ?? null,
+                'selector'            => $fallback['selector'] ?? null,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 
