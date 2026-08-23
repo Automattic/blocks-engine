@@ -44,8 +44,6 @@ final class StaticHtmlEmitter
      */
     private array $generatedVectorSvgPathsByHash = array();
 
-    private int $inlineVectorSvgBytes = 0;
-
     private bool $renderTextGlyphPaths = false;
 
     private ?FontResolver $fontResolver = null;
@@ -113,6 +111,7 @@ final class StaticHtmlEmitter
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
         $this->linkState = new StaticHtmlLinkState();
+        $this->pageState = new StaticHtmlPageState();
     }
 
     private ?LayoutFrameRoleClassifier $layoutFrameRoleClassifier = null;
@@ -318,59 +317,7 @@ final class StaticHtmlEmitter
 
     private StaticHtmlLinkState $linkState;
 
-    /**
-     * Page-relative typographic hierarchy: rounded font-size key => heading tag
-     * (h1-h6). Populated per emitted page so the largest/boldest text becomes the
-     * top heading and smaller sizes descend.
-     *
-     * @var array<string, string>
-     */
-    private array $headingLevels = array();
-
-    /**
-     * Per-page heading node id => stable DOM id, derived from heading text.
-     *
-     * @var array<string, string>
-     */
-    private array $headingAnchorIds = array();
-
-    /**
-     * Per-page normalized heading text => page-local hash href for TOC entries.
-     *
-     * @var array<string, string>
-     */
-    private array $tocHrefByText = array();
-
-    private string $currentPagePath = 'index.html';
-
-    private string $currentTemplateType = '';
-
-    private string $currentTemplateSlug = '';
-
-    /**
-     * Memoized list-item id sets keyed by container node id, so list-container
-     * (<ul>) and list-item (<li>) decisions stay consistent within a page.
-     *
-     * @var array<string, array<int, string>>
-     */
-    private array $listItemIdCache = array();
-
-    /**
-     * Per-page emitted form control name counts, used to keep generated names
-     * unique without losing the first canonical name such as `s` or `email`.
-     *
-     * @var array<string, int>
-     */
-    private array $formControlNameCounts = array();
-
-    /**
-     * Tree depth at which a frame can read as a top-level <section> for the page
-     * being emitted. When the page is a single wrapping frame, its bands sit one
-     * level down (depth 1); when bands are emitted as sibling root nodes, they
-     * sit at the root (depth 0). Set per emitted page; everything deeper than
-     * this is nested structure and stays a <div>.
-     */
-    private int $sectionDepth = 0;
+    private StaticHtmlPageState $pageState;
 
     /**
      * Source node id => emitted DOM metadata used to connect result JSON back to
@@ -404,7 +351,6 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
-        $this->inlineVectorSvgBytes = 0;
         $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
@@ -427,14 +373,9 @@ final class StaticHtmlEmitter
      */
     private function beginPage(array $nodes, string $path, string $templateType, string $templateSlug, int $sectionDepth): void
     {
-        $this->listItemIdCache = array();
-        $this->formControlNameCounts = array();
-        $this->currentTemplateType = $templateType;
-        $this->currentTemplateSlug = $templateSlug;
+        $this->pageState->reset($path, $templateType, $templateSlug, $sectionDepth);
         $this->prepareHeadingRanking($nodes);
-        $this->prepareHeadingAnchors($nodes, $path);
-        $this->sectionDepth = $sectionDepth;
-        $this->inlineVectorSvgBytes = 0;
+        $this->prepareHeadingAnchors($nodes);
     }
 
     /**
@@ -505,7 +446,7 @@ final class StaticHtmlEmitter
     {
         return array(
             'body'    => $body,
-            'content' => $this->htmlArtifactAssembler()->htmlDocument($documentTitle, $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $metadataTitle, $this->currentTemplateType, $this->currentTemplateSlug)),
+            'content' => $this->htmlArtifactAssembler()->htmlDocument($documentTitle, $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $metadataTitle, $this->pageState->templateType, $this->pageState->templateSlug)),
         );
     }
 
@@ -791,7 +732,7 @@ final class StaticHtmlEmitter
                 'mime_type' => 'text/html',
                 'content'   => $pageDocument['content'],
             );
-            $canonicalTemplatePath = $this->canonicalTemplatePath($this->currentTemplateType);
+            $canonicalTemplatePath = $this->canonicalTemplatePath($this->pageState->templateType);
             $templateAliases = array();
             if ( '' !== $canonicalTemplatePath && $canonicalTemplatePath !== $path && ! isset($seenPaths[$canonicalTemplatePath]) ) {
                 $templateAliases[] = $canonicalTemplatePath;
@@ -800,7 +741,7 @@ final class StaticHtmlEmitter
                     'path'      => $canonicalTemplatePath,
                     'role'      => 'template-alias',
                     'mime_type' => 'text/html',
-                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($canonicalTemplatePath), $body, $this->headMetadata($options, $canonicalTemplatePath, $pageName, $this->currentTemplateType, $this->templateSlugFromPath($canonicalTemplatePath))),
+                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($canonicalTemplatePath), $body, $this->headMetadata($options, $canonicalTemplatePath, $pageName, $this->pageState->templateType, $this->templateSlugFromPath($canonicalTemplatePath))),
                 );
             }
             $renderedNodes[] = $frameNode;
@@ -821,8 +762,8 @@ final class StaticHtmlEmitter
                 'name'       => $pageName,
                 'path'       => $path,
                 'entrypoint' => true === ($page['entrypoint'] ?? false),
-                'page_type'  => $this->currentTemplateType,
-                'slug'       => $this->currentTemplateSlug,
+                'page_type'  => $this->pageState->templateType,
+                'slug'       => $this->pageState->templateSlug,
                 'canonical_template_path' => '' !== $canonicalTemplatePath ? $canonicalTemplatePath : null,
                 'template_aliases' => $templateAliases,
                 'node_count' => $this->countNodes(array($frameNode)),
@@ -1051,7 +992,7 @@ final class StaticHtmlEmitter
             $this->emittedNodeMetadata[$id] = array(
                 'class'     => $className,
                 'tag'       => $tag,
-                'page_path' => $this->currentPagePath,
+                'page_path' => $this->pageState->path,
             );
         }
         $children = $plan->children;
@@ -1260,8 +1201,8 @@ final class StaticHtmlEmitter
         if ( '' !== $semanticArea ) {
             $attributes .= ' data-template-area="' . $this->sanitizeAttribute($semanticArea) . '"';
         }
-        if ( 0 === $depth && '' !== $this->currentTemplateType ) {
-            $attributes .= ' data-template-type="' . $this->sanitizeAttribute($this->currentTemplateType) . '"';
+        if ( 0 === $depth && '' !== $this->pageState->templateType ) {
+            $attributes .= ' data-template-type="' . $this->sanitizeAttribute($this->pageState->templateType) . '"';
         }
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $attributes .= ' data-figma-unsupported-vector="true" aria-hidden="true"';
@@ -1742,7 +1683,7 @@ final class StaticHtmlEmitter
      */
     private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
-        return $this->staticHtmlSemanticClassifier()->semanticTag($node, $type, $name, $depth, $this->sectionDepth, $parentNode, $grandParentNode);
+        return $this->staticHtmlSemanticClassifier()->semanticTag($node, $type, $name, $depth, $this->pageState->sectionDepth, $parentNode, $grandParentNode);
     }
 
     /** @param array<string, mixed> $node */
@@ -1911,7 +1852,7 @@ final class StaticHtmlEmitter
     {
         // Only the page's top-level bands qualify: the single level directly
         // below the page root. Anything deeper is nested structure (a <div>).
-        if ( $depth !== $this->sectionDepth ) {
+        if ( $depth !== $this->pageState->sectionDepth ) {
             return false;
         }
 
@@ -2059,7 +2000,6 @@ final class StaticHtmlEmitter
      */
     private function prepareHeadingRanking(array $nodes): void
     {
-        $this->headingLevels = array();
         $sizes = array();
         $this->collectTextSizes($nodes, $sizes);
         if ( empty($sizes) ) {
@@ -2081,7 +2021,7 @@ final class StaticHtmlEmitter
         rsort($values);
         $level = 1;
         foreach ( $values as $size ) {
-            $this->headingLevels[$this->sizeKey($size)] = 'h' . min($level, 6);
+            $this->pageState->headingLevels[$this->sizeKey($size)] = 'h' . min($level, 6);
             $level++;
         }
     }
@@ -2152,8 +2092,8 @@ final class StaticHtmlEmitter
         if ( null !== $size ) {
             $key = $this->sizeKey($size);
             // Long running text at a heading size still reads as a paragraph.
-            if ( isset($this->headingLevels[$key]) && $this->textWordCount($node) <= 24 ) {
-                return $this->headingLevels[$key];
+            if ( isset($this->pageState->headingLevels[$key]) && $this->textWordCount($node) <= 24 ) {
+                return $this->pageState->headingLevels[$key];
             }
         }
 
@@ -2709,8 +2649,8 @@ final class StaticHtmlEmitter
         }
 
         $name = $matches[1];
-        $count = $this->formControlNameCounts[$name] ?? 0;
-        $this->formControlNameCounts[$name] = $count + 1;
+        $count = $this->pageState->formControlNameCounts[$name] ?? 0;
+        $this->pageState->formControlNameCounts[$name] = $count + 1;
         if ( 0 === $count ) {
             return $attributes;
         }
@@ -2781,13 +2721,13 @@ final class StaticHtmlEmitter
     private function listItemIds(array $container): array
     {
         $id = (string) ($container['id'] ?? '');
-        if ( '' !== $id && array_key_exists($id, $this->listItemIdCache) ) {
-            return $this->listItemIdCache[$id];
+        if ( '' !== $id && array_key_exists($id, $this->pageState->listItemIdCache) ) {
+            return $this->pageState->listItemIdCache[$id];
         }
 
         $result = $this->computeListItemIds($container);
         if ( '' !== $id ) {
-            $this->listItemIdCache[$id] = $result;
+            $this->pageState->listItemIdCache[$id] = $result;
         }
 
         return $result;
@@ -3096,12 +3036,8 @@ final class StaticHtmlEmitter
     /**
      * @param array<int, mixed> $nodes
      */
-    private function prepareHeadingAnchors(array $nodes, string $pagePath): void
+    private function prepareHeadingAnchors(array $nodes): void
     {
-        $this->headingAnchorIds = array();
-        $this->tocHrefByText = array();
-        $this->currentPagePath = $pagePath;
-
         $used = array();
         $this->collectHeadingAnchors($nodes, 0, null, false, $used);
     }
@@ -3127,8 +3063,8 @@ final class StaticHtmlEmitter
                     $count = ($used[$base] ?? 0) + 1;
                     $used[$base] = $count;
                     $anchorId = 1 === $count ? $base : $base . '-' . $count;
-                    $this->headingAnchorIds[$nodeId] = $anchorId;
-                    $this->tocHrefByText[$text] ??= '#' . $anchorId;
+                    $this->pageState->headingAnchorIds[$nodeId] = $anchorId;
+                    $this->pageState->tocHrefByText[$text] ??= '#' . $anchorId;
                 }
             }
 
@@ -3143,13 +3079,13 @@ final class StaticHtmlEmitter
         }
 
         $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
-        return '' !== $nodeId && isset($this->headingAnchorIds[$nodeId]) ? $this->headingAnchorIds[$nodeId] : null;
+        return '' !== $nodeId && isset($this->pageState->headingAnchorIds[$nodeId]) ? $this->pageState->headingAnchorIds[$nodeId] : null;
     }
 
     private function implicitTocHref(array $node): ?string
     {
         $text = $this->normalizedAnchorText($this->nodePlainText($node));
-        return '' !== $text && isset($this->tocHrefByText[$text]) ? $this->tocHrefByText[$text] : null;
+        return '' !== $text && isset($this->pageState->tocHrefByText[$text]) ? $this->pageState->tocHrefByText[$text] : null;
     }
 
     private function normalizedAnchorText(string $text): string
@@ -3947,12 +3883,12 @@ final class StaticHtmlEmitter
             $targetPath = '' !== $targetNodeId ? $this->linkState->linkTargetPath($targetNodeId) : null;
             if ( null !== $targetPath ) {
                 $href = $targetPath;
-                if ( isset($this->headingAnchorIds[$targetNodeId]) ) {
-                    $href = $this->linkHrefWithHash($href, $this->headingAnchorIds[$targetNodeId]);
+                if ( isset($this->pageState->headingAnchorIds[$targetNodeId]) ) {
+                    $href = $this->linkHrefWithHash($href, $this->pageState->headingAnchorIds[$targetNodeId]);
                 }
                 $resolved = true;
-            } elseif ( '' !== $targetNodeId && isset($this->headingAnchorIds[$targetNodeId]) ) {
-                $href = '#' . $this->headingAnchorIds[$targetNodeId];
+            } elseif ( '' !== $targetNodeId && isset($this->pageState->headingAnchorIds[$targetNodeId]) ) {
+                $href = '#' . $this->pageState->headingAnchorIds[$targetNodeId];
                 $resolved = true;
             } else {
                 $href = '#';
@@ -4100,7 +4036,7 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        if ( $path === $this->currentPagePath ) {
+        if ( $path === $this->pageState->path ) {
             $routeTarget = $this->linkState->implicitRouteTarget($key);
             $this->linkState->increment('implicit_route_self_suppressed');
             if ( $recordUnresolved ) {
@@ -4161,11 +4097,11 @@ final class StaticHtmlEmitter
     private function currentPageAnchorHrefForLabel(string $label): ?string
     {
         $text = $this->normalizedAnchorText($label);
-        if ( '' === $text || ! isset($this->tocHrefByText[$text]) ) {
+        if ( '' === $text || ! isset($this->pageState->tocHrefByText[$text]) ) {
             return null;
         }
 
-        return $this->tocHrefByText[$text];
+        return $this->pageState->tocHrefByText[$text];
     }
 
     private function sanitizeLinkUrl(string $url): string
@@ -4195,7 +4131,7 @@ final class StaticHtmlEmitter
     private function linkHrefWithHash(string $href, string $anchorId): string
     {
         $base = preg_replace('/#.*$/', '', $href) ?? $href;
-        if ( '' === $base || $base === $this->currentPagePath ) {
+        if ( '' === $base || $base === $this->pageState->path ) {
             return '#' . $anchorId;
         }
 
@@ -4520,7 +4456,7 @@ final class StaticHtmlEmitter
             $decision,
             $parentNode,
             $evidence,
-            $this->currentPagePath,
+            $this->pageState->path,
             fn (array $traceNode): string => $this->nodeDiagnosticClass($traceNode)
         );
     }
@@ -7185,7 +7121,7 @@ final class StaticHtmlEmitter
         $effectiveGeometry = $this->effectiveCssGeometryDiagnostic($styles);
         $baseEvidence = array(
             'source_frame' => array_filter(array(
-                'page_path' => $this->currentPagePath,
+                'page_path' => $this->pageState->path,
                 'node_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '',
                 'parent_id' => null === $parentNode ? '' : (string) ($parentNode['id'] ?? ''),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value),
@@ -10143,9 +10079,9 @@ final class StaticHtmlEmitter
         if (
             $svgBytes <= self::EXTERNAL_VECTOR_SVG_BYTES
             && ! isset($this->generatedVectorSvgPathsByHash[$hash])
-            && $this->inlineVectorSvgBytes + $svgBytes <= self::INLINE_VECTOR_SVG_BUDGET_BYTES
+            && $this->pageState->inlineVectorSvgBytes + $svgBytes <= self::INLINE_VECTOR_SVG_BUDGET_BYTES
         ) {
-            $this->inlineVectorSvgBytes += $svgBytes;
+            $this->pageState->inlineVectorSvgBytes += $svgBytes;
             return $svg;
         }
 
