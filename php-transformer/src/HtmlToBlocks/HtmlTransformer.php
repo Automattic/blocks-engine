@@ -5352,6 +5352,11 @@ final class HtmlTransformer
             return null;
         }
 
+        $transparentCustomElement = $this->transparentCustomElementBlock($element, $fallbacks);
+        if ( null !== $transparentCustomElement ) {
+            return $transparentCustomElement;
+        }
+
         if ( $captureUnsupported ) {
             // Producer link (issue #497): this is a core/html fallback decision —
             // the element mapped to nothing native/Automattic. If the structural
@@ -5388,6 +5393,94 @@ final class HtmlTransformer
         }
 
         return null;
+    }
+
+    /**
+     * Custom elements are presentation-only only when their host exposes no
+     * component API and every child can stand on its own as a native block.
+     * Explicit ARIA list topology is retained with semantic Group wrappers.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function transparentCustomElementBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! str_contains($tagName, '-') || ! $this->isSafeTransparentCustomElement($element) ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            $children[] = $child;
+        }
+        if ( array() === $children ) {
+            return null;
+        }
+
+        $isList = 'list' === strtolower($this->attr($element, 'role'));
+        if ( $isList && ! array_reduce($children, fn (bool $valid, DOMElement $child): bool => $valid && 'listitem' === strtolower($this->attr($child, 'role')), true) ) {
+            return null;
+        }
+        // A non-semantic custom element is transparent only as a single
+        // structural wrapper. Larger arbitrary subtrees remain eligible for
+        // the custom-block generator rather than being prematurely flattened.
+        if ( ! $isList && (1 !== count($children) || ! $this->isStructuralTransparentCustomWrapperChild($children[0])) ) {
+            return null;
+        }
+
+        $converted = array();
+        $childFallbacks = array();
+        foreach ( $children as $child ) {
+            if ( $isList && ! $this->isSafeTransparentCustomElement($child) ) {
+                return null;
+            }
+            $childBlocks = $this->convertChildren($child, $childFallbacks, true);
+            if ( array() === $childBlocks ) {
+                return null;
+            }
+            if ( $isList ) {
+                $converted[] = $this->createBlock('core/group', array_merge($this->presentationAttributes($child), array( 'tagName' => 'li' )), $childBlocks, $child);
+            } else {
+                array_push($converted, ...$childBlocks);
+            }
+        }
+        if ( array() !== $childFallbacks ) {
+            return null;
+        }
+
+        if ( $isList ) {
+            return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
+        }
+
+        if ( 1 === count($converted) && array() === $this->presentationAttributes($element) ) {
+            return $converted[0];
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $converted, $element);
+    }
+
+    private function isSafeTransparentCustomElement(DOMElement $element): bool
+    {
+        if ( $this->isRuntimeDomTarget($element) || array() !== $this->eventMetadata($element) || $this->hasMotionStructureToken($element) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'footer', 'form', 'header', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true);
     }
 
     /**
