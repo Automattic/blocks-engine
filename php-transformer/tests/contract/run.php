@@ -79,14 +79,21 @@ $assert(
     str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
     'video playback attributes should be preserved in native save markup'
 );
-$customVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video></wix-video>')->toArray();
+$coffeeFestivalVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video></wix-video>')->toArray();
 $assert(
-    'core/video' === ($customVideoResult['blocks'][0]['blockName'] ?? null)
-        && 'hero.jpg' === ($customVideoResult['blocks'][0]['attrs']['poster'] ?? null)
-        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($customVideoResult['blocks'][0]['attrs']['tracks'] ?? null)
-        && str_contains((string) ($customVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
-        && array() === ($customVideoResult['fallbacks'] ?? array()),
-    'custom media hosts with one native video lower to editable core/video markup'
+    'core/video' === ($coffeeFestivalVideoResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg' === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['poster'] ?? null)
+        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['tracks'] ?? null)
+        && str_contains((string) ($coffeeFestivalVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
+        && array() === ($coffeeFestivalVideoResult['fallbacks'] ?? array()),
+    'the presentation-transparent Coffee Festival custom video lowers to editable core/video markup'
+);
+$styledCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"><video src="hero.mp4"></video></wix-video>')->toArray();
+$assert(
+    'custom/responsive-media' === ($styledCustomVideoResult['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($styledCustomVideoResult['blocks'][0]['attrs']['content'] ?? ''), 'style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"')
+        && ! str_contains((string) ($styledCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
+    'styled custom video hosts preserve presentation in a typed gap instead of lowering to core/video'
 );
 $ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4"></video><video src="trailer.mp4"></video></wix-video>')->toArray();
 $assert(
