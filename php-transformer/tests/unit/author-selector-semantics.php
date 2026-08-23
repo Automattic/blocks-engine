@@ -268,6 +268,10 @@ $labeledIconButton = $transform('<style>.ins-block span{font-size:.68rem;font-we
 $labeledIconButtonMarkup = (string) ($labeledIconButton['serialized_blocks'] ?? '');
 $assert(str_contains($labeledIconButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($labeledIconButtonMarkup, 'font-size:.68rem') && str_contains($labeledIconButtonMarkup, 'font-weight:600') && str_contains($labeledIconButtonMarkup, '>Paragraph</span>') && 1 === count(array_filter($labeledIconButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($labeledIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'labeled controls preserve passive inline SVG artwork and descendant typography beside their visible RichText label');
 
+$wrappedPercentageIconButton = $transform('<style>.icon-wrap{width:34.759px;height:34.917px}.icon-wrap svg{width:100%;height:100%}</style><button><span>WhatsApp</span><div class="icon-wrap"><svg viewBox="0 0 34.759 34.917" data-figma-vector="true" aria-hidden="true"><path d="M0 0h34.759v34.917z"/></svg></div></button>');
+$wrappedPercentageIconMarkup = (string) ($wrappedPercentageIconButton['serialized_blocks'] ?? '');
+$assert(str_contains($wrappedPercentageIconMarkup, '<img src="assets/materialized-svg/') && str_contains($wrappedPercentageIconMarkup, 'style="width:34.759px;height:34.917px"') && ! str_contains($wrappedPercentageIconMarkup, '<!-- wp:html') && 'pass' === ($wrappedPercentageIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'percentage-sized SVG artwork retains its concrete wrapper dimensions when promoted into native control RichText');
+
 $gridButton = $transform('<style>.controls{display:grid;grid-template-columns:repeat(3,1fr)}</style><div class="controls"><button>One</button><button>Two</button></div>');
 $assert(2 === substr_count((string) ($gridButton['serialized_blocks'] ?? ''), 'tagName":"button"'), 'direct grid buttons retain direct editable button representation');
 

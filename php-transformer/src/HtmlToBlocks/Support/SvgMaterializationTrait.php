@@ -235,7 +235,7 @@ trait SvgMaterializationTrait
 
         $style = trim($this->attr($element, 'style'));
         if ( $this->cssOwnsMediaBox($element) ) {
-            $resolved = $this->presentationDeclarations($element);
+            $resolved = $this->richTextSvgDimensions($element, $this->presentationDeclarations($element));
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
                 if ( ! isset($resolved[$dimension]) || preg_match('/(?:^|;)\s*' . preg_quote($dimension, '/') . '\s*:/i', $style) ) {
                     continue;
@@ -266,6 +266,34 @@ trait SvgMaterializationTrait
         }
 
         return $markup;
+    }
+
+    /**
+     * Resolve percentage-sized RichText artwork before its structural wrapper is flattened.
+     *
+     * @param array<string, string> $dimensions
+     * @return array<string, string>
+     */
+    private function richTextSvgDimensions(DOMElement $element, array $dimensions): array
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || ! in_array(strtolower($parent->tagName), array( 'div', 'span', 'i', 'b' ), true) ) {
+            return $dimensions;
+        }
+
+        $parentDimensions = $this->presentationDeclarations($parent);
+        foreach ( array( 'width', 'height' ) as $dimension ) {
+            if ( ! preg_match('/^\s*(?:\d+(?:\.\d+)?|\.\d+)%\s*$/', (string) ($dimensions[$dimension] ?? '')) ) {
+                continue;
+            }
+
+            $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
+            if ( '' !== $parentDimension && ! str_ends_with($parentDimension, '%') ) {
+                $dimensions[$dimension] = $parentDimension;
+            }
+        }
+
+        return $dimensions;
     }
 
     /** @param array<string, string> $attributes */
