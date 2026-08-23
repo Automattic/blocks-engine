@@ -49,7 +49,7 @@ final class CoverPattern implements PatternRecognizerInterface
             $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
             return $result->blocks();
         }, $context->presentationAttributesCallback(), $style, $attrs, $url, $context->createBlockCallback());
-        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks, array(), array('fallbacks'));
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 
     /**

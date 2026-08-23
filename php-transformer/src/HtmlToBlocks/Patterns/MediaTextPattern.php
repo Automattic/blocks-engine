@@ -40,7 +40,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
             return $result->firstBlock();
         }, $attrs, $style, $html, $url, $context->createBlockCallback());
-        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks, array(), array('fallbacks'));
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 
     /**
