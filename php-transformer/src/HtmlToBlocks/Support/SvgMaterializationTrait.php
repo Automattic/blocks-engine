@@ -934,7 +934,8 @@ trait SvgMaterializationTrait
 
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             $name = strtolower($name);
-            if ( ! isset($allowedAttributes[$name]) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+            $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
+            if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
                 return false;
             }
             if ( preg_match('/(?:^|:)href$/i', $name) && ! str_starts_with(trim($value), '#') ) {
