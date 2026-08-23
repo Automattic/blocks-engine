@@ -38,11 +38,23 @@ $visible = ( new HtmlTransformer() )->transform(
 $visibleMarkup = (string) ($visible['serialized_blocks'] ?? '');
 $assert(! str_contains($visibleMarkup, '<!-- wp:navigation '), 'visible non-menu siblings still reject navigation promotion', $visibleMarkup);
 
-$leadingSupport = ( new HtmlTransformer() )->transform(
-    '<nav aria-label="Primary"><span hidden>Primary navigation</span>' . $menu . '</nav>'
+$visibleAriaHidden = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Primary">' . $menu . '<span aria-hidden="true">Menu updated daily</span></nav>'
 )->toArray();
-$leadingSupportMarkup = (string) ($leadingSupport['serialized_blocks'] ?? '');
-$assert(! str_contains($leadingSupportMarkup, '<!-- wp:navigation '), 'support children before a recognized list do not promote navigation', $leadingSupportMarkup);
+$visibleAriaHiddenMarkup = (string) ($visibleAriaHidden['serialized_blocks'] ?? '');
+$assert(! str_contains($visibleAriaHiddenMarkup, '<!-- wp:navigation '), 'visible aria-hidden siblings still reject navigation promotion', $visibleAriaHiddenMarkup);
+
+$visibleInert = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Primary">' . $menu . '<span inert>Menu updated daily</span></nav>'
+)->toArray();
+$visibleInertMarkup = (string) ($visibleInert['serialized_blocks'] ?? '');
+$assert(! str_contains($visibleInertMarkup, '<!-- wp:navigation '), 'visible inert siblings still reject navigation promotion', $visibleInertMarkup);
+
+$presentationHidden = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Primary">' . $menu . '<span aria-hidden="true" style="display:none">Primary navigation</span><span inert style="visibility:hidden">Menu support</span></nav>'
+)->toArray();
+$presentationHiddenMarkup = (string) ($presentationHidden['serialized_blocks'] ?? '');
+$assert(1 === substr_count($presentationHiddenMarkup, '<!-- wp:navigation '), 'presentation-hidden aria and inert support children promote navigation', $presentationHiddenMarkup);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation inert support children contract: {$failures} failed, {$passes} passed\n");
