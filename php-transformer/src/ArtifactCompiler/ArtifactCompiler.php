@@ -703,7 +703,7 @@ final class ArtifactCompiler
         if ( array() !== $entryBlocks['superseded_selectors'] ) {
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors']);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
         foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
             if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
                 continue;

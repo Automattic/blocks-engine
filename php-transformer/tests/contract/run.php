@@ -3483,6 +3483,47 @@ $assert(
     'runtime dependency parity does not fail entry output for shared drum script selectors absent from that entry source'
 );
 
+$staticJsonRuntimeSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<main><script id="config" type="application/json">{"message":"Ready"}</script><script src="js/app.js"></script><h1>Home</h1></main>',
+            'js/app.js' => 'JSON.parse(document.getElementById("config").textContent).message;',
+        ),
+    )
+)->toArray();
+$staticJsonRuntimeMarkup = (string) ($staticJsonRuntimeSite['serialized_blocks'] ?? '');
+$staticJsonRuntimeDependency = array_values(array_filter($staticJsonRuntimeSite['source_reports']['runtime_dependency_parity']['dependencies'] ?? array(), static fn (array $dependency): bool => '#config' === ($dependency['selector'] ?? '')))[0] ?? array();
+$assert('pass' === ($staticJsonRuntimeSite['source_reports']['runtime_dependency_parity']['status'] ?? '') && true === ($staticJsonRuntimeDependency['generated_present'] ?? null), 'ID-addressed static JSON remains an addressable runtime target for carried first-party scripts');
+$assert(str_contains($staticJsonRuntimeMarkup, '<script id="config" type="application/json">{"message":"Ready"}</script>'), 'addressable static JSON is preserved as bounded non-executable block markup');
+$assert(1 === count(array_filter($staticJsonRuntimeSite['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'static_script' === ($island['kind'] ?? ''))), 'addressable static JSON target is recorded as a runtime configuration island');
+
+$companionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => 'document.querySelector("a[data-anchor]").addEventListener("click", function () {});')),
+    '<main><a data-anchor="docs">Docs</a></main>',
+    '<!-- wp:custom/companion /-->',
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('block_json' => array('render' => 'file:./render.php'), 'render' => '<a data-anchor="docs">Docs</a>'))
+);
+$companionRenderDependency = $companionRenderReport['dependencies'][0] ?? array();
+$assert('pass' === ($companionRenderReport['status'] ?? '') && true === ($companionRenderDependency['generated_present'] ?? null) && 'declared_companion_render' === ($companionRenderDependency['generated_target_evidence'] ?? ''), 'declared exact companion render HTML supplies data-attribute target evidence');
+$undeclaredCompanionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => 'document.querySelector("a[data-anchor]").addEventListener("click", function () {});')),
+    '<main><a data-anchor="docs">Docs</a></main>',
+    '<!-- wp:custom/companion /-->',
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('block_json' => array(), 'render' => '<a data-anchor="docs">Docs</a>'))
+);
+$assert('warning' === ($undeclaredCompanionRenderReport['status'] ?? '') && 'runtime_dependency_target_missing' === ($undeclaredCompanionRenderReport['findings'][0]['code'] ?? ''), 'undeclared companion render strings cannot suppress missing-target failures');
+
 $hamburgerOverlaySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',

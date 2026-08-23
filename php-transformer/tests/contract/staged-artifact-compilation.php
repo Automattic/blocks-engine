@@ -107,6 +107,20 @@ $assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array
 $assert($canonical($manyInline) === $canonical($manyStaged), 'Fifty-page arbitrary-order resume preserves the complete canonical transformer result after observational fields are excluded.');
 $manyPageComponent = current(array_filter($manyStaged['components'], static fn(array $component): bool => 'page' === ($component['name'] ?? null)));
 $assert(50 === ($manyPageComponent['occurrences'] ?? null), 'A class occurring once per page is qualified from the globally summed uncapped component facts.');
+$pageScopedScriptArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main id="home-target"><script src="js/home.js"></script><h1>Home</h1></main>'),
+    array('path' => 'about.html', 'content' => '<main id="about-target"><script src="js/about.js"></script><h1>About</h1></main>'),
+    array('path' => 'js/home.js', 'content' => 'document.getElementById("home-target").addEventListener("click", function () {});', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
+    array('path' => 'js/about.js', 'content' => 'document.getElementById("about-target").addEventListener("click", function () {});', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'about.html'))),
+));
+$pageScopedWhole = $compiler->compile($pageScopedScriptArtifact)->toArray();
+$pageScopedShared = $compiler->prepareShared($pageScopedScriptArtifact);
+$pageScopedReceipts = array();
+foreach ($pageScopedShared['analysis']['page_ids'] as $pageId) $pageScopedReceipts[] = $compiler->compilePage($pageScopedScriptArtifact, $pageScopedShared, $pageId);
+$pageScopedStaged = $compiler->compose($pageScopedShared, array_reverse($pageScopedReceipts))->toArray();
+$pageScopedDependencies = $pageScopedWhole['source_reports']['runtime_dependency_parity']['dependencies'] ?? array();
+$assert('pass' === ($pageScopedWhole['source_reports']['runtime_dependency_parity']['status'] ?? '') && array() === array_values(array_filter($pageScopedDependencies, static fn (array $dependency): bool => 'js/about.js' === ($dependency['script_path'] ?? ''))), 'page-owned scripts are not evaluated against another page output');
+$assert($canonical($pageScopedWhole) === $canonical($pageScopedStaged), 'page-owned script parity remains deterministic for staged receipt composition.');
 $componentArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main class="distributed-widget"><h1>Home</h1></main>'),
     array('path' => 'second.html', 'content' => '<main class="distributed-widget"><h1>Second</h1></main>'),
