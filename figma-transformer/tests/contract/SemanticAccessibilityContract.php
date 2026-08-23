@@ -404,4 +404,136 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($footerOverflowHtml, '<footer class="figma-node-chrome-overflow-footer-footer"'), 'semantic-accessibility-named-footer-with-legal-evidence-emits-footer');
     $assert(str_contains($footerOverflowCss, '.figma-node-chrome-overflow-footer-footer{') && str_contains($footerOverflowCss, 'min-height:152px'), 'semantic-accessibility-footer-reserves-protruding-bottom-bar');
     $assert(str_contains($footerOverflowCss, '.figma-node-chrome-overflow-links-footer-links{') && str_contains($footerOverflowCss, 'white-space:pre-wrap'), 'semantic-accessibility-footer-spaced-text-preserves-layout-spacing');
+
+    // Semantic HTML5 elements: a generically-named page structure maps to landmarks
+    // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated
+    // sibling cards map to <ul>/<li>, and a button-like control maps to <button>.
+    $semanticElementsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Semantic Elements Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'page:root',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'x'        => 0,
+                'y'        => 0,
+                'width'    => 1200,
+                'height'   => 2000,
+                'children' => array(
+                    // Top region: logo + link cluster -> <header> containing <nav>.
+                    array(
+                        'id'       => 'region:top',
+                        'type'     => 'FRAME',
+                        'name'     => 'Top Bar',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1200,
+                        'height'   => 80,
+                        'children' => array(
+                            array('id' => 'top:logo', 'type' => 'FRAME', 'name' => 'Site Logo', 'x' => 0, 'y' => 0, 'width' => 120, 'height' => 40),
+                            array(
+                                'id'       => 'top:menu',
+                                'type'     => 'FRAME',
+                                'name'     => 'Primary Links',
+                                'x'        => 200,
+                                'y'        => 0,
+                                'width'    => 400,
+                                'height'   => 40,
+                                'children' => array(
+                                    array('id' => 'top:link-1', 'type' => 'TEXT', 'name' => 'Link One', 'characters' => 'Home', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/')),
+                                    array('id' => 'top:link-2', 'type' => 'TEXT', 'name' => 'Link Two', 'characters' => 'About', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/about')),
+                                ),
+                            ),
+                        ),
+                    ),
+                    // Primary content: headings by size + a repeated card list + a CTA.
+                    array(
+                        'id'       => 'region:body',
+                        'type'     => 'FRAME',
+                        'name'     => 'Content',
+                        'x'        => 0,
+                        'y'        => 100,
+                        'width'    => 1200,
+                        'height'   => 1600,
+                        'children' => array(
+                            array('id' => 'body:h1', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome', 'fontSize' => 48, 'fontWeight' => 700),
+                            array('id' => 'body:h2', 'type' => 'TEXT', 'name' => 'Subhead', 'characters' => 'Our Services', 'fontSize' => 28, 'fontWeight' => 600),
+                            array('id' => 'body:p1', 'type' => 'TEXT', 'name' => 'Intro', 'characters' => 'We build delightful things for everyone.', 'fontSize' => 16),
+                            array('id' => 'body:p2', 'type' => 'TEXT', 'name' => 'More', 'characters' => 'Read on to learn what we offer today.', 'fontSize' => 16),
+                            array(
+                                'id'       => 'body:cards',
+                                'type'     => 'FRAME',
+                                'name'     => 'Feature Cards',
+                                'x'        => 0,
+                                'y'        => 200,
+                                'width'    => 1200,
+                                'height'   => 300,
+                                'children' => array(
+                                    array('id' => 'card:1', 'type' => 'FRAME', 'name' => 'Card One', 'x' => 0, 'y' => 0, 'width' => 380, 'height' => 200, 'children' => array(
+                                        array('id' => 'card:1-text', 'type' => 'TEXT', 'name' => 'Card One Body', 'characters' => 'First feature description.', 'fontSize' => 16),
+                                    )),
+                                    array('id' => 'card:2', 'type' => 'FRAME', 'name' => 'Card Two', 'x' => 400, 'y' => 0, 'width' => 380, 'height' => 200, 'children' => array(
+                                        array('id' => 'card:2-text', 'type' => 'TEXT', 'name' => 'Card Two Body', 'characters' => 'Second feature description.', 'fontSize' => 16),
+                                    )),
+                                    array('id' => 'card:3', 'type' => 'FRAME', 'name' => 'Card Three', 'x' => 800, 'y' => 0, 'width' => 380, 'height' => 200, 'children' => array(
+                                        array('id' => 'card:3-text', 'type' => 'TEXT', 'name' => 'Card Three Body', 'characters' => 'Third feature description.', 'fontSize' => 16),
+                                    )),
+                                ),
+                            ),
+                            array(
+                                'id'         => 'body:cta',
+                                'type'       => 'FRAME',
+                                'name'       => 'Get Started',
+                                'x'          => 0,
+                                'y'          => 600,
+                                'width'      => 180,
+                                'height'     => 48,
+                                'cornerRadius' => 8,
+                                'fill'       => array('r' => 0.1, 'g' => 0.4, 'b' => 0.9),
+                                'children'   => array(
+                                    array('id' => 'cta:label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Get Started', 'fontSize' => 16),
+                                ),
+                            ),
+                        ),
+                    ),
+                    // Bottom region: links + legal text -> <footer>.
+                    array(
+                        'id'       => 'region:bottom',
+                        'type'     => 'FRAME',
+                        'name'     => 'Bottom Bar',
+                        'x'        => 0,
+                        'y'        => 1800,
+                        'width'    => 1200,
+                        'height'   => 200,
+                        'children' => array(
+                            array('id' => 'bottom:link', 'type' => 'TEXT', 'name' => 'Privacy', 'characters' => 'Privacy', 'fontSize' => 14, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/privacy')),
+                            array('id' => 'bottom:legal', 'type' => 'TEXT', 'name' => 'Legal', 'characters' => '© 2026 Example, Inc. All rights reserved.', 'fontSize' => 14),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $semanticHtml = $fileContent($semanticElementsResult, 'index.html');
+    $semanticCss = $fileContent($semanticElementsResult, 'style.css');
+    $assert('success' === ($semanticElementsResult['status'] ?? null), 'semantic-elements-transform-success');
+    // The page shell already provides <main>; assert it wraps the rendered body.
+    $assert(1 === preg_match('/<main\b[^>]*class="figma-root"[^>]*data-figma-root="true"/', $semanticHtml), 'semantic-main-landmark');
+    $assert(str_contains($semanticHtml, '<header class="figma-node-region-top-top-bar"'), 'semantic-top-region-emits-header');
+    $assert(str_contains($semanticHtml, '<nav class="figma-node-top-menu-primary-links"'), 'semantic-link-cluster-emits-nav');
+    $assert(str_contains($semanticHtml, '<footer class="figma-node-region-bottom-bottom-bar"'), 'semantic-bottom-region-emits-footer');
+    $assert(str_contains($semanticHtml, '<h1 class="figma-node-body-h1-hero"'), 'semantic-largest-text-emits-h1');
+    $assert(str_contains($semanticHtml, '<h2 class="figma-node-body-h2-subhead"'), 'semantic-second-text-emits-h2');
+    $assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'semantic-body-copy-emits-paragraph');
+    $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
+    $assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one'), 'semantic-repeated-item-emits-list-item');
+    $assert(str_contains($semanticCss, 'position:relative') && ! str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-positioning-context');
+    $assert(! str_contains($semanticCss, '.figma-node-card-1-card-one::before'), 'semantic-repeated-card-list-avoids-implicit-marker-pseudo');
+    $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
+    $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
+    // The middle content band (not a header/nav/footer landmark) is the genuine
+    // top-level region and reads as the page's single <section>; the deeply nested
+    // card/cta frames inside it do NOT each become their own <section>.
+    $assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
+    $assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
 }
