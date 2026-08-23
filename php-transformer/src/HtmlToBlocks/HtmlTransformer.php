@@ -4738,9 +4738,11 @@ final class HtmlTransformer
             );
         }
 
-        $customVideo = $this->videoOnlyCustomElement($element);
+        $customVideo = $this->customVideoElement($element);
         if ( $customVideo instanceof DOMElement ) {
-            return $this->convertMediaElement($customVideo);
+            return $this->hasTransparentCustomVideoHostPresentation($element)
+                ? $this->convertMediaElement($customVideo)
+                : $this->responsiveMediaBlock($element);
         }
 
         $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
@@ -15210,7 +15212,7 @@ final class HtmlTransformer
         return $images->item(0);
     }
 
-    private function videoOnlyCustomElement(DOMElement $element): ?DOMElement
+    private function customVideoElement(DOMElement $element): ?DOMElement
     {
         if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) ) {
             return null;
@@ -15228,6 +15230,24 @@ final class HtmlTransformer
         }
 
         return $videos->item(0);
+    }
+
+    private function hasTransparentCustomVideoHostPresentation(DOMElement $element): bool
+    {
+        // Flattening the host drops its box. A class, id, inline declaration, or
+        // matched author rule means that box may carry presentation we cannot
+        // faithfully move onto core/video.
+        if ( '' !== $this->attr($element, 'class') || '' !== $this->attr($element, 'id') || '' !== $this->attr($element, 'style') || array() !== $this->structuralPresentationDeclarations($element) ) {
+            return false;
+        }
+
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) && array() !== ($rule['declarations'] ?? array()) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @return array<int, array<string, mixed>> */
