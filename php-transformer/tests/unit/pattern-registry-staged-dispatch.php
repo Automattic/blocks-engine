@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
@@ -67,10 +68,12 @@ $navigationContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $innerHtml,
     $createBlock,
-    null,
     $navigationConverter,
-    null,
-    static fn (DOMElement $source): string => ''
+    new NavigationPatternContext(
+        null,
+        static fn (DOMElement $item, DOMElement $anchor): string => '',
+        static fn (DOMElement $source): string => ''
+    )
 );
 $navigationResult = (new NavigationPattern())->recognize($navigationElement, $navigationContext);
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');

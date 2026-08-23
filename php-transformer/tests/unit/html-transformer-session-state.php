@@ -28,6 +28,7 @@ $tiles = '<my-pricing><div class="tier"><h3>Basic</h3><p>$9</p></div><div class=
 $svg = '<main><svg viewBox="0 0 10 10" role="img" aria-label="Map"><path d="M0 0h10v10z"/></svg></main>';
 $script = '<main><script src="widget.js"></script><canvas id="map">Map</canvas></main>';
 $styled = '<style>.card{display:grid;gap:1rem;color:#123}.card .title{font-weight:700}</style><main class="card"><h2 class="title">Styled</h2></main>';
+$accordion = static fn (string $label, string $answer): string => '<section class="faq"><div class="faq-item"><button aria-controls="a">' . $label . ' A?</button><div id="a"><p>' . $answer . ' A.</p></div></div><div class="faq-item"><button aria-controls="b">' . $label . ' B?</button><div id="b"><p>' . $answer . ' B.</p></div></div></section>';
 
 $families = array(
     'generated blocks and provenance' => array(
@@ -57,6 +58,13 @@ $families = array(
             implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content')),
             '#0a0'
         ),
+    ),
+    'reused pattern execution context' => array(
+        'seed' => array($accordion('Seed', 'Old'), array()),
+        'target' => array($accordion('Target', 'Current'), array()),
+        'assertion' => static fn (array $result): bool => 'core/accordion' === ($result['blocks'][0]['blockName'] ?? null)
+            && 'Target A?' === ($result['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['title'] ?? null)
+            && 'Current B.' === ($result['blocks'][0]['innerBlocks'][1]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null),
     ),
 );
 
