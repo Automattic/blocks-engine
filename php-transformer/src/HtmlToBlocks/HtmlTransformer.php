@@ -15026,6 +15026,7 @@ final class HtmlTransformer
         if ( 'main' !== strtolower($element->tagName)
             || $this->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
+            || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
             || ! $this->hasCapturedMediaContent($element)
         ) {
@@ -15043,6 +15044,17 @@ final class HtmlTransformer
             array(),
             $element
         );
+    }
+
+    private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
+    {
+        $prefix = $this->elementSelector($element) . ' > ';
+        foreach ( $this->layoutGeometryProofReductions as $proof ) {
+            if ( is_array($proof) && str_starts_with((string) ($proof['wrapper_selector'] ?? ''), $prefix) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function hasCapturedMediaContent(DOMElement $element): bool

@@ -55,4 +55,15 @@ $unsafeCss = $proof; $unsafeCss['reductions'][0]['corrective_css']['declarations
 $unsafeCssResult = $compile($unsafeCss);
 $assert('core/group' === (($unsafeCssResult['blocks'][0]['blockName'] ?? null)), 'Unsafe corrective CSS retains the wrapper.');
 
+$deepHtml = '<main>' . str_repeat('<div class="layer">', 21) . '<img src="hero.jpg" alt="Copy">' . str_repeat('</div>', 21) . '</main>';
+$deepHash = hash('sha256', $deepHtml);
+$deepWrapper = 'main:nth-of-type(1) > div:nth-of-type(1)';
+$deepTarget = $deepWrapper . ' > div:nth-of-type(1)';
+$deepProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
+    array('id' => 'deep-wrapper', 'source_path' => 'deep.html', 'source_hash' => $deepHash, 'selector' => $deepWrapper, 'boxes' => $boxes()),
+    array('id' => 'deep-target', 'source_path' => 'deep.html', 'source_hash' => $deepHash, 'selector' => $deepTarget, 'boxes' => $boxes()),
+), 'reductions' => array(array('wrapper' => 'deep-wrapper', 'target' => 'deep-target', 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array()))));
+$deep = (new ArtifactCompiler())->compile(array('entrypoint' => 'deep.html', 'files' => array('deep.html' => $deepHtml), 'layout_geometry_proof' => $deepProof))->toArray();
+$assert(1 === count($deep['source_reports']['layout_geometry_proof'] ?? array()) && !str_contains((string) ($deep['serialized_blocks'] ?? ''), '"kind":"layout"'), 'Explicit measured reductions take precedence over a coarse captured-media layout boundary.');
+
 fwrite(STDOUT, "Layout geometry proof contract passed\n");
