@@ -22,6 +22,7 @@ final class StaticHtmlEmissionSession
     private readonly VectorSvgRenderer $vectorSvgRenderer;
     private readonly StaticHtmlVisualStyleResolver $visualStyleResolver;
     private readonly StaticHtmlTextSizingResolver $textSizingResolver;
+    private readonly StaticHtmlTextWrappingResolver $textWrappingResolver;
 
     public function __construct(
         StaticHtmlNodeInspector $nodeInspector,
@@ -48,6 +49,7 @@ final class StaticHtmlEmissionSession
             $this->assetRegistry,
         );
         $this->textSizingResolver = new StaticHtmlTextSizingResolver($nodeInspector);
+        $this->textWrappingResolver = new StaticHtmlTextWrappingResolver();
     }
 
     public function pageState(): StaticHtmlPageState
@@ -113,6 +115,11 @@ final class StaticHtmlEmissionSession
     public function textSizingResolver(): StaticHtmlTextSizingResolver
     {
         return $this->textSizingResolver;
+    }
+
+    public function textWrappingResolver(): StaticHtmlTextWrappingResolver
+    {
+        return $this->textWrappingResolver;
     }
 
 }
