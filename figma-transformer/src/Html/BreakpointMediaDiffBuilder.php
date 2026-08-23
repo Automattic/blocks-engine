@@ -25,7 +25,6 @@ final class BreakpointMediaDiffBuilder
 
     /**
      * @param callable(array<string, mixed>, string, array<string, mixed>|null, array<string, mixed>|null): array<int, string> $styleDeclarations
-     * @param callable(array<string, mixed>, string, array<string, mixed>|null): mixed $supportedVectorSvg
      * @param callable(string): string $sanitizeAttribute
      * @param callable(string): string $slug
      * @param callable(float): string $number
@@ -34,8 +33,8 @@ final class BreakpointMediaDiffBuilder
         private readonly StickyLayoutCoordinator $stickyLayoutCoordinator,
         private readonly StaticHtmlNodeInspector $nodeInspector,
         private readonly VisualGeometryResolver $visualGeometryResolver,
+        private readonly VectorSvgRenderer $vectorSvgRenderer,
         private readonly mixed $styleDeclarations,
-        private readonly mixed $supportedVectorSvg,
         private readonly mixed $sanitizeAttribute,
         private readonly mixed $slug,
         private readonly mixed $number,
@@ -650,7 +649,7 @@ final class BreakpointMediaDiffBuilder
             'path_key'        => $pathKey,
         );
 
-        $vectorSvg = ($this->supportedVectorSvg)($node, $type, $parentNode);
+        $vectorSvg = $this->vectorSvgRenderer->supportedVectorSvg($node, $type, $parentNode);
         if ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) {
             return;
         }

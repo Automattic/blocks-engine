@@ -67,8 +67,6 @@ final class StaticHtmlEmitter
 
     private ?DesignSystemExtractor $designSystemExtractor = null;
 
-    private ?VectorSvgRenderer $vectorSvgRenderer = null;
-
     private ?StyleDeclarationBuilder $styleDeclarationBuilder = null;
 
     private ?TextStyleDeclarationResolver $textStyleDeclarationResolver = null;
@@ -109,11 +107,16 @@ final class StaticHtmlEmitter
 
     private ?StaticHtmlNodeInspector $nodeInspector = null;
 
+    private ?StaticHtmlValueFormatter $valueFormatter = null;
+
+    private StaticHtmlEmissionSession $emissionSession;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
-        $this->linkState = new StaticHtmlLinkState();
-        $this->pageState = new StaticHtmlPageState();
+        $this->emissionSession = $this->newEmissionSession();
+        $this->linkState = $this->emissionSession->linkState();
+        $this->pageState = $this->emissionSession->pageState();
     }
 
     private ?LayoutFrameRoleClassifier $layoutFrameRoleClassifier = null;
@@ -127,14 +130,15 @@ final class StaticHtmlEmitter
 
     private function vectorSvgRenderer(): VectorSvgRenderer
     {
-        return $this->vectorSvgRenderer ??= new VectorSvgRenderer(
-            fn (array $node): array => $this->nodeList($node),
-            fn (float $value): string => $this->number($value),
-            fn (string $value): string => $this->sanitizeAttribute($value),
-            fn (array $paints): ?string => $this->firstSolidPaint($paints),
-            fn (array $node): ?string => $this->backgroundColor($node),
-            fn (array $node): array => $this->nodeImagePaints($node),
-            fn (array $node): array => $this->explicitNodeAssetReferences($node),
+        return $this->emissionSession->vectorSvgRenderer();
+    }
+
+    private function newEmissionSession(): StaticHtmlEmissionSession
+    {
+        return new StaticHtmlEmissionSession(
+            $this->nodeInspector(),
+            $this->valueFormatter(),
+            new StaticHtmlVectorEvidence($this->valueFormatter(), $this->paintStackResolver()),
         );
     }
 
@@ -173,8 +177,7 @@ final class StaticHtmlEmitter
     {
         return $this->paintStackResolver ??= new PaintStackResolver(
             fn (array $paint): ?string => $this->resolveAndMarkPaintAssetPath($paint),
-            fn (float $value): string => $this->number($value),
-            fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
+            $this->valueFormatter(),
         );
     }
 
@@ -254,8 +257,8 @@ final class StaticHtmlEmitter
             $this->stickyLayoutCoordinator(),
             $this->nodeInspector(),
             $this->visualGeometryResolver(),
+            $this->emissionSession->vectorSvgRenderer(),
             fn (array $node, string $type, ?array $parentNode, ?array $grandParentNode): array => $this->styleDeclarations($node, $type, $parentNode, $grandParentNode),
-            fn (array $node, string $type, ?array $parentNode): mixed => $this->supportedVectorSvg($node, $type, $parentNode),
             fn (string $value): string => $this->sanitizeAttribute($value),
             fn (string $value): string => $this->slug($value),
             fn (float $value): string => $this->number($value),
@@ -290,6 +293,11 @@ final class StaticHtmlEmitter
     private function nodeInspector(): StaticHtmlNodeInspector
     {
         return $this->nodeInspector ??= new StaticHtmlNodeInspector();
+    }
+
+    private function valueFormatter(): StaticHtmlValueFormatter
+    {
+        return $this->valueFormatter ??= new StaticHtmlValueFormatter();
     }
 
     private function layoutFrameRoleClassifier(): LayoutFrameRoleClassifier
@@ -347,6 +355,10 @@ final class StaticHtmlEmitter
      */
     private function beginEmission(array $options): void
     {
+        $this->emissionSession = $this->newEmissionSession();
+        $this->linkState = $this->emissionSession->linkState();
+        $this->pageState = $this->emissionSession->pageState();
+        $this->breakpointMediaDiffBuilder = null;
         $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
@@ -6354,17 +6366,7 @@ final class StaticHtmlEmitter
      */
     private function explicitNodeAssetReferences(array $node): array
     {
-        $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
-                $references[] = (string) $node[$key];
-            }
-        }
-        if ( is_array($node['image'] ?? null) ) {
-            $references = array_merge($references, $this->imageAssetReferences($node['image']));
-        }
-
-        return array_values(array_unique($references));
+        return $this->emissionSession->vectorEvidence()->explicitNodeAssetReferences($node);
     }
 
     /**
@@ -9743,7 +9745,7 @@ final class StaticHtmlEmitter
      */
     private function nodeImagePaints(array $node): array
     {
-        return VisualLayerEvidence::imagePaints($node);
+        return $this->emissionSession->vectorEvidence()->nodeImagePaints($node);
     }
 
     /**
@@ -9866,24 +9868,7 @@ final class StaticHtmlEmitter
      */
     private function paintAssetReferences(array $paint): array
     {
-        $references = array();
-        foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref') as $key ) {
-            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                $references[] = (string) $paint[$key];
-            }
-        }
-
-        if ( is_array($paint['assetRef'] ?? null) ) {
-            $references = array_merge($references, $this->assetRefReferences($paint['assetRef']));
-        }
-
-        foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
-            if ( is_array($paint[$imageKey] ?? null) ) {
-                $references = array_merge($references, $this->imageAssetReferences($paint[$imageKey]));
-            }
-        }
-
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::paintAssetReferences($paint);
     }
 
     /**
@@ -9892,21 +9877,7 @@ final class StaticHtmlEmitter
      */
     private function imageAssetReferences(array $image): array
     {
-        $references = array();
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
-            if ( isset($image[$key]) && is_scalar($image[$key]) && '' !== (string) $image[$key] ) {
-                $references[] = (string) $image[$key];
-            }
-        }
-
-        if ( is_array($image['assetRef'] ?? null) ) {
-            $references = array_merge($references, $this->assetRefReferences($image['assetRef']));
-        }
-        if ( is_array($image['sourceImage'] ?? null) ) {
-            $references = array_merge($references, $this->imageAssetReferences($image['sourceImage']));
-        }
-
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::imageAssetReferences($image);
     }
 
     /**
@@ -9915,19 +9886,7 @@ final class StaticHtmlEmitter
      */
     private function assetRefReferences(array $assetRef): array
     {
-        $references = array();
-        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
-            if ( isset($assetRef[$key]) && is_scalar($assetRef[$key]) && '' !== (string) $assetRef[$key] ) {
-                $references[] = (string) $assetRef[$key];
-            }
-        }
-        if ( is_array($assetRef['guid'] ?? null) && isset($assetRef['guid']['sessionID'], $assetRef['guid']['localID']) ) {
-            $references[] = (string) $assetRef['guid']['sessionID'] . ':' . (string) $assetRef['guid']['localID'];
-        } elseif ( isset($assetRef['guid']) && is_scalar($assetRef['guid']) && '' !== (string) $assetRef['guid'] ) {
-            $references[] = (string) $assetRef['guid'];
-        }
-
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::assetRefReferences($assetRef);
     }
 
     private function isUnsupportedVectorType(string $type): bool
@@ -10098,28 +10057,7 @@ final class StaticHtmlEmitter
      */
     private function backgroundColor(array $node): ?string
     {
-        $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-        $paint = $this->firstBackgroundPaint($paints);
-        if ( null !== $paint ) {
-            return $paint;
-        }
-
-        $paints = is_array($node['figma_paints']['background'] ?? null) ? $node['figma_paints']['background'] : array();
-        $paint = $this->firstBackgroundPaint($paints);
-        if ( null !== $paint ) {
-            return $paint;
-        }
-
-        return $this->color($node['background'] ?? $node['backgroundColor'] ?? $node['fill'] ?? $node['fills'][0]['color'] ?? $node['fillPaints'][0]['color'] ?? $node['paints']['fills'][0]['color'] ?? $node['paints'][0]['color'] ?? $node['paints'][0][0]['color'] ?? null);
-    }
-
-    /**
-     * @param array<int, mixed> $paints
-     */
-    private function firstBackgroundPaint(array $paints): ?string
-    {
-        $paint = $this->firstCssPaint($paints);
-        return is_array($paint) ? $paint['css'] : null;
+        return $this->emissionSession->vectorEvidence()->backgroundColor($node);
     }
 
     /**
@@ -10136,18 +10074,7 @@ final class StaticHtmlEmitter
      */
     private function firstSolidPaint(array $paints): ?string
     {
-        foreach ( $paints as $paint ) {
-            if ( ! is_array($paint) || 'SOLID' !== ($paint['type'] ?? null) ) {
-                continue;
-            }
-
-            $color = $this->color($paint['color'] ?? null, $paint['opacity'] ?? null);
-            if ( null !== $color ) {
-                return $color;
-            }
-        }
-
-        return null;
+        return $this->emissionSession->vectorEvidence()->firstSolidPaint($paints);
     }
 
     /**
@@ -10329,45 +10256,7 @@ final class StaticHtmlEmitter
 
     private function color(mixed $value, mixed $opacity = null): ?string
     {
-        if ( is_string($value) && preg_match('/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/', $value) ) {
-            return strtolower($value);
-        }
-
-        if ( ! is_array($value) ) {
-            return null;
-        }
-
-        $red = $this->colorChannel($value['r'] ?? $value['red'] ?? null);
-        $green = $this->colorChannel($value['g'] ?? $value['green'] ?? null);
-        $blue = $this->colorChannel($value['b'] ?? $value['blue'] ?? null);
-        if ( null === $red || null === $green || null === $blue ) {
-            return null;
-        }
-
-        $alpha = $opacity;
-        if ( null === $alpha && isset($value['a']) ) {
-            $alpha = $value['a'];
-        }
-
-        if ( is_numeric($alpha) && (float) $alpha < 1 ) {
-            return sprintf('rgba(%d,%d,%d,%s)', $red, $green, $blue, $this->number(max(0, (float) $alpha)));
-        }
-
-        return sprintf('#%02x%02x%02x', $red, $green, $blue);
-    }
-
-    private function colorChannel(mixed $value): ?int
-    {
-        if ( ! is_numeric($value) ) {
-            return null;
-        }
-
-        $channel = (float) $value;
-        if ( $channel <= 1 ) {
-            $channel *= 255;
-        }
-
-        return max(0, min(255, (int) round($channel)));
+        return $this->valueFormatter()->color($value, $opacity);
     }
 
     private function extensionForMimeType(string $mimeType): string
@@ -10692,11 +10581,7 @@ final class StaticHtmlEmitter
 
     private function number(float $value): string
     {
-        if ( ! is_finite($value) ) {
-            return '0';
-        }
-
-        return rtrim(rtrim(sprintf('%.3F', $value), '0'), '.');
+        return $this->valueFormatter()->number($value);
     }
 
     /**
@@ -10727,6 +10612,6 @@ final class StaticHtmlEmitter
 
     private function sanitizeAttribute(string $text): string
     {
-        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return $this->valueFormatter()->sanitizeAttribute($text);
     }
 }
